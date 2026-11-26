@@ -68,7 +68,7 @@ async function expectLinkRow(page: Page, name: string) {
   expect(d.height).toBeLessThanOrEqual(3 * (await lineHeight(details)) + 1)
   expect(d.y).toBeGreaterThanOrEqual(n.y + n.height - 1)
   // the actions on the right of the name, each a 44 px target, inside the screen
-  const copy = row.getByRole('button', { name: t['teamLink.copyLink'] })
+  const copy = row.getByRole('button', { name: t['rooms.menu.copyLink'] })
   const more = row.getByTestId('member-more')
   for (const [b, what] of [[await box(copy), 'Copy link only'], [await box(more), '⋯']] as const) {
     expect(Math.round(b.height), what).toBeGreaterThanOrEqual(44)
@@ -139,7 +139,7 @@ export function phoneCases() {
     const d = await box(details)
     expect(d.width).toBeGreaterThan(300)
     expect(d.height).toBeLessThanOrEqual(3 * (await lineHeight(details)) + 1)
-    for (const b of [await box(row.getByRole('button', { name: es['teamLink.copyLink'] })), await box(row.getByTestId('member-more'))]) {
+    for (const b of [await box(row.getByRole('button', { name: es['rooms.menu.copyLink'] })), await box(row.getByTestId('member-more'))]) {
       expect(Math.round(b.height)).toBeGreaterThanOrEqual(44)
       expect(Math.round(b.x + b.width)).toBeLessThanOrEqual(W)
     }

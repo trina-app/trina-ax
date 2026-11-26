@@ -6,12 +6,12 @@
 // room's side chat, a scheduled run, a confidential chat or while safe operations are on, a chat in the trash, nor for a
 // guest outside their one project or without AI (POST /api/chats/:id/fork refuses those). A first answer still running
 // with nothing finished before it: the server's words say so.
-import { ArrowLeftToLine, Lock, MessageSquarePlus } from 'lucide-react'
 import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { isGuestMe, meGuest } from '../../lib/guests'
 import { useMe } from '../../store/session'
 import { useGuestAiOff } from '../GuestView'
+import { menuItem, type EntityItem } from '../menus/entityMenu'
 
 type ForkChat = Pick<Chat, 'projectId'> & Partial<Pick<Chat, 'id' | 'shared' | 'confidential' | 'deletedAt' | 'sideRoomId' | 'schedule' | 'forkParents'>>
 
@@ -24,14 +24,15 @@ export function useForkKind(chat: ForkChat): 'fork' | 'private' | null {
   return chat.shared ? 'private' : 'fork'
 }
 
-/** The menu items: Fork (or Continue in a chat only you see), and Detach to top level for a fork under a chat. */
-export function useForkItems(chat: ForkChat, o: { testId: string; onFork?: () => void; onDetach?: () => void }) {
+/** The menu items: Fork (or Continue in a chat only you see), and Detach to top level for a fork under a chat, as the
+ * one list's kinds (components/menus/entityMenu.tsx: fork, continuePrivately, forkDetach), so each menu orders them alike. */
+export function useForkItems(chat: ForkChat, o: { testId: string; onFork?: () => void; onDetach?: () => void }): EntityItem[] {
   const t = useT()
   const kind = useForkKind(chat)
-  const items: { label: string; icon: React.ReactNode; onSelect: () => void; testId: string }[] = []
+  const items: EntityItem[] = []
   if (kind && o.onFork) items.push(kind === 'private'
-    ? { label: t('chat.continuePrivately'), icon: <Lock size={14} aria-hidden />, onSelect: o.onFork, testId: `${o.testId}-continue-privately` }
-    : { label: t('chat.fork'), icon: <MessageSquarePlus size={14} aria-hidden />, onSelect: o.onFork, testId: `${o.testId}-fork` })
-  if (o.onDetach && chat.forkParents?.length && !chat.deletedAt) items.push({ label: t('chat.forkDetach'), icon: <ArrowLeftToLine size={14} aria-hidden />, onSelect: o.onDetach, testId: `${o.testId}-fork-detach` })
+    ? menuItem(t, 'continuePrivately', { onSelect: o.onFork, testId: `${o.testId}-continue-privately` })
+    : menuItem(t, 'fork', { onSelect: o.onFork, testId: `${o.testId}-fork` }))
+  if (o.onDetach && chat.forkParents?.length && !chat.deletedAt) items.push(menuItem(t, 'forkDetach', { onSelect: o.onDetach, testId: `${o.testId}-fork-detach` }))
   return items
 }

@@ -177,7 +177,7 @@ export function welcomeFlowCases() {
     const copy = page.getByTestId('team-link-copy-message')
     await expect(copy).toHaveText('메시지 복사')
     await copy.click()
-    await expect(copy).toHaveText('복사됨')
+    await expect(copy).toHaveText('복사했어요')
   })
 
   test('step 3 in the phone app with share-text-v1 (Android: no navigator.share): the app\'s own share sheet through the bridge', async ({ page }) => {
@@ -218,7 +218,7 @@ export function welcomeFlowCases() {
     const copy = page.getByTestId('team-link-copy-message')
     await expect(copy).toHaveText('메시지 복사')
     await copy.click()
-    await expect(copy).toHaveText('복사됨')
+    await expect(copy).toHaveText('복사했어요')
     await expect(page.getByTestId('team-link-share-failed')).toHaveCount(0)
   })
 

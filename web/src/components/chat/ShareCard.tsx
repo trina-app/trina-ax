@@ -164,10 +164,10 @@ export default function ShareCard({ shared, fixes, endedAt }: { shared: StepShar
     : !mine.length ? null
     : taken ? null
     : undoLeft > 0 && (!shared.files[0]?.folder || shared.madeFolder)
-      ? <Button size="sm" variant="secondary" busy={busy} onClick={() => void takeBack()} data-testid="share-card-takeback">{`${t('postedCard.undo')} ${undoLeft}`}</Button>
+      ? <Button size="sm" variant="secondary" busy={busy} onClick={() => void takeBack()} data-testid="share-card-takeback">{`${t('common.undo')} ${undoLeft}`}</Button>
     // (a folder's Undo is the server's only: past its time the button is Manage access)
     : stop && (undoId || !shared.files[0]?.folder)
-      ? <Button size="sm" variant="secondary" busy={busy} onClick={() => void undo()} data-testid="share-card-undo">{t('shareCard.undo')}</Button>
+      ? <Button size="sm" variant="secondary" busy={busy} onClick={() => void undo()} data-testid="share-card-undo">{t('common.undo')}</Button>
       : <Button size="sm" variant="secondary" onClick={manage} aria-expanded={mine.length > 1 ? listed : undefined} data-testid="share-card-manage">{t('shareCard.manage')}</Button>
   // one file: its row. Several: the headline names them; the rows show once Manage access is pressed (each opens its dialog)
   const files = refused ? (shared.failed ?? []).slice(0, 1) : shared.files.length === 1 ? shared.files : listed ? shared.files : []

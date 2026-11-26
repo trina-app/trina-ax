@@ -212,8 +212,8 @@ step the person starts; scheduled runs never reach them. "hidden for guests" mea
 | `card.render` | `web/src/components/chat/AskCard.tsx:154` | Draws every AI card above: server yes/no, three buttons (once / always / no) with the note line, radios for 4+ choices, the AI's own question, the office-address, dev-site and connect cards. The labels and the Always come from the server. | Please check / 확인해 주세요 (`ask.serverTitle`); The AI has a question / AI가 확인하고 싶어 해요 (`ask.title`) | from the server | decided by the server | Settings › 트리나에게 허용한 것 | a scheduled task's card shows again in the schedule's edit dialog | decided by the server | other:render | OK |
 | `card.batch` | `web/src/components/chat/AskCard.tsx:347` | Server cards of one answer with the same group key (`AskUserRequest.batch`: a tool's own, else `tool:<name>` stamped by `server/src/chat/turn.ts` waitForPerson) and the same buttons show as ONE card: what happens to how many, each item on a line with a tick, the summary once, one set of buttons. One press answers each (unticked: its card's no, sent first); a late press works the same (waiting cards). "Always allow" on one card of a kind answers every other open card of that kind of the answer (`server/src/chat/open-questions.ts` recordAnswer, TurnExec.answer), so their calls run with no further ask. | Move 3 skills to the team's skills? / 스킬 3개를 팀 스킬로 옮길까요? (`batchMoveMany`); {n} things to confirm / 확인할 일 {n}개 (`ask.batchMany`) | the cards' own | the cards' own kind; one press covers all | Settings › 트리나에게 허용한 것 | as each card | as each card | other:render | OK |
 | `ui.chat.secretSend` | `web/src/components/chat/SecretWarning.tsx:42` | Sending text that looks like a key or password. | This looks like a key or password… / 키나 비밀번호 같아요… (`composer.secretWarning`) | Edit / Send anyway | none | n/a | n/a | same | security | OK |
-| `ui.chat.delete` | `web/src/components/chat/chatActions.ts:174` | Delete a chat. | Delete this chat? / 기록을 삭제할까요? (`chat.deleteTitle`) | Cancel / Delete | none | n/a | n/a | own chats only | irreversible | OK |
-| `ui.chat.leave` | `web/src/components/chat/chatActions.ts:263` | Leave a chat shared with me. | Leave "{title}"? / "{title}"에서 나갈까요? (`chat.leaveTitle`) | Cancel / Leave | none | n/a | n/a | same | irreversible | OK |
+| `ui.chat.delete` | `web/src/components/chat/chatActions.ts` (through `web/src/lib/destructive.ts`) | Delete a chat. | Delete this chat? / 채팅을 삭제할까요? (`chat.deleteTitle`) | Cancel / Delete | none | n/a | n/a | own chats only | irreversible | OK |
+| `ui.chat.leave` | `web/src/components/chat/chatActions.ts` (through `web/src/lib/destructive.ts`) | Leave a chat shared with me. | Leave "{title}"? / "{title}"에서 나갈까요? (`chat.leaveTitle`) | Cancel / Leave | none | n/a | n/a | same | irreversible | OK |
 | `ui.chat.shareDiscard` | `web/src/components/chat/ChatShareDialog.tsx:221` | Closing the chat Share dialog with unsaved picks. | Discard changes? / 변경 사항을 버릴까요? (`chat.share.discardTitle`) | Keep editing / Discard | none | n/a | n/a | n/a | other:unsaved | OK |
 | `ui.chat.threadDelete` | `web/src/components/chat/ChatThreadPanel.tsx:300` | Delete my reply in a chat thread. | Delete this reply? / 이 답글을 삭제할까요? (`chat.thread.deleteTitle`) | Cancel / Delete | none | n/a | n/a | same | irreversible | OK |
 | `ui.auto_mode.intro` | `web/src/components/chat/AutoModePill.tsx:13` | The first tap on the composer's auto mode pill that turns it on, once per browser (docs/decisions/20261125-auto-mode.md). Later taps change it at once; turning it off never asks. | Turn on auto mode? / 자동 모드를 켤까요? (`autoMode.intro.title`) | Turn on auto mode / Cancel | none (a one-off notice; the browser keeps that it was shown) | the pill or Settings › 트리나에게 허용한 것 turns auto mode off | n/a | hidden for guests (no auto mode) | other:mode-switch | OK |
@@ -238,12 +238,12 @@ step the person starts; scheduled runs never reach them. "hidden for guests" mea
 | `ui.files.trash.restore.widen` | `web/src/pages/Files.tsx:1928` | Trash › Restore into a folder that is shared now. | Show it to more people? (`files.restoreWidenBody`) | Restore / Cancel | none | n/a | n/a | hidden for guests | shows-private-to-others | OK |
 | `ui.project.members` | `web/src/components/ProjectMembersDialog.tsx:75` | Saving project members when people are added or removed. | Let more people see it? / 볼 수 있는 사람을 늘릴까요? · Change the members? / 멤버를 바꿀까요? (`projects.widenTitle`, `projects.changeTitle`) | Cancel / Let them see it · Save | none | n/a | n/a | the body counts guests that go | shows-private-to-others | OK |
 | `ui.project.addMe` | `web/src/components/ProjectMembersDialog.tsx:113` | An owner or admin adds themselves to a project, only when the save also removes someone, adds a rule or restores the creator; adding only themselves goes with a notice. | Add yourself to '{name}'? / '{name}'에 나를 추가할까요? | Cancel / Add me | none | n/a | n/a | admin only | other:admin | OK |
-| `ui.project.leave` | `web/src/components/LeaveProject.tsx:31` | Leave a project. | Leave '{name}'? / '{name}'에서 나갈까요? | Cancel / Leave | none | n/a | n/a | same | irreversible | OK |
-| `ui.project.delete` | `web/src/components/projectActions.tsx:152` | Delete a project (to the trash, for good, or plain). | Move '{name}' to the trash? / '{name}' 프로젝트를 휴지통으로 옮길까요? | Cancel / Move to trash · Delete for good · Delete | none | n/a | n/a | the project's guests are switched off, the body says how many | irreversible | OK |
-| `ui.scheduled.delete` | `web/src/pages/Scheduled.tsx:671` | Delete a scheduled task. | Delete scheduled task / 예약 작업 삭제 (`schedules.deleteTitle`) | Delete / Cancel | none | n/a | n/a | hidden for guests | irreversible | OK |
+| `ui.project.leave` | `web/src/components/LeaveProject.tsx` (through `web/src/lib/destructive.ts`) | Leave a project. | Leave '{name}'? / '{name}'에서 나갈까요? | Cancel / Leave | none | n/a | n/a | same | irreversible | OK |
+| `ui.project.delete` | `web/src/components/projectActions.tsx` (through `web/src/lib/destructive.ts`) | Delete a project (to the trash, for good, or plain). | Move '{name}' to the trash? / '{name}' 프로젝트를 휴지통으로 옮길까요? | Cancel / Move to trash · Delete for good · Delete | none | n/a | n/a | the project's guests are switched off, the body says how many | irreversible | OK |
+| `ui.scheduled.delete` | `web/src/pages/Scheduled.tsx` (through `web/src/lib/destructive.ts`) | Delete a scheduled task. | Delete scheduled task / 예약 작업 삭제 (`schedules.deleteTitle`) | Delete / Cancel | none | n/a | n/a | hidden for guests | irreversible | OK |
 | `ui.sentFiles.delete` | `web/src/pages/SentFiles.tsx:63` | "Files you sent" › Delete (the message goes for everyone). | Delete {name}? / {name} 파일을 지울까요? (`sentFiles.confirmTitle`) | Delete / Cancel | none | n/a | n/a | same | irreversible | OK |
 | `ui.nav.sectionDelete` | `web/src/components/nav/SidebarSections.tsx:142` | Delete a sidebar section. | Delete the section '{name}'? / '{name}' 섹션을 지울까요? | Cancel / Delete section | none | n/a | n/a | same | irreversible | OK |
-| `ui.room.leave` | `web/src/components/rooms/RoomMenu.tsx:101` | Leave a group chat or private channel. | Leave this group chat? / 이 그룹 대화에서 나갈까요? | Cancel / Leave | none | n/a | n/a | a guest gets its own body | irreversible | OK |
+| `ui.room.leave` | `web/src/components/rooms/RoomMenu.tsx` (through `web/src/lib/destructive.ts`) | Leave a group chat or private channel. | Leave this group chat? / 이 그룹 대화에서 나갈까요? | Cancel / Leave | none | n/a | n/a | a guest gets its own body | irreversible | OK |
 | `ui.room.memberRemove` | `web/src/components/rooms/MembersDialog.tsx:51` | Remove someone from a group room. | Remove {name}? / {name}님을 내보낼까요? (`rooms.info.removeTitle`) | Cancel / Remove from chat | none | n/a | n/a | a guest subject gets its own body | other:access | OK |
 | `ui.room.messageDelete` | `web/src/components/rooms/RoomMessages.tsx:476` | Delete a room message. | Delete this message? / 메시지를 삭제할까요? (`rooms.deleteTitle`) | Cancel / Delete | none | n/a | n/a | same | irreversible | OK |
 | `ui.room.saveWiden` | `web/src/components/rooms/SaveToTeamSheet.tsx:91` | Save room files to a team folder people outside the conversation see. | Show it to more people? / 더 많은 사람이 보게 저장할까요? (`rooms.save.widenTitle`) | Cancel / Save | none | n/a | n/a | n/a | shows-private-to-others | OK |
@@ -277,7 +277,7 @@ step the person starts; scheduled runs never reach them. "hidden for guests" mea
 | `ui.settings.providers.deleteMine` | `web/src/pages/admin/Credentials.tsx:952` | Settings › AI accounts › remove my own connection. | Remove the connection '{label}'? / '{label}' 연결을 삭제할까요? | Delete / Cancel | none | n/a | n/a | same | irreversible | OK |
 | `ui.admin.credentials.delete` | `web/src/pages/admin/Credentials.tsx:95` | Admin › AI connections › remove a team connection. | Remove the connection '{label}'? / '{label}' 연결을 삭제할까요? (`credentials.deleteConfirm`) | Delete / Cancel | none | n/a | n/a | admin only | irreversible | OK |
 | `ui.admin.credentials.planAck` | `web/src/pages/admin/Credentials.tsx:733` | Adding a subscription connection: a required checkbox. | I have read the notice above / 위 안내를 확인했어요 (`credentials.planNoticeAck`) | checkbox + Save | none | n/a | n/a | same | other:provider-terms | OK |
-| `ui.admin.ai.sharedSubscriptions` | `web/src/pages/admin/TeamAiSettings.tsx:312` | The owner turns subscription sharing on. | Enable subscription sharing? / 구독 공유를 켤까요? (`credentials.sharedRiskTitle`) | Enable sharing / Cancel | none | n/a | n/a | admin only | security | OK |
+| `ui.admin.ai.sharedSubscriptions` | `web/src/pages/admin/TeamAiSettings.tsx:339` | The owner turns subscription sharing on. | Enable subscription sharing? / 구독 공유를 켤까요? (`credentials.sharedRiskTitle`) | Enable sharing / Cancel | none | n/a | n/a | admin only | security | OK |
 | `ui.admin.devEnv.accept` | `web/src/pages/admin/DevEnvTeam.tsx:115` | Turning the team dev environment on: a required checkbox. | I understand the risks and turn it on for the team / … (`devEnvTeam.accept`) | checkbox + Save | none | n/a | n/a | admin only | security | OK |
 | `ui.admin.folderSharing.discard` | `web/src/pages/admin/FolderSharing.tsx:160` | Leaving the folder-access panel with unsaved edits. | Discard your changes? / 바꾼 내용을 버릴까요? | Discard / Cancel | none | n/a | n/a | admin only | other:unsaved | OK |
 | `ui.admin.folderSharing.save` | `web/src/pages/admin/FolderSharing.tsx:300` | A save that widens, narrows or cuts people off. | Let # more people open it? / Take access away? (`folderAccess.confirm*`) | Give access / Cancel | none | n/a | n/a | admin only | shows-private-to-others, security | OK |
@@ -311,6 +311,7 @@ step the person starts; scheduled runs never reach them. "hidden for guests" mea
 | `ui.leave.unsaved` | `web/src/components/FilePanel.tsx:321` | Closing the browser tab with an unsaved file edit (the browser's own "Leave site?"). | (browser) | Leave / Stay | none | n/a | n/a | same | other:unsaved | OK |
 | `ui.leave.uploads` | `web/src/components/FolderUploads.tsx:33` and `web/src/store/roomUploads.ts:254` | Closing the tab while files or room files are still uploading. | (browser) | Leave / Stay | none | n/a | n/a | same | other:unsaved | OK |
 | `ui.leave.recording` | `web/src/lib/useVoiceInput.ts:603` | Closing the tab while a voice recording runs. | (browser) | Leave / Stay | none | n/a | n/a | same | other:unsaved | OK |
+| `ui.leave.aiDefaults` | `web/src/pages/admin/TeamAiSettings.tsx:105` | Reloading or closing the tab with a change to Admin › Team settings › AI defaults or Who picks the engine not saved. | (browser) | Leave / Stay | none | n/a | n/a | admin only | other:unsaved | OK |
 
 ### Sign-in, setup and updates (로그인·설정·업데이트)
 
@@ -506,14 +507,12 @@ lines than the row fails the test; fewer passes.
 | `web/src/components/FilePanel.tsx` | 2 | `ui.file.discardEdit`, `ui.leave.unsaved` |
 | `web/src/components/FolderUploads.tsx` | 1 | `ui.leave.uploads` |
 | `web/src/components/GuestInvite.tsx` | 1 | `ui.guest.convert` |
-| `web/src/components/LeaveProject.tsx` | 1 | `ui.project.leave` |
 | `web/src/components/ProjectMembersDialog.tsx` | 4 | `ui.project.members`, `ui.project.addMe` |
 | `web/src/components/chat/ChatShareDialog.tsx` | 1 | `ui.chat.shareDiscard` |
 | `web/src/components/chat/AutoModePill.tsx` | 1 | `ui.auto_mode.intro` |
 | `web/src/components/chat/ChatThreadPanel.tsx` | 1 | `ui.chat.threadDelete` |
 | `web/src/components/chat/ShareChat.tsx` | 1 | `ui.share.chatProject` |
 | `web/src/components/chat/ShareToRoom.tsx` | 3 | `ui.share.room`, `definition` |
-| `web/src/components/chat/chatActions.ts` | 2 | `ui.chat.delete`, `ui.chat.leave` |
 | `web/src/components/handover/HandoverNotice.tsx` | 1 | `ui.handover.remove` |
 | `web/src/components/integrations/AnswerDialog.tsx` | 1 | `ui.conn.requestDecline` |
 | `web/src/components/integrations/DriveConnector.tsx` | 2 | `ui.drive.confirmAccount` |
@@ -526,11 +525,9 @@ lines than the row fails the test; fewer passes.
 | `web/src/components/integrations/TemplatesView.tsx` | 1 | `ui.conn.templateDelete` |
 | `web/src/components/nav/SidebarSections.tsx` | 1 | `ui.nav.sectionDelete` |
 | `web/src/components/onboarding/TeamLinkPanel.tsx` | 1 | `ui.team.linkRevoke` |
-| `web/src/components/projectActions.tsx` | 1 | `ui.project.delete` |
 | `web/src/components/rooms/MakeProjectDialog.tsx` | 2 | `ui.room.makeProject` |
 | `web/src/components/rooms/MembersDialog.tsx` | 1 | `ui.room.memberRemove` |
 | `web/src/components/rooms/RoomComposer.tsx` | 1 | `room.mentionAll` |
-| `web/src/components/rooms/RoomMenu.tsx` | 1 | `ui.room.leave` |
 | `web/src/components/rooms/RoomMessages.tsx` | 1 | `ui.room.messageDelete` |
 | `web/src/components/rooms/SaveToTeamSheet.tsx` | 2 | `ui.room.saveWiden` |
 | `web/src/components/rooms/SendHere.tsx` | 1 | `ui.share.roomSideChat` |
@@ -542,6 +539,7 @@ lines than the row fails the test; fewer passes.
 | `web/src/components/settings/PushNotifications.tsx` | 1 | `ui.push.offEverywhere` |
 | `web/src/components/settings/SlackAccount.tsx` | 1 | `ui.slack.unlink` |
 | `web/src/components/ui.tsx` | 3 | `definition` |
+| `web/src/lib/destructive.ts` | 1 | `ui.chat.delete`, `ui.chat.leave`, `ui.project.leave`, `ui.project.delete`, `ui.scheduled.delete`, `ui.room.leave` |
 | `web/src/lib/push.ts` | 1 | `os.web.push` |
 | `web/src/lib/pwa.ts` | 1 | `os.web.install` |
 | `web/src/lib/recorder.ts` | 1 | `os.web.mic` |
@@ -550,7 +548,6 @@ lines than the row fails the test; fewer passes.
 | `web/src/pages/BrowserSettings.tsx` | 3 | `ui.settings.browser.allowAll`, `ui.settings.browser.clearSites` |
 | `web/src/pages/Files.tsx` | 14 | `ui.files.bulkMove.narrow`, `ui.files.bulkMove.widen`, `ui.files.bulkShare`, `ui.files.uploadClash`, `ui.files.move.widen`, `ui.files.move.narrow`, `ui.files.share`, `ui.files.trashUndo.widen`, `ui.files.restoreVersion`, `ui.files.restoreVersion.widen`, `ui.files.trash.restore.widen` |
 | `web/src/pages/Projects.tsx` | 1 | `not-an-ask` |
-| `web/src/pages/Scheduled.tsx` | 1 | `ui.scheduled.delete` |
 | `web/src/pages/SentFiles.tsx` | 2 | `ui.sentFiles.delete` |
 | `web/src/pages/Settings.tsx` | 3 | `ui.settings.security.signOutDevice`, `ui.settings.memory.clear`, `ui.settings.memory.forget` |
 | `web/src/pages/SlackLink.tsx` | 1 | `slack.link` |
@@ -565,7 +562,7 @@ lines than the row fails the test; fewer passes.
 | `web/src/pages/admin/SkillManagers.tsx` | 1 | `ui.admin.skillManagers.remove` |
 | `web/src/pages/admin/Slack.tsx` | 1 | `ui.admin.slack.remove` |
 | `web/src/pages/admin/System.tsx` | 5 | `ui.admin.system.askCleanup`, `ui.admin.system.changeMode`, `ui.admin.system.connectedRemove`, `ui.admin.system.connectFolder`, `ui.admin.system.restoreBackup` |
-| `web/src/pages/admin/TeamAiSettings.tsx` | 1 | `ui.admin.ai.sharedSubscriptions` |
+| `web/src/pages/admin/TeamAiSettings.tsx` | 2 | `ui.admin.ai.sharedSubscriptions`, `ui.leave.aiDefaults` |
 | `web/src/pages/admin/TeamSettings.tsx` | 3 | `ui.admin.team.iconRemove`, `ui.admin.team.removeAllShares`, `ui.admin.team.speechKeyRemove` |
 | `web/src/pages/admin/common.tsx` | 1 | `definition` |
 | `web/src/pages/admin/jobs.tsx` | 1 | `ui.admin.system.update` |

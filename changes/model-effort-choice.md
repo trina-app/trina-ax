@@ -1,6 +1,6 @@
 - The AI picker under the message box now has a second row, **Quick · Normal · Thorough**, for how hard the AI thinks.
-  The choice stays with the chat and starts your next new chat. Each model has one plain line on what it is good for.
-  Set your own default in Settings › Profile, and the team's in Admin › Team settings.
+  The choice stays with that chat. A new chat starts from your own default in Settings › Profile, or the team's in
+  Admin › Team settings when you have none. Each model has one plain line on what it is good for.
 - New teams let everyone pick the model and depth. Existing teams keep their setting; an admin can turn it on in
   Admin › AI providers.
 - Settings › Usage and Admin › Usage now show the model that really answered, by name (Claude Opus, Claude Sonnet,

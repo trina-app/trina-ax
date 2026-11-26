@@ -45,7 +45,7 @@ test('a named group chat is a private channel under 채널 (a lock, no faces); a
   const dm = row(page, 'dm', 'Eve, 김민지')
   await dm.hover()
   await dm.getByTestId('sidebar-room-menu').click()
-  await expect(page.getByRole('menuitem', { name: t['rooms.info.rename'] })).toHaveCount(0)
+  await expect(page.getByRole('menuitem', { name: t['chat.rename'] })).toHaveCount(0)
   await page.getByTestId('room-menu-rename').click()
   await expect(page.getByText(t['rooms.menu.makePrivateBody'])).toBeVisible()
   await expect(page.getByTestId('dialog-confirm')).toBeDisabled()

@@ -79,10 +79,11 @@ describe('the places it names still exist', () => {
   test('the menus and buttons it names are where it says', () => {
     const has = (file: string, key: string) => expect({ file, key, there: read(file).includes(`'${key}'`) }).toEqual({ file, key, there: true })
     has('web/src/components/rooms/RoomMenu.tsx', 'roomApps.menuAdd')
-    has('web/src/components/rooms/RoomMenu.tsx', 'rooms.menu.notify')
+    // the words of the chat, room and project menus' items are the one list's (docs/decisions/20261126-shared-menus.md)
+    has('web/src/components/menus/entityMenu.tsx', 'rooms.menu.notify')
     has('web/src/components/rooms/RoomMenu.tsx', 'roomApps.menuList')
-    has('web/src/components/chat/ChatTitleMenu.tsx', 'chat.rename')
-    has('web/src/components/nav/SidebarSections.tsx', 'sidebarSections.moveTo')
+    has('web/src/components/menus/entityMenu.tsx', 'chat.rename')
+    has('web/src/components/menus/entityMenu.tsx', 'sidebarSections.moveTo')
     has('web/src/components/chat/Messages.tsx', 'chat.regenerate')
     has('web/src/components/chat/Messages.tsx', 'chat.edit')
     has('web/src/pages/admin/Members.tsx', 'handover.menu')
@@ -94,7 +95,8 @@ describe('the places it names still exist', () => {
     has('web/src/components/onboarding/FindWorkFiles.tsx', 'files.findWork.entryButton')
     has('web/src/pages/Settings.tsx', 'settings.myEngine.model')
     // the 2026-11-17 catalog's "where is it" misses (ACC-01/02, ROOM-07, CON-04, PRJ-04)
-    for (const k of ['chat.pin', 'rooms.info.rename', 'rooms.info.addPeople']) has('web/src/components/rooms/RoomMenu.tsx', k)
+    for (const k of ['chat.pin', 'chat.rename']) has('web/src/components/menus/entityMenu.tsx', k)
+    has('web/src/components/rooms/RoomMenu.tsx', 'rooms.info.addPeople')
     has('web/src/components/nav/AccountMenu.tsx', 'status.set')
     has('web/src/components/nav/AccountMenu.tsx', 'presence.setAway')
     for (const k of ['members.inviteToTeam', 'members.inviteMore', 'teamLink.title', 'members.resetLinkButton', 'members.reset']) has('web/src/pages/admin/Members.tsx', k)
@@ -217,7 +219,7 @@ describe('the places people asked about (scenario catalog 2026-11-17)', () => {
       const s = appMapSection({ ...base, view }, 'ko')
       const want = [
         `${DICTS.ko['settings.security']} (${DICTS.ko['auth.changePassword']}; ${DICTS.ko['settings.devices']}`, DICTS.ko['status.set'], DICTS.ko['presence.setAway'],
-        DICTS.ko['rooms.info.rename'], DICTS.ko['rooms.info.addPeople'], DICTS.ko['rooms.react'], `${DICTS.ko['inbox.title']}.`, DICTS.ko['chat.pin'],
+        DICTS.ko['chat.rename'], DICTS.ko['rooms.info.addPeople'], DICTS.ko['rooms.react'], `${DICTS.ko['inbox.title']}.`, DICTS.ko['chat.pin'],
         DICTS.ko['integrations.title'], `${DICTS.ko['projects.title']} › ${DICTS.ko['projects.new']}`,
       ]
       for (const w of want) expect({ view, w, there: s.includes(w) }).toEqual({ view, w, there: true })
@@ -225,7 +227,7 @@ describe('the places people asked about (scenario catalog 2026-11-17)', () => {
   })
   test('a room\'s rename and add people are a group chat\'s; project creation can be owners and admins only', () => {
     const s = appMapSection({ ...base, view: 'member' }, 'en')
-    expect(s).toContain(`A group chat's also ${DICTS.en['rooms.info.rename']}, ${DICTS.en['rooms.info.addPeople']}; a team room: people follow its group, owners and admins rename`)
+    expect(s).toContain(`A group chat's also ${DICTS.en['chat.rename']}, ${DICTS.en['rooms.info.addPeople']}; a team room: people follow its group, owners and admins rename`)
     expect(s).toContain('the team may keep team projects to owners and admins')
   })
   test('owners and admins: invites and the team link, a forgotten password, groups, the team\'s connections and asking a member to connect', () => {

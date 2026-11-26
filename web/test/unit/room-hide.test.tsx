@@ -86,9 +86,9 @@ describe('the menu by kind', () => {
     expect(roomMenuActions({ kind: 'dm', hidden: true })).toEqual(['notify', 'copyLink', 'show'])
     // a group chat is left, never hidden, even if a server marked one
     expect(roomMenuActions({ kind: 'group', hidden: true })).toEqual(['pin', 'notify', 'copyLink', 'leave'])
-    // 이름 바꾸기 after 알림 설정, for those who may (Room.canRename: never a DM)
-    expect(roomMenuActions({ kind: 'group', canRename: true })).toEqual(['pin', 'notify', 'rename', 'copyLink', 'leave'])
-    expect(roomMenuActions({ kind: 'team', canRename: true })).toEqual(['pin', 'notify', 'rename', 'copyLink', 'hide'])
+    // 이름 바꾸기 after 링크 복사 (the one list: docs/decisions/20261126-shared-menus.md), for those who may (Room.canRename: never a DM)
+    expect(roomMenuActions({ kind: 'group', canRename: true })).toEqual(['pin', 'notify', 'copyLink', 'rename', 'leave'])
+    expect(roomMenuActions({ kind: 'team', canRename: true })).toEqual(['pin', 'notify', 'copyLink', 'rename', 'hide'])
     expect(roomMenuActions({ kind: 'all', canRename: false })).toEqual(['pin', 'notify', 'copyLink', 'hide'])
     expect(roomLink('019a5f00-0000-7000-8000-00000000a001', 'https://acme.trina.app')).toBe('https://acme.trina.app/rooms/019a5f00-0000-7000-8000-00000000a001')
   })
@@ -103,7 +103,7 @@ describe('the menu by kind', () => {
     // "앱 추가" (docs/DECISIONS.md "Apps posting in rooms"): any member of a group chat or a DM; a team room's and the
     // everyone room's only for owners and admins (this person is a member)
     const apps = ko('roomApps.menuAdd')
-    const want = [[pin, words[0], ko('rooms.info.rename'), apps, words[1], ko('rooms.info.leavePrivate')], [pin, words[0], apps, words[1], ko('rooms.menu.hideDm')], [pin, ...words, ko('rooms.menu.hide')], [pin, ...words, ko('rooms.menu.hide')]]
+    const want = [[pin, ...words, ko('chat.rename'), apps, ko('rooms.info.leavePrivate')], [pin, ...words, apps, ko('chat.hide')], [pin, ...words, ko('chat.hide')], [pin, ...words, ko('chat.hide')]]
     for (const [i, r] of rs.entries()) {
       const m = await mount(<MemoryRouter><Menu id={r.id} /></MemoryRouter>)
       try {
@@ -124,7 +124,7 @@ describe('the menu by kind', () => {
           expect(sent.find((s) => s.key === `PUT /api/rooms/${r.id}/hidden`)!.body).toEqual({ hidden: true })
           // the same menu now offers it back
           await m.click('room-menu')
-          expect(menuItems(m)).toEqual([words[0], apps, words[1], ko('rooms.menu.show')])
+          expect(menuItems(m)).toEqual([...words, apps, ko('rooms.menu.show')])
         }
       } finally { await m.unmount() }
     }
@@ -280,7 +280,7 @@ describe('hidden rooms count nowhere', () => {
       await m.until(() => menuItems(m).length === 5, 'the menu')
       expect(e.defaultPrevented).toBe(true)
       // Move to section second, under Pin (docs/decisions/20261121-personal-sidebar-sections.md)
-      expect(menuItems(m)).toEqual([ko('chat.pin'), ko('sidebarSections.moveTo'), ko('rooms.menu.notify'), ko('rooms.menu.copyLink'), ko('rooms.menu.hide')])
+      expect(menuItems(m)).toEqual([ko('chat.pin'), ko('sidebarSections.moveTo'), ko('rooms.menu.notify'), ko('rooms.menu.copyLink'), ko('chat.hide')])
     } finally {
       await m.unmount()
     }
@@ -355,7 +355,7 @@ describe('the conversations page', () => {
       press('pointerup')
       await m.until(() => menuItems(m).length === 5, 'the sheet')
       // the phone's sheet has Move to section too, second (the computer's row "⋯" has it in the same place)
-      expect(menuItems(m)).toEqual([ko('chat.pin'), ko('sidebarSections.moveTo'), ko('rooms.menu.notify'), ko('rooms.menu.copyLink'), ko('rooms.menu.hide')])
+      expect(menuItems(m)).toEqual([ko('chat.pin'), ko('sidebarSections.moveTo'), ko('rooms.menu.notify'), ko('rooms.menu.copyLink'), ko('chat.hide')])
       expect(m.get('menu-sheet-title').textContent).toBe('개발팀')
       // the click that follows the finger lifting is no tap on the row
       await m.click(row)

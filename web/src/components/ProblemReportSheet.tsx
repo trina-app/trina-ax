@@ -78,12 +78,14 @@ export default function ProblemReportSheet({ answer, onClose }: { answer?: Repor
               <span>{t('problemReport.attach')}</span>
             </label>
             {attach && (
-              // exactly what goes: the question and the answer, cut as the server cuts them
+              // exactly what goes: the question and the answer, cut as the server cuts them, and a line on the rest
               <div className="mt-2 max-h-48 space-y-2 overflow-y-auto rounded-xl border border-line bg-subtle px-3 py-2 text-xs leading-5 text-muted" data-testid="problem-report-preview">
                 {conv.question.trim() && (
                   <p className="break-words whitespace-pre-wrap"><span className="font-medium text-ink">{t('problemReport.previewQuestion')}</span>{'\n'}{problemReportCut(conv.question, PROBLEM_REPORT_QUESTION_MAX)}</p>
                 )}
                 <p className="break-words whitespace-pre-wrap"><span className="font-medium text-ink">{t('problemReport.previewAnswer')}</span>{'\n'}{problemReportCut(conv.answer, PROBLEM_REPORT_ANSWER_MAX)}</p>
+                {/* the rest of what goes with it (server/src/system/problem-reports.ts buildProblemReport), in one line */}
+                <p className="text-faint" data-testid="problem-report-preview-also">{t('problemReport.previewAlso')}</p>
               </div>
             )}
           </div>

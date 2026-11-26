@@ -196,7 +196,7 @@ for (const timezoneId of ['Asia/Jakarta', 'UTC']) {
         await page.getByTestId('schedule-menu').click()
         await page.getByTestId('schedule-delete').click()
         await expect(page.getByRole('dialog')).toContainText(dict['schedules.deleteBody'].replace('{title}', 'Completed once'))
-        await page.getByRole('dialog').getByRole('button', { name: dict['schedules.delete'], exact: true }).click()
+        await page.getByRole('dialog').getByRole('button', { name: dict['common.delete'], exact: true }).click()
         await expect(page).toHaveURL(/\/scheduled$/)
         await expect(page.getByTestId('schedule-item').filter({ hasText: 'Completed once' })).toHaveCount(0)
         expect(deleted).toEqual(['completed'])

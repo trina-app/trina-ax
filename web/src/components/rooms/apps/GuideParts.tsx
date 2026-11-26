@@ -66,7 +66,7 @@ export function CopyButton({ label, copied, primary = false, busy, disabled, onC
   const t = useT()
   return (
     <Button variant={primary && !copied ? 'primary' : 'secondary'} onClick={onClick} busy={busy} disabled={disabled} className={clsx('shrink-0', className)} data-testid={testId}>
-      {copied ? <><Check size={14} aria-hidden />{t('roomApps.copied')}</> : label}
+      {copied ? <><Check size={14} aria-hidden />{t('common.copied')}</> : label}
     </Button>
   )
 }

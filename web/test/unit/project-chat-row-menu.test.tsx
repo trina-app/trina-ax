@@ -81,7 +81,7 @@ async function items(c: Chat, o: { onMove?: (c: Chat) => void } = {}) {
 }
 
 test('a chat of my own: pin, 링크 복사, rename, 프로젝트 변경 and delete, as on the Trina list row', async () => {
-  expect(await items(chat(), { onMove: () => {} })).toEqual([pin, link, rename, fork, move, del])
+  expect(await items(chat(), { onMove: () => {} })).toEqual([pin, link, rename, move, fork, del])
 })
 
 test('shared project chats follow the Trina list\'s rules: never a move; rename for the creator; delete for the creator or a project editor', async () => {

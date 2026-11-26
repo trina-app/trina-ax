@@ -97,7 +97,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
             choices={withAlways(
               { label: t('browser.allowOnce'), onClick: () => void run({ kind: 'browser_site', decision: 'once' }) },
               r.noAlways ? null : { label: t('browser.allowAlways'), onClick: () => void run({ kind: 'browser_site', decision: 'always' }), testId: 'site-card-always' },
-              { label: t('browser.deny'), onClick: () => void run({ kind: 'browser_site', decision: 'deny' }) },
+              { label: t('devEnvSite.deny'), onClick: () => void run({ kind: 'browser_site', decision: 'deny' }) },
             )}
           />
         </div>

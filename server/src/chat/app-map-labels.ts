@@ -31,7 +31,6 @@ export const APP_MAP_LABELS: Readonly<Record<string, Readonly<Record<Locale, str
   "rooms.menu.notify": { ko: "알림 설정", en: "Notification settings", id: "Pengaturan notifikasi", ja: "通知設定", es: "Ajustes de notificaciones", zh: "通知设置" },
   "rooms.notify.mentions": { ko: "멘션만", en: "Mentions only", id: "Hanya sebutan", ja: "メンションのみ", es: "Solo menciones", zh: "仅提及" },
   "rooms.notify.off": { ko: "끄기", en: "Off", id: "Mati", ja: "オフ", es: "Desactivadas", zh: "关闭" },
-  "rooms.info.rename": { ko: "이름 바꾸기", en: "Rename", id: "Ganti nama", ja: "名前を変更", es: "Cambiar nombre", zh: "重命名" },
   "rooms.info.addPeople": { ko: "사람 추가", en: "Add people", id: "Tambah orang", ja: "メンバーを追加", es: "Añadir personas", zh: "添加成员" },
   "rooms.react": { ko: "반응 추가", en: "Add reaction", id: "Tambah reaksi", ja: "リアクションを追加", es: "Añadir reacción", zh: "添加表情回应" },
   "notifications.title": { ko: "알림", en: "Notifications", id: "Notifikasi", ja: "通知", es: "Notificaciones", zh: "通知" },

@@ -377,7 +377,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
       footer={listing ? undefined : personal || !editable ? (
         <>
           {/* someone it was shared with by name: "Leave this chat" (QA TC-7651; asks first, chatActions.leave) */}
-          {!personal && audience && !editable && audience.subjects.some((x) => x.subjectType === 'user' && x.subjectId === me?.user.id) && <Button variant="ghost" className="mr-auto text-danger" onClick={() => { onClose(); void actions.leave(known ?? chat, undefined, audience.by.name) }} data-testid="chat-share-leave">{t('chat.leave')}</Button>}
+          {!personal && audience && !editable && audience.subjects.some((x) => x.subjectType === 'user' && x.subjectId === me?.user.id) && <Button variant="ghost-danger" className="mr-auto" onClick={() => { onClose(); void actions.leave(known ?? chat, undefined, audience.by.name) }} data-testid="chat-share-leave">{t('chat.leave')}</Button>}
           {copyButton}
           <Button variant="ghost" onClick={onClose} data-testid="chat-share-close">{t('common.close')}</Button>
         </>

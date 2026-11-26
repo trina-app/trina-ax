@@ -90,7 +90,13 @@ test('instructions and files open in place; edit and delete are in the menu on t
   const menu = page.getByTestId('project-menu')
   await menu.click()
   await expect(page.getByRole('menu')).toBeVisible()
+  // the one list's order (docs/decisions/20261126-shared-menus.md): Copy link, Rename, Project settings, Delete
+  await expect(page.getByTestId('project-copy-link')).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByTestId('project-rename')).toBeFocused()
+  await page.keyboard.press('ArrowDown')
   await expect(page.getByTestId('project-edit')).toBeFocused()
+  await expect(page.getByTestId('project-edit')).toHaveText('프로젝트 설정')
   await page.keyboard.press('ArrowDown')
   await expect(page.getByTestId('project-delete')).toBeFocused()
   await page.keyboard.press('Escape')
@@ -114,7 +120,7 @@ test('instructions and files open in place; edit and delete are in the menu on t
   await expect(page).toHaveURL(/\/projects$/)
 })
 
-test('a person who cannot edit the project sees no menu and no edit action', async ({ page }) => {
+test('a person who cannot edit the project (the owner, who still manages it): Copy link and Rename, no Project settings or edit action', async ({ page }) => {
   await reset(page)
   await signIn(page)
   const id = await newProject(page)
@@ -124,8 +130,9 @@ test('a person who cannot edit the project sees no menu and no edit action', asy
   })
   await page.goto(`/projects/${id}`)
   await expect(page.getByRole('heading', { level: 1, name: 'Launch' })).toBeVisible()
-  await expect(page.getByTestId('project-menu')).toHaveCount(0)
-  await expect(page.getByRole('navigation', { name: '현재 위치' }).getByText('Launch')).toHaveAttribute('aria-current', 'page')
+  await page.getByTestId('project-menu').click()
+  await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['링크 복사', '이름 바꾸기'])
+  await page.keyboard.press('Escape')
   await expect(page.getByTestId('project-instructions').getByRole('button', { name: '수정' })).toHaveCount(0)
 })
 
@@ -250,7 +257,7 @@ test('a project in the trash: its note with Restore and Delete for good, no name
   await page.goto(`/projects/${id}`)
   await page.getByTestId('project-menu').click()
   // the item says what it does, as its confirm asks (QA TC-1064)
-  await expect(page.getByRole('menuitem')).toHaveText(['이름 바꾸기', '휴지통으로 옮기기'])
+  await expect(page.getByRole('menuitem')).toHaveText(['링크 복사', '이름 바꾸기', '휴지통으로 옮기기'])
   await page.getByTestId('project-delete').click()
   await expect(page.getByRole('dialog').getByRole('heading')).toHaveText("'Falcon' 프로젝트를 휴지통으로 옮길까요?")
   // only what happens: no "its files and chats go with it" (her own chats there stay hers)

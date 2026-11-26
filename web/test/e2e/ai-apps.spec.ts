@@ -85,7 +85,7 @@ test('Copy prompt: Claude Code, Codex and other apps copy a ready prompt with th
     await page.getByTestId(`ai-app-connect-${id}`).click()
     const dialog = page.getByRole('dialog', { name: title })
     await dialog.getByTestId('ai-app-prompt-copy').click()
-    await expect(dialog.getByTestId('ai-app-prompt-copy')).toHaveText('복사됨')
+    await expect(dialog.getByTestId('ai-app-prompt-copy')).toHaveText('복사했어요')
     const text = await copied()
     for (const h of holds) expect(text).toContain(h)
     await dialog.getByTestId('ai-app-done').click()

@@ -113,8 +113,8 @@ test('who manages a room\'s apps: owners and admins in team rooms, everyone in 1
   expect(mayManageApps({ kind: 'dm' }, as('guest'))).toBe(false)
 })
 
-test('the room menu has the apps item after rename, only for those who manage them', () => {
-  expect(roomMenuActions({ kind: 'team', canRename: true }, true)).toEqual(['pin', 'notify', 'rename', 'apps', 'copyLink', 'hide'])
+test('the room menu has the apps item after rename and the project items, only for those who manage them', () => {
+  expect(roomMenuActions({ kind: 'team', canRename: true }, true)).toEqual(['pin', 'notify', 'copyLink', 'rename', 'apps', 'hide'])
   expect(roomMenuActions({ kind: 'team', canRename: false })).toEqual(['pin', 'notify', 'copyLink', 'hide'])
 })
 
