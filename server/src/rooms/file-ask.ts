@@ -15,14 +15,12 @@ import type { RoomFileAccess, RoomFileRequestResult, Locale } from '@mycel/share
 import { answerFilePaths } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
-import { loadPrincipal, type Principal } from '../policy/access'
-import { authorize } from '../policy/authorize'
+import { loadPrincipal } from '../policy/access'
 import { fileSharesOf } from '../files/shares'
+import { cleanLinkedPath, linkedFileAsk, type LinkedAsk } from '../files/linked-file-ask'
 import { LINK_ACCESS_PER_MINUTE } from '../chat/access-requests'
 import { canSee, messageRow } from './store'
 import { roomsOf } from './service'
-
-const clean = (p: string) => p.normalize('NFC').replace(/^\/+|\/+$/g, '').split('/').filter((x) => x && x !== '.').join('/')
 
 const reads = new WeakMap<AppContext, Map<string, number[]>>()
 /** One read of `userId`, or 429 past LINK_ACCESS_PER_MINUTE in the last minute (the link pages' limit). */
@@ -39,7 +37,7 @@ function readLimit(ctx: AppContext, userId: string, at = Date.now()): void {
   if (m.size > 10_000) for (const [k, ts] of m) if (!ts.some((x) => at - x < 60_000)) m.delete(k)
 }
 
-type Found = { kind: 'no' } | { kind: 'open'; link?: string } | { kind: 'ask'; shareId: string | null; by: string | null; askedAt: string | null }
+type Found = LinkedAsk
 
 /** Every check of the file header, in order; nothing here says why it is 'no'. `create`: make the file's link row when
  * there is none (only the POST: a GET never writes). */
@@ -51,45 +49,12 @@ function find(ctx: AppContext, userId: string, roomId: string, messageId: string
   const member = roomsOf(ctx).mine(userId, roomId).me
   const m = messageRow(ctx.db, roomId, messageId)
   if (!m || m.deleted_at || m.event || !canSee(ctx.db, m, member)) return no
-  const path = clean(typeof path0 === 'string' ? path0 : '')
+  const path = cleanLinkedPath(typeof path0 === 'string' ? path0 : '')
   if (!path || path.length > 4096) return no
   // a link in that message's own text (the room renderer's and the store's rule)
-  if (!answerFilePaths(m.body).some((p) => clean(p) === path)) return no
-  const rules = ctx.files.rules()
-  const reads = (p: Principal) => { try { const r = authorize(ctx.files.fx, rules, p, path, 'read'); return !!r.st && r.st.isFile() } catch { return false } }
-  // they can read it by the folder rules: it opens (the panel's own load failed for another reason)
-  if (reads(me)) return { kind: 'open' }
-  // the message's author must be able to read the file now, ALWAYS (also when a link row exists): else anyone could
-  // post a link to any path and learn from the answer whether it is there, or send asks about it
-  const authorId = m.author_kind === 'user' ? m.author_id : m.asked_by
-  const author = authorId ? loadPrincipal(ctx.db, authorId) : null
-  if (!author || author.role === 'guest' || author.id === userId || !reads(author)) return no
-  const shares = fileSharesOf(ctx)
-  // the file's link row: the live one, else (POST only) made by the author, as any reader makes it on first use
-  // (shares.linkFor; it never sets who owns the file)
-  let shareId = shares.liveRow(path)?.id ?? null
-  if (!shareId && create) {
-    try { shareId = shares.linkFor(author.id, path).id } catch { return no }
-  }
-  let to: string[]
-  let askedAt: string | null = null
-  if (shareId) {
-    const row = shares.row(shareId)
-    if (!row || row.kind !== 'file') return no
-    const o = shares.open(userId, shareId)
-    if (o.kind === 'open') return { kind: 'open', ...(o.by === 'grant' ? { link: shareId } : {}) }
-    if (o.kind !== 'no_access' || !o.share) return no
-    to = shares.requestTargetsOf(shareId).filter((id) => id !== userId)
-    askedAt = (ctx.db.query("SELECT created_at FROM file_access_requests WHERE share_id = ? AND requester_id = ? AND state = 'pending'").get(shareId, userId) as { created_at: string } | null)?.created_at ?? null
-  } else {
-    // no row yet (a GET): no grant and no request can hang on it; who would answer, as the row would have it
-    to = shares.requestTargetsAt(path).filter((id) => id !== userId)
-  }
-  if (!to.length) return no
-  // who answers, by name, only when that is the message's own author (whom the viewer sees in the room anyway): the
-  // owner of a file in a folder they cannot open is not theirs to learn
-  const by = to.length === 1 && to[0] === author.id ? (ctx.db.query('SELECT name FROM users WHERE id = ? AND deleted_at IS NULL').get(author.id) as { name: string } | null)?.name ?? null : null
-  return { kind: 'ask', shareId, by, askedAt }
+  if (!answerFilePaths(m.body).some((p) => cleanLinkedPath(p) === path)) return no
+  // the message's author (or, for the AI's answer, whoever asked it) linked it (files/linked-file-ask.ts)
+  return linkedFileAsk(ctx, me, path, m.author_kind === 'user' ? m.author_id : m.asked_by, create)
 }
 
 /** GET /api/rooms/:id/messages/:messageId/file-access */

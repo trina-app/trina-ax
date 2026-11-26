@@ -1,5 +1,5 @@
 // A scheduled task's save folder (server/src/chat/schedule-scope.ts; docs/DECISIONS.md "Scheduled tasks: saving and
-// sending allowed on the card"): the Scheduled list says where runs save ("저장: shared/주간보고"), the task's page what
+// sending allowed on the card"): the Scheduled list says where runs save ("저장: 전사 공유 › 주간보고"), the task's page what
 // may go there and where it may send, 수정 has the "저장 폴더" field and the places, each removable with ×, and its card
 // shows them as they will be. A lapsed folder (its permissions changed) says "저장 폴더를 다시 확인해 주세요" in the list;
 // that opens the task with its card for the folder as it is now, and "다시 허용" ends it.
@@ -22,16 +22,16 @@ test('the list line, the task page, and 수정 with the save folder and its plac
   await signIn(page)
   await page.goto('/scheduled')
   const card = page.getByTestId('schedule-item').filter({ hasText: '주간 보고' })
-  await expect(card.getByTestId('schedule-card-save')).toHaveText('저장: shared/주간보고')
+  await expect(card.getByTestId('schedule-card-save')).toHaveText('저장: 전사 공유 › 주간보고')
   await card.click()
   const view = page.getByTestId('schedule-view')
-  await expect(view.getByTestId('schedule-save-folder')).toHaveText('저장: shared/주간보고')
+  await expect(view.getByTestId('schedule-save-folder')).toHaveText('저장: 전사 공유 › 주간보고')
   await expect(view.getByTestId('schedule-save-sources')).toHaveText('넣어도 되는 내용: 내 파일, #영업팀 대화')
   await expect(view.getByTestId('schedule-sends')).toHaveText("보낼 수 있는 곳: 내 Notion · '일일 메모'")
   await page.getByTestId('schedule-menu').click()
   await page.getByTestId('schedule-edit').click()
   const dialog = page.getByRole('dialog', { name: '예약 작업 수정' })
-  await expect(dialog.getByTestId('schedule-edit-save-pick')).toHaveText('shared/주간보고')
+  await expect(dialog.getByTestId('schedule-edit-save-pick')).toHaveText('전사 공유 › 주간보고')
   const places = dialog.getByTestId('schedule-edit-save-source')
   await expect(places).toHaveText(['내 파일', '#영업팀 대화'])
   // × takes a place away; the card shows the rest
@@ -80,8 +80,8 @@ test('a lapsed save folder: the list asks to check it again, the task opens with
   await ask.getByRole('button', { name: '다시 허용' }).click()
   await expect(page.getByText('저장 폴더를 다시 허용했어요.')).toBeVisible()
   await expect(view.getByTestId('schedule-save-lapsed')).toHaveCount(0)
-  await expect(view.getByTestId('schedule-save-folder')).toHaveText('저장: shared/주간보고')
+  await expect(view.getByTestId('schedule-save-folder')).toHaveText('저장: 전사 공유 › 주간보고')
   await page.goto('/scheduled')
-  await expect(card.getByTestId('schedule-card-save')).toHaveText('저장: shared/주간보고')
+  await expect(card.getByTestId('schedule-card-save')).toHaveText('저장: 전사 공유 › 주간보고')
   expect(realErrors(errors)).toEqual([])
 })

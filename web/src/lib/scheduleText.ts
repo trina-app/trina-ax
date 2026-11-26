@@ -126,16 +126,20 @@ export function lastRunOf(s: Schedule): ScheduleRun | null {
  *  it (outcomeLabel), so a long repeat never cuts it off. */
 export const cardLine = (s: Schedule, t: T, locale: Locale) => [stateLabel(s, t), repeatText(s, t, locale)].filter(Boolean).join(' · ')
 
-/** What it does: a task's instruction, a template's folders (its prompt is the server's own, never shown). */
-export const schedulePreview = (s: Schedule) => (s.templateId ? `${s.sourcePath ?? ''} → ${s.outputPath ?? ''}` : s.prompt)
+/** A team path in words for the viewer ("전사 공유 › 주간보고", "내 폴더 › reports": lib/teamPlace.ts useTeamPlace). */
+type Place = (path: string) => string
 
-/** A place whose content may go into a task's save folder, in words ("내 폴더", "#영업 대화", "groups/marketing/"). */
-export const sourceName = (x: NonNullable<Schedule['saveSources']>[number], t: T) =>
-  x.kind === 'mine' ? t('scheduled.sourceMineFiles') : x.kind === 'root' ? t('scheduled.sourceRoot') : x.kind === 'room' ? t('scheduled.sourceRoom', { name: x.name ?? '?' }) : `${x.name ?? '?'}/`
+/** What it does: a task's instruction, a template's folders in place words ("전사 공유 → 내 폴더 › reports"; its prompt is
+ *  the server's own, never shown). */
+export const schedulePreview = (s: Schedule, place: Place) => (s.templateId ? `${s.sourcePath ? place(s.sourcePath) : ''} → ${s.outputPath ? place(s.outputPath) : ''}` : s.prompt)
 
-/** The list card's save line, the shape of a template's folders line: "저장: shared/주간보고", or "저장 폴더를 다시 확인해
- *  주세요" when its permission lapsed (server/src/chat/schedule-scope.ts); '' for a task without a save folder. */
-export const saveLine = (s: Schedule, t: T) => (!s.saveFolder ? '' : s.saveLapsed ? t('scheduled.saveLapsed') : t('scheduled.saveLine', { folder: s.saveFolder }))
+/** A place whose content may go into a task's save folder, in words ("내 폴더", "#영업 대화", "부서 › marketing"). */
+export const sourceName = (x: NonNullable<Schedule['saveSources']>[number], t: T, place: Place) =>
+  x.kind === 'mine' ? t('scheduled.sourceMineFiles') : x.kind === 'root' ? t('scheduled.sourceRoot') : x.kind === 'room' ? t('scheduled.sourceRoom', { name: x.name ?? '?' }) : x.name ? place(x.name) : '?'
+
+/** The list card's save line, the shape of a template's folders line: "저장: 전사 공유 › 주간보고", or "저장 폴더를 다시
+ *  확인해 주세요" when its permission lapsed (server/src/chat/schedule-scope.ts); '' for a task without a save folder. */
+export const saveLine = (s: Schedule, t: T, place: Place) => (!s.saveFolder ? '' : s.saveLapsed ? t('scheduled.saveLapsed') : t('scheduled.saveLine', { folder: place(s.saveFolder) }))
 
 /** how long after a task's due time the page looks for its run (the server starts runs at a tick every 30 s), and how
  * long it keeps looking for a run that is due and not started (the server may be busy or catching up) */

@@ -284,8 +284,9 @@ const AttachedCopies = createContext<ReadonlyMap<string, PreviewFile> | null>(nu
 const TeamImagesAsLinks = createContext(false)
 /** A chat's own copies of files (docs/decisions/20261121-share-chat-files.md: files the chat made in its creator's own
  * folder, added to a chat shared with people), by the team path they were copied from, and the chat for an ask. Inside
- * that chat a link to such a path opens the chat's copy for everyone, the creator included (one file, not two). `ask`:
- * a link that does not open for me offers to ask the creator to add it (the side panel, components/ChatFileAsk.tsx). */
+ * that chat a link to such a path opens the chat's copy for everyone, the creator included (one file, not two). `ask`
+ * (any shared chat): a link that does not open for me asks the side panel what I can do (components/ChatFileAsk.tsx:
+ * ask the creator to add it, or ask to view a teammate's file linked here). */
 export const ChatLinks = createContext<{ chatId: string; copies: ReadonlyMap<string, PreviewFile>; ask: boolean } | null>(null)
 function useLinkTarget(path: string) {
   const chat = useContext(ChatLinks)

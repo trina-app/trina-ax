@@ -31,8 +31,13 @@
 // (madeFilesOf, the bytes read and hashed) and copies only then. It settles as approved once the chat has the file, as
 // closed once the asker no longer sees the chat or the file no longer qualifies; leaving the chat closes it at once
 // (people-share.ts closeFileAsks).
+//
+// Any other team file linked in a message of a shared chat (shared with people, or a shared project chat) that the asker
+// sees, by someone who can read it now (QA after #651: the panel had only "can't be found, or you don't have access"):
+// the room link's ask (files/linked-file-ask.ts), answers view / viewAsked / open, and the POST is an ordinary file
+// access request (files/shares.ts request).
 import type { Database } from 'bun:sqlite'
-import { FILE_REQUESTS_PER_HOUR, FILE_REQUESTS_PER_OWNER_DAY, inQuietHours, plainLabel, type AccessKind, type AccessRequestAnswer, type ChatFileAccess, type InboxNotification, type LinkAccessRequestResult, type LinkAccessView, type Locale } from '@mycel/shared/api'
+import { FILE_REQUESTS_PER_HOUR, FILE_REQUESTS_PER_OWNER_DAY, inQuietHours, plainLabel, type AccessKind, type AccessRequestAnswer, type ChatFileAccess, type ChatFileRequestResult, answerFilePaths, type InboxNotification, type LinkAccessRequestResult, type LinkAccessView, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
 import { teamTimeZone } from '../admin/settings'
@@ -52,8 +57,14 @@ import { accessEditable, projectAccess, saveParticipants } from './project-acces
 import { canSeeProject, isTeamProject, mayEditProject, mayManageProject } from './projects'
 import type { ChatRow, ProjectRow } from './store'
 import { ACCESS_REQUEST_TEXT } from './access-request-text'
-import { isPeopleRow } from './chat-audience'
+import { isPeopleRow, isSharedRow } from './chat-audience'
+import { withheldFrom } from './shared-answers'
+import { fileSharesOf } from '../files/shares'
+import { cleanLinkedPath, linkedFileAsk, type LinkedAsk } from '../files/linked-file-ask'
 import { copyMade, copyOf, fileAskChat, fileAskTarget, madeFilesOf, readVerified } from './chat-files-share'
+
+/** At most this many of a chat's messages with a file link are looked at for a linked file's ask (the newest first). */
+const LINKED_SCAN_MAX = 500
 
 /** What a file ask holds in `message`: the path and the name the chat recorded. */
 const fileAskOf = (q: Pick<RequestRow, 'kind' | 'target_id' | 'message'>): { chatId: string; path: string; name: string } | null => {
@@ -298,21 +309,60 @@ export class AccessRequests {
     return made ? { r, rel, creator, copy: null, made } : null
   }
 
+  /** Any other team file linked in a message of a shared chat (shared with people, or a shared project chat) that the
+   * asker sees: the room link's ask (files/linked-file-ask.ts), by the person who linked it there (the message's
+   * sender, or for an answer the person whose turn it was). The newest such message whose linker can read the file
+   * now answers; an answer hidden from the asker (chat/shared-answers.ts) never counts. */
+  private linkedAsk(userId: string, chatId: string, path0: string, create: boolean): LinkedAsk {
+    const no = { kind: 'no' } as const
+    const me = loadPrincipal(this.db, userId)
+    const r = this.rt.store.chatRow(chatId)
+    if (!me || me.role === 'guest' || !r || r.deleted_at || !isSharedRow(r) || !this.chatOpens(userId, chatId)) return no
+    const path = cleanLinkedPath(typeof path0 === 'string' ? path0 : '')
+    if (!path || path.length > 4096) return no
+    const rows = this.db.query(`SELECT m.id, m.role, m.content, m.author_id, t.user_id AS runner FROM messages m LEFT JOIN turns t ON t.id = m.turn_id
+      WHERE m.chat_id = ? AND m.content LIKE '%path=%' ORDER BY m.rowid DESC LIMIT ${LINKED_SCAN_MAX}`).all(chatId) as { id: string; role: string; content: string; author_id: string | null; runner: string | null }[]
+    let hidden: Set<string> | null = null
+    const tried = new Set<string>()
+    for (const m of rows) {
+      if (!answerFilePaths(m.content).some((p) => cleanLinkedPath(p) === path)) continue
+      hidden ??= withheldFrom(this.db, this.ctx.files.rules(), chatId, userId)
+      if (hidden.has(m.id)) continue
+      const linker = m.role === 'assistant' ? m.runner : (m.author_id ?? m.runner)
+      if (!linker || tried.has(linker)) continue
+      tried.add(linker)
+      const found = linkedFileAsk(this.ctx, me, path, linker, create)
+      if (found.kind !== 'no') return found
+    }
+    return no
+  }
+
   /** GET /api/chats/:id/file-access. One answer, 'no', for every case it cannot help with. */
   fileView(userId: string, chatId: string, path: string): ChatFileAccess {
     this.readLimit(userId)
     const x = this.fileAskable(userId, chatId, path)
-    if (!x) return { status: 'no' }
+    if (!x) {
+      const f = this.linkedAsk(userId, chatId, path, false)
+      if (f.kind === 'open') return { status: 'open', ...(f.link ? { link: f.link } : {}) }
+      if (f.kind === 'no') return { status: 'no' }
+      return f.askedAt ? { status: 'viewAsked', askedAt: f.askedAt, by: f.by } : { status: 'view', by: f.by }
+    }
     if (x.copy) return { status: 'copy', fileId: x.copy.id, name: x.copy.name }
     const asked = this.waiting('chat', fileAskTarget(chatId, x.rel), userId)
     return asked ? { status: 'asked', askedAt: asked.created_at, by: x.creator.name, name: x.made!.name } : { status: 'ask', by: x.creator.name, name: x.made!.name }
   }
 
   /** POST /api/chats/:id/file-access: the ask, to the chat's creator. */
-  fileRequest(userId: string, chatId: string, path: string, L: Locale): LinkAccessRequestResult {
+  fileRequest(userId: string, chatId: string, path: string, L: Locale): ChatFileRequestResult {
     this.readLimit(userId)
     const x = this.fileAskable(userId, chatId, path)
-    if (!x) return fail('not_found')
+    if (!x) {
+      // another linked team file: an ordinary file access request (its limits, its audit, its Activity row)
+      const f = this.linkedAsk(userId, chatId, path, true)
+      if (f.kind === 'open') return { status: 'open', ...(f.link ? { link: f.link } : {}) }
+      if (f.kind === 'no' || !f.shareId) return fail('not_found')
+      return fileSharesOf(this.ctx).request(userId, f.shareId, undefined, L)
+    }
     if (x.copy) return { status: 'open' }
     const target = fileAskTarget(chatId, x.rel)
     const waiting = this.waiting('chat', target, userId)

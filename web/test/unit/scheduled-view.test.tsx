@@ -7,7 +7,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import type { Chat, Schedule, ScheduleRun } from '@mycel/shared/api'
 import { translate, type MessageKey, type Params } from '../../src/i18n'
-import { cardLine, nextDueRead, onceDate, outcomeLabel, outcomeReason, outcomeTone, RUN_AT_DUE, scheduleState } from '../../src/lib/scheduleText'
+import { cardLine, nextDueRead, onceDate, outcomeLabel, outcomeReason, outcomeTone, RUN_AT_DUE, saveLine, schedulePreview, scheduleState } from '../../src/lib/scheduleText'
+import { teamPlace } from '../../src/lib/teamPlace'
 import { snippetAround, titleFirst } from '../../src/components/SearchDialog'
 import { ScheduleView, type RunsState } from '../../src/pages/Scheduled'
 
@@ -121,8 +122,23 @@ describe('scheduled task page', () => {
     expect(html).toContain(t('schedules.reviewHint'))
   })
 
+  test('the list card: a template\'s folders and the save folder in place words, never the disk path (QA after #651)', () => {
+    const ko = (p: string) => teamPlace(p, 'ko', { me: 'qa-admin', nameOf: () => null })
+    const tpl = { ...base, templateId: 'weekly-summary', sourcePath: 'shared', outputPath: 'users/qa-admin/reports' }
+    expect(schedulePreview(tpl, ko)).toBe('전사 공유 → 내 폴더 › reports')
+    expect(saveLine({ ...base, saveFolder: 'shared/주간보고' }, (k, v) => translate('ko', k, v), ko)).toBe('저장: 전사 공유 › 주간보고')
+  })
+
   test('no runs yet says so; a template shows its folders, never its prompt', () => {
     expect(decode(render(base))).toContain(t('scheduled.noRuns'))
+    // once each: the next run under the title, "no runs yet" under Runs; no details block of the same lines (QA after #651)
+    const once = decode(render(base))
+    const count = (x: string) => once.split(x).length - 1
+    expect(count(t('scheduled.noRuns'))).toBe(1)
+    expect(count(t('schedules.next', { time: '' }).trim())).toBe(1)
+    expect(once).not.toContain('data-testid="schedule-details"')
+    // a task that ran: when it last ran, in the details
+    expect(decode(render({ ...base, lastRunAt: '2026-10-28T19:18:15Z', lastChatId: 'chat-1', lastOutcome: 'done' }))).toContain('data-testid="schedule-details"')
     const html = decode(render({ ...base, templateId: 'weekly-summary', prompt: 'internal template prompt', sourcePath: 'shared/notes', outputPath: 'users/olga/reports' }))
     // in place words, never the disk path (QA TC-8922)
     expect(html).toContain('Company-wide › notes')
