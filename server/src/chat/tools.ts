@@ -26,6 +26,7 @@ import type { ToolCard, TurnTool, TurnToolContext, TurnToolResult } from '../ser
 import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { guardedBrowserCall, guardSummary, type BrowserCall } from './browser-keys'
+import { attachedStepLabel, BUSY_TEXT, oldAppResult, prepareBrowserUpload, uploadSummary, type UploadFileReady } from './browser-upload'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
 import { cleanMemoryText, MEMORY_ITEM_MAX, memoryLines, neutralizeTags, skillBlock, SKILL_TOOL_LIMIT } from './prompt'
 import { addressesIn, asksToRemember, AUTO_PER_ANSWER, AUTO_TEXT_MAX, autoCapReached, autoMemoryOn, chatMemories, contactNotOwn, copiedFromOutside, firstAutoMemory, fold, FORGET_PER_ANSWER, nearDuplicate, othersWords, outsideAddress, ownWords, resultText, secretIn } from './auto-memory'
@@ -409,7 +410,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     if (work && !d.shared) add(saveWorkFileTool(exec, where, 'folder'))
     else if (work && exec.shared?.kind === 'people') add(saveWorkFileTool(exec, where, 'chat'))
   }
-  if (exec.browser) for (const t of PANE_TOOLS) add(browserTool(exec, t.name as BrowserToolName, t.description, t.inputSchema as unknown as Record<string, unknown>), { browser: true })
+  // file_upload only where the window's desktop app runs it (an older one cannot parse the call: chat/turn.ts browserUpload)
+  if (exec.browser) for (const t of PANE_TOOLS) if (t.name !== 'file_upload' || exec.browserUpload) add(browserTool(exec, t.name as BrowserToolName, t.description, t.inputSchema as unknown as Record<string, unknown>), { browser: true })
   // per-person tools (external-service connections), built from saved data at the start of the turn
   const prompt: string[] = []
   const context: string[] = []
@@ -1932,6 +1934,17 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
         const change = await exec.confirmSharedBrowserChange(name, args)
         if (change) return { ...text(change, true), summary: `${name} -> not run (shared chat: browser change card)` }
       }
+      // file_upload alone (its tickets are made for the one call; docs/decisions/20261126-browser-file-upload.md)
+      if (name === 'browser_batch' && Array.isArray(args.actions) && args.actions.some((a) => a && typeof a === 'object' && (a as { name?: unknown }).name === 'file_upload')) {
+        return { ...text('Nothing was run: file_upload cannot be part of browser_batch. Call file_upload on its own, then take a screenshot.', true), summary: `${name} -> refused (file_upload in a batch)` }
+      }
+      // its files read and checked as the person now, before anything is sent (chat/browser-upload.ts)
+      let upload: UploadFileReady[] | null = null
+      if (name === 'file_upload') {
+        const got = await prepareBrowserUpload(exec, args, name)
+        if ('refused' in got) return { ...text(got.refused, true), summary: got.summary }
+        upload = got.files
+      }
       const person = turnPerson(exec)
       /** null when the address may be opened; otherwise the refusal for the AI */
       let allSites = false
@@ -1997,10 +2010,22 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       }
       // the stored keys and key-like text are hidden before anything sees the result; a page that shows a key gets no
       // screenshot or script, and the AI hands over (chat/browser-keys.ts, docs/decisions/20261124-browser-key-guard.md)
+      const files = upload
+      // file_upload: each file's single-use ticket, bound to this call (its deadline, its person and window), in place
+      // of the path the AI gave (realtime/browser-uploads.ts)
+      const prepare = files && name === 'file_upload'
+        ? (callId: string, deadline: number) => {
+          const ids = rt.relay.uploads.issue(files.map((f) => ({ userId: spec.userId, windowId: spec.windowId!, callId, name: f.name, bytes: f.bytes, sha256: f.sha256, expiresAt: deadline, recheck: f.recheck })))
+          if (!ids) return BUSY_TEXT
+          const { files: _named, ...rest } = args
+          void _named
+          return { ...rest, files: files.map((f, i) => ({ ticket: ids[i]!, name: f.name, size: f.bytes.length, sha256: f.sha256 })) }
+        }
+        : undefined
       const call: BrowserCall = async (tool, a) => {
-        const r = await rt.relay.call({ userId: spec.userId, windowId: spec.windowId!, turnId: spec.turnId, chatId: spec.chatId, tool, args: a, signal: exec.abort.signal, sites: [...sites], office: [...officeHosts] })
+        const r = await rt.relay.call({ userId: spec.userId, windowId: spec.windowId!, turnId: spec.turnId, chatId: spec.chatId, tool, args: a, signal: exec.abort.signal, sites: [...sites], office: [...officeHosts], ...(tool === 'file_upload' && prepare ? { prepare } : {}) })
         keepDeviceAlways(exec, person, r.always)
-        return r
+        return tool === 'file_upload' ? oldAppResult(r) : r
       }
       const g = await guardedBrowserCall(name, args, call, spec.locale, exec.redactor())
       if (g.refused) return { ...text(g.text, true), summary: g.summary }
@@ -2022,9 +2047,11 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       }
       if (!r.ok) content.push({ type: 'text', text: `Error: ${r.error ?? 'browser tool failed'}` })
       for (const n of g.notes) content.push({ type: 'text', text: n })
-      exec.patchToolStep(name, (s) => (shared.length ? { images: [...(s.images ?? []), ...shared] } : {}))
+      // the files are in the page: the step says how many and where ("파일 2개 첨부함: mail.daum.net · …")
+      const attached = files ? attachedStepLabel(r, files, spec.locale) : null
+      exec.patchToolStep(name, (s) => ({ ...(shared.length ? { images: [...(s.images ?? []), ...shared] } : {}), ...(attached ? { label: exec.redact(attached) } : {}) }))
       if (!content.length) content.push({ type: 'text', text: r.ok ? 'OK' : 'Error' })
-      return { content, isError: !r.ok, summary: `${name} -> ${r.ok ? 'ok' : 'error: ' + (r.error ?? '').slice(0, 200)}${guardSummary(g)}${allSites ? ' (all websites allowed)' : ''}` }
+      return { content, isError: !r.ok, summary: `${name} -> ${r.ok ? 'ok' : 'error: ' + (r.error ?? '').slice(0, 200)}${guardSummary(g)}${allSites ? ' (all websites allowed)' : ''}${files ? ` (${files.length} file${files.length === 1 ? '' : 's'} ${r.ok ? 'attached' : 'offered'}: ${uploadSummary(files)})` : ''}` }
     },
   }
 }

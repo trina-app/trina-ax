@@ -177,6 +177,10 @@ Press **Share** (**Save** when it was shared already). Leaving with changes you 
   new service on its card. When it would bring in something some people in the chat can't open (a room some of them
   aren't in, a file shared with you alone), it asks you first. A file you attached before the chat was shared can go in
   again, as a file of your own folder.
+- **Attaching files in the desktop app's browser.** Ask the AI to attach team files, or files sent in the chat, to a page
+  you are signed in to (a web mail's reply, a form): it puts them into the page's file field as if you picked them, up
+  to 20 files and 100 MB at a time, and you see them in the page. Sending is still the page's own button, after you say
+  so. It needs an up-to-date desktop app; Aside and other apps on your computer can't attach files.
 - **It still learns from you.** When you correct it or tell it how you work, the AI keeps that in your own memory, as in
   your own chats, with a small "Remembered" step only you can undo. What other people write in the chat never goes into
   your memory.

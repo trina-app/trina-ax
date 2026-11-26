@@ -1005,8 +1005,17 @@ describe("the team page's file chooser (Mac App Store build)", () => {
     expect(answer).toContain('const opened = documents')
     expect(answer.indexOf('if (!sameDocument()) return')).toBeGreaterThan(answer.indexOf('r.canceled'))
     expect(answer.indexOf('if (!sameDocument()) return')).toBeLessThan(answer.indexOf("'DOM.setFileInputFiles'"))
-    // the in-app browser pane does not get it
-    expect(readFileSync(join(import.meta.dir, '../../desktop/src/main/pane/pane.ts'), 'utf8')).not.toContain('setInterceptFileChooserDialog')
+    // the in-app browser pane does not get this answer: there file choosers are intercepted only while the AI drives
+    // (file_upload takes the one its click opens, any other is closed: docs/decisions/20261126-browser-file-upload.md)
+    // and the person's own clicks open the system's picker as before
+    const pane = readFileSync(join(import.meta.dir, '../../desktop/src/main/pane/pane.ts'), 'utf8')
+    expect(pane).not.toContain('showOpenDialog')
+    // on: intercept() and a frame of another site attached while it is on; off: stopIntercepting(). Never answered with
+    // a dialog of the app's own
+    const turns = [...pane.matchAll(/'Page\.setInterceptFileChooserDialog', \{ enabled: (\w+)[^}]*\}/g)].map((m) => m[1])
+    expect(turns.filter((x) => x === 'false').length).toBe(2)
+    expect(turns.length).toBe(5)
+    expect(pane).toContain('if (this.driving === 0) this.stopIntercepting()')
   })
 })
 

@@ -40,6 +40,8 @@ interface Socket {
   userId: string
   windowId: string
   sessionId: string
+  /** the desktop app's in-app browser version the page said (WsConnectQuery.pane; 0: none or an older page) */
+  pane: number
   /** epoch ms when the session expires (Infinity: no expiry known); the socket is closed then */
   expiresAt: number
   /** set while replaying; live events are queued behind the replay */
@@ -242,7 +244,7 @@ export class Hub implements RealtimeHub {
     const prev = u.sockets.get(windowId)
     if (prev) { prev.closed = true; u.sockets.delete(windowId); try { prev.conn.close(WsClose.replaced, 'replaced by a newer connection') } catch {} }
     const exp = auth.session.expiresAt ? Date.parse(auth.session.expiresAt) : NaN
-    const s: Socket = { conn, userId, windowId, sessionId: auth.session.id, expiresAt: Number.isFinite(exp) ? exp : Infinity, ready: false, closed: false }
+    const s: Socket = { conn, userId, windowId, sessionId: auth.session.id, pane: q.data.pane ?? 0, expiresAt: Number.isFinite(exp) ? exp : Infinity, ready: false, closed: false }
     u.sockets.set(windowId, s)
     while (u.sockets.size > MAX_SOCKETS_PER_USER) {
       const [, oldest] = u.sockets.entries().next().value as [string, Socket]
@@ -453,6 +455,12 @@ export class Hub implements RealtimeHub {
   isWindowOpen(userId: string, windowId: string): boolean {
     const s = this.users.get(userId)?.sockets.get(windowId)
     return !!s && !s.closed
+  }
+  /** the in-app browser version the window's page said when it connected (BROWSER_BRIDGE_VERSION; 0: none), or
+   * undefined when the window has no open WebSocket */
+  paneOfWindow(userId: string, windowId: string): number | undefined {
+    const s = this.users.get(userId)?.sockets.get(windowId)
+    return s && !s.closed ? s.pane : undefined
   }
   /** the sign-in (session) a window is on: its desktop app's computer report is per sign-in (realtime/presence.ts) */
   sessionOfWindow(userId: string, windowId: string): string | undefined { return this.users.get(userId)?.sockets.get(windowId)?.sessionId }

@@ -45,7 +45,8 @@
   words before anything reaches the desktop app (an app's tool that does take a file's content still gets it), and the
   AI's instructions (ATTACH_HOW, the browser rules) say to say so before starting, never promise it, and offer what
   works: a connected mail service that takes attachments, a link to each file, or the person attaching the files
-  themselves. A file upload tool for the browser is left for later.
+  themselves. A file upload tool for the browser is left for later (since then: the desktop browser's file_upload,
+  [20261126-browser-file-upload.md](20261126-browser-file-upload.md)).
 - **Left out:** memories from other chats stay out of shared chats (20261125-auto-memory-shared-chats.md); Google Drive,
   room reading and connecting a new service in a shared chat are unchanged.
 - **Tests:** `tests/unit/b-shared-chat-connections.test.ts` (a team file everyone can open: send card then sent; one some

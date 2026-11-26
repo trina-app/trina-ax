@@ -152,6 +152,13 @@ switch); "ask every time" counts the rest (most are one-off confirms of the pers
 | `site.web.echo` | `server/src/tools/url-gate.ts:909` | The address carries something the AI sent earlier in this chat. | The AI wants to open an address a connected app gave it, but the address contains something the AI sent earlier… (`echo`) | Open / Don't open | none (a hard limit) | n/a | refused | same | security | OK |
 | `site.redirect` | `server/src/tools/connection-urls.ts:295` | A fetch or download is sent on to an address that echoes what the AI sent. | The address the AI is opening sends it on to another one, and that address contains something the AI sent earlier… (`redirectEcho`) | Open / Don't open | none (a hard limit) | n/a | not followed | same | security | OK |
 
+The desktop browser's `file_upload` ([decisions/20261126-browser-file-upload.md](decisions/20261126-browser-file-upload.md))
+adds no card of its own: the page's site needs `desktop.site.web` (or `desktop.site.private`) first, as any browser action
+there; in a shared chat `conn.shared.browser`, `browser.shared.change` and, for a team file some people there cannot
+open, `share.read` come first; the hard blocks (read permission, the safety check, a stored key in the file, 20 files and
+100 MB) refuse without asking. Auto mode treats it as the other browser tools that act: every card it can meet is `ask`
+(the site cards, `always:shared_read`, `always:room_change`), so auto mode never lets one of its files through on its own.
+
 ### Commands and dev environment (명령 실행·개발 환경)
 
 | id | where | trigger | text (en / ko) | buttons | always | revoke | scheduled | guests | reason | rule A |
@@ -429,6 +436,7 @@ and one with `sends-to-others` is never `auto`.
 | `waits:tabs_select` | `site.office`, `site.web` | n/a |
 | `waits:tabs_close` | `site.office`, `site.web` | n/a |
 | `waits:browser_batch` | `site.office`, `site.web` | n/a |
+| `waits:file_upload` | `share.read` | n/a |
 | `waits:post_to_room` | `post.room`, `post.room.files` | n/a |
 | `waits:change_project_members` | `project.members` | n/a |
 | `waits:change_folder_access` | `folder.access`, `folder.access.many` | n/a |

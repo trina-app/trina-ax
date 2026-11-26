@@ -345,6 +345,7 @@ export function startLive() {
   client = new RealtimeClient({
     baseUrl: defaultWsBase(),
     windowId,
+    pane: () => desktop()?.browser.version ?? 0,
     renewWindowId,
     createSocket: (url, protocols) => new WebSocket(url, protocols) as never,
     onEvent: dispatch,
