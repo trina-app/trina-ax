@@ -7,6 +7,8 @@
 <b>チーム全員で使うAI。</b><br>
 Trina AXは、チームのファイル・スキル・ツールを1台のサーバーにまとめます。全員のAIが、そこから仕事を始めます。<br>同僚のAIセッションをそのまま引き継げます。AIが開くファイルはすべて、質問した本人の権限でチェックされます。
 
+<a href="https://demo.trina.app"><img src="docs/images/readme/v4/try-demo-ja.png" height="40" alt="登録なしで1分お試し"></a>
+
 <a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-ja.png" height="40" alt="Mac版をダウンロード"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-ja.png" height="40" alt="Windows版をダウンロード"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="App Storeからダウンロード"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Google Play で手に入れよう"></a><br>
 <sub>Linux版（.deb、AppImage／x64・arm64）は<a href="https://ax.trina.app/download">ダウンロードページ</a>にあります</sub>
 

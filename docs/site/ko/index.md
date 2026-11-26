@@ -4,6 +4,8 @@ description: Trina AX는 Claude Code와 Codex를 회사 서버 한 대에 두고
 ---
 
 :::note
+먼저 보고 싶나요? [가입 없이 1분 만에 써 보기](https://demo.trina.app).
+
 먼저 써 보고 싶나요? [로컬 데모](get-started/quickstart.md)를 실행해 보세요. AI 계정이 없어도 돼요.
 :::
 

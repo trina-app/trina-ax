@@ -4,6 +4,8 @@ description: Trina AX reúne Claude Code y Codex en un servidor de la empresa, c
 ---
 
 :::note
+¿Quiere verlo primero? [Pruébelo en 1 minuto, sin registro](https://demo.trina.app).
+
 ¿Solo quiere probarlo? Ejecute la [demostración local](get-started/quickstart.md). No necesita ninguna cuenta de IA.
 :::
 

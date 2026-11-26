@@ -4,6 +4,8 @@ description: Trina AX は、Claude Code と Codex を会社のサーバー 1 台
 ---
 
 :::note
+まず見てみたい場合は、[登録なしで1分お試し](https://demo.trina.app)。
+
 まず試してみたい場合は、[ローカルデモ](get-started/quickstart.md)を動かしてください。AI のアカウントは必要ありません。
 :::
 
