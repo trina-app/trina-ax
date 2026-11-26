@@ -109,7 +109,7 @@ export interface Harness {
   api(user: string, o?: { window?: string; client?: ClientKind }): ApiClient
   /** raw request (status checks) */
   req(user: string | null, p: string, init?: RequestInit & { window?: string; client?: ClientKind }): Promise<Response>
-  ws(user: string, o?: { windowId?: string; epoch?: string; after?: number; client?: ClientKind; origin?: string | null; bearer?: boolean }): Promise<TestSocket>
+  ws(user: string, o?: { windowId?: string; epoch?: string; after?: number; client?: ClientKind; origin?: string | null; bearer?: boolean; pane?: number }): Promise<TestSocket>
   rt(): ReturnType<typeof getChatRuntime>
   close(): Promise<void>
 }
@@ -270,6 +270,7 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
       const q = new URLSearchParams({ windowId: w.windowId ?? 'win-' + crypto.randomUUID().slice(0, 8) })
       if (w.epoch !== undefined) q.set('epoch', w.epoch)
       if (w.after !== undefined) q.set('after', String(w.after))
+      if (w.pane !== undefined) q.set('pane', String(w.pane))
       const h: Record<string, string> = w.bearer ? {} : headers(user, undefined, w.client)
       if (w.origin !== null && !w.bearer) h.origin = w.origin ?? url
       if (w.client && w.bearer) h['x-test-client'] = w.client

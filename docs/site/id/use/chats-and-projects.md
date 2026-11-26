@@ -169,6 +169,11 @@ Tekan **Bagikan** (**Simpan** jika chat sudah pernah dibagikan). Jika Anda kelua
   **Lanjutkan**. Mengirim email atau berkas tetap menanyai Anda di kartunya, dan berkas tim yang tidak bisa dibuka
   sebagian orang di chat menanyai Anda lebih dulu. Pesan orang lain tidak pernah bisa memakai alat Anda. Memori Anda dari
   chat lain tetap di luar.
+- **Melampirkan berkas di browser aplikasi desktop.** Minta AI melampirkan berkas tim, atau berkas yang dikirim di chat, ke
+  halaman tempat Anda sudah masuk (balasan email web, formulir): AI memasukkannya ke kolom berkas halaman seolah Anda yang
+  memilih, sampai 20 berkas dan 100 MB sekaligus, dan Anda melihatnya di halaman. Mengirim tetap lewat tombol halaman itu
+  sendiri, setelah Anda bilang. Perlu aplikasi desktop terbaru; Aside dan aplikasi lain di komputer Anda tidak bisa
+  melampirkan berkas.
 - Chat di proyek pribadi tetap milik Anda: **Bagikan** menawarkan untuk memindahkannya keluar lebih dulu. Chat di proyek tim dibagikan
   ke anggota proyek (lihat [Proyek](#proyek)).
 

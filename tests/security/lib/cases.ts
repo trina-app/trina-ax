@@ -663,6 +663,9 @@ export const SPECS: Record<string, Spec> = {
 
   // ---- browser relay (own session/window) ----
   pollCalls: { build: (c) => c.get('/api/browser/calls?windowId=win-xxxxxxxx&waitMs=1'), scope: 'self' },
+  // a file_upload ticket: nobody's here (any made-up ticket is the same 404 for every signed-in caller; another person's
+  // real ticket too: tests/unit/b-browser-upload.test.ts)
+  browserUpload: { build: (c) => c.get(`/api/browser/uploads/${'A'.repeat(43)}`), scope: 'nobody' },
   postResult: { build: (c) => c.post('/api/browser/results', { callId: 'nope', ok: false, error: 'x' }), scope: 'self',
     check: (r) => { /* unknown call -> 404; never another window's */ } },
   // ---- local relay: apps on the person's computer (own session/window) ----

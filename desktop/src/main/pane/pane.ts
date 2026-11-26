@@ -18,9 +18,9 @@
  * Each team has its own pane and its own session partition.
  */
 import { siteToKeep } from '@mycel/shared/web-site'
-import { BaseWindow, BrowserWindow, WebContentsView, type Rectangle, type Session, type WebContents } from 'electron'
+import { app as electronApp, BaseWindow, BrowserWindow, WebContentsView, type Rectangle, type Session, type WebContents } from 'electron'
 import { parseBrowserToolInput, type BrowserToolInput, type ParsedBrowserCall } from '@mycel/shared/browser-tools'
-import type { BrowserCall, BrowserResult } from '@mycel/shared/api/browser'
+import { BROWSER_UPLOAD_PATH, type BrowserCall, type BrowserResult } from '@mycel/shared/api/browser'
 import type { DesktopPaneState, DesktopPaneTab } from '@mycel/shared/desktop-bridge'
 import { errorResult, PendingAlways, resultBytes, toBrowserResult, withAlways, type PaneContent, type PaneResult } from '../../common/browser-result'
 import { MOD_BITS, parseKeyCombo, redactUrl, ToolError } from '../../common/input'
@@ -38,6 +38,7 @@ import { HostClassifier } from './classify'
 import { installNetGuard, stopIfRebound } from './net-guard'
 import { clearSessionData, type ClearResult } from '../clear-session'
 import { debug } from '../debug'
+import { cleanUploadName, sha256Hex, uploadOrder, uploadRoot, UploadTemp, type UploadHow } from '../../common/upload-files'
 
 export interface PanePrompt {
   id: string
@@ -74,6 +75,8 @@ export interface PaneHost {
   overlays?(): readonly WebContentsView[]
   /** the pane placed its views (the window puts its overlays back on top) */
   onLayout?(): void
+  /** GET a path of the team server through the team page's own session (file_upload's tickets) */
+  fetchTeam?(path: string, signal: AbortSignal): Promise<Response>
 }
 
 interface ConsoleEntry {
@@ -102,6 +105,10 @@ interface Tab {
   scripted?: boolean
   /** a real page (not the empty about:blank a tab starts with) has committed: the tab is drawn from then on (layout) */
   drawn?: boolean
+  /** file choosers are intercepted (while the AI drives: none opens over the person's screen) */
+  intercepting?: boolean
+  /** file_upload waits for the chooser its click opens */
+  chooser?: (p: { backendNodeId: number; mode: string }) => void
 }
 /** The call being run (for prompts raised by the net guard during it). */
 interface CallCtx {
@@ -168,6 +175,9 @@ const sleep = (ms: number, signal?: AbortSignal) =>
     const t = setTimeout(resolve, ms)
     signal?.addEventListener('abort', () => (clearTimeout(t), resolve()), { once: true })
   })
+/** file_upload's chooser step: the click's file picker comes this soon or not at all */
+const CHOOSER_WAIT_MS = 3000
+const CHOOSER_SUPPRESSED = 'A file picker opened on this page and was closed without choosing anything: the AI does not pick files in a picker. To attach files, call file_upload with the ref of that button or file field.'
 const PASSWORD_REFUSED = 'That is a password field. The AI may not type or click into password fields; ask the user to type it in the browser pane, then continue.'
 const PAYMENT_REFUSED = 'That is a payment card field (card number, expiry or security code). The AI may not type or click into it; ask the user to type it in the browser pane, then continue.'
 type SecretField = 'password' | 'payment'
@@ -208,6 +218,8 @@ export class BrowserPane {
   private repeatHint = new RepeatPromptHint()
   readonly classifier: HostClassifier
   private disposed = false
+  /** file_upload's files on disk, by tab (common/upload-files.ts) */
+  readonly uploads: UploadTemp
 
   constructor(
     private host: PaneHost,
@@ -218,6 +230,9 @@ export class BrowserPane {
   ) {
     this.perms = new SitePermissions(saved)
     this.classifier = classifier
+    // one pane at a time: what an earlier run (or the last team's pane) left goes now
+    this.uploads = new UploadTemp(uploadRoot(electronApp.getPath('temp'), PRODUCT.id))
+    this.uploads.sweep()
     this.pageScript = `window.__name = window.__name || ((f) => f);\n${pageScript}`
     // look like plain Chrome (sites flag "Electron/..." or the app name as an outdated browser), plus the
     // in-app browser mark the team server refuses (second line behind the team-address block)
@@ -401,7 +416,11 @@ export class BrowserPane {
       // a new document: the AI's script (and its timers) did not survive the navigation
       tab.scripted = false
       const host = siteKey(url)
-      if (host !== tab.host) tab.network.clear()
+      if (host !== tab.host) {
+        tab.network.clear()
+        // the files attached to the old site's page: that page is gone
+        if (tab.host) this.uploads.dropTab(id)
+      }
       tab.host = host
       if (!isBlankPage(url)) this.drawTab(tab)
       refresh()
@@ -425,6 +444,7 @@ export class BrowserPane {
       if (tab.forceLeave) e.preventDefault()
     })
     wc.on('destroyed', () => {
+      this.uploads.dropTab(id)
       this.tabs.delete(id)
       if (this.activeId === id) this.activeId = [...this.tabs.values()].filter((t) => !t.popup).at(-1)?.id
       this.layout()
@@ -499,6 +519,15 @@ export class BrowserPane {
           if (e) e.status = `failed (${params.errorText})`
           break
         }
+        case 'Page.fileChooserOpened':
+          // file_upload's own click: it sets the files. Any other while the AI drives (a computer click on a file
+          // field): nothing is chosen, and the AI hears how to attach instead
+          if (tab.chooser) tab.chooser({ backendNodeId: params.backendNodeId, mode: String(params.mode ?? '') })
+          else {
+            const c = this.currentCall()
+            if (c && !c.notes.includes(CHOOSER_SUPPRESSED)) c.notes.push(CHOOSER_SUPPRESSED)
+          }
+          break
         case 'Page.javascriptDialogOpening':
           // while the AI drives, a dialog would block every CDP call: alerts are accepted, confirm/prompt
           // dismissed (the AI reads what it said in the console); otherwise the person answers it
@@ -646,6 +675,8 @@ export class BrowserPane {
     this.officeLetThrough.clear()
     // an Always the last person pressed never goes out under the next one
     this.pendingAlways.clear()
+    // the files the AI attached for the last person
+    this.uploads.dropAll()
     this.owner = null
     if (this.perms.resetForNewPerson()) this.host.onSavePermissions(this.perms.toJSON())
     // closed now, with the old person's tabs: not after the clear, which can end seconds later (a fresh profile's first
@@ -660,6 +691,7 @@ export class BrowserPane {
   /** Close every tab (window closing / team switch): detached tabs would otherwise outlive the window. */
   dispose() {
     this.disposed = true
+    this.uploads.dropAll()
     for (const p of [...this.prompts]) p.settle('deny')
     for (const c of this.calls.values()) this.cancelCtx(c, 'The desktop app window closed.')
     for (const t of Array.from(this.tabs.values())) {
@@ -934,6 +966,8 @@ export class BrowserPane {
       clearTimeout(deadline)
       this.calls.delete(call.callId)
       this.driving = Math.max(0, this.driving - 1)
+      // the person drives again: their own file fields open the picker as usual
+      if (this.driving === 0) this.stopIntercepting()
       this.emit()
     }
   }
@@ -942,6 +976,7 @@ export class BrowserPane {
     const { actions } = input
     if (actions.some((a) => a.name === 'browser_batch')) return err('browser_batch cannot be nested; list the sub-actions directly.')
     if (actions.some((a) => a.name === 'preview_start')) return err('preview_start is not batchable; call it on its own (or start the batch with navigate).')
+    if (actions.some((a) => a.name === 'file_upload')) return err('file_upload is not batchable; call it on its own.')
     const content: PaneContent[] = []
     for (let i = 0; i < actions.length; i++) {
       if (ctx.cancelled) return { content: [...content, { type: 'text', text: 'Stopped.' }], isError: true }
@@ -977,6 +1012,8 @@ export class BrowserPane {
         }
         checkedSite = siteKey(before)
       }
+      // while the AI drives, a file picker never opens over the person's screen (file_upload takes the one it opens)
+      if (tab && kind === 'mutates-tab') await this.intercept(tab)
       const result = await this.exec(ctx, tab, call)
       // a page that moved to another site while it was read (or photographed) must not hand that site's content
       // to the AI without the person's permission
@@ -1138,6 +1175,8 @@ export class BrowserPane {
         return this.resize(need(), call.input)
       case 'computer':
         return this.computer(ctx, need(), call.input)
+      case 'file_upload':
+        return this.upload(ctx, need(), call.input)
       case 'browser_batch':
         return err('browser_batch cannot be nested.')
     }
@@ -1343,6 +1382,135 @@ export class BrowserPane {
         return ok(`Waited ${sec}s`)
       }
     }
+  }
+
+  // ----------------------------------------------------------- file_upload
+
+  private async intercept(tab: Tab) {
+    if (tab.intercepting || tab.popup || tab.wc.isDestroyed()) return
+    tab.intercepting = true
+    await this.cdp(tab, 'Page.setInterceptFileChooserDialog', { enabled: true }).catch(() => { tab.intercepting = false })
+  }
+
+  private stopIntercepting() {
+    for (const t of this.tabs.values()) {
+      if (!t.intercepting) continue
+      t.intercepting = false
+      if (!t.wc.isDestroyed()) void this.cdp(t, 'Page.setInterceptFileChooserDialog', { enabled: false }).catch(() => {})
+    }
+  }
+
+  /**
+   * file_upload (docs/decisions/20261126-browser-file-upload.md): fetch each ticket from the team server through the
+   * team page's session, check its size and sha256, write it to this computer's temp folder (common/upload-files.ts) and
+   * put the files into the page: the file field behind the ref (hidden ones too), else the file picker the ref's click
+   * opens (intercepted: no window opens), else a drop there. The site was allowed before this ran (single: permit).
+   */
+  private async upload(ctx: CallCtx, tab: Tab, input: BrowserToolInput['file_upload']): Promise<PaneResult> {
+    const fetchTeam = this.host.fetchTeam
+    if (!fetchTeam) throw new ToolError('This desktop app window cannot fetch team files. Ask the user to attach them in the page.')
+    if (!input.ref && !input.coordinate) throw new ToolError('file_upload needs ref (or coordinate) of the file field, or of the button or area that opens the file picker. Find it with read_page or find.')
+    if (input.ref && !(await this.page(tab, `describe(${JSON.stringify(input.ref)})`))) throw new ToolError(`No element ${input.ref} on the page (it may have changed). Call read_page or find again.`)
+    const site = siteKey(tab.wc.getURL())
+    const got: { name: string; bytes: Uint8Array }[] = []
+    for (const f of input.files) {
+      if (ctx.cancelled) throw new ToolError('Stopped.')
+      const gone = new ToolError(`"${f.name}" could not be fetched from the team server (the user can no longer send it, or the call took too long); nothing was attached. Call file_upload again.`)
+      let res: Response
+      try { res = await fetchTeam(`${BROWSER_UPLOAD_PATH}/${encodeURIComponent(f.ticket)}`, ctx.abort.signal) } catch { throw gone }
+      if (!res.ok) throw gone
+      const said = res.headers.get('content-length')
+      if (said !== null && Number(said) !== f.size) throw new ToolError(`"${f.name}" did not arrive as the server sent it; nothing was attached. Call file_upload again.`)
+      const bytes = new Uint8Array(await res.arrayBuffer())
+      if (bytes.length !== f.size || sha256Hex(bytes) !== f.sha256) throw new ToolError(`"${f.name}" did not arrive as the server sent it (its size or checksum differs); nothing was attached. Call file_upload again.`)
+      got.push({ name: f.name, bytes })
+    }
+    if (tab.wc.isDestroyed() || siteKey(tab.wc.getURL()) !== site) throw new ToolError('The page moved to another site while the files came; nothing was attached. Take a screenshot and try again.')
+    const paths = this.uploads.write(ctx.callId, tab.id, got)
+    const names = got.map((f) => cleanUploadName(f.name))
+    let done: UploadHow | null = null
+    const tried: string[] = []
+    try {
+      for (const way of uploadOrder(input.how)) {
+        if (ctx.cancelled) throw new ToolError('Stopped.')
+        const r = await this.uploadBy(way, ctx, tab, input, paths)
+        if (r === true) { done = way; break }
+        tried.push(r)
+      }
+    } catch (e) {
+      this.uploads.dropCall(ctx.callId)
+      throw e
+    }
+    if (!done) {
+      this.uploads.dropCall(ctx.callId)
+      throw new ToolError(`Nothing was attached: ${tried.join('; ')}. Read the page again and give the ref of the file field or of the button that opens the file picker${input.how && input.how !== 'auto' ? ', or try without how' : ''}.`)
+    }
+    const n = paths.length
+    const via = done === 'input' ? "through the page's file field" : done === 'chooser' ? 'through the file picker the click opened' : 'as a drop on that spot'
+    const check = done === 'drop' ? ' A drop cannot be checked from here: take a screenshot to see whether the page took them.' : ' Take a screenshot to check they show in the page.'
+    return ok(`Attached ${n} file${n === 1 ? '' : 's'} to ${site} (${names.join(', ')}) ${via}.${check} The page's own button sends them; sending still needs the user's OK.`)
+  }
+
+  /** One way of putting the files in: true when they are in, else why not (the next way is tried). Throws to stop. */
+  private async uploadBy(way: UploadHow, ctx: CallCtx, tab: Tab, input: BrowserToolInput['file_upload'], paths: string[]): Promise<true | string> {
+    const n = paths.length
+    const oneFile = () => new ToolError(`That file field takes one file, and this call has ${n}. Attach one file per call (when the page offers a new field after each), or ask the user to attach the rest.`)
+    const take = async (objectId: string): Promise<true | string> => {
+      const info: any = await this.cdp(tab, 'Runtime.callFunctionOn', { objectId, functionDeclaration: 'function () { return { multiple: !!this.multiple, disabled: !!this.disabled } }', returnByValue: true })
+      const v = info?.result?.value ?? {}
+      if (v.disabled) return 'the file field is turned off on the page right now'
+      if (!v.multiple && n > 1) throw oneFile()
+      await this.cdp(tab, 'DOM.setFileInputFiles', { files: paths, objectId })
+      const back: any = await this.cdp(tab, 'Runtime.callFunctionOn', { objectId, functionDeclaration: 'function () { return this.files ? this.files.length : -1 }', returnByValue: true })
+      void this.cdp(tab, 'Runtime.releaseObject', { objectId }).catch(() => {})
+      return back?.result?.value === n ? true : 'the file field did not take the files'
+    }
+    const at = async (): Promise<{ x: number; y: number }> => {
+      if (input.ref) {
+        const c = await this.page(tab, `center(${JSON.stringify(input.ref)})`)
+        if (!c) throw new ToolError(`No element ${input.ref} on the page (it may have changed). Call read_page or find again.`)
+        await sleep(50)
+        return { x: c.x, y: c.y }
+      }
+      return { x: input.coordinate![0], y: input.coordinate![1] }
+    }
+    if (way === 'input') {
+      const has: any = await this.cdp(tab, 'Runtime.evaluate', { expression: 'Boolean(window.__claude)', returnByValue: true })
+      if (!has.result?.value) await this.cdp(tab, 'Runtime.evaluate', { expression: this.pageScript })
+      const c = input.coordinate
+      const expr = input.ref ? `window.__claude.uploadTarget(${JSON.stringify(input.ref)})` : `window.__claude.uploadTargetAt(${c![0]}, ${c![1]})`
+      const r: any = await this.cdp(tab, 'Runtime.evaluate', { expression: expr, returnByValue: false })
+      if (r.exceptionDetails || r.result?.subtype !== 'node' || !r.result.objectId) return 'no file field behind it'
+      return take(r.result.objectId)
+    }
+    const p = await at()
+    const secret = asSecret(await this.check<unknown>(tab, `point(${p.x}, ${p.y})`).catch(() => ''))
+    if (secret) await this.refusePassword(tab, secret)
+    if (way === 'chooser') {
+      await this.intercept(tab)
+      if (!tab.intercepting) return 'file pickers cannot be taken over on this page'
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const opened = new Promise<{ backendNodeId: number; mode: string } | null>((resolve) => {
+        tab.chooser = resolve
+        timer = setTimeout(() => resolve(null), CHOOSER_WAIT_MS)
+        ctx.abort.signal.addEventListener('abort', () => resolve(null), { once: true })
+      })
+      try {
+        await this.click(tab, p, 'left', 1, 0)
+        const c = await opened
+        if (!c) return 'its click opened no file picker'
+        if (c.mode === 'selectSingle' && n > 1) throw oneFile()
+        const node: any = await this.cdp(tab, 'DOM.resolveNode', { backendNodeId: c.backendNodeId })
+        if (!node?.object?.objectId) return 'the file picker\'s field was gone'
+        return take(node.object.objectId)
+      } finally {
+        clearTimeout(timer)
+        tab.chooser = undefined
+      }
+    }
+    const data = { items: [], files: paths, dragOperationsMask: 1 }
+    for (const type of ['dragEnter', 'dragOver', 'drop'] as const) await this.cdp(tab, 'Input.dispatchDragEvent', { type, x: p.x, y: p.y, data })
+    return true
   }
 
   private async resize(tab: Tab, input: BrowserToolInput['resize_window']): Promise<PaneResult> {

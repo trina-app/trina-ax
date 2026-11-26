@@ -897,6 +897,12 @@ export class AppWindow {
         onPersonActed: (view) => this.personActed(true, view),
         overlays: () => (this.findBar.open ? [this.findBar.view] : []),
         onLayout: () => this.placeFind(),
+        // file_upload's files: the team page's own session (its sign-in), at the address the page is on now
+        fetchTeam: (path, signal) => {
+          const app = this.app, origin = this.currentOrigin
+          if (!app || !origin || !path.startsWith('/api/')) return Promise.reject(new Error('no team page'))
+          return app.webContents.session.fetch(origin + path, { signal, redirect: 'error', cache: 'no-store', headers: { accept: 'application/octet-stream' } })
+        },
       },
       browserSes,
       this.o.pageScript,

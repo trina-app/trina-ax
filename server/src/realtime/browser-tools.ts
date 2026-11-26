@@ -190,6 +190,25 @@ export const PANE_TOOLS = [
       required: ["actions"],
     },
   },
+  {
+    // the engine names files; the server swaps them for single-use tickets before the desktop app sees the call
+    // (chat/browser-upload.ts; the desktop's schema: shared/src/browser-tools.ts FileUploadInput). Listed only for a
+    // window whose desktop app runs it (BROWSER_BRIDGE_VERSION 1, chat/turn.ts browserUpload)
+    name: "file_upload",
+    description:
+      'Attach team files (or files sent in this chat) to the page in the Browser pane, as if the user picked them: a web mail\'s attachment, a form\'s file field. Give ref (or coordinate) of the file field, or of the button or area that opens the file picker ("Attach", "Add file"); the files go into the field behind it, else into the picker its click opens, else they are dropped there. Never click a file picker yourself. Take a screenshot afterwards; the page\'s own button sends. At most 20 files and 100 MB in one call. Not in browser_batch.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        ...tabId,
+        ref: { type: "string", description: "The file field, or the button or area that opens the file picker (ref_N from read_page / find)." },
+        coordinate: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2, description: "(x, y) of that field, button or area in the latest screenshot, instead of ref." },
+        files: { type: "array", minItems: 1, maxItems: 20, items: { type: "string" }, description: 'Team file paths as glob or list shows them (or "team-file:<path>"), or chat:files/<name> for a file sent in this chat. In this order.' },
+        how: { type: "string", enum: ["auto", "input", "chooser", "drop"], description: "auto (default): the file field, else the picker its click opens, else a drop. Only when auto did not work." },
+      },
+      required: ["files"],
+    },
+  },
 ] as const;
 
 export type PaneToolName = (typeof PANE_TOOLS)[number]["name"];
@@ -212,6 +231,7 @@ export const TOOL_KIND: Record<string, "reads-tab" | "mutates-tab" | "no-tab-tar
   tabs_close: "mutates-tab",
   browser_batch: "no-tab-target",
   preview_start: "no-tab-target",
+  file_upload: "mutates-tab",
 };
 
 /** Every pane tool is a contract BrowserToolName (compile-time check). */

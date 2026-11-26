@@ -175,6 +175,19 @@ describe('RealtimeClient', () => {
     expect(r.reloads).toHaveLength(4)
   })
 
+  test('inside the desktop app the in-app browser version goes along (pane=), so the server offers file_upload; none: no pane', () => {
+    const sockets: FakeSocket[] = []
+    const make = (pane: () => number) => new RealtimeClient({
+      baseUrl: 'ws://team.localhost', windowId: () => 'w1234567', renewWindowId: () => 'w7654321', pane,
+      createSocket: (url, p) => { const s = new FakeSocket(url, p); sockets.push(s); return s },
+      onEvent: () => {}, onReload: () => {}, timers: new FakeTimers(), random: () => 0.5,
+    })
+    make(() => 1).start()
+    make(() => 0).start()
+    expect(sockets[0]!.url).toBe('ws://team.localhost/api/ws?windowId=w1234567&pane=1')
+    expect(sockets[1]!.url).toBe('ws://team.localhost/api/ws?windowId=w1234567')
+  })
+
   test('a resumed connection marks what the server replays (up to its hello seq) as a replay, nothing after it', () => {
     const replays: [number, boolean][] = []
     const sockets: FakeSocket[] = []

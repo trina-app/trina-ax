@@ -9,7 +9,7 @@ import type { DesktopBridge } from '@mycel/shared/desktop-bridge'
 import { keepPageFocus } from '../common/keyboard-focus'
 
 // constants come from the main process: this preload stays free of shared runtime code (zod etc.)
-const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform']; store?: boolean; workFiles?: number; workFilesWide?: number; downloads?: boolean; localApps?: number; dictation?: number; googleSignIn?: number } | null
+const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform']; store?: boolean; workFiles?: number; workFilesWide?: number; downloads?: boolean; localApps?: number; dictation?: number; googleSignIn?: number; paneVersion?: number } | null
 
 const on = (channel: string) => (cb: (payload: any) => void) => {
   const handler = (_e: IpcRendererEvent, payload: unknown) => cb(payload)
@@ -25,6 +25,8 @@ const bridge: DesktopBridge = {
   platform: info?.platform ?? 'darwin',
   store: info?.store === true,
   browser: {
+    // the in-app browser's tools since DESKTOP_BRIDGE_VERSION 1 (BROWSER_BRIDGE_VERSION: file_upload)
+    version: info?.paneVersion ?? 0,
     run: (call) => ipcRenderer.invoke('bridge:browser-run', call),
     cancel: (callId) => ipcRenderer.send('bridge:browser-cancel', String(callId)),
   },

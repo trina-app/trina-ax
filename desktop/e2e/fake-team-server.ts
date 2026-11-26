@@ -9,10 +9,12 @@
 //   attacker  http://attacker.test:19158 (= 127.0.0.1, "public"): logs every full request URL (GET /__log), for the
 //         exfiltration tests (exfil.spec.ts)
 //
+// file_upload (pane-upload.spec.ts): POST /test/upload {name, base64} keeps the bytes behind a single-use ticket, served
+// once by GET /api/browser/uploads/:ticket to the signed-in team page's session (as the real server does).
 // Test control (any team port): POST /test/call, GET /test/result, GET /test/acks, POST /test/cancel, POST /test/policy
 // {allowAll} (Me.team.browserAllowAll: the team's "members can turn on 'Allow all websites'", settings.spec.ts).
 // Ports are in component E's range (19150–19159).
-import { X509Certificate } from 'node:crypto'
+import { createHash, randomBytes, X509Certificate } from 'node:crypto'
 import { mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ServerWebSocket } from 'bun'
@@ -73,6 +75,9 @@ const team = (name: string, port: number, direct?: Team['direct']): Team => ({ n
 const TEAMS = [team('Acme', 19151), team('Beta', 19152), team('Lan', 19156, { port: 19154, announce: good.fingerprint }), team('Bad', 19157, { port: 19155, announce: good.fingerprint })]
 
 let lanControl: (t: Team, up: boolean) => Promise<void> = async () => {}
+/** file_upload tickets (any team port), single use */
+const uploads = new Map<string, { bytes: Buffer; user: string }>()
+const uploadHits: { ticket: string; session: boolean }[] = []
 const json = (v: unknown, status = 200, headers: Record<string, string> = {}) => new Response(JSON.stringify(v), { status, headers: { 'content-type': 'application/json', ...headers } })
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
@@ -203,6 +208,22 @@ async function teamFetch(t: Team, req: Request, server: { upgrade: (r: Request, 
   }
   if (p === '/test/whoami') return json({ session: sessionCookie(req), secure })
   if (p === '/test/windows') return json({ windows: [...t.sockets.keys()], last: t.lastWindow ?? null, bridged: [...t.bridged].filter((w) => t.sockets.has(w)) })
+  if (p === '/test/upload' && req.method === 'POST') {
+    const b = (await req.json()) as { name: string; base64: string; user?: string }
+    const bytes = Buffer.from(b.base64, 'base64')
+    const ticket = randomBytes(32).toString('base64url')
+    uploads.set(ticket, { bytes, user: b.user ?? 'owner' })
+    return json({ ticket, name: b.name, size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })
+  }
+  if (p.startsWith('/api/browser/uploads/')) {
+    const ticket = p.slice('/api/browser/uploads/'.length)
+    const u = uploads.get(ticket)
+    uploadHits.push({ ticket, session: !!sessionCookie(req) })
+    if (!u || !sessionCookie(req) || sessionUser(req) !== u.user) return new Response('not found', { status: 404 })
+    uploads.delete(ticket)
+    return new Response(new Uint8Array(u.bytes), { headers: { 'content-type': 'application/octet-stream', 'cache-control': 'no-store', 'content-length': String(u.bytes.length) } })
+  }
+  if (p === '/test/upload-hits') return json({ hits: uploadHits })
   if (p === '/test/call' && req.method === 'POST') {
     const b = (await req.json()) as { windowId?: string; tool: string; args?: Record<string, unknown>; callId?: string; turnId?: string; deadlineMs?: number }
     const windowId = b.windowId ?? t.lastWindow
@@ -318,6 +339,39 @@ Bun.serve({
       )
     }
     if (p === '/data.json') return json({ items: [1, 2, 3] })
+    // file fields of every kind (pane-upload.spec.ts): what the page got is read back in the page (name, size, sha256)
+    if (p === '/upload.html') {
+      return page(
+        'Upload form',
+        `<h1>메일 쓰기</h1>
+<section id="s-multi"><input type="file" id="multi" multiple aria-label="첨부 파일 여러 개"></section>
+<section id="s-hidden"><div class="bar"><button id="attach" type="button" onclick="document.getElementById('hidden').click()">파일첨부</button><input type="file" id="hidden" multiple style="display:none"></div></section>
+<section id="s-label"><label id="lab" style="display:inline-block;padding:8px;border:1px solid #888">이력서 올리기<input type="file" id="inlabel" style="opacity:0;width:1px;height:1px"></label></section>
+<section id="s-one"><input type="file" id="one" aria-label="사진 한 장"></section>
+<section id="s-drop"><div id="drop" role="region" aria-label="여기에 끌어다 놓기" style="width:320px;height:120px;border:2px dashed #888">여기에 끌어다 놓기</div></section>
+<section id="s-send"><button id="send" type="button">보내기</button><p id="sent">-</p></section>
+<script>
+window.dropped = []
+const d = document.getElementById('drop')
+d.addEventListener('dragover', (e) => e.preventDefault())
+d.addEventListener('drop', (e) => { e.preventDefault(); window.dropped = [...e.dataTransfer.files] })
+const hex = (b) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join('')
+window.filesOf = async (list) => Promise.all([...list].map(async (f) => ({ name: f.name, size: f.size, sha256: hex(await crypto.subtle.digest('SHA-256', await f.arrayBuffer())) })))
+window.changes = {}
+for (const el of document.querySelectorAll('input[type=file]')) el.addEventListener('change', () => { window.changes[el.id] = (window.changes[el.id] ?? 0) + 1 })
+// the page's own send, after the AI's call (a web mail uploads on Send)
+document.getElementById('send').addEventListener('click', async () => {
+  const fd = new FormData()
+  for (const f of document.getElementById('hidden').files) fd.append('file', f)
+  const r = await fetch('/upload-echo', { method: 'POST', body: fd })
+  document.getElementById('sent').textContent = JSON.stringify(await r.json())
+})
+</script>`,
+      )
+    }
+    if (p === '/upload-echo' && req.method === 'POST') {
+      return req.formData().then(async (fd) => json(await Promise.all(fd.getAll('file').map(async (f) => { const b = new Uint8Array(await (f as File).arrayBuffer()); return { name: (f as File).name, size: b.length, sha256: createHash('sha256').update(b).digest('hex') } }))))
+    }
     // a page that answers late: the pane while a page loads (pane-look.spec.ts)
     if (p === '/slow') return Bun.sleep(Math.min(20_000, Number(url.searchParams.get('ms')) || 3000)).then(() => page('Slow page', '<h1>Slow page</h1><p>Loaded late.</p>'))
     // an open redirect on an allowed site (exfil.spec.ts)

@@ -54,6 +54,8 @@ export const WsConnectQuery = z.object({
   windowId: z.string().min(8).max(64).regex(/^[A-Za-z0-9_-]+$/),
   epoch: z.string().max(64).optional(),
   after: z.coerce.number().int().nonnegative().optional(),
+  /** the desktop app's in-app browser version (BROWSER_BRIDGE_VERSION) when the page runs in it; absent: 0 */
+  pane: z.coerce.number().int().min(0).max(1000).optional(),
 })
 export type WsConnectQuery = z.infer<typeof WsConnectQuery>
 

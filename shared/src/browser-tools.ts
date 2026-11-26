@@ -8,7 +8,7 @@
 //                the call unchanged as browser.call { tool, args }.
 //   desktop (E): parseBrowserToolInput(tool, args) before running anything.
 import { z } from 'zod'
-import { BrowserToolName } from './api/browser'
+import { BROWSER_UPLOAD_MAX_BYTES, BROWSER_UPLOAD_MAX_FILES, BrowserToolName, BrowserUploadTicket } from './api/browser'
 
 /** Models sometimes send numeric tab ids; tab ids are strings ("tab-3"). */
 const TabId = z.union([z.string().min(1).max(100), z.number().int()]).transform(String)
@@ -100,6 +100,25 @@ export const BrowserBatchInput = z.object({
   save_to_disk: z.boolean().optional().describe('Show the screenshots of this batch to the user in the chat.'),
 })
 
+/** How file_upload puts the files into the page: auto (the file field behind the ref, else the chooser its click opens,
+ * else a drop), or one of them only. */
+export const UPLOAD_HOW = ['auto', 'input', 'chooser', 'drop'] as const
+/** One file as the desktop app gets it: the server swapped the AI's team path for a single-use ticket
+ * (docs/decisions/20261126-browser-file-upload.md); the app checks size and sha256 before the page sees the file. */
+export const UploadFile = z.object({
+  ticket: BrowserUploadTicket,
+  name: z.string().min(1).max(255),
+  size: z.number().int().min(0).max(BROWSER_UPLOAD_MAX_BYTES),
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+})
+export const FileUploadInput = z.object({
+  ...tabIdField,
+  ref: z.string().max(40).optional().describe('The file field, or the button or area that opens the file picker (ref_N from read_page / find).'),
+  coordinate: Point.optional().describe('(x, y) of that field, button or drop area in the latest screenshot, instead of ref.'),
+  how: z.enum(UPLOAD_HOW).optional(),
+  files: z.array(UploadFile).min(1).max(BROWSER_UPLOAD_MAX_FILES),
+})
+
 export interface BrowserToolSpec {
   description: string
   input: z.ZodType
@@ -186,6 +205,14 @@ export const BROWSER_TOOLS: Record<BrowserToolName, BrowserToolSpec> = {
       'Coordinates refer to the screenshot taken before this call. Cannot be nested; preview_start is not batchable, but a batch ' +
       'whose first action is navigate with a url opens the pane.',
   },
+  file_upload: {
+    kind: 'mutates-tab',
+    input: FileUploadInput,
+    description:
+      'Attach team files (or files sent in this chat) to the page: give the ref of the file field, or of the button or area ' +
+      'that opens the file picker ("Attach", "Add file"). The files are put into the page as if the user picked them; the ' +
+      "page's own button sends them. Never click a file picker yourself. Not batchable.",
+  },
 }
 
 export type BrowserToolInput = {
@@ -205,6 +232,7 @@ export type BrowserToolInput = {
   tabs_select: z.output<typeof TabsSelectInput>
   tabs_close: z.output<typeof TabsCloseInput>
   browser_batch: z.output<typeof BrowserBatchInput>
+  file_upload: z.output<typeof FileUploadInput>
 }
 
 export type ParsedBrowserCall = { [T in BrowserToolName]: { tool: T; input: BrowserToolInput[T] } }[BrowserToolName]

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-26 12:53
 - Branch: `feat/browser-file-upload`
-- Status: in progress
+- Status: done
 - Where: shared/, server/, desktop/, web/. Why: the AI drives the desktop app's own browser, where the person is
   signed in, but could not put a team file into a page's file field (see docs/REPOSITORY-RULES.md)
 - Version impact: minor: a new AI tool (file_upload) and a new desktop bridge version (BROWSER_BRIDGE_VERSION 1)
@@ -68,4 +68,14 @@ e-desktop-upload-files under Bun 1.3.12, desktop e2e desktop/e2e/pane-upload.spe
 
 ## Result
 
-(filled in at the end)
+Built as planned (docs/decisions/20261126-browser-file-upload.md). Differences:
+- A ticket is checked against the person only; the window is recorded with it but not checked at the download (the
+  desktop's main process, which fetches, does not know the page's window id). It is 256 random bits, single use and
+  ends with its call.
+- The leftovers of an earlier run are swept when the pane is made (one pane at a time), not separately at start.
+- Chooser interception goes on at the AI's first acting call on a tab and off when no call runs.
+- The tool texts name the button as "Attach" / "Add file" in English (Korean words outside the language tables fail
+  tests/unit/i18n-languages.test.ts).
+- The desktop e2e drives the WebSocket path only: the web app has no long-poll client; the server's long-poll query
+  takes `pane=` (tests/unit/b-browser-upload.test.ts).
+

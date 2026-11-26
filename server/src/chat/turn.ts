@@ -60,7 +60,7 @@ import { apiTimeContext, buildSubagentPrompt, buildTurnContext, forkNote, sinceO
 import { sessionPicturesKept, setApiVisionTurn, textTokens, turnImageCaps } from '../files/vision'
 import { sideRoomOf } from './side-room'
 import { activeProjectOf } from '../rooms/project-link'
-import { isProjectPlainName, STEP_TEXT } from '@mycel/shared'
+import { BROWSER_BRIDGE_VERSION, isProjectPlainName, STEP_TEXT } from '@mycel/shared'
 import { saveAudienceNote } from './save-audience'
 import { roomCopiesOf, roomCopyNote } from './room-copies'
 import { quotesAppOnBranch, readRooms, ROOM_NAMES_ONLY, withoutQuoteLines } from './read-rooms'
@@ -454,6 +454,9 @@ export class TurnExec {
   /** the engine this turn runs on (after routing): the skill tool cuts its result to that engine's limit */
   engineRunning: EngineId | null = null
   browser = false
+  /** the window's desktop app runs file_upload (its page said BROWSER_BRIDGE_VERSION 1 or more on /api/ws or the
+   * long-poll): the tool is listed and the prompt says how to attach; else the prompt says to update the app */
+  browserUpload = false
   /** the turn was sent from the asker's own desktop window, connected now (shared chats too; `browser` is this) */
   desktop = false
   /** the dev environment of this turn (devenv/tool.ts box_shell): off (null), or on with the chat's project (null for a
@@ -970,6 +973,7 @@ export class TurnExec {
     // pages, which everyone here then sees, so the asker is told once per place, as for a connection
     this.desktop = !this.restricted && spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
     this.browser = this.desktop
+    this.browserUpload = this.browser && rt.relay.paneVersion(spec.userId, spec.windowId) >= BROWSER_BRIDGE_VERSION
     if (this.stopReason) return
     // the dev environment (devenv/setting.ts), never in a scheduled run (nobody there answers the credential card), an
     // approved template run (its scope is fixed) or a company profile draft (web_fetch only). Any chat of a person in
@@ -1313,7 +1317,7 @@ export class TurnExec {
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone, personTimeZone: spec.timeZone,
       // a shared chat: only the asker's memories kept in this very chat (their words are in its transcript), never their
       // private ones; a guest's none (docs/decisions/20261125-auto-memory-shared-chats.md; prompt.ts promptMemories)
-      memories: this.shared ? (guestTurn ? [] : chatMemories(rt.db, spec.userId, spec.chatId).map((m) => ({ id: m.id, text: m.text, sharedChat: spec.chatId }))) : rt.memoriesForPrompt(spec.userId), autoMemory: this.autoMemoryPlace && autoMemoryOn(rt.db, spec.userId), promptTokens, project, browser: this.browser, tools: extraTools,
+      memories: this.shared ? (guestTurn ? [] : chatMemories(rt.db, spec.userId, spec.chatId).map((m) => ({ id: m.id, text: m.text, sharedChat: spec.chatId }))) : rt.memoriesForPrompt(spec.userId), autoMemory: this.autoMemoryPlace && autoMemoryOn(rt.db, spec.userId), promptTokens, project, browser: this.browser, browserUpload: this.browserUpload, tools: extraTools,
       // the web or a phone: the AI says the desktop app has the browser (prompt.ts NO_BROWSER_RULE)
       browserInDesktopApp: !this.browser && !this.restricted && (spec.clientKind === 'web' || spec.clientKind === 'mobile'),
       // a shared chat's transcript says who wrote each message (chat/shared.ts)
