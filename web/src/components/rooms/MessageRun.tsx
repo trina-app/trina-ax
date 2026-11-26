@@ -1,7 +1,7 @@
 // The look of a list of messages, shared by a room's timeline and thread (RoomMessages.tsx) and by the thread under a
 // shared chat's AI answer (components/chat/ChatThreadPanel.tsx), so both read the same (Slack's): one author's messages
 // close together are one run (lib/rooms.ts groupRuns) under one face, name and time, each message a row that lights up
-// under the pointer with its hover bar (MessageHoverBar.tsx); a date line starts each day; on phones a run's time shows
+// under the pointer with its hover bar (components/messages/MessageActions.tsx); a date line starts each day; on phones a run's time shows
 // only when it differs from the run above it.
 import clsx from 'clsx'
 import type { ReactNode } from 'react'

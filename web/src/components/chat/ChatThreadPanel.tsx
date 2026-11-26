@@ -5,7 +5,7 @@
 // the header, the answer on top as a run of the AI's (cut after the last whole block that fits, "Show more"), the
 // hairline with how many replies, and the replies in runs (one person's replies close together under one face, name
 // and time; a date line for a new day), each row with the hover bar (⋮: copy, delete) or, on a touch screen, a long
-// press. What differs from a room is only what is different: the root is the AI's answer; a reply is plain words with
+// press (the shared ones: components/messages/MessageActions.tsx); the answer on top has copy the same way and its steps. What differs from a room is only what is different: the root is the AI's answer; a reply is plain words with
 // their links and mentions (never Markdown or HTML) and has no reactions, edits or files; and replies are people's
 // only: the AI never reads them unless someone asks, and the grey line under the box says so (there is no "send to the
 // AI" button).
@@ -14,9 +14,9 @@
 // mentions.md) with the rooms' mention box (components/TokenTextarea.tsx, rooms/useMentionMenu.tsx; no "@everyone");
 // a reply shows its mentions as the rooms do (rooms/MessageText.tsx MentionedText).
 import clsx from 'clsx'
-import { ArrowUp, Copy, Loader2, Trash2 } from 'lucide-react'
+import { ArrowUp, Loader2 } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { CHAT_THREAD_REPLY_MAX, type Chat, type ChatThreadReply, type UserRef } from '@mycel/shared/api'
+import { CHAT_THREAD_REPLY_MAX, type Chat, type ChatThreadReply, type Message, type UserRef } from '@mycel/shared/api'
 import { errorText, isApiError } from '../../lib/api'
 import { lookingAt, onWindowFocus } from '../../lib/attention'
 import { useAutoGrow } from '../../lib/autoGrow'
@@ -30,16 +30,16 @@ import { takeReturned, takeReturnedMentions, threadKey, useChatThreads, type Pen
 import { toast } from '../../store/ui'
 import { useNameOf } from '../../store/people'
 import { useMe } from '../../store/session'
-import { Markdown } from '../LazyMarkdown'
+import { answerHtml, Markdown } from '../LazyMarkdown'
 import { MentionedText } from '../rooms/MessageText'
 import { useMentionMenu } from '../rooms/useMentionMenu'
 import { TokenTextarea } from '../TokenTextarea'
-import { MenuButton, useLongPress, type MenuItem } from '../rooms/MenuButton'
-import { MessageHoverBar } from '../rooms/MessageHoverBar'
+import { MessageActions, MessageActionSheet, ROOM_PRESS_SKIP, useMessagePress, type MessageAction } from '../messages/MessageActions'
+import Steps from './Steps'
 import { DayLine, messageRowClass, RunFace, RunName, RunShell, sameTimeAsAbove, timeOf, WORDS } from '../rooms/MessageRun'
 import { ThreadCountLine, ThreadHead } from '../rooms/ThreadParts'
 import { Tooltip } from '../Tooltip'
-import { ErrorNote, Skeleton, confirmDialog, useCopy } from '../ui'
+import { ErrorNote, Skeleton, confirmDialog } from '../ui'
 import { ComposerToolbar } from './ComposerToolbar'
 import { composerInset, composerRadius } from './composerBox'
 import { SharedReadOnly } from './SharedChat'
@@ -142,7 +142,7 @@ export function ChatThreadPanel({ chat, rootId, meId, onClose, onShownBranch, fo
             <>
               {!root && view?.loading !== false && <Skeleton lines={4} className="pt-2" />}
               {!!view?.error && !notFound && <ErrorNote onRetry={() => void useChatThreads.getState().load(chatId, rootId)}>{errorText(view.error, locale, t('error.network'))}</ErrorNote>}
-              {root && <ThreadAnswer text={root.content} at={root.createdAt} />}
+              {root && <ThreadAnswer root={root} />}
               {versionLine && <p role="note" className="mt-2 rounded-lg bg-subtle px-3 py-2 text-xs leading-5 text-muted" data-testid="chat-thread-version">{versionLine}</p>}
               {root && <ThreadCountLine count={count} testId="chat-thread-count" />}
               {view?.loading && root && !replies.length && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
@@ -217,10 +217,14 @@ export function answerCut(el: HTMLElement): number | null {
   return cut >= total - 4 ? null : Math.ceil(cut)
 }
 
-/** The answer the thread is under, as a run of the AI's (its face, name and time, as a room thread's root): its text
- * as the chat shows it, cut on a block's edge (answerCut) until "Show more". */
-function ThreadAnswer({ text, at }: { text: string; at: string }) {
+/** The answer the thread is under, as a run of the AI's (its face, name and time, as a room thread's root): its steps
+ * folded as the chat shows them, its text as the chat shows it, cut on a block's edge (answerCut) until "Show more".
+ * Copy (with its formatting, as the chat's) on the hover bar and in the long-press sheet (components/messages). */
+function ThreadAnswer({ root }: { root: Message }) {
+  const text = root.content, at = root.createdAt
   const t = useT()
+  const actions: MessageAction[] = text ? [{ id: 'copy', label: t('chat.copyAnswer'), copy: { text: () => text, html: () => answerHtml(text) }, menuTestId: 'chat-thread-answer-copy' }] : []
+  const press = useMessagePress(actions.length > 0)
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const [cut, setCut] = useState<number | null>(null)
@@ -239,8 +243,11 @@ function ThreadAnswer({ text, at }: { text: string; at: string }) {
     return () => { sizes.disconnect(); swaps.disconnect() }
   }, [text])
   return (
-    <div data-testid="chat-thread-answer">
+    <div className={clsx('group', press.box)} data-testid="chat-thread-answer" {...press.bind}>
+      <MessageActions layout="float" actions={actions} below />
+      <MessageActionSheet signal={press.signal} actions={actions.length ? [...actions, { id: 'selectText', label: t('messages.selectText'), run: press.selectText, menuTestId: 'message-select-text' }] : []} testId="chat-thread-answer-menu" />
       <RunShell face={<RunFace user={null} ai />} name={<RunName user={null} ai />} at={at}>
+        {root.steps.length > 0 && <div className="mb-2" data-testid="chat-thread-answer-steps"><Steps steps={root.steps} streaming={false} failed={root.status === 'error'} /></div>}
         <div ref={box} className={clsx('relative', !open && cut !== null && 'overflow-hidden')} style={!open && cut !== null ? { maxHeight: cut } : undefined} data-cut={!open && cut !== null ? '' : undefined}>
           <Markdown text={text} className={clsx('min-w-0', WORDS)} />
         </div>
@@ -291,12 +298,10 @@ function ReplyRow({ chatId, rootId, r, meId, people, readOnly }: { chatId: strin
   const t = useT()
   const mentioned = useMentioned(r.mentions, people)
   const locale = useLocale()
-  const { copy } = useCopy()
-  const [press, setPress] = useState(0)
-  const longPress = useLongPress(() => setPress((n) => n + 1))
-  const items: MenuItem[] = [
-    { label: t('common.copy'), icon: <Copy size={14} aria-hidden />, onSelect: () => void copy(r.content).then((ok) => ok && toast({ level: 'success', text: t('rooms.copied') })), testId: 'chat-thread-copy' },
-    ...(r.canDelete && !readOnly ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, testId: 'chat-thread-delete', onSelect: () => void (async () => {
+  const press = useMessagePress(true, ROOM_PRESS_SKIP)
+  const actions: MessageAction[] = [
+    { id: 'copy', label: t('common.copy'), copy: { text: () => r.content }, menuTestId: 'chat-thread-copy' },
+    ...(r.canDelete && !readOnly ? [{ id: 'delete' as const, label: t('common.delete'), danger: true, menuTestId: 'chat-thread-delete', run: () => void (async () => {
       const ok = await confirmDialog({ title: t('chat.thread.deleteTitle'), body: t('chat.thread.deleteBody'), confirm: t('common.delete'), danger: true })
       if (!ok) return
       try { await useChatThreads.getState().remove(chatId, rootId, r.id) }
@@ -304,10 +309,10 @@ function ReplyRow({ chatId, rootId, r, meId, people, readOnly }: { chatId: strin
     })() }] : []),
   ]
   return (
-    <div className={messageRowClass(false)} data-testid="chat-thread-reply" data-mine={r.author?.id === meId ? '' : undefined} {...longPress}>
+    <div className={messageRowClass(false)} data-testid="chat-thread-reply" data-mine={r.author?.id === meId ? '' : undefined} {...press.bind}>
       <p className={clsx('text-reading leading-reading break-words whitespace-pre-wrap text-ink', WORDS)} data-testid="chat-thread-reply-text"><MentionedText text={capBlankLines(r.content)} mentioned={mentioned} meId={meId} /></p>
-      <MessageHoverBar more={items} />
-      <MenuButton label={t('rooms.messageMenu')} className="absolute top-0 right-0" buttonClassName="hidden!" testId="chat-thread-reply-menu" openSignal={press} items={items} />
+      <MessageActions layout="float" actions={actions} />
+      <MessageActionSheet signal={press.signal} actions={actions} testId="chat-thread-reply-menu" />
     </div>
   )
 }

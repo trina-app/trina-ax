@@ -802,11 +802,11 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             {!history && chatId && messages.map((m, i) =>
               m.role === 'user' ? (
                 <ViewerMeta key={m.id} sender={{ kind: 'user', user: m.author ?? me.user }} at={m.createdAt}>
-                  <UserMessage m={m} chatId={chatId} busy={busy} onEdit={onEdit} onSelectBranch={onSelectBranch} sideChat pressMenu />
+                  <UserMessage m={m} chatId={chatId} busy={busy} onEdit={onEdit} onSelectBranch={onSelectBranch} sideChat />
                 </ViewerMeta>
               ) : (
                 <ViewerMeta key={m.id} sender={{ kind: 'ai' }} at={m.createdAt}>
-                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy} switchedFrom={null as EngineId | null} onRegenerate={onRegenerate} onSelectBranch={onSelectBranch} onAskOwnFolder={() => {}} shareable={shareable} sendHere={{ roomId, target: targets.get(m.id) ?? null, onView: view }} canSuggest={false} pressMenu />
+                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy} switchedFrom={null as EngineId | null} onRegenerate={onRegenerate} onSelectBranch={onSelectBranch} onAskOwnFolder={() => {}} shareable={shareable} sendHere={{ roomId, target: targets.get(m.id) ?? null, onView: view }} canSuggest={false} />
                 </ViewerMeta>
               ),
             )}

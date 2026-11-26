@@ -718,10 +718,12 @@ export function useCopy(timeout = 1500) {
 }
 
 /** `html`: also put formatted text on the clipboard (an answer: lib/richCopy.tsx), made at the click */
-export function CopyButton({ text, html, label, className, showLabel }: { text: string | (() => string); html?: () => string; label?: string; className?: string; showLabel?: boolean }) {
+/** `copiedLabel`: the words once copied (a message's copy says the shared words, components/messages/MessageActions.tsx);
+ * `testId`: the button's test id */
+export function CopyButton({ text, html, label, className, showLabel, copiedLabel, testId }: { text: string | (() => string); html?: () => string; label?: string; className?: string; showLabel?: boolean; copiedLabel?: string; testId?: string }) {
   const t = useT()
   const { copied, copy } = useCopy()
-  const l = copied ? t('common.copied') : label ?? t('common.copy')
+  const l = copied ? copiedLabel ?? t('common.copied') : label ?? t('common.copy')
   const click = () => {
     const plain = typeof text === 'function' ? text() : text
     let rich: string | undefined
@@ -730,7 +732,7 @@ export function CopyButton({ text, html, label, className, showLabel }: { text: 
     void copy(plain, rich)
   }
   const button = (
-    <button type="button" aria-label={l} onClick={click} className={clsx('inline-flex items-center justify-center gap-1 rounded-md px-1.5 py-1 text-xs text-faint transition hover:bg-hover hover:text-ink', PHONE_TARGET, 'max-md:min-w-11', className)}>
+    <button type="button" aria-label={l} onClick={click} className={clsx('inline-flex items-center justify-center gap-1 rounded-md px-1.5 py-1 text-xs text-faint transition hover:bg-hover hover:text-ink', PHONE_TARGET, 'max-md:min-w-11', className)} data-testid={testId} data-copied={copied ? '' : undefined}>
       {copied ? <Check size={13} className="text-ok" aria-hidden /> : <Copy size={13} aria-hidden />}
       {showLabel && <span>{l}</span>}
     </button>
