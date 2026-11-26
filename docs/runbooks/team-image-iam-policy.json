@@ -270,6 +270,35 @@
           "aws:ResourceTag/ax:built-by": "release-ci"
         }
       }
+    },
+    {
+      "Sid": "QcowFromCiSnapshots",
+      "Effect": "Allow",
+      "Action": [
+        "ebs:ListSnapshotBlocks",
+        "ebs:GetSnapshotBlock"
+      ],
+      "Resource": "arn:aws:ec2:ap-northeast-2::snapshot/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/ax:managed": "ami",
+          "aws:ResourceTag/ax:built-by": "release-ci"
+        }
+      }
+    },
+    {
+      "Sid": "QcowDecryptCiSnapshots",
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "arn:aws:kms:ap-northeast-2:<ACCOUNT_ID>:key/*",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": [
+            "ebs.ap-northeast-2.amazonaws.com",
+            "ec2.ap-northeast-2.amazonaws.com"
+          ]
+        }
+      }
     }
   ]
 }

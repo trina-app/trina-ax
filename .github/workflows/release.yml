@@ -16,6 +16,11 @@
 #                 Linux .deb and AppImage files and SHA256SUMS(.sig)
 #     build-ami   stable only: starts team-image.yml on the tag (the new-team server AMI); a notice when AWS is not set up
 #
+# The Windows installer ships about once a week (owner, 2026-11-26: its signing plan counts every signing; docs/RELEASE-CI.md
+# 11장): prepare decides (scripts/release/windows-cadence.ts, from the GitHub Releases; a tag message line "Windows: yes"
+# or "Windows: no" decides instead). On the other days build-windows does not run, the office feed names the last
+# Windows build again (publish.ts --keep-windows) and the GitHub Release says so in one line. Everything else ships.
+#
 # The Linux server release does not wait for the desktop builds: when build-office or build-windows fails or gets no
 # runner, publish still runs (prepare, test and build-linux must pass), the office feed stays at the previous release,
 # and the GitHub Release says which downloads are missing. "Re-run failed jobs" later adds them (docs/RELEASE-CI.md 6).
@@ -45,6 +50,12 @@ on:
         default: tag
         type: choice
         options: [tag, staged, all]
+      windows:
+        description: "The Windows installer: tag = as the tag message says (a 'Windows: yes' or 'Windows: no' line, else once a week, docs/RELEASE-CI.md 11장); yes = build it now; no = not in this release. A run again of a published tag always does what its first run did."
+        required: false
+        default: tag
+        type: choice
+        options: [tag, yes, no]
       office_only:
         description: "Only the desktop downloads (office zip + Windows installer) of a release whose Linux server release is already out: no tests, no Linux build, the server feed is not touched. For a tag whose build-office got no runner and whose run can no longer be re-run (docs/RELEASE-CI.md 6)."
         required: false
@@ -92,6 +103,8 @@ jobs:
       sha: ${{ steps.release.outputs.sha }}
       feed: ${{ steps.key.outputs.feed }}
       rollout: ${{ steps.notes.outputs.rollout }}
+      windows: ${{ steps.windows.outputs.windows }}
+      windows_last: ${{ steps.windows.outputs.windows_last }}
     steps:
       - name: Which tag
         id: which
@@ -158,6 +171,23 @@ jobs:
           fi
           bun scripts/release/release-ci.ts rollout notes/tag-message.md "$INPUT_ROLLOUT" --notes-out notes/notes.md | tee -a "$GITHUB_OUTPUT"
           wc -c notes/notes.md
+      # the Windows installer about once a week (scripts/release/windows-cadence.ts has the rule): from the GitHub
+      # Releases (which had the installer, when, signed or not) and a "Windows: yes|no" line, taken out of the notes
+      - name: Does this release ship the Windows installer
+        id: windows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.which.outputs.tag }}
+          INPUT_WINDOWS: ${{ inputs.windows }}
+          SIGNING: ${{ vars.WINDOWS_SIGNING_PROVIDER }}
+          LIMIT: ${{ vars.WINDOWS_SIGNING_MONTHLY_LIMIT }}
+        run: |
+          # 3 tries; still no answer: windows-cadence.ts leaves Windows out with a warning, the rest of the release goes on
+          for i in 1 2 3; do
+            gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json" && break
+            rm -f "$RUNNER_TEMP/releases.json"; sleep 10
+          done
+          bun scripts/release/windows-cadence.ts decide --tag "$TAG" --notes notes/notes.md --releases "$RUNNER_TEMP/releases.json" --input "$INPUT_WINDOWS" --signing "$SIGNING" --limit "$LIMIT" | tee -a "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-notes
@@ -340,23 +370,23 @@ jobs:
   build-windows:
     name: Windows installer
     needs: prepare
+    # about once a week (prepare "Does this release ship the Windows installer"): skipped on the other days
+    if: ${{ needs.prepare.outputs.windows == 'true' }}
     runs-on: windows-2025
-    # environment release: the Azure app registration trusts only this environment's OIDC token (federated credential
-    # subject ...:environment:release, docs/RELEASE-CI.md 11장). Its deployment rules (v* tags, main) apply to this job
-    # too, signed or not: a release run is always from a tag (prepare checks it). Of the secrets it reads only the two
-    # Azure ids, never the release key or the Cloudflare token.
+    # environment release: the SSL.com eSigner credentials are secrets of this environment (docs/RELEASE-CI.md 11장).
+    # Its deployment rules (v* tags, main) apply to this job too, signed or not: a release run is always from a tag
+    # (prepare checks it). Of the secrets it reads only the four SSLCOM_*, never the release key or the Cloudflare token.
     environment: release
     timeout-minutes: 45
     permissions:
       contents: read
-      id-token: write # the Azure sign-in for code signing (OIDC): no Azure password or client secret is stored
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
-      # Artifact Signing (docs/RELEASE-CI.md 11장): repository variables name the account and certificate profile.
-      # All three empty = the unsigned installer, as before (desktop/scripts/win-sign.ts).
-      MYCEL_WIN_SIGN_ENDPOINT: ${{ vars.WINDOWS_SIGNING_ENDPOINT }}
-      MYCEL_WIN_SIGN_ACCOUNT: ${{ vars.WINDOWS_SIGNING_ACCOUNT }}
-      MYCEL_WIN_SIGN_PROFILE: ${{ vars.WINDOWS_SIGNING_PROFILE }}
+      # Code signing (docs/RELEASE-CI.md 11장): the repository variable WINDOWS_SIGNING_PROVIDER switches it on
+      # (`sslcom`). Empty = the unsigned installer, as before (desktop/scripts/win-sign.ts).
+      MYCEL_WIN_SIGN_PROVIDER: ${{ vars.WINDOWS_SIGNING_PROVIDER }}
+      CODESIGNTOOL_VERSION: v1.3.2
+      CODESIGNTOOL_SHA256: f14b1e1ef14bfa1fd00279c363aab0debbf5dcfba0e4bcdce5d22bb771de0e3a
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -366,28 +396,39 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
-      - name: Artifact Signing PowerShell module (pinned)
-        if: env.MYCEL_WIN_SIGN_PROFILE != ''
-        shell: pwsh
-        # the version Azure/artifact-signing-action v2.0.0 pins; it fetches signtool and the signing dlib itself
-        run: Install-Module -Name ArtifactSigning -RequiredVersion 0.1.8 -Repository PSGallery -Scope CurrentUser -Force
-      # just before the build, so the Azure CLI session is fresh when electron-builder signs
-      - name: Azure sign-in for code signing (OIDC)
-        if: env.MYCEL_WIN_SIGN_PROFILE != ''
-        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+      - name: Java for CodeSignTool (pinned)
+        if: env.MYCEL_WIN_SIGN_PROVIDER != ''
+        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          # signing needs a token only: the app's one role is on the certificate profile, not on a subscription
-          allow-no-subscriptions: true
-      - name: NSIS installer and latest.yml (signed when the WINDOWS_SIGNING_* variables are set, else unsigned)
+          distribution: temurin
+          java-version: '17'
+      - name: SSL.com CodeSignTool (pinned, sha256 checked)
+        if: env.MYCEL_WIN_SIGN_PROVIDER != ''
+        shell: pwsh
+        # the plain zip (the jar and the production conf/); the -windows zip only adds a 200 MB JDK 11
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'codesigntool.zip'
+          Invoke-WebRequest -Uri "https://github.com/SSLcom/CodeSignTool/releases/download/$env:CODESIGNTOOL_VERSION/CodeSignTool-$env:CODESIGNTOOL_VERSION.zip" -OutFile $zip
+          $sum = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
+          if ($sum -ne $env:CODESIGNTOOL_SHA256) { throw "CodeSignTool zip sha256 $sum, expected $env:CODESIGNTOOL_SHA256" }
+          $dir = Join-Path $env:RUNNER_TEMP 'codesigntool'
+          Expand-Archive -LiteralPath $zip -DestinationPath $dir -Force
+          "MYCEL_WIN_SIGN_TOOL=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: NSIS installer and latest.yml (signed when WINDOWS_SIGNING_PROVIDER is set, else unsigned)
+        # the credentials reach this step only when signing is switched on; an unsigned build gets empty values
+        env:
+          MYCEL_SSLCOM_USERNAME: ${{ vars.WINDOWS_SIGNING_PROVIDER != '' && secrets.SSLCOM_USERNAME || '' }}
+          MYCEL_SSLCOM_PASSWORD: ${{ vars.WINDOWS_SIGNING_PROVIDER != '' && secrets.SSLCOM_PASSWORD || '' }}
+          MYCEL_SSLCOM_CREDENTIAL_ID: ${{ vars.WINDOWS_SIGNING_PROVIDER != '' && secrets.SSLCOM_CREDENTIAL_ID || '' }}
+          MYCEL_SSLCOM_TOTP_SECRET: ${{ vars.WINDOWS_SIGNING_PROVIDER != '' && secrets.SSLCOM_TOTP_SECRET || '' }}
         run: |
           bun run --cwd desktop dist:win -- "-c.extraMetadata.version=$VERSION"
           ls -l desktop/release
           bun scripts/plugins/release-check.ts desktop/dist
           tr -d '\r' < desktop/release/latest.yml | grep -qx "version: $VERSION"
       - name: The installer and the app carry a valid signature
-        if: env.MYCEL_WIN_SIGN_PROFILE != ''
+        if: env.MYCEL_WIN_SIGN_PROVIDER != ''
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -472,6 +513,8 @@ jobs:
       ROLLOUT: ${{ needs.prepare.outputs.rollout }}
       OFFICE_OK: ${{ needs.build-office.result == 'success' }}
       WINDOWS_OK: ${{ needs.build-windows.result == 'success' }}
+      # false: this release has no Windows build by design (the office feed keeps the last one: --keep-windows)
+      WINDOWS_PLANNED: ${{ needs.prepare.outputs.windows }}
       MAC_OK: ${{ needs.build-mac-app.result == 'success' }}
       LINUX_DESKTOP_OK: ${{ needs.build-linux-desktop.result == 'success' }}
     outputs:
@@ -521,7 +564,9 @@ jobs:
           fi
           echo "linux_desktop=$LINUX_DESKTOP_OK" >> "$GITHUB_OUTPUT"
           if [ "$OFFICE_OK" = true ]; then ls -l in/release-office; else echo "::warning::build-office did not pass: no office zip in this release"; fi
-          if [ "$WINDOWS_OK" = true ]; then ls -l in/release-windows; else echo "::warning::build-windows did not pass: no Windows installer in this release"; fi
+          if [ "$WINDOWS_OK" = true ]; then ls -l in/release-windows
+          elif [ "$WINDOWS_PLANNED" != true ]; then echo "No Windows build in this release (weekly): the office feed keeps the last one"
+          else echo "::warning::build-windows did not pass: no Windows installer in this release"; fi
           if [ "$MAC_OK" = true ]; then ls -l in/release-mac; else echo "::warning::build-mac-app did not pass: no Mac app in this release"; fi
           if [ "$LINUX_DESKTOP_OK" = true ]; then ls -l in/release-linux-desktop; else echo "::warning::build-linux-desktop did not pass: no Linux desktop app in this release"; fi
       # office_only: the Linux files the release already has (its GitHub Release), checked against the release's signed
@@ -532,7 +577,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "$OFFICE_OK" != true ] || [ "$WINDOWS_OK" != true ]; then echo "::error::office_only needs both desktop builds (build-office $OFFICE_OK, build-windows $WINDOWS_OK)"; exit 1; fi
+          if [ "$OFFICE_OK" != true ] || { [ "$WINDOWS_PLANNED" = true ] && [ "$WINDOWS_OK" != true ]; }; then echo "::error::office_only needs both desktop builds (build-office $OFFICE_OK, build-windows $WINDOWS_OK)"; exit 1; fi
           mkdir -p published build/server
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.tar.gz' --pattern 'SHA256SUMS' --pattern 'SHA256SUMS.sig' --dir published
           bun scripts/release/release-ci.ts verify-sums published/SHA256SUMS
@@ -559,24 +604,25 @@ jobs:
             mv "build/linux-$a/"*.tar.zst "build/linux-$a/"*.tar.gz build/server/
           done
           ls -l build/server
+      # without a Windows build this release (weekly), --keep-windows names the channel head's Windows app again
       - name: Office feed (zip + Windows installer)
-        if: needs.prepare.outputs.feed == 'true' && needs.build-office.result == 'success' && needs.build-windows.result == 'success'
+        if: needs.prepare.outputs.feed == 'true' && needs.build-office.result == 'success' && (needs.build-windows.result == 'success' || needs.prepare.outputs.windows != 'true')
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           zip=$(ls in/release-office/*-mac.zip)
-          exe=$(ls in/release-windows/*-Setup-*-win-x64.exe)
+          if [ "$WINDOWS_PLANNED" = true ]; then win=(--windows "$(ls in/release-windows/*-Setup-*-win-x64.exe)"); else win=(--keep-windows); fi
           mac=()
           if [ "$MAC_OK" = true ]; then mac=(--mac "$(ls in/release-mac/*-mac-universal.dmg)"); fi
           linux=()
           if [ "${{ steps.desktop.outputs.linux_desktop }}" = true ]; then linux=(--linux in/release-linux-desktop); fi
-          bun scripts/release/publish.ts --channel "$CHANNEL" --version "$VERSION" --office "$zip" --windows "$exe" "${mac[@]}" "${linux[@]}" --notes-file in/release-notes/notes.md --rollout "$ROLLOUT"
+          bun scripts/release/publish.ts --channel "$CHANNEL" --version "$VERSION" --office "$zip" "${win[@]}" "${mac[@]}" "${linux[@]}" --notes-file in/release-notes/notes.md --rollout "$ROLLOUT"
           # a stable release is also the beta channel's newest, unless beta is already ahead (the beta channel has no ramp)
           if [ "$CHANNEL" = stable ]; then
-            bun scripts/release/publish.ts --channel beta --if-newer --version "$VERSION" --office "$zip" --windows "$exe" "${mac[@]}" "${linux[@]}" --notes-file in/release-notes/notes.md --rollout "$ROLLOUT"
+            bun scripts/release/publish.ts --channel beta --if-newer --version "$VERSION" --office "$zip" "${win[@]}" "${mac[@]}" "${linux[@]}" --notes-file in/release-notes/notes.md --rollout "$ROLLOUT"
           fi
       - name: Office feed not changed
-        if: needs.prepare.outputs.feed == 'true' && !(needs.build-office.result == 'success' && needs.build-windows.result == 'success')
+        if: needs.prepare.outputs.feed == 'true' && !(needs.build-office.result == 'success' && (needs.build-windows.result == 'success' || needs.prepare.outputs.windows != 'true'))
         run: echo "::warning::office and Windows were not published to the update feed (build-office $OFFICE_OK, build-windows $WINDOWS_OK); the office feed keeps the previous release"
       - name: Server feed (Linux)
         if: needs.prepare.outputs.feed == 'true' && !inputs.office_only
@@ -647,6 +693,8 @@ jobs:
       PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
       OFFICE_OK: ${{ needs.publish.outputs.office }}
       WINDOWS_OK: ${{ needs.publish.outputs.windows }}
+      WINDOWS_PLANNED: ${{ needs.prepare.outputs.windows }}
+      WINDOWS_LAST: ${{ needs.prepare.outputs.windows_last }}
       MAC_OK: ${{ needs.publish.outputs.mac }}
       LINUX_DESKTOP_OK: ${{ needs.publish.outputs.linux_desktop }}
       GH_TOKEN: ${{ github.token }}
@@ -666,7 +714,7 @@ jobs:
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             gh release upload "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --clobber
             # every download is there now: the first run's "not in this release yet" line goes
-            if [ "$OFFICE_OK" = true ] && [ "$WINDOWS_OK" = true ] && [ "$MAC_OK" = true ] && [ "$LINUX_DESKTOP_OK" = true ]; then
+            if [ "$OFFICE_OK" = true ] && { [ "$WINDOWS_OK" = true ] || [ "$WINDOWS_PLANNED" != true ]; } && [ "$MAC_OK" = true ] && [ "$LINUX_DESKTOP_OK" = true ]; then
               gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > notes/old.md
               if head -1 notes/old.md | grep -q '^\*\*Downloads not in this release yet:\*\*'; then
                 tail -n +3 notes/old.md > notes/new.md
@@ -677,15 +725,25 @@ jobs:
           fi
           missing=()
           if [ "$OFFICE_OK" != true ]; then missing+=("Mac (office zip)"); fi
-          if [ "$WINDOWS_OK" != true ]; then missing+=("Windows (installer)"); fi
+          if [ "$WINDOWS_OK" != true ] && [ "$WINDOWS_PLANNED" = true ]; then missing+=("Windows (installer)"); fi
           if [ "$MAC_OK" != true ]; then missing+=("Mac (app)"); fi
           if [ "$LINUX_DESKTOP_OK" != true ]; then missing+=("Linux (desktop app)"); fi
           flags=(--verify-tag --title "$TAG")
+          # no notes in the tag message: GitHub's generated notes (after the lines below)
+          generate=false
+          if [ ! -s notes/notes.md ]; then generate=true; fi
+          # a release without a Windows build by design (weekly) says which release's installer Windows keeps; a run again
+          # of the tag reads this line (scripts/release/windows-cadence.ts SKIP_LINE_START) and skips Windows again
+          if [ "$WINDOWS_PLANNED" != true ]; then
+            winline="**Windows:** no new Windows installer in this release (it is published about once a week)${WINDOWS_LAST:+; the current Windows installer is the one of $WINDOWS_LAST}."
+            { echo "$winline"; echo; cat notes/notes.md; } > notes/windows.md
+            mv notes/windows.md notes/notes.md
+          fi
           if [ ${#missing[@]} -gt 0 ]; then
             line="**Downloads not in this release yet:** $(IFS=,; echo "${missing[*]}" | sed 's/,/, /g'). Their build did not finish; the Linux server release is complete."
             { echo "$line"; echo; cat notes/notes.md; } > notes/body.md
             flags+=(--notes-file notes/body.md)
-            if [ ! -s notes/notes.md ]; then flags+=(--generate-notes); fi
-          elif [ -s notes/notes.md ]; then flags+=(--notes-file notes/notes.md); else flags+=(--generate-notes); fi
+          elif [ -s notes/notes.md ]; then flags+=(--notes-file notes/notes.md); fi
+          if [ "$generate" = true ]; then flags+=(--generate-notes); fi
           if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); else flags+=(--latest); fi
           gh release create "$TAG" assets/* --repo "$GITHUB_REPOSITORY" "${flags[@]}"

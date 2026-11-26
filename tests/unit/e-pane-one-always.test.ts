@@ -121,13 +121,15 @@ describe('PendingAlways: an Always rides one result, only for who pressed it', (
   })
 })
 
-describe('the app\'s own Always keeps the host with its port too', () => {
-  test('a saved naver.com:8443 answer holds on this computer even where the server keeps nothing', () => {
+describe('the app\'s own Always is one saved entry', () => {
+  test('a port keeps host:port only; a host without a port keeps its site only, which covers its subdomains', () => {
     const p = new SitePermissions()
-    // as pane.grant does for an Always on a public site: the host with its port, and the named site
+    // as pane.grant does for an Always on a public site
     p.grant('site', 'naver.com:8443', 'always')
     p.grant('site', 'naver.com', 'always')
+    expect(p.list().always).toEqual(['naver.com', 'naver.com:8443'])
     expect(p.isAllowed('site', 'naver.com:8443')).toBe(true)
     expect(p.isAllowed('site', 'news.naver.com')).toBe(true)
+    expect(p.isAllowed('site', 'naver.com:9000')).toBe(false)
   })
 })

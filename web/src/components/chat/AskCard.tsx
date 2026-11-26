@@ -20,7 +20,7 @@ import { useFolderWords } from '../../lib/folderLabels'
 import { issueText } from '../../lib/skillIssues'
 import { useLocale, useT } from '../../i18n'
 import { useChats, type OpenRequest } from '../../store/chats'
-import { PRODUCT_NAMED_AFTER_AI, type ConfirmDetail, type SkillWritePreview } from '@mycel/shared/api'
+import { PRODUCT_NAMED_AFTER_AI, type ConfirmDetail, type Locale, type SkillWritePreview } from '@mycel/shared/api'
 import { ALL_SITES_ANSWER } from '@mycel/shared'
 import { navigateTo } from '../../lib/nav'
 import { isPhone } from '../../lib/screenHistory'
@@ -33,7 +33,7 @@ import { Markdown } from '../LazyMarkdown'
 import { destinations, foldsField, isPayload, payloadLines } from '../../lib/cardPayload'
 import { gathers, joinLock, pressPlan, type CardLike } from '../../lib/cardBatch'
 import { openTeamFile } from '../../lib/sidePanel'
-import { formatSize } from '../../lib/format'
+import { formatCardTime, formatSize } from '../../lib/format'
 
 /** a card's turn and id: where a folded detail's whole text is read (GET /api/turns/:id/requests/:requestId/details/:index) */
 type FullAt = { turnId: string; requestId: string }
@@ -715,8 +715,14 @@ const byShape = (d: ConfirmDetail): ConfirmDetail => {
   return isPayload(d.text) && payloadLines(d.text, (d.fields ?? []).map((f) => f.value)) !== null ? { ...d, folded: true } : d
 }
 
+/** A field's value as the card shows it: an ISO date or time in the person's words (lib/format.ts formatCardTime: the
+ * time written, its offset kept, QA: "2026-11-27T15:00:00" on a Calendar card), anything else as sent. A value with a
+ * mark in it stays as sent, so the highlight finds it. The exact JSON behind the card is unchanged. */
+const shownValue = (v: string, locale: Locale, marks?: string[]) => (marks?.some((m) => m && v.includes(m)) ? v : formatCardTime(v, locale) ?? v)
+
 function DetailsShown({ items: raw, plain, full }: { items: ConfirmDetail[]; plain?: boolean; full?: FullAt | null }) {
   const t = useT()
+  const locale = useLocale()
   const items = raw.map(byShape)
   if (plain)
     return (
@@ -738,7 +744,7 @@ function DetailsShown({ items: raw, plain, full }: { items: ConfirmDetail[]; pla
                         <dd className="min-w-0" data-testid="ask-detail-value"><CodeValue text={f.value} label={f.name} marks={d.marks} /></dd>
                       ) : (
                         <dd className={clsx('min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]', f.value.length > 600 && 'scroll-thin max-h-48 overflow-auto')} tabIndex={f.value.length > 600 ? 0 : undefined} data-testid="ask-detail-value">
-                          <Marked text={f.value} marks={d.marks} />
+                          <Marked text={shownValue(f.value, locale, d.marks)} marks={d.marks} />
                         </dd>
                       )}
                     </div>
@@ -793,7 +799,7 @@ function DetailsShown({ items: raw, plain, full }: { items: ConfirmDetail[]; pla
                   ) : f.code ? (
                     <span className="min-w-0 flex-1" data-testid="ask-detail-value"><CodeValue text={f.value} label={f.name} marks={d.marks} /></span>
                   ) : (
-                    <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]" data-testid="ask-detail-value"><Marked text={f.value} marks={d.marks} /></span>
+                    <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]" data-testid="ask-detail-value"><Marked text={shownValue(f.value, locale, d.marks)} marks={d.marks} /></span>
                   )}
                 </div>
               ))}

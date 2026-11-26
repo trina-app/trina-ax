@@ -147,3 +147,26 @@ export function listTime(iso: string, locale: Locale, yesterday: string): string
   if (b === 'yesterday') return yesterday
   return formatDate(iso, locale)
 }
+
+/** An ISO date or date-time a card shows as one of its values (a Calendar event's start: "2026-11-27T15:00:00"), as a
+ * person reads it in `locale`: "2026년 11월 27일 (금) 오후 3:00", "Fri, Nov 27, 2026, 3:00 PM". The time written, never
+ * converted to another zone: a call's time without an offset is in the zone the call names next to it. An offset or "Z"
+ * in the value is kept, as "UTC+9" / "UTC". Seconds show when they are not zero. Anything else, a fraction of a second or
+ * a date that does not exist included, is null: the card shows the value as sent. */
+const CARD_TIME = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?(Z|[+-]\d{2}:?\d{2})?)?$/
+export function formatCardTime(value: string, locale: Locale): string | null {
+  const m = CARD_TIME.exec(value)
+  if (!m) return null
+  const [, y, mo, d, h, mi, s, off] = m
+  const at = Date.UTC(+y!, +mo! - 1, +d!, h ? +h : 0, mi ? +mi : 0, s ? +s : 0)
+  const t = new Date(at)
+  // a day or a time that does not exist ("2026-02-30", "25:00") is not reformatted
+  if (t.getUTCFullYear() !== +y! || t.getUTCMonth() !== +mo! - 1 || t.getUTCDate() !== +d! || (h && (t.getUTCHours() !== +h || t.getUTCMinutes() !== +mi!))) return null
+  const date: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'short', day: 'numeric', weekday: 'short', timeZone: 'UTC' }
+  if (!h) return new Intl.DateTimeFormat(TAG[locale], date).format(t)
+  const text = new Intl.DateTimeFormat(TAG[locale], { ...date, hour: 'numeric', minute: '2-digit', ...(s && s !== '00' ? { second: '2-digit' } : {}) }).format(t)
+  if (!off) return text
+  if (off === 'Z') return `${text} UTC`
+  const o = /^([+-])(\d{2}):?(\d{2})$/.exec(off)!
+  return `${text} UTC${o[1]}${+o[2]!}${o[3] === '00' ? '' : `:${o[3]}`}`
+}
