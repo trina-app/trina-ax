@@ -147,6 +147,9 @@ export interface ConfirmExtra {
   pictures?: readonly PictureAlwaysKey[]
   /** a shorter wait than the turn's card timeout (no answer by then: the card ends as unanswered) */
   timeoutMs?: number
+  /** auto mode (chat/always-allow.ts autoHere), with `always`: the call's own floor check passed, so an `auto-if` kind
+   * may go without its card. Absent: such a card shows (an `auto` kind needs nothing) */
+  auto?: { floorFree: boolean }
 }
 
 /** The person behind a chat turn, as far as a tool needs them. */
@@ -168,6 +171,9 @@ export interface TurnPerson {
    * also in their own scheduled run, where no card can be raised (Rule A; docs/decisions/
    * 20261123-ask-registry-findings.md). Absent: never */
   alwaysOn?(kind: CardAlwaysKind): boolean
+  /** auto mode would approve a card of this kind for this call now (chat/always-allow.ts autoHere; the person's own
+   * Always is read first, alwaysOn): for a summary that must not say "confirmed by the user". Absent: never */
+  autoOn?(kind: CardAlwaysKind, call?: { floorFree: boolean }): boolean
   /** the person's own "Always allow" for this one picture holds in this turn (alwaysHere 'on'; their scheduled run too) */
   pictureAlwaysOn?(key: PictureAlwaysKey): boolean
   /** the person's own chat holds messages from their team chat rooms and the room card was left to this call's own

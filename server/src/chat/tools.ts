@@ -47,7 +47,7 @@ import { tr } from './i18n'
 import { CARD_LATER_TOOLS, questionsWaitInCall } from './open-questions'
 import { optionWords, threadOptionWords } from './share-words'
 import { threadLook } from './thread-look'
-import { alwaysHere, teamAllowsAlways, withAlways, withPictureAlways } from './always-allow'
+import { alwaysHere, autoHere, teamAllowsAlways, withAlways, withPictureAlways } from './always-allow'
 import { explicitPlaceAsk, explicitPlaceFor } from './explicit-place'
 import { fromAsker, othersWordsIn, sameBytesAsEvent } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
@@ -611,7 +611,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     const audience = exec.audienceNote(files === exec.files && !guest && !whoCanOpenOff(exec))
     // a changed file that a room carries as a copy sent earlier: the room keeps the old one (chat/room-copies.ts)
     const copies = exec.roomCopies(files === exec.files && !guest)
-    const note = [placed, skillNote, audience, copies].filter(Boolean).join('\n')
+    // a card auto mode approved during this call: the AI says so, never "you approved" (chat/always-allow.ts RAN_UNDER_AUTO)
+    const auto = exec.autoNote()
+    const note = [auto, placed, skillNote, audience, copies].filter(Boolean).join('\n')
     // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts), and
     // in a chat that read team chat rooms keeps of an address only its site (tools/audit-url.ts): admins read it
     const summary = exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`)
@@ -719,7 +721,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a shared chat's search or listing that left out places some of its people cannot open: how many, never which
       const left = !isError && args && typeof args === 'object' ? SEARCH_LEFT_OUT.get(args)?.count ?? 0 : 0
       const leftNote = left > 0 ? searchLeftOutNote(left) : null
-      return [lost, placed, skillNote, heldNote, rooms, fact, dataDate, scope, leftNote, audience, trashed, copies].filter(Boolean).join('\n') || undefined
+      // a card auto mode approved during this call (a save where more people see: confirmWidening)
+      const auto = exec.autoNote()
+      return [auto, lost, placed, skillNote, heldNote, rooms, fact, dataDate, scope, leftNote, audience, trashed, copies].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {
@@ -1172,7 +1176,7 @@ export function turnPerson(exec: TurnExec): TurnPerson {
       return r.value
     }
     const options = [{ label: allow, value: 'allow' }, { label: deny, value: 'deny' }]
-    const v = extra?.always ? await withAlways(exec.alwaysPlace?.(), extra.always, options, 'allow', ask)
+    const v = extra?.always ? await withAlways(exec.alwaysPlace?.(), extra.always, options, 'allow', ask, 'cardAlways', extra.auto)
       : extra?.pictures?.length ? await withPictureAlways(exec.alwaysPlace?.(), extra.pictures, options, 'allow', ask)
       : await ask(options, {})
     return v === 'allow' ? 'yes' : missing ?? 'declined'
@@ -1191,6 +1195,7 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // the person's own Always for a kind of card, as alwaysHere reads it here (their own scheduled run too, Rule A; the
     // guest limit kept there): a tool that would refuse an unattended run at once reads it first
     alwaysOn: (kind) => alwaysHere(exec.alwaysPlace?.(), kind) === 'on',
+    autoOn: (kind, call) => autoHere(exec.alwaysPlace?.(), kind, call, { quiet: true }) !== null,
     pictureAlwaysOn: (key) => alwaysHere(exec.alwaysPlace?.(), key) === 'on',
     // "Allow all websites" (tools/url-gate.ts ①d), the switch of this turn's own person: asked from their app with the
     // steps shown as they run (not a scheduled run, a Slack question, a draft or a turn the server started). Rooms,
@@ -1571,7 +1576,10 @@ function moveSkillTool(exec: TurnExec): Tool {
             warn: [exec.ownCard('move_skill') ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : '', plan.lost ? changeLine(plan, L) : '', plan.editorsGained ? editorsLine(plan, L) : '', plan.shadows ? skillText('moveShadows', L, { name: plan.name, where: plan.shadows }) : '', copyCodeLine(plan, L)] }, L),
           ...(narrowHint ? { note: more.note ? `${narrowHint}\n${more.note}`.slice(0, 300) : narrowHint } : {}),
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
-        } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))
+        } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }),
+        // auto mode (plan section 4, `skill.move` / `skill.copy` auto-if): the person's own skills only, from and to their
+        // personal level, where nobody gains, loses or may newly change it (any other level asks: floor 8)
+        'cardAlways', { floorFree: plan.from.level === 'personal' && plan.to.level === 'personal' && !plan.lost && !plan.gained && !plan.editorsGained })
       const yesValue = copy ? 'copy' : 'move'
       const yes = answer === yesValue || (Array.isArray(answer) && answer.length === 1 && answer[0] === yesValue)
       if (!yes) {
