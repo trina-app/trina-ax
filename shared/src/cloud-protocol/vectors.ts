@@ -211,7 +211,7 @@ function ownerClaimVectors(k: ReturnType<typeof seedKey>) {
     const sig = k.sign(string)
     return { path, ts: T, nonce, body, bodySha256: bodySha, string, sig, authorization: driveBrokerAuthorization(k.publicKey, T, nonce, sig) }
   }
-  const owner = { email: 'owner@example.com', name: 'Alex Kim', locale: 'en', timeZone: 'Asia/Seoul', google: null }
+  const owner = { teamName: 'Acme', email: 'owner@example.com', name: 'Alex Kim', locale: 'en', timeZone: 'Asia/Seoul', google: null }
   const state = Buffer.alloc(32, 7).toString('base64url'), challenge = Buffer.alloc(32, 9).toString('base64url')
   return {
     claim, claimSha256: sha256Hex(claim),
@@ -232,6 +232,7 @@ function ownerClaimVectors(k: ReturnType<typeof seedKey>) {
       invalid: [
         { raw: { ...owner, email: 'not-an-address' }, why: 'e-mail' },
         { raw: { ...owner, name: '' }, why: 'empty name' },
+        { raw: { ...owner, teamName: 'Acme\u200B' }, why: 'team name rule' },
         { raw: { ...owner, name: 'Alex\nKim' }, why: 'a control character' },
         { raw: { ...owner, google: { sub: 'x y', email: 'owner@example.com', hd: null } }, why: 'Google sub' },
         { raw: { ...owner, password: 'x' }, why: 'unknown key' },

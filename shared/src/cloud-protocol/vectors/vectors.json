@@ -1303,6 +1303,7 @@
   "owner": {
    "valid": [
     {
+     "teamName": "Acme",
      "email": "owner@example.com",
      "name": "Alex Kim",
      "locale": "en",
@@ -1310,6 +1311,7 @@
      "google": null
     },
     {
+     "teamName": "Acme",
      "email": "owner@example.com",
      "name": "Alex Kim",
      "locale": "ko",
@@ -1324,6 +1326,7 @@
    "invalid": [
     {
      "raw": {
+      "teamName": "Acme",
       "email": "not-an-address",
       "name": "Alex Kim",
       "locale": "en",
@@ -1334,6 +1337,7 @@
     },
     {
      "raw": {
+      "teamName": "Acme",
       "email": "owner@example.com",
       "name": "",
       "locale": "en",
@@ -1344,6 +1348,18 @@
     },
     {
      "raw": {
+      "teamName": "Acme​",
+      "email": "owner@example.com",
+      "name": "Alex Kim",
+      "locale": "en",
+      "timeZone": "Asia/Seoul",
+      "google": null
+     },
+     "why": "team name rule"
+    },
+    {
+     "raw": {
+      "teamName": "Acme",
       "email": "owner@example.com",
       "name": "Alex\nKim",
       "locale": "en",
@@ -1354,6 +1370,7 @@
     },
     {
      "raw": {
+      "teamName": "Acme",
       "email": "owner@example.com",
       "name": "Alex Kim",
       "locale": "en",
@@ -1368,6 +1385,7 @@
     },
     {
      "raw": {
+      "teamName": "Acme",
       "email": "owner@example.com",
       "name": "Alex Kim",
       "locale": "en",

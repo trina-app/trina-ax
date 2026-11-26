@@ -1,6 +1,6 @@
 // A team made from the desktop app (docs/decisions/20261126-desktop-create-team.md). MIT (see LICENSE in this folder).
 //
-// Erasable TypeScript, imports only ./drive-broker.ts: the team server, the desktop app and the control plane (Bun)
+// Erasable TypeScript, imports only ./drive-broker.ts and ./team-name.ts: the team server, the desktop app and the control plane (Bun)
 // load this file as it is. Callers compute sha256 and signatures themselves (node:crypto, WebCrypto).
 //
 // Two contracts, one flow:
@@ -22,7 +22,8 @@
 //    OWNER_CLAIM_TTL_MS, and a new claim revokes the older unconfirmed ones. The app's window loads the address; the
 //    page takes the claim out of the fragment and sends it to its own team server
 //    (`POST /api/setup/console[/preview]`), which asks the control plane:
-//    - `POST OWNER_CLAIM_RESERVE_PATH {v:1, claim}` → `OwnerClaimOwner` (who the owner is). Repeatable until confirmed.
+//    - `POST OWNER_CLAIM_RESERVE_PATH {v:1, claim}` → `OwnerClaimOwner` (the team's name and who the owner is).
+//      Repeatable until confirmed.
 //    - after the owner account is made: `POST OWNER_CLAIM_CONFIRM_PATH {v:1, claim}` → `{ok: true, spent}`. Spends the
 //      claim (one UPDATE). Repeatable by the same team: a second confirm answers `spent: false`, so a retry after a
 //      lost answer is harmless.
@@ -33,6 +34,7 @@
 // A control plane without these paths answers 404: the team server turns that into `unsupported` for the page, and
 // the app falls back to the old setup link (`AppOwnerClaimAnswer.setupUrl`).
 import { DRIVE_BROKER_MAX_BODY_BYTES, driveBrokerSigningString } from './drive-broker.ts'
+import { teamNameProblem } from './team-name.ts'
 
 // ---------------------------------------------------------------- A. app ↔ console
 
@@ -322,7 +324,10 @@ export interface OwnerClaimRequest { v: 1; claim: string }
  * team server then makes the owner with that Google account (the `sub` of the hosting service's Google client, the
  * same one its Google sign-in broker uses) and no password. */
 export interface OwnerClaimOwner {
+  /** the team's name as the person typed it in the app (`teams.display_name`, team-name.ts's rule) */
+  teamName: string
   email: string
+  /** the account's name, or, without one, the e-mail's part before @ (the owner changes it later) */
   name: string
   /** the app's language at create (`ko`, `en`, ...) */
   locale: string
@@ -358,7 +363,8 @@ const EMAIL = /^[^\s@\p{Cc}]{1,64}@[^\s@\p{Cc}]{1,255}$/u
 /** the reserve answer, strictly: the team server makes an account from it */
 export function parseOwnerClaimOwner(raw: unknown): OwnerClaimOwner | null {
   const o = plain(raw)
-  if (!o || !exactly(o, ['email', 'name', 'locale', 'timeZone', 'google'])) return null
+  if (!o || !exactly(o, ['teamName', 'email', 'name', 'locale', 'timeZone', 'google'])) return null
+  if (teamNameProblem(o.teamName) !== null) return null
   if (typeof o.email !== 'string' || o.email.length > 254 || !EMAIL.test(o.email)) return null
   if (typeof o.name !== 'string' || o.name.trim() === '' || [...o.name].length > 100 || /\p{Cc}/u.test(o.name)) return null
   if (typeof o.locale !== 'string' || !LOCALE.test(o.locale)) return null
@@ -370,7 +376,7 @@ export function parseOwnerClaimOwner(raw: unknown): OwnerClaimOwner | null {
     if (typeof g.email !== 'string' || !EMAIL.test(g.email) || (g.hd !== null && (typeof g.hd !== 'string' || !/^[a-z0-9.-]{1,253}$/i.test(g.hd)))) return null
     google = { sub: g.sub, email: g.email, hd: g.hd as string | null }
   }
-  return { email: o.email, name: o.name, locale: o.locale, timeZone: o.timeZone as string | null, google }
+  return { teamName: o.teamName as string, email: o.email, name: o.name, locale: o.locale, timeZone: o.timeZone as string | null, google }
 }
 
 export function parseOwnerClaimConfirmAnswer(raw: unknown): OwnerClaimConfirmAnswer | null {
