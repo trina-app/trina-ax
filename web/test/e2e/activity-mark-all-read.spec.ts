@@ -1,9 +1,10 @@
-// Activity's "Mark all as read" (web/src/pages/Activity.tsx, QA TC-457) at 1440 and 390 wide: a quiet button at the end
-// of the tools row while the open tab has something unread; one click reads that tab (POST /api/notifications/read)
+// Activity's "Mark all as read" (QA TC-457). At 390 wide, the page (web/src/pages/Activity.tsx): a quiet button at the
+// end of the tools row while the open tab has something unread. At 1440, 활동's list beside the rail
+// (panels/ActivityPanel.tsx), the one Activity: the button in its header under the chip picked; one click reads that tab (POST /api/notifications/read)
 // and only that tab, its dot goes, the button goes; the row of tools never scrolls the page sideways. With SHOTS=1 it
 // saves each step, light and dark, into $SHOTS_DIR (default test-results/activity-mark-all-read).
 import { expect, test, type Page } from '@playwright/test'
-import { reset, signIn } from './helpers'
+import { navRail, reset, signIn } from './helpers'
 
 const id = (n: number) => `019a5f00-0000-7000-8000-${String(n).padStart(12, '0')}`
 const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString()
@@ -39,7 +40,8 @@ async function routeInbox(page: Page) {
   return sent
 }
 
-const SIZES = [['1440', { width: 1440, height: 900 }, false], ['390', { width: 390, height: 844 }, true]] as const
+// the page with its tabs is a phone's (a computer has 활동's list beside the rail: the test after this loop)
+const SIZES = [['390', { width: 390, height: 844 }, true]] as const
 const dir = process.env.SHOTS_DIR ?? 'test-results/activity-mark-all-read'
 
 for (const [name, viewport, mobile] of SIZES) {
@@ -69,8 +71,7 @@ for (const [name, viewport, mobile] of SIZES) {
     await button.click()
     await expect(page.getByTestId('activity-tab-threads-unread')).toHaveCount(0)
     await expect(button).toHaveCount(0)
-    // a computer: Threads is 대화's 멘션·스레드 now (/activity?in=chats, nav rail P3), so the rooms' notices only
-    expect(sent).toEqual([mobile ? { tab: 'threads' } : { tab: 'threads', only: 'rooms' }])
+    expect(sent).toEqual([{ tab: 'threads' }])
     // the other tabs keep theirs: Mentions still has two unread, All its button
     await expect(page.getByTestId('activity-tab-mentions-unread')).toHaveCount(1)
     await page.getByTestId('activity-tab-all').click()
@@ -85,7 +86,7 @@ for (const [name, viewport, mobile] of SIZES) {
     await button.click()
     await expect(page.locator('[data-testid="notification-room-row"][data-unread]')).toHaveCount(0)
     await expect(button).toHaveCount(0)
-    expect(sent).toEqual(mobile ? [{ tab: 'threads' }, { tab: 'all' }] : [{ tab: 'threads', only: 'rooms' }, { tab: 'all', only: 'rooms' }])
+    expect(sent).toEqual([{ tab: 'threads' }, { tab: 'all' }])
     if (process.env.SHOTS) for (const scheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme: scheme })
       // the tabs' colours move with a transition: let it end before the picture
@@ -97,3 +98,39 @@ for (const [name, viewport, mobile] of SIZES) {
     await ctx.close()
   })
 }
+
+test('1440 wide, 활동\'s list: "Mark all as read" reads the chip\'s tab only, then 전체 the rest; light and dark', async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'ko-KR' })
+  const page = await ctx.newPage()
+  await reset(page)
+  await navRail(page)
+  await signIn(page)
+  const sent = await routeInbox(page)
+  await page.goto('/activity?tab=threads')
+  const panel = page.getByTestId('activity-panel')
+  const button = panel.getByTestId('activity-panel-mark-all')
+  await expect(panel.getByTestId('activity-chip-threads')).toHaveAttribute('aria-pressed', 'true')
+  await expect(panel.getByTestId('activity-panel-row')).toHaveCount(1)
+  await expect(button).toBeVisible()
+  if (process.env.SHOTS) for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme })
+    await page.waitForTimeout(300)
+    await page.screenshot({ path: `${dir}/mark-all-panel-1440-${scheme}-before.png` })
+  }
+  await page.emulateMedia({ colorScheme: 'light' })
+  await button.click()
+  await expect(button).toHaveCount(0)
+  expect(sent).toEqual([{ tab: 'threads' }])
+  await panel.getByTestId('activity-chip-all').click()
+  await expect(panel.locator('[data-testid="activity-panel-row"][data-unread]')).toHaveCount(2)
+  await button.click()
+  await expect(panel.locator('[data-testid="activity-panel-row"][data-unread]')).toHaveCount(0)
+  expect(sent).toEqual([{ tab: 'threads' }, { tab: 'all' }])
+  if (process.env.SHOTS) for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme })
+    await page.waitForTimeout(300)
+    await page.screenshot({ path: `${dir}/mark-all-panel-1440-${scheme}-after.png` })
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await ctx.close()
+})

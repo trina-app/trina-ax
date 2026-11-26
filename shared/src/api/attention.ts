@@ -75,7 +75,7 @@ export function roomCounts(r: CountedRoomFields): RoomCounts {
  * docs/decisions/20261119-room-unread-after-read.md): an @mention (in a thread I follow too), or a message of the
  * timeline in a room at 모든 메시지 (by default: DMs and group chats). Nothing from a room at 끄기 or one I hid; plain
  * unread messages in a room at 멘션만 only make the row bold, and a followed thread's reply without a mention adds to no
- * number (it is in 멘션·스레드 and under its root), as in Slack. Only such a room adds to the one count n (the tab title,
+ * number (it is in Activity's Threads and under its root), as in Slack. Only such a room adds to the one count n (the tab title,
  * the Dock, the phone icon; how much: attentionCount), so the icon never shows a number with nothing marked in the list. */
 export function roomWantsMe(r: CountedRoomFields & Pick<Room, 'mentioned'> & Partial<Pick<Room, 'hidden'>>): boolean {
   // a room I hid wants nothing of me: whatever is for me brings it back first (the server decides it)

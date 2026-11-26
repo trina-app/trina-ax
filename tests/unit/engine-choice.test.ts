@@ -171,11 +171,11 @@ describe('enforcement', () => {
     const admin = { id: 'carol', role: 'admin' }
     const dm = () => null
     const chat = { engine: 'claude-code', model: 'opus' }
-    expect(turnEngine(h.ctx, member, chat, {}, 'en', dm)).toEqual({ engine: 'claude-code', model: 'opus' })
-    expect(turnEngine(h.ctx, member, chat, { engine: 'claude-code', model: 'opus' }, 'en', dm)).toEqual({ engine: 'claude-code', model: 'opus' })
+    expect(turnEngine(h.ctx, member, chat, {}, 'en', dm)).toEqual({ engine: 'claude-code', model: 'opus', effort: null })
+    expect(turnEngine(h.ctx, member, chat, { engine: 'claude-code', model: 'opus' }, 'en', dm)).toEqual({ engine: 'claude-code', model: 'opus', effort: null })
     expect(() => turnEngine(h.ctx, member, chat, { model: null }, 'en', dm)).toThrow()
-    expect(turnEngine(h.ctx, admin, chat, { engine: 'codex' }, 'en', dm)).toEqual({ engine: 'codex', model: null })
-    expect(turnEngine(h.ctx, admin, chat, { model: 'sonnet' }, 'en', dm)).toEqual({ engine: 'claude-code', model: 'sonnet' })
+    expect(turnEngine(h.ctx, admin, chat, { engine: 'codex' }, 'en', dm)).toEqual({ engine: 'codex', model: null, effort: null })
+    expect(turnEngine(h.ctx, admin, chat, { model: 'sonnet' }, 'en', dm)).toEqual({ engine: 'claude-code', model: 'sonnet', effort: null })
     expect(() => turnEngine(h.ctx, admin, chat, { model: '--evil' }, 'en', dm)).toThrow()
   })
 })
@@ -183,13 +183,13 @@ describe('enforcement', () => {
 describe('own default engine / model', () => {
   test('only for people who may pick; null clears it; a switched-off engine falls back to the team default', () => {
     h.ctx.db.query(`UPDATE users SET prefs = '{"engine":"codex","model":"fake-2"}' WHERE id IN ('alice', 'carol')`).run()
-    expect(personalDefault(h.ctx, { id: 'alice', role: 'member' })).toEqual({ engine: 'claude-code', model: null })
-    expect(personalDefault(h.ctx, { id: 'carol', role: 'admin' })).toEqual({ engine: 'codex', model: 'fake-2' })
+    expect(personalDefault(h.ctx, { id: 'alice', role: 'member' })).toEqual({ engine: 'claude-code', model: null, effort: null })
+    expect(personalDefault(h.ctx, { id: 'carol', role: 'admin' })).toEqual({ engine: 'codex', model: 'fake-2', effort: null })
     expect(filterEnginePrefs(h.ctx, { id: 'alice', role: 'member' }, { engine: 'codex', model: 'x' })).toEqual({})
     expect(filterEnginePrefs(h.ctx, { id: 'carol', role: 'admin' }, { engine: null, model: null })).toEqual({ engine: null, model: null })
     expect(() => filterEnginePrefs(h.ctx, { id: 'carol', role: 'admin' }, { model: '-x' })).toThrow()
     h.ctx.db.query(`INSERT OR REPLACE INTO settings (key, value) VALUES ('engines.enabled', '{"claude-code":true,"codex":false}')`).run()
-    expect(personalDefault(h.ctx, { id: 'carol', role: 'admin' })).toEqual({ engine: 'claude-code', model: null })
+    expect(personalDefault(h.ctx, { id: 'carol', role: 'admin' })).toEqual({ engine: 'claude-code', model: null, effort: null })
     h.ctx.db.query(`INSERT OR REPLACE INTO settings (key, value) VALUES ('engines.enabled', '{"claude-code":true,"codex":true}')`).run()
     h.ctx.db.query(`UPDATE users SET prefs = '{}' WHERE id IN ('alice', 'carol')`).run()
   })

@@ -90,8 +90,8 @@ describe('every surface that sums', () => {
   })
   test('the 대화 count on the rail and the phone tab bar', () => {
     expect(unreadRooms(rooms)).toBe(1)
-    expect(chatsMark([quietChannel(), muted()], 0)).toBeNull()
-    expect(chatsMark([quietChannel({ mentioned: true })], 0)).toEqual({ kind: 'count', n: 1 })
+    expect(chatsMark([quietChannel(), muted()])).toBeNull()
+    expect(chatsMark([quietChannel({ mentioned: true })])).toEqual({ kind: 'count', n: 1 })
   })
   test("a folder's pill and its bold name", () => {
     expect(roomFolderPill([quietChannel(), quietChannel()])).toBeNull()

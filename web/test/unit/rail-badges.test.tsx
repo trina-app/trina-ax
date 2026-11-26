@@ -27,17 +27,16 @@ describe('marks', () => {
     expect(aiMark({ chats: 1, chatAsk: false })).toEqual({ kind: 'dot' })
   })
 
-  test('대화: conversations with something unread (not messages), muted and hidden left out; a dot for mention rows only', () => {
+  test('대화: conversations with something unread (not messages), muted and hidden left out; no dot for notices', () => {
     // the second, a channel at its default (mentions only) with plain messages, is only bold: not counted; nor is the
-    // third, read to its end with a followed thread's new replies (they are in 멘션·스레드: QA TC-5363)
+    // third, read to its end with a followed thread's new replies (they are notices in 활동: QA TC-5363)
     const rooms = [room({ kind: 'group', unreadCount: 12 }), room({ unreadCount: 7 }), room({ unreadCount: 0, threadsUnread: 2 }), room({ unreadCount: 4, muted: true }), room({ unreadCount: 3, hidden: true }), room()]
     expect(unreadRooms(rooms)).toBe(1)
-    expect(chatsMark(rooms, 5)).toEqual({ kind: 'count', n: 1 })
+    expect(chatsMark(rooms)).toEqual({ kind: 'count', n: 1 })
     // a hidden room does not mark the rail (it shows nowhere)
-    expect(chatsMark([room({ unreadCount: 1, hidden: true })], 0)).toBeNull()
-    // a mention row unread in Activity, its room read meanwhile: still a mark on 대화
-    expect(chatsMark([room()], 1)).toEqual({ kind: 'dot' })
-    expect(chatsMark([room()], 0)).toBeNull()
+    expect(chatsMark([room({ unreadCount: 1, hidden: true })])).toBeNull()
+    // a mention row unread in Activity, its room read meanwhile: 활동 counts it, 대화 does not (one Activity)
+    expect(chatsMark([room()])).toBeNull()
   })
 
   test('프로젝트: projects with an unread mention of me or unread messages I did not mute (projects, not messages)', () => {
@@ -105,7 +104,7 @@ describe('Rail', () => {
   })
   afterEach(() => {
     useRooms.setState(roomsBefore, true)
-    useInbox.setState({ unread: 0, rooms: 0 })
+    useInbox.setState({ unread: 0 })
   })
 
   const draw = async (role: 'owner' | 'member', path: string) => {
@@ -135,7 +134,7 @@ describe('Rail', () => {
     }
   })
 
-  test('five places in the phone tabs\' order, each with its name; the page\'s place lit; 대화 and 활동 counted once each', async () => {
+  test('five places in the phone tabs\' order, each with its name; the page\'s place lit; 대화 counts rooms, 활동 every notice', async () => {
     const m = await draw('owner', '/rooms')
     try {
       // Tab stops in order: the logo, the five places, my photo
@@ -147,8 +146,8 @@ describe('Rail', () => {
       expect(m.get('rail-ai').getAttribute('aria-current')).toBeNull()
       // two conversations unread (the muted one left out), not 13 messages
       expect(m.get('rail-chats-mark').getAttribute('data-n')).toBe('2')
-      // 5 notices, 2 of them conversation rows: 3 on 활동
-      expect(m.get('rail-activity-mark').getAttribute('data-n')).toBe('3')
+      // 5 notices, 2 of them conversation rows: all 5 on 활동, the one Activity
+      expect(m.get('rail-activity-mark').getAttribute('data-n')).toBe('5')
       expect(m.container.querySelector('[data-testid="rail-files-mark"]')).toBeNull()
       expect(m.container.querySelector('[data-testid="rail-projects-mark"]')).toBeNull()
       // owners and admins: the logo opens the team menu

@@ -46,7 +46,7 @@ afterEach(() => {
   waiting.length = 0
   resetOptimistic()
   useRooms.getState().reset()
-  useInbox.setState({ unread: 0, rooms: 0, notices: 0 })
+  useInbox.setState({ unread: 0 })
   useUi.setState({ toasts: [] } as never)
 })
 afterAll(() => {
@@ -224,13 +224,13 @@ const notice = (o: Partial<InboxNotification> = {}) => InboxNotification.parse({
 })
 
 test('Activity: a notice read shows read at once with the counts one lower; a read of the rows meanwhile keeps its mark', async () => {
-  useInbox.setState({ unread: 3, rooms: 1, notices: 2 })
+  useInbox.setState({ unread: 3 })
   const item = notice()
   const shown: (string | null)[] = []
   const done = markNoticeRead(item, (readAt) => shown.push(readAt))
   expect(shown).toHaveLength(1)
   expect(shown[0]).toBeTruthy()
-  expect(useInbox.getState()).toEqual({ unread: 2, rooms: 1, notices: 1 })
+  expect(useInbox.getState()).toEqual({ unread: 2 })
   // a list read from before the tap: the row keeps the read mark on screen
   expect(keepPendingReads([item], [{ ...item, readAt: shown[0]! }])[0]!.readAt).toBe(shown[0]!)
   await tick()
@@ -245,7 +245,7 @@ test('Activity: a notice read shows read at once with the counts one lower; a re
 })
 
 test('Activity: a notice read that fails comes back unread, with the counts and one toast', async () => {
-  useInbox.setState({ unread: 3, rooms: 1, notices: 2 })
+  useInbox.setState({ unread: 3 })
   const item = notice()
   const shown: (string | null)[] = []
   const done = markNoticeRead(item, (readAt) => shown.push(readAt))
@@ -254,12 +254,12 @@ test('Activity: a notice read that fails comes back unread, with the counts and 
   const r = await done
   expect(r.ok).toBe(false)
   expect(shown.at(-1)).toBeNull()
-  expect(useInbox.getState()).toEqual({ unread: 3, rooms: 1, notices: 2 })
+  expect(useInbox.getState()).toEqual({ unread: 3 })
   expect(toasts()).toHaveLength(1)
 })
 
 test('Activity: a count read that lands while a read is on its way writes nothing; the read after does', async () => {
-  useInbox.setState({ unread: 3, rooms: 1, notices: 2 })
+  useInbox.setState({ unread: 3 })
   const item = notice()
   const done = markNoticeRead(item, () => {})
   // another place reads the count meanwhile; the server answers it from before the read
@@ -267,23 +267,23 @@ test('Activity: a count read that lands while a read is on its way writes nothin
   await tick()
   take('GET /api/notifications').answer(json({ items: [], nextCursor: null, unreadCount: 3, roomUnreadCount: 1, noticeUnreadCount: 2 }))
   await tick()
-  expect(useInbox.getState()).toEqual({ unread: 2, rooms: 1, notices: 1 })
+  expect(useInbox.getState()).toEqual({ unread: 2 })
   take(`POST /api/notifications/${item.id}/read`).answer(json({ ...item, readAt: at(3) }))
   await done
   take('GET /api/notifications').answer(json({ items: [], nextCursor: null, unreadCount: 2, roomUnreadCount: 1, noticeUnreadCount: 1 }))
   await tick()
-  expect(useInbox.getState()).toEqual({ unread: 2, rooms: 1, notices: 1 })
+  expect(useInbox.getState()).toEqual({ unread: 2 })
 })
 
 test('Activity: Mark all as read empties the count at once; a failure puts the rows back with one toast', async () => {
-  useInbox.setState({ unread: 5, rooms: 2, notices: 3 })
+  useInbox.setState({ unread: 5 })
   const shown: (string | null)[] = []
-  const done = markAllNoticesRead('all', 'notices', (readAt) => shown.push(readAt))
+  const done = markAllNoticesRead('all', (readAt) => shown.push(readAt))
   expect(shown[0]).toBeTruthy()
-  expect(useInbox.getState()).toEqual({ unread: 2, rooms: 2, notices: 0 })
+  expect(useInbox.getState()).toEqual({ unread: 0 })
   await tick()
   const sent = take('POST /api/notifications/read')
-  expect(sent.body).toEqual({ tab: 'all', only: 'notices' })
+  expect(sent.body).toEqual({ tab: 'all' })
   sent.answer(refused())
   const r = await done
   expect(r.ok).toBe(false)

@@ -43,9 +43,10 @@ export function ChatTitleMenu({ chat, title, compact, onPin, onMute, onRename, o
         ? { label: t('chat.unpin'), icon: <PinOff size={14} aria-hidden />, onSelect: onPin, testId: 'chat-unpin' }
         : { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: onPin, testId: 'chat-pin' }]
       : []),
-    // a shared chat is a conversation: "Mute this chat" / "Unmute this chat", as the row's "···" (chat/message-notices.ts;
-    // a project chat I never wrote in has no row of mine but its project's)
-    ...(chat.id && chat.shared && !chat.deletedAt && onMute
+    // a chat shared with people is a conversation: "Mute this chat" / "Unmute this chat", as the row's "···"
+    // (chat/message-notices.ts); a project's shared chat tells nothing but a mention, so it has no Mute (docs/decisions/
+    // 20261126-project-chat-mention-only.md)
+    ...(chat.id && chat.shared && !chat.projectId && !chat.deletedAt && onMute
       ? [chat.muted
         ? { label: t('chat.unmute'), icon: <Bell size={14} aria-hidden />, onSelect: onMute, testId: 'chat-unmute' }
         : { label: t('chat.mute'), icon: <BellOff size={14} aria-hidden />, onSelect: onMute, testId: 'chat-mute' }]

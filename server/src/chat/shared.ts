@@ -34,7 +34,7 @@ import { withheldFrom } from './shared-answers'
 import { mayUploadShared } from '../uploads/shared-chat'
 import { inPeopleAudience, isPeopleRow, isSharedChat, isSharedRow, peopleAudience, hiddenByMe, wasInPeopleChat } from './chat-audience'
 import { inHistory } from './history-list'
-import { unreadOf, type Unread } from './message-notices'
+import { isConversationRow, unreadOf, type Unread } from './message-notices'
 import { emptyAnswerText } from './step-record'
 import { isGuest } from '../auth/guests'
 
@@ -474,10 +474,10 @@ export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?:
     shared.people = p?.people ?? []
     shared.peopleCount = p?.count ?? 0
   }
-  // a chat shared with people, or a project's shared chat, is a conversation: my unread messages there
-  // (chat/message-notices.ts) are its row's number and an unseen mark of my own, and my mute (`unread`: everyone's, read
-  // once for a chat.updated to all its viewers)
-  const unread = o.unread ? o.unread.get(viewer) ?? null : unreadOf(rt.db, viewer, r.id)
+  // a chat shared with people is a conversation: my unread messages there (chat/message-notices.ts) are its row's number
+  // and an unseen mark of my own, and my mute (`unread`: everyone's, read once for a chat.updated to all its viewers). A
+  // project's shared chat has neither (docs/decisions/20261126-project-chat-mention-only.md): an older row there is not read
+  const unread = !isConversationRow(r) ? null : o.unread ? o.unread.get(viewer) ?? null : unreadOf(rt.db, viewer, r.id)
   const muted = !!unread?.muted
   return { ...c, title: hide(c.title), shared, ...waitsForOf(rt, viewer, r, aud, runner), ...(unread?.n ? { unseen: true as const, unreadCount: unread.n } : {}), ...(muted ? { muted: true as const } : {}) }
 }

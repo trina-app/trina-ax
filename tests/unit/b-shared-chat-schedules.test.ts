@@ -138,6 +138,18 @@ describe('a task made in a shared chat', () => {
     expect(runs.items[0]).toMatchObject({ chatId })
   })
 
+  test('its run answers with that chat\'s model and depth, as a person sending there would, not its maker\'s own default (schedules.ts)', async () => {
+    db().query("UPDATE chats SET engine = 'claude-code', model = 'sonnet', effort = 'thorough' WHERE id = ?").run(chatId)
+    db().query(`UPDATE users SET prefs = '{"engine":"claude-code","model":"haiku","effort":"quick"}' WHERE id = 'alice'`).run()
+    try {
+      expect(await runIt(taskId)).toBe(chatId)
+      expect(db().query('SELECT model, effort FROM turns WHERE schedule_id = ? ORDER BY started_at DESC LIMIT 1').get(taskId)).toEqual({ model: 'sonnet', effort: 'thorough' })
+    } finally {
+      db().query("UPDATE users SET prefs = '{}' WHERE id = 'alice'").run()
+      db().query('UPDATE chats SET model = NULL, effort = NULL WHERE id = ?').run(chatId)
+    }
+  })
+
   test('a run there is told it is in a shared chat', () => {
     expect(scheduledRunBlock('T', 'every day at 09:00', null, true)).toContain('This run is in the shared chat the task was made in')
     expect(scheduledRunBlock('T', 'every day at 09:00', null, false)).not.toContain('shared chat')

@@ -247,9 +247,9 @@ export const SPECS: Record<string, Spec> = {
       if (who !== 'memberIn' && r.text.includes(NAV_FOLDER_CANARY)) throw new Error(`${who}'s Trina list shows alice's folder`)
     } },
   createChat: { build: (c) => c.post('/api/chats', { title: 'mine' }), scope: 'self' },
-  // engine / model choice is the admin's (r5-engine-choice.test.ts): members see canChoose false and no engines
-  chatEngines: { build: (c) => c.get('/api/engines'), scope: 'self',
-    check: (r, w, who) => { if (r.status === 200 && (who === 'memberIn' || who === 'other' || who === 'memberOut') && (r.json?.canChoose !== false || r.json?.engines?.length)) throw new Error(`${who} may pick the engine by default`) } },
+  // a new team lets everyone pick the engine, model and depth (docs/decisions/20261126-model-effort-choice.md); the "off" rule is
+  // covered in r5-engine-choice.test.ts, so the matrix only checks that the route answers
+  chatEngines: { build: (c) => c.get('/api/engines'), scope: 'self' },
   getChat: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}`), scope: 'own-alice-chat' },
   getChatQueue: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/queue`), scope: 'own-alice-chat',
     check: (r, _w, who) => {

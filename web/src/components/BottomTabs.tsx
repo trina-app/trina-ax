@@ -4,10 +4,9 @@
 // lib/tabs.ts says which tab an address belongs to and which one the app opens on. A hairline above, no frame; the tab
 // on screen in ink and medium weight. Each label takes at most two lines (a long word may break), cut with "…" after
 // the second when a language's words do not fit a fifth of a narrow phone at a large text size. Each unread thing counted once (QA TC-256): on 대화 the rail's own mark
-// (rail/railBadges.ts chatsMark: how many conversations have something unread, a dot when only a mention/thread notice
-// is, the same number the computer shows), on 프로젝트 the rail's own mark (rail/useProjectsMark.ts: how many projects
-// have an unread mention of me or unread messages), on 나 the unread Inbox notices that are not about a
-// conversation (store/inbox.ts useNoticeUnread), on 트리나 the AI chats' mark (a dot, amber while a chat waits on me, else
+// (rail/railBadges.ts chatsMark: how many conversations have something unread, the same number the computer shows), on 프로젝트 the rail's own mark (rail/useProjectsMark.ts: how many projects
+// have an unread mention of me or unread messages), on 나 every unread notice (활동 is in 나: store/inbox.ts
+// useActivityUnread), on 트리나 the AI chats' mark (a dot, amber while a chat waits on me, else
 // the accent for a new answer: store/sessionMarkers.ts). Not shown inside a conversation (a room, an AI chat):
 // their message box needs the bottom. 트리나's icon is Trina's own star (TrinaStar, as the room header's ✦, the AI's
 // face in rooms and the rail's 트리나) where the product is named after its AI, in its own orange (the owner,
@@ -31,7 +30,7 @@ import { settleOpened, stackNow, switchTab } from '../lib/screenHistory'
 import { aiName, hidesTabs, tabOf, TAB_ROOT, type Tab } from '../lib/tabs'
 import { useChats } from '../store/chats'
 import { loadChatList } from '../lib/chatListLoad'
-import { useNoticeUnread, useRoomNoticeUnread } from '../store/inbox'
+import { useActivityUnread } from '../store/inbox'
 import { useAttention } from '../store/sessionMarkers'
 import { useRooms } from '../store/rooms'
 import { useMe } from '../store/session'
@@ -53,11 +52,11 @@ export function BottomTabs() {
   // 대화's mark is the rail's (one function, so the phone and the computer never show two numbers); a room I hid counts
   // nowhere (docs/DECISIONS.md "대화 숨기기": what is for me brings it back first)
   const rooms = useRooms((s) => s.rooms)
-  const roomNotices = useRoomNoticeUnread()
-  const chats = chatsMark(rooms, roomNotices)
+  const chats = chatsMark(rooms)
   // 프로젝트's mark is the rail's too (rail/useProjectsMark.ts): projects with an unread mention of me or unread messages
   const projects = useProjectsMark()
-  const inbox = useNoticeUnread()
+  // 나 holds 활동, the one Activity: every unread notice (docs/decisions/20261126-one-activity.md)
+  const inbox = useActivityUnread()
   const user = useMe()?.user.id ?? ''
   const attention = useAttention()
   // a guest: no 파일, no 프로젝트 without one, no 대화 for a guest in a project with none (components/GuestView.tsx)
@@ -95,15 +94,7 @@ export function BottomTabs() {
       )}
       {!guestHidden.has('chats') && (
       <TabLink to={TAB_ROOT.chats} active={current === 'chats'} icon={<MessageCircle size={22} aria-hidden />} label={t('tabs.chats')} testId="tab-chats" onClick={go('chats')}>
-        {chats?.kind === 'count' ? (
-          <Count n={chats.n} label={t('rail.unreadRooms', { n: chats.n })} testId="tab-chats-unread" />
-        ) : (
-          chats?.kind === 'dot' && (
-            <span className="absolute -top-0.5 left-1/2 ml-2.5 size-2.5 rounded-full bg-accent ring-2 ring-canvas" data-testid="tab-chats-unread" data-mark="dot">
-              <span className="sr-only">{t('feed.chatsUnread')}</span>
-            </span>
-          )
-        )}
+        {chats?.kind === 'count' && <Count n={chats.n} label={t('rail.unreadRooms', { n: chats.n })} testId="tab-chats-unread" />}
       </TabLink>
       )}
       {!guestHidden.has('projects') && (

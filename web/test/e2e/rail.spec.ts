@@ -64,7 +64,8 @@ test('the rail replaces the sidebar; five places in order; each has its list pan
   await openRail(page, 'chats')
   await expect(page).toHaveURL(/\/rooms$/)
   await expect(page.getByTestId('chats-panel')).toBeVisible()
-  await expect(page.getByTestId('chats-panel').getByTestId('rooms-activity')).toContainText(t['feed.chats'])
+  // no 멘션·스레드 row: those notices are 활동's, the one Activity
+  await expect(page.getByTestId('chats-panel').getByTestId('rooms-activity')).toHaveCount(0)
   await expect(page.getByTestId('trina-panel')).toHaveCount(0)
   // the panel is the list: the page beside it does not repeat it (no rooms, no AI row, no second 새 대화)
   await expect(page.getByTestId('rooms-pick')).toHaveText(t['rail.pickConversation'])
@@ -97,14 +98,17 @@ test('each place opens what was open in it; the lit place again goes to its star
   await page.getByTestId('trina-panel').getByTestId('nav-scheduled').click()
   await expect(page).toHaveURL(/\/scheduled$/)
   await openRail(page, 'chats')
-  await page.goto('/activity?in=chats')
-  // 멘션·스레드 belongs to 대화
-  await expect(page.getByTestId('rail-chats')).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByTestId('rooms-activity')).toHaveAttribute('aria-current', 'page')
   await openRail(page, 'ai')
   await expect(page).toHaveURL(/\/scheduled$/)
+  // an old 멘션·스레드 link is 활동's now, never 대화's
+  await page.goto('/activity?in=chats')
+  await expect(page).toHaveURL(/\/activity$/)
+  await expect(page.getByTestId('rail-activity')).toHaveAttribute('aria-current', 'page')
   await openRail(page, 'chats')
-  await expect(page).toHaveURL(/\/activity\?in=chats$/)
+  await expect(page).toHaveURL(/\/rooms$/)
+  await openRail(page, 'activity')
+  await expect(page).toHaveURL(/\/activity$/)
+  await openRail(page, 'chats')
   // pressed again: its start
   await page.getByTestId('rail-chats').click()
   await expect(page).toHaveURL(/\/rooms$/)
@@ -120,7 +124,7 @@ test('each place opens what was open in it; the lit place again goes to its star
   await expect(page.getByTestId('rail-ai')).toHaveAttribute('aria-current', 'page')
 })
 
-test('marks: 대화 counts conversations, 활동 the notices that are not conversations, 멘션·스레드 its own; "?" on 대화 while a room\'s AI waits', async ({ page }) => {
+test('marks: 대화 counts conversations, 활동 every notice (the one Activity); "?" on 대화 while a room\'s AI waits', async ({ page }) => {
   await routeNotices(page, 5, 2)
   await start(page, 1280)
   const now = new Date().toISOString()
@@ -135,14 +139,15 @@ test('marks: 대화 counts conversations, 활동 the notices that are not conver
   // the DM and 영업팀's mention: 마케팅팀's 12 plain messages in a channel at "Mentions only" (its default) make it bold
   // only, no number (57c35ca3a, docs/decisions/20261116-mentions-only-no-count.md); the muted room adds nothing
   await expect(page.getByTestId('rail-chats-mark')).toHaveAttribute('data-n', '2')
-  await expect(page.getByTestId('rail-activity-mark')).toHaveAttribute('data-n', '3')
+  // 5 notices, 2 of them a mention and a thread reply: 활동 counts all 5
+  await expect(page.getByTestId('rail-activity-mark')).toHaveAttribute('data-n', '5')
   await expect(page.getByTestId('rail-files-mark')).toHaveCount(0)
   // a screen reader hears the place first, then its mark in words (the number itself is hidden from it)
   const named = (first: string, then: string) => new RegExp(`^${first}\\s*, ${then}$`)
   await expect(page.getByTestId('rail-chats')).toHaveAccessibleName(named(t['tabs.chats'], t['rail.unreadRooms'].replace('{n}', '2')))
-  await expect(page.getByTestId('rail-activity')).toHaveAccessibleName(named(t['inbox.title'], t['notifications.unread'].replace('{count}', '3')))
+  await expect(page.getByTestId('rail-activity')).toHaveAccessibleName(named(t['inbox.title'], t['notifications.unread'].replace('{count}', '5')))
   await openRail(page, 'chats')
-  await expect(page.getByTestId('chats-panel').getByTestId('rooms-activity-unread')).toContainText('2')
+  await expect(page.getByTestId('chats-panel').getByTestId('rooms-activity')).toHaveCount(0)
 })
 
 for (const w of [1024, 1100] as const)
