@@ -131,6 +131,10 @@ describe('app and console', () => {
     expect(parseAppRetryTeam({ v: 1, slug: 'A' })).toBeNull()
     expect(parseAppRetryTeam({ v: 1, planId: 'pro' })).toBeNull()
     expect(parseAppRetryTeam({})).toBeNull()
+    expect(parseAppRetryTeam({ v: 2 })).toBeNull()
+    expect(parseAppRetryTeam({ v: 2, slug: 'acme-2' })).toBeNull()
+    expect(parseAppRetryTeam({ v: 1, slug: 42 })).toBeNull()
+    expect(parseAppRetryTeam({ v: 1, slug: null })).toBeNull()
   })
 
   test('create team body', () => {
