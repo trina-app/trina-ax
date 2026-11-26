@@ -663,7 +663,7 @@ export class ChatFiles {
     if (safeOpsEnabled()) fileError('conflict', 'sharedChatSafeOps', undefined, { reason: 'safe_ops' })
     const root = this.open(userId, chatId, fileId, false).root
     // a fork's copy of another chat's file is read only here: a new version would change the shared chat's file
-    if (root.chat_id !== chatId) fail('conflict', undefined, { params: { reason: 'chat_file_read_only' } })
+    if (root.chat_id !== chatId) fileError('conflict', 'chatFileReadOnly', undefined, { reason: 'chat_file_read_only' })
     return root
   }
 

@@ -1127,9 +1127,11 @@ export class TurnExec {
       } catch (e) { rt.log.warn('fork session check failed', { err: e, turn: this.id }); ok = false }
       if (!ok) { resume = false; ownSince = null }
     }
-    // (the fork's first answer is decided: a fresh one needs the copied session no more; a resumed one clears the mark
-    // when its session is kept or dropped, so a failed first try goes the same way again)
-    if (forkFirst && !resume) this.forkStarted()
+    // (the fork's first answer is decided: a fresh one needs the copied session no more, and it goes now, so no later
+    // turn resumes it without these checks (Codex first, then an edit on Claude Code; a fresh answer that fails before
+    // it keeps a session); a resumed one clears the mark when its session is kept or dropped, so a failed first try
+    // goes the same way again)
+    if (forkFirst && !resume) { if (chat.engine_session_id) this.dropSession(chat.engine_session_id); else this.forkStarted() }
     if (!resume && userMsg.parent_id === null) this.newSession()
     // outside content the instructions themselves carry (a Slack thread asked from, integrations/slack/read.ts): in
     // the read scope and marked, after a new session cleared the marks

@@ -7,7 +7,7 @@
 -- shared chat once, with checks for that person only: chat/turn.ts). messages.fork_copy: a row copied by the fork (its
 -- words do not follow later edits in the original); messages.withheld_copy: an answer hidden from the person in the
 -- original, copied as one line without content, steps or files (chat/shared-answers.ts keeps it hidden).
--- 457: 456 (model effort, #631) and 455 (auto mode) are on open PRs; 454 is the highest b on dev.
+-- 459: 455 (#586), 456 (#631, #634), 457 (#636) and 458 (#638) are on open PRs; 454 is the highest b on dev.
 -- Additive only (reader 1): an older build ignores the columns (a fork reads as a private chat others wrote in).
 ALTER TABLE chats ADD COLUMN fork_of TEXT;
 ALTER TABLE chats ADD COLUMN fork_at TEXT;

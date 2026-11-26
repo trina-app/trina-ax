@@ -30,7 +30,7 @@ export interface ChatRow {
   /** migration 298: shared with chosen people and groups (chat_audience; chat/people-share.ts); its project_id is NULL
    * and shared_at stays NULL. null: not shared that way */
   people_shared_at: string | null
-  /** migration 457: a copy of this shared chat, made by "Continue in a chat only you see" (chat/fork.ts), ending at its
+  /** migration 459: a copy of this shared chat, made by "Continue in a chat only you see" (chat/fork.ts), ending at its
    * message fork_at; fork_title its title then; fork_pending: the copy's first answer has not run yet */
   fork_of?: string | null
   fork_at?: string | null
@@ -48,7 +48,7 @@ export interface MessageRow {
   history_small_model: number
   /** why the answer was stopped for its requester (migration 435): their account deleted or switched off */
   stopped_for?: string | null
-  /** migration 457: copied into a fork (chat/fork.ts); withheld_copy: an answer hidden from the person, copied as one
+  /** migration 459: copied into a fork (chat/fork.ts); withheld_copy: an answer hidden from the person, copied as one
    * line with nothing of it */
   fork_copy?: number
   withheld_copy?: number

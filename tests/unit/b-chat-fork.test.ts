@@ -257,8 +257,21 @@ describe('the engine session', () => {
     // the answer read a place bob may not read now
     setAnswerReads(db(), chat.id, b1.id, [{ c: ['alice', 'bob'], s: [{ type: 'user', id: 'alice' }] }])
     const f = await fork('bob', chat.id)
-    expect(row(f.id).engine_session_id).not.toBeNull()
-    expect((await ask('bob', f.id, fake({ echo: 'resume' }))).done.content).toBe('resumed=false')
+    const copied = row(f.id).engine_session_id as string
+    expect(copied).not.toBeNull()
+    const copy = path.join(h.ctx.config.dataDir, 'sessions', f.id, `${copied}.jsonl`)
+    expect(fs.existsSync(copy)).toBe(true)
+    // the fresh first answer fails before it keeps a session of its own
+    const first = await ask('bob', f.id, fake({ startFail: true }))
+    expect(first.done.status).toBe('error')
+    expect(row(f.id).fork_pending).toBe(0)
+    // the copied session went with that decision: an edit of the first question (its parent is the copy's leaf) does
+    // not resume it without the checks
+    expect(fs.existsSync(copy)).toBe(false)
+    expect(row(f.id).engine_session_id).toBeNull()
+    const e = await h.api('bob').call(API.editMessage, { params: { id: f.id, messageId: first.started.userMessage!.id }, body: { content: fake({ echo: 'resume' }), clientMessageId: cm(), attachmentIds: [] } })
+    const done = await ws.bob!.next('message.done', (x) => x.data.messageId === e.assistantMessage.id, 30_000)
+    expect(done.data.message.content).toBe('resumed=false')
   })
 })
 
