@@ -18,7 +18,7 @@ contextBridge.exposeInMainWorld('mycelUi', {
     state: () => ipcRenderer.invoke('ui:welcome-state'),
     onState: on('ui:welcome-state'),
     add: (address: string, confirmed?: boolean) => ipcRenderer.invoke('ui:add-team', String(address), confirmed === true),
-    openLink: (kind: 'signup' | 'docs') => ipcRenderer.send('ui:open-link', kind === 'signup' ? 'signup' : 'docs'),
+    openLink: (kind: string) => ipcRenderer.send('ui:open-link', String(kind)),
     answerLink: (yes: boolean, host: string) => ipcRenderer.invoke('ui:link-answer', yes === true, String(host)),
     linkShown: (id: number) => ipcRenderer.send('ui:link-shown', Number(id)),
     cancelWake: () => ipcRenderer.send('ui:cancel-wake'),
@@ -27,6 +27,18 @@ contextBridge.exposeInMainWorld('mycelUi', {
     back: () => ipcRenderer.send('ui:back'),
     retry: () => ipcRenderer.send('ui:retry'),
     leftOffline: () => ipcRenderer.send('ui:offline-left'),
+  },
+  // "Create a team for free" (main/create-team.ts): the screen says which button, the main process does the rest
+  create: {
+    start: () => ipcRenderer.send('ui:create-start'),
+    signIn: () => ipcRenderer.send('ui:create-signin'),
+    google: () => ipcRenderer.send('ui:create-google'),
+    sendCode: (email: string) => ipcRenderer.send('ui:create-send-code', String(email)),
+    verify: (code: string) => ipcRenderer.send('ui:create-verify', String(code)),
+    otherEmail: () => ipcRenderer.send('ui:create-other-email'),
+    cancel: () => ipcRenderer.send('ui:create-cancel'),
+    submit: (name: string, slug: string, agreedAt: number) => ipcRenderer.send('ui:create-submit', String(name), String(slug), Number(agreedAt)),
+    act: (kind: string) => ipcRenderer.send('ui:create-act', String(kind)),
   },
   hostbar: {
     state: () => ipcRenderer.invoke('ui:hostbar-state'),

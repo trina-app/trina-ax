@@ -12,15 +12,18 @@
 // then it closes. Anything else gets 404 and does not use it up, however many there are, so a page or program on this
 // computer cannot spend it. It closes after SIGN_IN_RETURN_MS unused, and when the page closes it. It goes only to the team's https origin it was
 // opened for, and only while that is still the team the window shows (`current`), never to an address from the request.
+// The loopback checks are shared with the console's return (./loopback.ts); each has its own server and port.
 // Pure apart from node:http: unit-tested in tests/unit/e-desktop-sign-in-return.test.ts.
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import type { IncomingMessage, Server, ServerResponse } from 'node:http'
+import { closeLoopback, listenLoopback, ownPageLoad } from './loopback'
+
+export { navigation } from './loopback'
 
 export const SIGN_IN_RETURN_PATH = '/callback'
 /** the server's sign-in lifetime (server/src/integrations/connections/service.ts FLOW_TTL) */
 export const SIGN_IN_RETURN_MS = 10 * 60_000
 /** where the team's server finishes a connector sign-in (oauth.ts CALLBACK_PATH) */
 export const TEAM_CALLBACK_PATH = '/api/integrations/oauth/callback'
-const HOST = '127.0.0.1'
 /** a query longer than this is no service's answer */
 const MAX_QUERY = 8192
 
@@ -51,13 +54,6 @@ export function returnQuery(url: string | undefined): string | null {
   return query
 }
 
-/** Whether the browser opens it as a page: Sec-Fetch-Mode navigate and Sec-Fetch-Dest document, when it says (a
- * browser without Fetch Metadata, or a non-browser, sends neither and is let through) */
-export function navigation(headers: Record<string, string | string[] | undefined>): boolean {
-  const mode = headers['sec-fetch-mode'], dest = headers['sec-fetch-dest']
-  return (mode === undefined || mode === 'navigate') && (dest === undefined || dest === 'document')
-}
-
 interface Open { server: Server; port: number; origin: string; timer: ReturnType<typeof setTimeout>; used: boolean }
 
 export class SignInReturn {
@@ -79,30 +75,20 @@ export class SignInReturn {
     const gen = this.generation
     const origin = returnOrigin(teamOrigin)
     if (!origin || returnOrigin(this.o.current()) !== origin) return null
-    const server = createServer({ maxHeaderSize: 16 * 1024 })
-    server.requestTimeout = 10_000
-    server.headersTimeout = 10_000
-    try {
-      await new Promise<void>((resolve, reject) => {
-        server.once('error', reject)
-        server.listen({ port: 0, host: HOST, exclusive: true }, () => resolve())
-      })
-    } catch {
-      server.close()
-      return null
-    }
-    const addr = server.address()
+    const l = await listenLoopback()
+    if (!l) return null
+    const { server, port } = l
     // another open (or a close) came while this one listened: that one is the only one
-    if (!addr || typeof addr === 'string' || addr.address !== HOST || gen !== this.generation) {
-      server.close()
+    if (gen !== this.generation) {
+      closeLoopback(server)
       return null
     }
-    const timer = setTimeout(() => this.close(addr.port), this.o.timeoutMs ?? SIGN_IN_RETURN_MS)
+    const timer = setTimeout(() => this.close(port), this.o.timeoutMs ?? SIGN_IN_RETURN_MS)
     timer.unref?.()
-    const open: Open = { server, port: addr.port, origin, timer, used: false }
+    const open: Open = { server, port, origin, timer, used: false }
     server.on('request', (req, res) => this.answer(open, req, res))
     this.cur = open
-    return addr.port
+    return port
   }
 
   /** Close the return address (`port`: only when it is still that one). Nothing open: nothing happens. */
@@ -112,12 +98,11 @@ export class SignInReturn {
     if (!c || (port !== undefined && c.port !== port)) return
     this.cur = null
     clearTimeout(c.timer)
-    c.server.close()
-    ;(c.server as Server & { closeAllConnections?: () => void }).closeAllConnections?.()
+    closeLoopback(c.server)
   }
 
   private answer(c: Open, req: IncomingMessage, res: ServerResponse) {
-    const query = req.method === 'GET' && req.headers.host === `${HOST}:${c.port}` && navigation(req.headers) ? returnQuery(req.url) : null
+    const query = ownPageLoad(req, c.port) ? returnQuery(req.url) : null
     // only the return, once, while this is the open one and its team is still the window's
     if (query === null || c.used || this.cur !== c || returnOrigin(this.o.current()) !== c.origin) {
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'close' })

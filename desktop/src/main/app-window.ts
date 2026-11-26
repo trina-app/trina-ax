@@ -16,7 +16,7 @@ import type { DesktopConnection, DesktopPaneState } from '@mycel/shared/desktop-
 import { CSRF_HEADER } from '@mycel/shared/api/common'
 import { CLAIM_DRIVE_FLOW_PATH, GOOGLE_APP_RETURN_PATH, Me } from '@mycel/shared/api/auth'
 import { Health } from '@mycel/shared/api/system'
-import { answersAgain, asksOutside, certTrouble, checkTeam, desktopPagePath, firstRunLinks, googleSignInCode, hostLineNow, hostOf, isShownTeamStart, isSignInPath, signInCode, officeCertPage, offlineRetryDelay, onThisComputer, originOf, parseTeamAddress, readDesktopLink, retypablePath, startupLinkTarget, teamLabel, type AddressError, type CertTrouble, type HealthAnswer } from '../common/address'
+import { answersAgain, asksOutside, certTrouble, checkTeam, desktopPagePath, googleSignInCode, hostLineNow, hostOf, isShownTeamStart, isSignInPath, signInCode, officeCertPage, offlineRetryDelay, onThisComputer, originOf, parseTeamAddress, readDesktopLink, retypablePath, startupLinkTarget, teamLabel, type AddressError, type CertTrouble, type HealthAnswer } from '../common/address'
 import { LinkGate, type WakeAnswer } from '@mycel/shared/team-link'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
@@ -46,6 +46,7 @@ import { DirectDownloads } from './downloads'
 import { PAGE_BUSY_GLOBAL, resumePage, type Resume, type ResumeWindow } from '../common/update-guard'
 import { findTarget } from '../common/find-bar'
 import { FindBar } from './find-bar'
+import type { CreateOffer, CreateView } from '../common/create-team'
 
 export type Mode = 'welcome' | 'team' | 'offline'
 
@@ -58,8 +59,13 @@ export interface WelcomeState {
   offline: { address: string; auto: boolean } | null
   /** a kit build's team address, filled in on the first-run screen while no team is remembered (common/kit.ts) */
   suggested: string | null
-  /** the "no team yet" screen offers [팀 만들기] (not in the Mac App Store build: App Review 3.1.1) */
-  signup: boolean
+  /** the console offers "Create a team for free" (GET /api/app/v1/me answered 401; 404: an older hosting service, the
+   * first-run screen stays as it was). `checking`: not known yet */
+  offer: CreateOffer | 'checking'
+  /** the Mac App Store build: no create row, no plans or prices; "Already made a team? Sign in" (App Review 3.1.1) */
+  store: boolean
+  /** the create screens (main/create-team.ts) */
+  create: CreateView
   /** screen ④: a link from outside waits for the person's yes (the host it would connect to; hosted: run by the hosted
    * service). Nothing is fetched before the yes. */
   link: { id: number; host: string; hosted: boolean } | null
@@ -96,8 +102,11 @@ export interface AppWindowOptions {
   suggestedTeam?: string | null
   /** the app answers the team page's file input with its own dialog (common/file-chooser.ts answersFileChoosers) */
   answerFileChoosers?: boolean
-  /** the Mac App Store build: no signup link on the first-run screen (common/address.ts firstRunLinks) */
+  /** the Mac App Store build: no create row and no plans on the first-run screen (common/create-team.ts createLinks) */
   macAppStore?: boolean
+  /** the create screens now, and whether the console offers them (main/create-team.ts, main/console-signin.ts) */
+  createView?: () => CreateView
+  createOffer?: () => CreateOffer | 'checking'
   /** the computer's Downloads folder, where the team page's downloads go with no save window (main/downloads.ts);
    * null keeps the save window (the Mac App Store build) */
   downloadsDir?: () => string | null
@@ -439,7 +448,9 @@ export class AppWindow {
       canGoBack: Boolean(this.team && this.app),
       offline: this.mode === 'offline' && this.team ? { address: this.team.origin, auto: this.offlineWatching } : null,
       suggested: this.teamList().length ? null : (this.o.suggestedTeam ?? null),
-      signup: firstRunLinks({ macAppStore: this.o.macAppStore === true, korean: false }).signup !== null,
+      offer: this.o.createOffer?.() ?? 'no',
+      store: this.o.macAppStore === true,
+      create: this.o.createView?.() ?? { screen: 'off' },
       link: (() => { const l = this.linkGate.pending(); return l ? { id: l.id, host: l.host, hosted: l.hosted } : null })(),
       linkError: this.linkError,
       waking: this.waking,
@@ -550,10 +561,27 @@ export class AppWindow {
     return true
   }
 
-  /** The "no team yet" screen's buttons: the address is chosen here, never taken from the screen. */
-  firstRunLink(kind: 'signup' | 'docs'): string | null {
-    const links = firstRunLinks({ macAppStore: this.o.macAppStore === true, korean: this.o.locale() === 'ko' })
-    return kind === 'signup' ? links.signup : links.docs
+  /** The create screens changed: the first-run screen shows them (over a team that is open: Back on them returns) */
+  createChanged(shown: boolean) {
+    if (shown && this.mode !== 'welcome') this.showWelcome()
+    else this.sendWelcome()
+  }
+
+  /**
+   * A team the person made from this app (main/create-team.ts): remembered if new (its address as the console gave it,
+   * with the name the person typed) and opened at `path` (its owner setup page `/app-setup#c=<claim>`, an older
+   * server's setup link, or its start). No health check and no "not run by us" question: the console named it.
+   */
+  async openCreatedTeam(origin: string, label: string, path: string) {
+    const known = this.teams.teams.find((x) => x.origin === origin)
+    let id = known?.id
+    if (!known) {
+      const r = addTeam(this.teams, origin, label.trim() || teamLabel(origin), this.o.store.newTeamId(), new Date().toISOString())
+      this.saveTeams(r.file)
+      id = r.team.id
+    }
+    // (the team open already: openTeam loads the page there)
+    await this.openTeam(id!, path)
   }
 
   /** Sign in with Google's return (docs/decisions/20261122-google-login-apps.md): the team's window, at the address it

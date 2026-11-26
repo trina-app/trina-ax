@@ -295,6 +295,20 @@ describe('links from outside (phase 2): the reader and screen ④\'s gate', () =
       expect(m.isSignInPath('/app-signin/x')).toBe(false)
     }
   })
+  test('a new team owner setup page (/app-setup#c=<claim>) is read the same way: the desktop link only', () => {
+    const claim = 'Zm9vYmFyYmF6cXV4MDEyMzQ1Njc4OWFiY2RlZmdoaWo'
+    const inner = `https://acme.trina.app/app-setup#c=${claim}`
+    for (const m of [shared, phone]) {
+      expect(m.readAppLink(link(inner), { ...DESK, appSignIn: true })).toEqual(acme(`/app-setup#c=${claim}`) as never)
+      expect(m.readAppLink(link(inner), PHONE_LINKS)).toEqual(err('invalid') as never)
+      expect(m.readAppLink(link(inner), DESK)).toEqual(err('invalid') as never)
+      expect(m.parseTeamInput(inner, DESKTOP)).toEqual(err('invalid') as never)
+      expect(m.parseTeamInput(inner, PHONE)).toEqual(err('invalid') as never)
+      for (const bad of [`https://acme.trina.app/app-setup?c=${claim}`, `${inner}&c=x`, `https://acme.trina.app/app-setup#c=${claim.slice(2)}`])
+        expect(m.parseTeamInput(bad, { ...DESKTOP, appSignIn: true })).toEqual(err('link') as never)
+      expect(m.isSignInPath('/app-setup')).toBe(true)
+    }
+  })
   test('④ cannot be skipped: nothing without a yes, a yes for the host it showed, only once ④ has been on screen a while, once', () => {
     for (const m of [shared, phone]) {
       const g = new m.LinkGate(600)

@@ -50,9 +50,12 @@ describe('desktop team list: Open first, Remove in the menu', () => {
 })
 
 describe('desktop welcome: quiet help actions and Back', () => {
-  test('the two help views and Back are the same quiet button: no orange underlined links, no dot between them', () => {
+  test('the help view, Back and the demo link are the same quiet button: no orange underlined links, no dot between them', () => {
     expect(welcome).toContain("h('button', { type: 'button', class: 'ghost', 'data-testid': 'no-address'")
-    expect(welcome).toContain("h('button', { type: 'button', class: 'ghost', 'data-testid': 'no-team'")
+    expect(welcome).toContain("h('button', { type: 'button', class: 'ghost', 'data-testid': 'join-back'")
+    expect(welcome).toContain("h('button', { type: 'button', class: 'ghost', 'data-testid': 'demo'")
+    // the "no team yet" view and its install link are gone (docs/decisions/20261126-desktop-create-team.md)
+    expect(welcome).not.toContain('no-team')
     expect(welcome).toContain("h('button', { type: 'button', class: 'ghost', 'data-testid': 'welcome-back'")
     expect(welcome).not.toContain("h('span', { 'aria-hidden': 'true' }, ' · ')")
     const ghost = css.slice(css.indexOf('button.ghost {'), css.indexOf('}', css.indexOf('button.ghost {')))
