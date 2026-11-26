@@ -15,6 +15,7 @@ export interface Scope { reach: Reach; tools?: string[]; why?: string }
 export const FEATURE_SCOPE: Record<string, Scope> = {
   // Sign-in & account
   'auth.setup': { reach: 'none', why: 'before the team exists there is no AI' },
+  'auth.setup-console': { reach: 'none', why: 'the owner page of a team made from the desktop app, before the team has an owner' },
   'auth.signin': { reach: 'explains' },
   'auth.password': { reach: 'explains' },
   'auth.reset': { reach: 'explains' },

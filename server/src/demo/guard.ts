@@ -79,7 +79,7 @@ const mb = (n: number) => `${Math.round(n / (1024 * 1024))} MB`
 /** endpoint names (keys of API) a free-roam demo refuses, by area. Admin routes (/api/admin/…, and every endpoint for
  * admins or the owner) and whole groups (FENCED_GROUPS) come on top. The decision record lists them with the reason. */
 const NAMED: Record<FenceArea, readonly (keyof typeof API)[]> = {
-  account: ['setup', 'login', 'changePassword', 'passwordResetInfo', 'completePasswordReset', 'appSignIn', 'redeemAppSignIn',
+  account: ['setup', 'setupConsolePreview', 'setupConsole', 'login', 'changePassword', 'passwordResetInfo', 'completePasswordReset', 'appSignIn', 'redeemAppSignIn',
     'startGoogleSignIn', 'redeemGoogleSignIn', 'connectGoogle', 'disconnectGoogle', 'startGoogleSetup', 'startGoogleReauth', 'googleReauthState', 'setPassword',
     'requestAccountDeletion', 'cancelAccountDeletion'],
   invite: ['inviteInfo', 'acceptInvite', 'startGoogleInvite', 'createGuestInvite', 'guestInviteLimit'],

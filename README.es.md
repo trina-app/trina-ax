@@ -7,6 +7,8 @@
 <b>La IA que todo tu equipo comparte.</b><br>
 Trina AX reúne los archivos, las skills y las herramientas de tu equipo en un solo servidor. La IA de cada persona parte de ahí.<br>Retoma la sesión de IA de un compañero donde la dejó. Cada archivo que abre la IA se comprueba con los permisos de quien preguntó.
 
+<a href="https://demo.trina.app"><img src="docs/images/readme/v4/try-demo-es.png" height="40" alt="Pruébalo en 1 minuto, sin registro"></a>
+
 <a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-es.png" height="40" alt="Descargar para Mac"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-es.png" height="40" alt="Descargar para Windows"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Descargar en el App Store"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Disponible en Google Play"></a><br>
 <sub>Linux: .deb y AppImage (x64, arm64) en la <a href="https://ax.trina.app/download">página de descargas</a></sub>
 

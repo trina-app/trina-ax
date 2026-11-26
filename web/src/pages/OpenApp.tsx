@@ -11,17 +11,17 @@ import { useEffect, useRef, useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { ExternalLink, Loader2 } from 'lucide-react'
 import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
-import type { LoginResponse, Me } from '@mycel/shared/api'
+import type { ConsoleSetupPreview, LoginResponse, Me } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { useLocale, useT } from '../i18n'
 import { useSession } from '../store/session'
 import { clientKind, desktop, storeApp } from '../lib/desktop'
 import { platform } from '../lib/pwa'
-import { appComputer, appSignInHref, pageOrigin, readAppSignInCode } from '../lib/open-app'
+import { appComputer, appSignInHref, pageOrigin, readAppSetupClaim, readAppSignInCode } from '../lib/open-app'
 import { LANDING_STATE } from '../lib/welcome'
 import { useLogoutTo } from '../lib/logout'
 import { Button } from '../components/ui'
-import { AuthFrame, signedInHome } from './Auth'
+import { AuthFrame, PasswordField, signedInHome, usePasswordReveal } from './Auth'
 
 const quietLink = 'font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink max-md:inline-flex max-md:min-h-11 max-md:items-center'
 
@@ -179,6 +179,129 @@ export function AppSignIn() {
         <Button variant="primary" className="w-full" onClick={() => { landing = true; rerender((n) => n + 1) }} data-testid="app-signin-continue">{t('appSignIn.continue')}</Button>
       ) : (
         <Button variant="primary" className="w-full" onClick={() => navigate('/login', { replace: true })} data-testid="app-signin-login">{t('appSignIn.signIn')}</Button>
+      )}
+    </AuthFrame>
+  )
+}
+
+// ---------------- /app-setup ----------------
+
+/** The console's claim of this page load: read once and taken out of the address first, like /app-signin's code. */
+let setupTaken: { claim: string | null } | null = null
+function takeClaim(): string | null {
+  if (!setupTaken) {
+    setupTaken = { claim: readAppSetupClaim(window.location.hash) }
+    if (window.location.hash) window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search)
+  }
+  return setupTaken.claim
+}
+/** One preview per claim, whatever re-renders or remounts. */
+let previewing: { claim: string; result: Promise<ConsoleSetupPreview> } | null = null
+const previewOnce = (claim: string) => {
+  if (previewing?.claim !== claim) previewing = { claim, result: api.call(API.setupConsolePreview, { body: { claim } }) }
+  return previewing.result
+}
+
+type SetupState = { s: 'outside' } | { s: 'loading' } | { s: 'ready'; p: ConsoleSetupPreview } | { s: 'gone' } | { s: 'setUp' } | { s: 'error'; text: string }
+
+/**
+ * /app-setup: a hosted team the desktop app just made on the hosting console (docs/decisions/20261126-desktop-create-team.md,
+ * server/src/auth/setup-console.ts). "Welcome to {team}, {name}": an owner who signed in to the console with Google
+ * presses Continue; one who signed in with an e-mail code chooses a password first (for the phone and other computers).
+ * No "This isn't me": the console confirmed the e-mail in the browser. Opened in a plain browser it spends nothing.
+ */
+export function AppSetup() {
+  const t = useT()
+  const locale = useLocale()
+  const signedIn = useSession((s) => s.signedIn)
+  const signedInNow = useSession((s) => s.status.kind === 'signed-in')
+  const navigate = useNavigate()
+  const [claim] = useState(takeClaim)
+  const inApp = !!desktop()
+  const [state, setState] = useState<SetupState>(() => (!inApp ? { s: 'outside' } : claim ? { s: 'loading' } : { s: 'gone' }))
+  const [password, setPassword] = useState('')
+  const [fieldError, setFieldError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [, rerender] = useState(0)
+  const reveal = usePasswordReveal()
+  const live = useRef(true)
+  const failed = (e: unknown): SetupState =>
+    isApiError(e) && e.status === 410 ? { s: 'gone' } : isApiError(e) && e.status === 409 ? { s: 'setUp' } : { s: 'error', text: errorText(e, locale, t('error.network')) }
+  const preview = () => {
+    if (inApp && claim) previewOnce(claim).then((p) => { if (live.current) setState({ s: 'ready', p }) }, (e) => { if (live.current) setState(failed(e)) })
+  }
+  useEffect(() => {
+    live.current = true
+    preview()
+    return () => { live.current = false }
+    // once per page load
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  // the hosting service could not be asked (or another failure): the claim may still be good, so ask again
+  if (state.s === 'error')
+    return (
+      <AuthFrame title={t('appSetup.errorTitle')} sub={state.text} switcher={false}>
+        <Button variant="primary" className="w-full" onClick={() => { previewing = null; setState({ s: 'loading' }); preview() }} data-testid="app-setup-retry">
+          {t('appSetup.retry')}
+        </Button>
+      </AuthFrame>
+    )
+  if (landing) return <Landing />
+  if (state.s === 'gone' && !claim && signedInNow) return <Navigate to={signedInHome()} state={LANDING_STATE} replace />
+  if (state.s === 'outside')
+    return (
+      <AuthFrame title={t('appSignIn.outside')} switcher={false}>
+        <a href="/" className="text-sm text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="app-setup-home">{t('appSignIn.home')}</a>
+      </AuthFrame>
+    )
+  if (state.s === 'loading')
+    return (
+      <AuthFrame title={t('appSetup.working')} switcher={false}>
+        <Loader2 size={20} className="animate-spin text-muted" aria-hidden />
+      </AuthFrame>
+    )
+  if (state.s === 'ready') {
+    const p = state.p
+    const submit = async (e: React.FormEvent) => {
+      e.preventDefault()
+      setBusy(true)
+      setFieldError(null)
+      try {
+        const r = await api.call(API.setupConsole, { body: { claim: claim!, ...(p.google ? {} : { password }), client: 'desktop', tokenMode: 'cookie' } })
+        landing = true
+        signedIn(r.me)
+        rerender((n) => n + 1)
+      } catch (err) {
+        // a weak password: said at the field, the claim stays usable
+        if (isApiError(err) && err.status === 400 && err.body.fields?.['body.password']) setFieldError(errorText(err, locale, t('error.network')))
+        else setState(failed(err))
+      } finally {
+        setBusy(false)
+      }
+    }
+    return (
+      <AuthFrame title={t('appSetup.welcome', { team: p.teamName, name: p.name })} sub={p.email} switcher={false}>
+        <form onSubmit={(e) => void submit(e)} noValidate>
+          {!p.google && (
+            <div className="mb-4">
+              <PasswordField label={t('appSetup.password')} hint={t('appSetup.passwordHint')} error={fieldError} reveal={reveal} eyeTestId="app-setup-password-show"
+                name="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus autoComplete="new-password" data-testid="app-setup-password" />
+            </div>
+          )}
+          <Button type="submit" variant="primary" className="w-full" busy={busy} disabled={!p.google && password.length === 0} data-testid="app-setup-continue">
+            {t('appSignIn.continue')}
+          </Button>
+        </form>
+      </AuthFrame>
+    )
+  }
+  // expired, used or no claim; or the team is set up already
+  return (
+    <AuthFrame title={t(state.s === 'setUp' ? 'appSetup.doneTitle' : 'appSetup.goneTitle')} sub={state.s === 'gone' ? t('appSetup.gone') : undefined} switcher={false}>
+      {signedInNow ? (
+        <Button variant="primary" className="w-full" onClick={() => { landing = true; rerender((n) => n + 1) }} data-testid="app-setup-home-button">{t('appSignIn.continue')}</Button>
+      ) : (
+        <Button variant="primary" className="w-full" onClick={() => navigate('/login', { replace: true })} data-testid="app-setup-login">{t('appSignIn.signIn')}</Button>
       )}
     </AuthFrame>
   )

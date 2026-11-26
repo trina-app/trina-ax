@@ -7,6 +7,8 @@
 <b>AI yang dipakai seluruh tim Anda.</b><br>
 Trina AX menyatukan file, skill, dan alat tim Anda di satu server. AI setiap orang mulai dari situ.<br>Lanjutkan sesi AI rekan kerja dari titik terakhirnya. Setiap file yang dibuka AI dicek dengan akses orang yang bertanya.
 
+<a href="https://demo.trina.app"><img src="docs/images/readme/v4/try-demo-id.png" height="40" alt="Coba dalam 1 menit, tanpa daftar"></a>
+
 <a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-id.png" height="40" alt="Unduh untuk Mac"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-id.png" height="40" alt="Unduh untuk Windows"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Download di App Store"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Tersedia di Google Play"></a><br>
 <sub>Linux: .deb dan AppImage (x64, arm64) di <a href="https://ax.trina.app/download">halaman unduhan</a></sub>
 

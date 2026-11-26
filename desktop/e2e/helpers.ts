@@ -43,6 +43,9 @@ export async function launch(userData: string, env: Record<string, string> = {},
       MYCEL_DESKTOP_TEST_DNS_HOSTS: 'rebind.test',
       // a Korean system: the app's own language must not follow it (docs/DECISIONS.md "언어")
       LANG: 'ko_KR.UTF-8',
+      // the hosting console ("Create a team for free"): a closed port on this computer, never the real one; the first
+      // screen then stays the box (create-team.spec.ts runs a fake console of its own)
+      MYCEL_CONSOLE_ORIGIN: 'http://127.0.0.1:19159',
       ...env,
     },
   })

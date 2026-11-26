@@ -159,6 +159,12 @@ export const SPECS: Record<string, Spec> = {
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },
   setup: { skipPositive: true, build: (c) => c.post('/api/setup', { setupToken: 'x', teamName: 't', owner: { username: 'z', name: 'z', password: 'Zebra-copper-1-kite' } }), scope: 'byLevel',
     check: (r) => { if (r.status === 201) throw new Error('setup created a second owner after the team exists') } },
+  // a hosted team made from the desktop app (server/src/auth/setup-console.ts): the test team is not hosted and set up,
+  // so a made-up claim makes no owner and nothing asks a console
+  setupConsolePreview: { skipPositive: true, build: (c) => c.post('/api/setup/console/preview', { claim: 'A'.repeat(43) }), scope: 'byLevel',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a made-up console claim was read: ${r.text}`) } },
+  setupConsole: { skipPositive: true, build: (c) => c.post('/api/setup/console', { claim: 'A'.repeat(43), password: 'Zebra-copper-1-kite' }), scope: 'byLevel',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a made-up console claim made an owner: ${r.text}`) } },
   // Start with Google (server/src/auth/google-signup.ts): the team is set up and has no Google client, so nothing starts,
   // whatever token is sent
   startGoogleSetup: { skipPositive: true, build: (c) => c.post('/api/setup/google', { setupToken: 'x'.repeat(32), teamName: 't' }), scope: 'byLevel',

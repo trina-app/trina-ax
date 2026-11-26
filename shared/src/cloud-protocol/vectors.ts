@@ -8,6 +8,8 @@ import { createPrivateKey, createPublicKey, sign } from 'node:crypto'
 import { canonicalJson, keyRotationString, reattachSigningString, registerSigningString, sha256Hex } from './signing.ts'
 import { opsAuthorizationHeader, opsSigningString } from './relay-ops.ts'
 import { tenantCommandArgv } from './tenant-commands.ts'
+import { driveBrokerAuthorization } from './drive-broker.ts'
+import { appCallbackUrl, appConnectUrl, OWNER_CLAIM_CONFIRM_PATH, OWNER_CLAIM_RESERVE_PATH, ownerClaimSetupUrl, ownerClaimSigningString, suggestTeamSlug, type OwnerClaimPath } from './owner-claim.ts'
 
 /** a fixed test seed: RFC 8032 section 7.1 test 1 (public, never a real key) */
 export const VECTOR_SEED_HEX = '9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60'
@@ -193,5 +195,77 @@ export function buildVectors() {
       plan: PLAN,
       notices: NOTICES,
     },
+    ownerClaim: ownerClaimVectors(k),
+  }
+}
+
+/** owner-claim.ts: the claim, its hash and setup address, the signed reserve and confirm calls, the parsers' cases, the
+ * app's connect address and callback, and address labels from team names */
+function ownerClaimVectors(k: ReturnType<typeof seedKey>) {
+  const claim = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8' // bytes 0..31, base64url (a test value)
+  const nonce = 'bm9uY2Utb2YtYS10ZXN0LXZlY3Rvcg'
+  const body = JSON.stringify({ v: 1, claim })
+  const bodySha = sha256Hex(body)
+  const signed = (path: OwnerClaimPath) => {
+    const string = ownerClaimSigningString(path, T, nonce, bodySha)
+    const sig = k.sign(string)
+    return { path, ts: T, nonce, body, bodySha256: bodySha, string, sig, authorization: driveBrokerAuthorization(k.publicKey, T, nonce, sig) }
+  }
+  const owner = { teamName: 'Acme', email: 'owner@example.com', name: 'Alex Kim', locale: 'en', timeZone: 'Asia/Seoul', google: null }
+  const state = Buffer.alloc(32, 7).toString('base64url'), challenge = Buffer.alloc(32, 9).toString('base64url')
+  return {
+    claim, claimSha256: sha256Hex(claim),
+    setupUrl: ownerClaimSetupUrl('https://acme.treesoop.com', claim),
+    reserve: signed(OWNER_CLAIM_RESERVE_PATH),
+    confirm: signed(OWNER_CLAIM_CONFIRM_PATH),
+    request: {
+      valid: [{ v: 1, claim }],
+      invalid: [
+        { raw: { v: 1, claim: claim.slice(1) }, why: 'claim is 43 characters' },
+        { raw: { v: 1, claim: claim.slice(0, 42) + '=' }, why: 'base64url, no padding' },
+        { raw: { v: 2, claim }, why: 'version' },
+        { raw: { v: 1, claim, team: 'acme' }, why: 'unknown key' },
+      ],
+    },
+    owner: {
+      valid: [owner, { ...owner, locale: 'ko', timeZone: null, google: { sub: '109876543210987654321', email: 'owner@example.com', hd: null } }],
+      invalid: [
+        { raw: { ...owner, email: 'not-an-address' }, why: 'e-mail' },
+        { raw: { ...owner, name: '' }, why: 'empty name' },
+        { raw: { ...owner, teamName: 'Acme\u200B' }, why: 'team name rule' },
+        { raw: { ...owner, name: 'Alex\nKim' }, why: 'a control character' },
+        { raw: { ...owner, google: { sub: 'x y', email: 'owner@example.com', hd: null } }, why: 'Google sub' },
+        { raw: { ...owner, password: 'x' }, why: 'unknown key' },
+      ],
+    },
+    connect: {
+      url: appConnectUrl('https://account.treesoop.com', { state, challenge, port: 53682, locale: 'en', store: false }),
+      storeUrl: appConnectUrl('https://account.treesoop.com', { state, challenge, port: 53682, locale: 'ko', store: true }),
+      callback: appCallbackUrl(53682, { code: claim, state }),
+      cancelled: appCallbackUrl(53682, { error: 'cancelled', state }),
+    },
+    email: {
+      start: {
+        valid: [{ email: 'owner@example.com', locale: 'en', challenge }, { email: 'owner@example.com', locale: 'ko', challenge, store: true }],
+        invalid: [
+          { raw: { email: 'owner@example.com', locale: 'en', challenge, store: false }, why: 'store is true or absent' },
+          { raw: { email: ' owner@example.com', locale: 'en', challenge }, why: 'surrounding spaces' },
+          { raw: { email: 'owner@localhost', locale: 'en', challenge }, why: 'a domain with a dot' },
+          { raw: { email: 'owner@example.com', locale: 'en' }, why: 'challenge is required' },
+          { raw: { email: 'owner@example.com', locale: 'en', challenge, password: 'x' }, why: 'unknown key' },
+        ],
+      },
+      verify: {
+        valid: [{ email: 'owner@example.com', code: '042917', verifier: Buffer.alloc(32, 3).toString('base64url') }],
+        invalid: [
+          { raw: { email: 'owner@example.com', code: '42917', verifier: Buffer.alloc(32, 3).toString('base64url') }, why: '6 digits' },
+          { raw: { email: 'owner@example.com', code: '04291a', verifier: Buffer.alloc(32, 3).toString('base64url') }, why: 'digits only' },
+          { raw: { email: 'owner@example.com', code: '042917', verifier: 'short' }, why: 'verifier' },
+        ],
+      },
+    },
+    slugs: [
+      ['Acme', 'acme'], ['Café Olé Studio', 'cafe-ole-studio'], ['  ACME — Seoul  ', 'acme-seoul'], ['東京チーム', 'team-x7k2'], ['ab', 'team-x7k2'],
+    ].map(([name, slug]) => ({ name, suffix: 'x7k2', slug, out: suggestTeamSlug(name!, 'x7k2') })),
   }
 }
