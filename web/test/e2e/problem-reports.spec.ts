@@ -68,6 +68,8 @@ for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) 
       await expect(page.getByTestId('problem-report-who')).not.toContainText(/서버 밖|leaves this server/)
       await page.getByTestId('problem-report-attach').check()
       await expect(page.getByTestId('problem-report-preview')).toContainText('주간 보고서 써 줘')
+      // one quiet line on the rest that goes with it
+      await expect(page.getByTestId('problem-report-preview-also')).toHaveText('앱·서버·엔진 버전, 기기 종류, 화면 종류도 함께 보내요.')
       await page.getByTestId('problem-report-text').fill('답이 틀렸어요')
       await page.screenshot({ path: `test-results/problem-report-answer-${size.width}.png` })
       await page.getByTestId('problem-report-send').click()

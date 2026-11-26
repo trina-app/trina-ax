@@ -38,9 +38,7 @@ test('the 파일 row asks iOS for any data file (the Files browser at once), els
 // or it is a computer's (a folder picker, a computer's button).
 const KNOWN: Record<string, string> = {
   'components/DevicePick.tsx': "the device rows' own inputs",
-  'components/chat/Composer.tsx': "the computer's attach menu (a phone: AttachSheet)",
-  'components/rooms/RoomComposer.tsx': "the computer's clip (a phone: AttachSheet)",
-  'components/rooms/SideChatPanel.tsx': "the computer's clip (a phone: AttachSheet)",
+  'components/composer/AttachMenu.tsx': "every message box's + menu on a computer (a phone: AttachSheet)",
   'components/rooms/apps/AppsDialog.tsx': "the computer's Upload an image row (a phone: the device rows)",
   'components/onboarding/MemberWelcome.tsx': "the computer's photo button (a phone: the device rows)",
   'components/onboarding/TeamFilesStep.tsx': "a folder picker, and the computer's file button (a phone: the device rows)",

@@ -197,8 +197,10 @@ test('no side chat yet: the empty line; the first question makes a side chat of 
   const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
   try {
     await m.until(() => !!m.find('side-chat-empty'), 'the empty line')
-    expect(calls[0]).toMatchObject({ method: 'GET', path: '/api/chats' })
-    expect(calls[0]!.search).toContain(`sideRoomId=${team.id}`)
+    // (the box's "no usable AI" line asks GET /api/me/ai-access beside it)
+    const first = calls.find((c) => c.path !== '/api/me/ai-access')
+    expect(first).toMatchObject({ method: 'GET', path: '/api/chats' })
+    expect(first!.search).toContain(`sideRoomId=${team.id}`)
     expect(m.get('side-chat-room').textContent).toBe('Marketing')
     // no "only you see this" under the box (the empty line says it), and send is the room box's round ↑, named
     expect(m.find('side-chat-private')).toBeNull()
@@ -556,7 +558,7 @@ test('an empty side chat says what it looks at, offers Catch up / Anything for m
   try {
     await m.until(() => !!m.find('side-chat-empty'), 'the panel')
     expect(m.get('side-chat-context').textContent).toBe(en('sideChat.context', { room: 'Marketing' }))
-    expect(m.get('side-chat-disclaimer').textContent).toBe(en('sideChat.disclaimer', { name: aiName((k) => en(k)) }))
+    expect(m.get('side-chat-disclaimer').textContent).toBe(en('chat.footerAi'))
     expect(['catchUp', 'forMe', 'summarize'].map((k) => m.get(`side-chat-starter-${k}`).textContent)).toEqual([en('sideChat.starterLabel.catchUp'), en('sideChat.starterLabel.forMe'), en('sideChat.starterLabel.summarize')])
     await m.click('side-chat-starter-forMe')
     await m.until(() => calls.some((c) => c.path === `/api/chats/${made}/messages`), 'the question sent')
@@ -1469,5 +1471,31 @@ test('Stop that fails: the reason as the panel\'s other errors, and Stop stays t
     await m.until(() => m.get('side-chat-stop').hasAttribute('disabled') === false, 'Stop again')
   } finally {
     await m.unmount()
+  }
+})
+
+test('a draft kept for an older side chat (opened from 🕘) waits after a reload: the new chat that opens does not erase it, and it comes back in that chat', async () => {
+  signIn()
+  const newest = uuidv7()
+  const older = uuidv7()
+  serve(newest, [older])
+  const key = `mycel.draft:${ME.id}:side:${team.id}`
+  const kept = JSON.stringify({ chatId: older, text: 'half a question' })
+  localStorage.setItem(key, kept)
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    // the newest chat is done: a new chat opens, its box empty, the older chat's draft still kept
+    await m.until(() => !!m.find('side-chat-empty'), 'a new chat')
+    await m.settle()
+    expect(boxText(m)).toBe('')
+    expect(localStorage.getItem(key)).toBe(kept)
+    // opened from 🕘: the draft is back in its chat
+    await m.click('side-chat-history')
+    await m.until(() => m.container.ownerDocument!.body.querySelectorAll('[data-testid="side-chat-history-item"]').length === 2, 'the list')
+    await m.click(m.container.ownerDocument!.body.querySelectorAll('[data-testid="side-chat-history-item"]')[1]!)
+    await m.until(() => boxText(m) === 'half a question', 'the draft back')
+  } finally {
+    await m.unmount()
+    localStorage.removeItem(key)
   }
 })

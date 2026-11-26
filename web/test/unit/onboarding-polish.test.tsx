@@ -70,8 +70,8 @@ describe('the team link on a phone: one primary action, no boxes', () => {
     expect(buttons.filter((b) => b.includes('bg-accent '))).toHaveLength(1)
     expect(buttons.find((b) => b.includes('bg-accent '))).toContain('data-testid="team-link-copy-message"')
     expect(html).toContain(` ${en('teamLink.copyMessage')}</button>`)
-    expect(ko('teamLink.copyLink')).toBe('링크 복사')
-    expect(html).toContain(` ${en('teamLink.copyLink')}</button>`)
+    expect(ko('rooms.menu.copyLink')).toBe('링크 복사')
+    expect(html).toContain(` ${en('rooms.menu.copyLink')}</button>`)
     expect(buttons.find((b) => b.includes('team-link-copy-link'))).toContain('text-muted')
     expect(buttons.find((b) => b.includes('team-link-qr'))).toContain('text-muted')
     // the link: one line on a tint, cut with "…" (the whole address in its title), no border; the message no frame (a

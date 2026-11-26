@@ -90,7 +90,7 @@ test('the toast says the link was copied', async ({ page, browser }) => {
   // the browser stays on this page (the navigation to the store is cancelled), so the toast can be read
   await p.evaluate(() => (window as unknown as { navigation: EventTarget }).navigation.addEventListener('navigate', (e) => e.preventDefault()))
   await p.getByTestId('get-app-store').click()
-  await expect(p.getByText(ko('auth.linkCopied'))).toBeVisible()
+  await expect(p.getByText(ko('rooms.menu.linkCopied'))).toBeVisible()
   await shot(p, 'iphone-invite-copied')
   await ctx.close()
 })
@@ -187,7 +187,7 @@ test('a browser that cannot copy: the page stays, with the link to copy and a se
   // "복사" again, in a browser where the copy works now
   await p.evaluate(() => ((window as unknown as { copyWorks?: boolean }).copyWorks = true))
   await p.getByTestId('get-app-copy').click()
-  await expect(p.getByText(ko('auth.linkCopied'))).toBeVisible()
+  await expect(p.getByText(ko('rooms.menu.linkCopied'))).toBeVisible()
   await expect(p.getByTestId('get-app-manual')).toHaveCount(0)
   await expect(go).toBeVisible()
   // the store link is the tap's own navigation, with no Referer and no token

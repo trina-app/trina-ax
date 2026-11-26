@@ -6,7 +6,8 @@
 // raw HTML stays text and no picture loads by itself; the @names it mentions stand out, and its plain web addresses
 // are links (lib/messageMarkdown.ts, MessageText.tsx). Its quote and a message being sent stay plain text (with links).
 // On a computer a message's hover row has a reaction, "reply in thread" and "…" (copy, edit and delete one's own); on a
-// touch screen a long press opens the same as a sheet with the reactions on top. Under a message: its reactions
+// touch screen a long press opens the same as a sheet with the reactions on top (both shared with every surface:
+// components/messages/MessageActions.tsx). Under a message: its reactions
 // (components/rooms/Reactions.tsx) and, for a root, its thread ("답글 3개 · 오후 2:10", up to 3 faces; a dot when a
 // thread I follow has new replies), which opens the thread. A reply also sent to the room says so above it. The same
 // list shows a thread's root and replies (variant). A photo's thumbnail, a video's frame (RoomVideo) and a file chip's name open the viewer
@@ -33,7 +34,7 @@
 // over several messages copies their words as plain text, one message per block under its author and time
 // (lib/messageCopy.ts).
 import clsx from 'clsx'
-import { Copy, Download, FileText, FileX, FolderCheck, FolderInput, Link2, MessageSquareText, Pencil, Play, Trash2, X } from 'lucide-react'
+import { Download, FileText, FileX, FolderCheck, FolderInput, Play } from 'lucide-react'
 import { createContext, Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from 'react'
 import { CHAT_FILES_FOLDER, chatFilesWord } from '@mycel/shared'
 import { parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type Room, type RoomFile, type RoomMessage, type RoomQuote, type UserRef, type Locale } from '@mycel/shared/api'
@@ -52,13 +53,13 @@ import { useMe } from '../../store/session'
 import { placeKey, useRooms, type PendingSend } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
-import { Button, cancelDialog, confirmDialog, useCopy, useMediaQuery } from '../ui'
+import { Button, cancelDialog, confirmDialog, useMediaQuery } from '../ui'
 import { useAutoGrow } from '../../lib/autoGrow'
 import { failedEdits, focusRoomBox, hasRoomBox, useRoomEdit } from '../../store/roomEdit'
-import { AiFaceInline, AiMark } from './AiFace'
+import { AiFaceInline } from './AiFace'
 import { DayLine, messageRowClass, RunFace, RunName, RunShell, sameTimeAsAbove, timeOf, WORDS } from './MessageRun'
-import { MenuButton, useLongPress, type MenuItem } from './MenuButton'
-import { MessageHoverBar } from './MessageHoverBar'
+import { ActionIcon, MessageActions, MessageActionSheet, ROOM_PRESS_SKIP, useMessagePress, type MessageAction } from '../messages/MessageActions'
+import { aiMadeFiles, openMessageFile } from '../../lib/messageFiles'
 import { reactable, ReactionChips, ReactionPanel, ReactionStrip } from './Reactions'
 import { LinkedText } from './MessageText'
 import { ThreadLine } from '../ThreadLine'
@@ -86,6 +87,7 @@ import { folderOfPath } from '../../lib/roomSave'
 import { useFolderWords } from '../../lib/folderLabels'
 import { useRoomSaves } from '../../store/roomSaves'
 import { capBlankLines } from '../../lib/blankLines'
+import { enterSends } from '../composer/keys'
 
 export const messageDomId = (id: string) => `room-msg-${id}`
 /** A message's words: the one part of its row that can be selected (not on touch screens, where a long press opens its
@@ -429,8 +431,6 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
     () => (ai ? mentioned : [...mentioned, ...allMentionNames(m, MENTION_ALL_WORDS)]).map((x) => ({ ...x, strong: x.id === meId || (x.id === ALL_MENTION_ID && m.author?.id !== meId), all: x.id === ALL_MENTION_ID })),
     [m, mentioned, ai, meId],
   )
-  const [press, setPress] = useState(0)
-  const pressedAt = useRef(0)
   // the emoji picker from the long-press sheet's "More emoji" (a sheet of its own)
   const [picking, setPicking] = useState(false)
   const menuOn = !deleted && !editing && (m.visibility === 'room' || removable)
@@ -439,17 +439,10 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
   const reactOn = reactable(m) && !editing
   // "Ask Trina about this": a message with text that the whole room sees (or my own private one), not an event line
   const askOn = !!onAskTrina && !deleted && !editing && !m.event && !!m.body.trim()
-  // a touch screen: no hover row on every message; a long press opens its menu (with the reactions on top)
-  const longPress = useLongPress(() => {
-    pressedAt.current = Date.now()
-    setPress((n) => n + 1)
-  })
-  const { copy } = useCopy()
-  const copyLink = async () => {
-    // the team address when there is one: a link copied in the desktop app on the office network opens for the others too
-    await copy(copyLinkOf(roomId, m.id, m.threadRootId, me?.team?.address, location.origin))
-    toast({ level: 'success', text: t('rooms.menu.linkCopied') })
-  }
+  // a touch screen: no hover row on every message; a long press opens its sheet (with the reactions on top): the one
+  // sheet of every message (components/messages/MessageActions.tsx)
+  const press = useMessagePress(menuOn, ROOM_PRESS_SKIP)
+  const pressedAt = press.pressedAt
   const placeLabel = usePlaceLabel()
   // only links on this team's own hosts get a chip or a card: the server reads ids on any host, so a look-alike
   // address of another site never shows a real-looking card under it
@@ -461,11 +454,6 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
   const removePreview = (linked: string) => void useRooms.getState().hidePreview(roomId, m.id, linked)
   // "Remove preview": my own message (not an AI answer, an app's card or a shared answer)
   const mayRemovePreview = mine && !ai && !app && !m.sharedAnswer
-  const copyText = async () => {
-    // an app's message: its card's plain words (its body escapes Markdown marks for older apps)
-    await copy(app ? appPlainText(m) : m.body)
-    toast({ level: 'success', text: t('rooms.copied') })
-  }
   const del = async () => {
     // a project's chat room: the message goes, its files stay in the project's Chat attachments folder (docs/decisions/
     // 20261120-project-is-room.md D3), one line says where, a link to it
@@ -482,15 +470,20 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
   }
   // (one element while nothing changes: PersonMarkdown is memo'd and would read the Markdown again for a new one)
   const meta = useMemo(() => (m.editedAt && !deleted ? <span className="ml-1 text-xs text-faint select-none">{t('rooms.edited')}</span> : null), [m.editedAt, deleted, t])
-  // ⋮ 더 보기 (the hover bar) and the end of the long-press sheet: copy; my own message's edit; delete what I may (my own,
-  // an AI answer I asked for, any AI answer for an owner or admin), with the confirm
-  const moreItems: MenuItem[] = [
-    ...(m.body ? [{ label: t('common.copy'), icon: <Copy size={14} aria-hidden />, onSelect: () => void copyText(), testId: 'message-copy' }] : []),
-    // the message's address (docs/DECISIONS.md "Message links and their previews"): pasted elsewhere, it shows as a card
-    ...(m.visibility === 'room' && !m.event ? [{ label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: () => void copyLink(), testId: 'message-copy-link' }] : []),
-    ...(mine && !ai && !m.sharedAnswer ? [{ label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: onEdit, testId: 'message-edit' }] : []),
-    ...(mayRemovePreview ? cards.map((p) => ({ label: cards.length > 1 ? `${t('rooms.link.removePreview')} · ${placeLabel(p)}` : t('rooms.link.removePreview'), icon: <X size={14} aria-hidden />, onSelect: () => removePreview(p.messageId), testId: 'message-remove-preview' })) : []),
-    ...(removable ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'message-delete' }] : []),
+  // the hover bar and the long-press sheet, in this order: reply in thread and Ask Trina (icons on the bar), then (⋮ 더
+  // 보기 on the bar) copy; the link; my own message's edit; delete what I may (my own, an AI answer I asked for, any AI
+  // answer for an owner or admin), with the confirm
+  const actions: MessageAction[] = [
+    ...(threadOn ? [{ id: 'thread' as const, label: t('rooms.replyInThread'), run: () => onThread!(m.id, true), testId: 'message-thread', menuTestId: 'message-reply-thread' }] : []),
+    ...(askOn ? [{ id: 'askTrina' as const, label: t('sideChat.askAbout'), run: () => onAskTrina!(m), testId: 'message-ask-trina', menuTestId: 'message-ask-trina-menu' }] : []),
+    // an app's message: its card's plain words (its body escapes Markdown marks for older apps)
+    ...(m.body ? [{ id: 'copy' as const, label: t('common.copy'), copy: { text: () => (app ? appPlainText(m) : m.body) }, menuTestId: 'message-copy' }] : []),
+    // the message's address (docs/DECISIONS.md "Message links and their previews"): pasted elsewhere, it shows as a card;
+    // the team address when there is one: a link copied in the desktop app on the office network opens for the others too
+    ...(m.visibility === 'room' && !m.event ? [{ id: 'copyLink' as const, label: t('rooms.menu.copyLink'), copy: { text: () => copyLinkOf(roomId, m.id, m.threadRootId, me?.team?.address, location.origin), done: t('rooms.menu.linkCopied') }, menuTestId: 'message-copy-link' }] : []),
+    ...(mine && !ai && !m.sharedAnswer ? [{ id: 'edit' as const, label: t('common.edit'), run: onEdit, menuTestId: 'message-edit' }] : []),
+    ...(mayRemovePreview ? cards.map((p) => ({ id: 'removePreview' as const, label: cards.length > 1 ? `${t('rooms.link.removePreview')} · ${placeLabel(p)}` : t('rooms.link.removePreview'), run: () => removePreview(p.messageId), menuTestId: 'message-remove-preview' })) : []),
+    ...(removable ? [{ id: 'delete' as const, label: t('common.delete'), run: () => void del(), danger: true, menuTestId: 'message-delete' }] : []),
   ]
   return (
     <div
@@ -502,13 +495,13 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
       data-ai={ai ? '' : undefined}
       data-app={app ? serviceOf(app) : undefined}
       data-visibility={m.visibility}
-      {...(menuOn ? { ...longPress, onPointerDown: (e: React.PointerEvent) => !(e.target as Element).closest?.('[data-own-menu]') && longPress.onPointerDown(e) } : {})}
+      {...press.bind}
     >
       {/* a reply sent to the room too: in the timeline it says it belongs to a thread (a tap opens it); in the thread it
           says it went to the room as well */}
       {m.alsoInRoom && m.threadRootId && (variant === 'timeline' && onThread ? (
         <button type="button" onClick={() => onThread(m.threadRootId!)} className="mb-0.5 flex items-center gap-1 text-xs text-faint hover:text-ink hover:underline" data-testid="room-thread-reply-mark">
-          <MessageSquareText size={12} aria-hidden />
+          <ActionIcon id="thread" size={12} />
           {t('rooms.threadReplyMark')}
         </button>
       ) : variant === 'reply' ? (
@@ -540,7 +533,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
           {/* the messages it links to, as this viewer may see them (MessageLinkCard.tsx) */}
           {cards.map((p) => <MessageLinkCard key={p.messageId} p={p} nested={previews} onRemove={mayRemovePreview ? () => removePreview(p.messageId) : undefined} />)}
           {shared && <SharedAnswer text={m.body.slice(shared.at)} openable={openable} attached={attached} />}
-          {m.files.length > 0 && <Files roomId={roomId} files={m.files} />}
+          {m.files.length > 0 && <Files roomId={roomId} files={m.files} aiMade={aiMadeFiles(m)} />}
           {!m.body && m.editedAt && <p className="leading-5">{meta}</p>}
         </>
       )}
@@ -552,13 +545,10 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
           as a sheet, with six emoji and "More emoji" on top (its own button never shows) */}
       {menuOn && (
         <>
-          <MessageHoverBar react={reactOn ? { roomId, m } : null} below={barBelow} onThread={threadOn ? () => onThread!(m.id, true) : undefined} onAsk={askOn ? () => onAskTrina!(m) : undefined} more={moreItems} />
-          <MenuButton
-            label={t('rooms.messageMenu')}
-            className="absolute top-0 right-0"
-            buttonClassName="hidden!"
-            testId="message-menu"
-            openSignal={press}
+          <MessageActions layout="float" actions={actions} react={reactOn ? { roomId, m } : null} below={barBelow} />
+          <MessageActionSheet
+            signal={press.signal}
+            actions={actions}
             header={reactOn ? (close) => (
               <ReactionStrip
                 className="justify-between"
@@ -579,7 +569,6 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
                 }}
               />
             ) : undefined}
-            items={[...(threadOn ? [{ label: t('rooms.replyInThread'), icon: <MessageSquareText size={14} aria-hidden />, onSelect: () => onThread!(m.id, true), testId: 'message-reply-thread' }] : []), ...(askOn ? [{ label: t('sideChat.askAbout'), icon: <AiMark place="menu" />, onSelect: () => onAskTrina!(m), testId: 'message-ask-trina-menu' }] : []), ...moreItems]}
           />
           {picking && reactOn && <ReactionPanel roomId={roomId} m={m} anchor={null} onClose={() => setPicking(false)} />}
         </>
@@ -664,7 +653,8 @@ function Quote({ q, onJump }: { q: RoomQuote; onJump?: () => void }) {
   )
 }
 
-function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
+/** `aiMade`: files an AI made (lib/messageFiles.ts): a document opens in the right panel, as in the chat it came from */
+function Files({ roomId, files, aiMade = false }: { roomId: string; files: RoomFile[]; aiMade?: boolean }) {
   const me = useMe()
   // two or more pictures: an even gallery first, like Slack's (lib/imageGallery.ts), then the other files as chips
   const pictures = files.filter((f) => !f.state && f.kind === 'image' && f.thumb)
@@ -683,7 +673,7 @@ function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
             ) : roomVideoFrame(f, me) ? (
               <RoomVideo key={f.id} roomId={roomId} f={f} siblings={files} />
             ) : (
-              <FileChip key={f.id} roomId={roomId} f={f} siblings={files} />
+              <FileChip key={f.id} roomId={roomId} f={f} siblings={files} aiMade={aiMade} />
             ),
           )}
         </div>
@@ -835,19 +825,21 @@ function RoomVideo({ roomId, f, siblings }: { roomId: string; f: RoomFile; sibli
   )
 }
 
-/** A file under a message: its name and size open it in the viewer, in the pane's list with its pictures (a document as
+/** A file under a message: its name and size open it in the viewer (a file an AI made, `aiMade`: in the right panel, as
+ * the chat it came from opens it, lib/messageFiles.ts, and it is not in the viewer's ← → list), in the pane's list with its pictures (a document as
  * the side panel draws it; one with no preview here, such as a ZIP, a Hangul file while the HWP preview is off or one
  * past the preview limit, as its card with the download: `data-opens` marks a chip with a preview, lib/preview.ts
  * roomFileOpens), "Save to team folder" (on hover and focus with a mouse; on a touch screen in the long-press menu) or
  * its place in the team folder, and a small download icon sits at its end (on phones 44px wide, so its tap area never reaches over
  * the name; touch-hit gives the height). Each button is named by the words on it first (the name and size), then what
  * it does: a screen reader and voice control hear those words (WCAG 2.5.3). */
-function FileChip({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblings: readonly RoomFile[] }) {
+function FileChip({ roomId, f, siblings, aiMade = false }: { roomId: string; f: RoomFile; siblings: readonly RoomFile[]; aiMade?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const me = useMe()
   const make = (meta: ViewerMetaValue) => roomFileItem(roomId, f, me, meta)
-  const viewer = useViewerItem(make)
+  // a file an AI made has one opener, the right panel: it is not in the viewer's ← → list either
+  const viewer = useViewerItem(aiMade ? null : make)
   const team = useRoomFileSave(roomId, f, siblings)
   const fileMenu = useRoomFileMenu(f, make(useViewerMeta()), team)
   const download = () => startDownload(roomFileUrl(roomId, f.id, { download: '1' }), f.name)
@@ -856,7 +848,7 @@ function FileChip({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblin
   return (
     <span className="group/chip inline-flex max-w-full items-stretch rounded-xl border border-line bg-surface text-xs" data-testid="room-file" data-opens={opens ? '' : undefined} data-file-name={f.name} {...fileMenu.bind}>
       {fileMenu.menu}
-      <button type="button" ref={viewer.ref} onClick={(e) => !fileMenu.guard(e) && viewer.open()} className="inline-flex min-w-0 items-center gap-2 rounded-l-xl py-1.5 pr-1 pl-2.5 hover:bg-hover" data-testid="room-file-open">
+      <button type="button" ref={viewer.ref} onClick={(e) => !fileMenu.guard(e) && (aiMade ? openMessageFile(roomPreview(roomId, f)) : viewer.open())} className="inline-flex min-w-0 items-center gap-2 rounded-l-xl py-1.5 pr-1 pl-2.5 hover:bg-hover" data-testid="room-file-open" data-opens-in={aiMade ? 'panel' : 'viewer'}>
         <FileText size={15} className="shrink-0 text-muted" aria-hidden />
         <span className="max-w-[220px] truncate font-medium text-ink">{f.name}</span>
         <span className="shrink-0 text-faint">{formatSize(f.size, locale)}</span>
@@ -989,7 +981,7 @@ function EditForm({ roomId, m, initial, members, meId, onDone, onAgain }: { room
           if (e.key === 'Escape') {
             e.preventDefault()
             onDone()
-          } else if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229 && !window.matchMedia?.('(pointer: coarse)').matches) {
+          } else if (enterSends(e)) {
             e.preventDefault()
             save()
           }

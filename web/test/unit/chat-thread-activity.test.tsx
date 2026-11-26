@@ -95,6 +95,12 @@ test('Activity: the mention is a row with who and the chat that opens the thread
     expect(mention!.textContent).toContain('dion')
     expect(mention!.textContent).toContain('Sincere 베이커리 견적서')
     expect(mention!.textContent).toContain('나를 언급했어요')
+    // the name and the chat show once each: the line names neither (QA after #634: "dion: dion님이 …")
+    const once = (text: string, word: string) => text.split(word).length - 1
+    expect(once(mention!.textContent!, 'dion')).toBe(1)
+    expect(once(mention!.textContent!, 'Sincere 베이커리 견적서')).toBe(1)
+    expect(once(plain!.textContent!, 'dion')).toBe(1)
+    expect(plain!.querySelector('[data-testid="notification-text"]')!.textContent).toBe('스레드에 답글을 달았어요.')
     expect(plain!.getAttribute('href')).toBe(`/c/${CHAT}/t/${ROOT2}`)
     expect(m.container.ownerDocument!.body.querySelectorAll('[data-testid="notification-item"]')).toHaveLength(3)
     // both tabs have their dot

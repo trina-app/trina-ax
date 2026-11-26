@@ -17,6 +17,7 @@ import { useMe, useSession } from '../../store/session'
 import { loadChatList, loadMoreShown } from '../../lib/chatListLoad'
 import { cardChats, reasonText, useSessionMarkers } from '../../store/sessionMarkers'
 import { strongestMark } from '../../lib/historyGroups'
+import { forkRows, type TreeRow } from '../../lib/forkTree'
 import { useFolds } from '../panels/folds'
 import { isUnused, SessionMarker } from '../chat/ChatState'
 import { useProjects } from '../../store/projects'
@@ -156,24 +157,29 @@ export const DEFAULT_RECENTS_VIEW = DEFAULT_VIEW
  * Claude Code's date groups). Folded, a date keeps the chat on screen drawn and shows its strongest session marker. A
  * scheduled task's runs are one row (TaskRunsRow). Used by the panel at rest (panels/TrinaList.tsx) and the filtered
  * list and the drawer (HistoryList). */
-export function DateGroups({ chats, row, by, created, projectTag = false }: { chats: Chat[]; row: (c: Chat) => ReactNode; by: 'date' | 'none'; created: boolean; projectTag?: boolean }) {
+export function DateGroups({ chats, row, by, created, projectTag = false }: { chats: Chat[]; row: (c: Chat, tree?: TreeRow) => ReactNode; by: 'date' | 'none'; created: boolean; projectTag?: boolean }) {
   const t = useT()
-  const groups = useMemo(() => {
+  // continuations under the chat they came from, within one date (lib/forkTree.ts): every chat in its own date and place
+  const { groups, treeOf } = useMemo(() => {
+    const bucket = (c: Chat) => (by === 'date' ? dateBucket(created ? c.createdAt : c.updatedAt) : '')
+    const treeOf = new Map<string, TreeRow>()
     const g = new Map<string, Chat[]>()
-    for (const c of chats) {
-      const key = by === 'date' ? dateBucket(created ? c.createdAt : c.updatedAt) : ''
+    for (const r of forkRows(chats, { group: bucket })) {
+      const key = bucket(r.chat)
       if (!g.has(key)) g.set(key, [])
-      g.get(key)!.push(c)
+      g.get(key)!.push(r.chat)
+      treeOf.set(r.chat.id, r)
     }
-    return [...g.entries()]
+    return { groups: [...g.entries()], treeOf }
   }, [chats, by, created])
+  const treeRow = useCallback((c: Chat) => row(c, treeOf.get(c.id)), [row, treeOf])
   return (
     <>
       {groups.map(([key, items]) => {
         // a date whose chats were all runs of a task whose newest run is in a later date: no empty header
-        const rows = foldRuns(items, row, { pool: chats, menuSpace: true, projectTag })
+        const rows = foldRuns(items, treeRow, { pool: chats, menuSpace: true, projectTag })
         if (!rows.length) return null
-        return key ? <DateGroup key={key} bucket={key as DateBucket} label={t(BUCKET_LABEL[key as DateBucket])} items={items} rows={rows} row={row} /> : <ul key="all">{rows}</ul>
+        return key ? <DateGroup key={key} bucket={key as DateBucket} label={t(BUCKET_LABEL[key as DateBucket])} items={items} rows={rows} row={treeRow} /> : <ul key="all">{rows}</ul>
       })}
     </>
   )
@@ -283,7 +289,7 @@ export function HistoryList({ onNavigate, peek, viewState, caps, sections: outsi
   const groupCaps = useMemo(() => (caps ? { ...caps, open: openChat } : {}), [caps?.projects, caps?.rows, openChat]) // eslint-disable-line react-hooks/exhaustive-deps
   const byProject = useHistoryGroups(groupRows, groupCaps)
   const grouped = byProject.grouped && view.group === 'project'
-  const row = (c: Chat) => <ChatItem key={c.id} chat={c} onNavigate={onNavigate} peek={peek} onMove={setMoving} />
+  const row = (c: Chat, tree?: TreeRow) => <ChatItem key={c.id} chat={c} onNavigate={onNavigate} peek={peek} onMove={setMoving} {...(tree ? { tree } : {})} />
 
   return (
     <>
@@ -299,7 +305,7 @@ export function HistoryList({ onNavigate, peek, viewState, caps, sections: outsi
         )}
         {byProject.ready && pinnedRows.length > 0 && (
           <ul className="mb-2" data-testid="ai-chats-pinned">
-            {pinnedRows.map(row)}
+            {pinnedRows.map((c) => row(c))}
           </ul>
         )}
         {byProject.ready && !outside && view.group !== 'project' && <HistorySections state={sections} row={row} filtered={viewState.changed.length > 0} />}

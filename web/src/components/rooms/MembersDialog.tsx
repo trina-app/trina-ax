@@ -139,7 +139,7 @@ function NameRow({ room }: { room: Room }) {
   }
   if (draft === null)
     return (
-      <button type="button" onClick={() => setDraft(room.name ?? '')} className="group flex w-full items-center gap-2 px-5 py-3 text-left hover:bg-hover max-sm:px-4" data-testid="room-name" aria-label={`${t(group && !locked ? 'rooms.menu.makePrivate' : 'rooms.info.rename')}: ${title}`}>
+      <button type="button" onClick={() => setDraft(room.name ?? '')} className="group flex w-full items-center gap-2 px-5 py-3 text-left hover:bg-hover max-sm:px-4" data-testid="room-name" aria-label={`${t(group && !locked ? 'rooms.menu.makePrivate' : 'chat.rename')}: ${title}`}>
         <span className="min-w-0 flex-1 truncate text-base font-medium text-ink">{title}</span>
         <Pencil size={14} className="shrink-0 text-faint group-hover:text-ink" aria-hidden />
       </button>

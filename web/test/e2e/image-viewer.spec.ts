@@ -462,7 +462,8 @@ test('the room box\'s picture opens in the viewer from its own bytes, like the A
   await openRoom(page)
   // the upload is held: the picture is still only on this computer
   await page.route(new RegExp(`/api/rooms/${ROOM_ID}/files$`), () => {})
-  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByTestId('room-attach').click()])
+  await page.getByTestId('room-attach').click()
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByTestId('attach-computer').click()])
   await chooser.setFiles({ name: 'acme-draft.png', mimeType: 'image/png', buffer: ICON })
   await page.getByTestId('room-file-chip').getByTestId('picture-tile-open').click()
   await shown(page)

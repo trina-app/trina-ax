@@ -462,7 +462,7 @@ function GuestLinkReady({ url, who, place, ownAi, expiresAt, onClose }: { url: s
             {msg.copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />} {msg.copied ? t('common.copied') : t('teamLink.copyMessage')}
           </Button>
           <Button size="sm" variant="ghost" onClick={() => void link.copy(url)} data-testid="guest-invite-copy">
-            {link.copied ? <Check size={14} className="text-ok" aria-hidden /> : <Copy size={14} aria-hidden />} {link.copied ? t('common.copied') : t('members.copyLink')}
+            {link.copied ? <Check size={14} className="text-ok" aria-hidden /> : <Copy size={14} aria-hidden />} {link.copied ? t('common.copied') : t('rooms.menu.copyLink')}
           </Button>
         </div>
         {/* the message says until when; this line only how to send it */}

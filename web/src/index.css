@@ -387,6 +387,10 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--c-accent); }
   }
 }
 
+/* A continuation's row in the Trina history (nav/ChatItem.tsx, lib/forkTree.ts; docs/decisions/20261126-chat-fork-tree.md):
+   one level of indent (20px) under the chat it came from, the whole row (its hover too) moved in. */
+.tree-row { margin-left: 1.25rem; }
+
 /* A row that scrolls sideways (useEdgeFade in components/ui.tsx): an edge with more behind it fades out, in both
    themes (a mask, not a colour), and a tab scrolled into view keeps a margin from the edge instead of sitting cut. */
 .edge-fade { --fade: 1.75rem; scroll-padding-inline: 2rem; }

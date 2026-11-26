@@ -153,3 +153,23 @@ describe('a conversation row stays selected', () => {
     expect(openNotice([item], { pathname: `/rooms/${ROOM}`, search: '', state: null, lit: 'chats' })).toBeNull()
   })
 })
+
+test('a chat thread row names who once: who before the line, the chat under it, the line names neither (QA after #634)', async () => {
+  const chat = uuidv7(), root = uuidv7()
+  const thread = (mention: boolean) => InboxNotification.parse({
+    id: uuidv7(), eventType: 'chat.thread_reply', sourceId: root, code: 'chat.thread_reply', createdAt: minute(2), readAt: null, chatId: chat, link: 'chat_thread', outcome: null,
+    chatThread: { chatId: chat, rootId: root, name: 'QA Member', byId: 'qa', title: '견적서', ...(mention ? { mention: true } : {}) },
+  })
+  inbox = [thread(false), thread(true)]
+  useSession.setState({ status: { kind: 'signed-in', me } } as never)
+  const m = await mount(<MemoryRouter initialEntries={['/activity']}><ActivityPanel /></MemoryRouter>)
+  try {
+    await m.until(() => rowsOf(m).length === 2, 'the two thread rows')
+    for (const row of rowsOf(m)) {
+      expect(row.querySelector('[data-testid="activity-panel-who"]')!.textContent).toBe('QA Member')
+      expect(row.querySelector('[data-testid="activity-panel-where"]')!.textContent).toBe('견적서')
+      expect(row.textContent!.split('QA Member').length - 1).toBe(1)
+    }
+    expect(rowsOf(m).map((r) => r.querySelector('[data-testid="activity-panel-line"]')!.textContent).sort()).toEqual(['스레드에 답글을 달았어요.', '스레드에서 나를 언급했어요.'])
+  } finally { await m.unmount() }
+})

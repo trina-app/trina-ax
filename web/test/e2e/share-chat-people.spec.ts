@@ -308,7 +308,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       } else {
         const row = list.locator('li', { has: bob.locator(`a[href="/c/${w.chatId}"]`) }).first()
         await row.hover()
-        await row.getByRole('button', { name: '기록 메뉴', exact: true }).click()
+        await row.getByRole('button', { name: '채팅 메뉴', exact: true }).click()
         await expect(bob.getByTestId('chat-row-hide')).toHaveText('내 목록에서 숨기기')
         await bob.getByTestId('chat-row-hide').click()
       }
@@ -377,7 +377,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
         const list = await chatList(page)
         const row = list.locator('li', { has: page.locator(`a[href="/c/${c.chatId}"]`) }).first()
         await row.hover()
-        await row.getByRole('button', { name: '기록 메뉴', exact: true }).click()
+        await row.getByRole('button', { name: '채팅 메뉴', exact: true }).click()
         await expect(page.getByTestId('chat-row-share')).toHaveText('공유')
         await page.getByTestId('chat-row-share').click()
         await expect(page.getByRole('dialog').getByTestId('chat-share-dialog')).toBeVisible()

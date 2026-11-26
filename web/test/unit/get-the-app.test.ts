@@ -77,7 +77,7 @@ describe("the copied link opens on the app's first screen", () => {
 
 describe('words', () => {
   test('in all five languages, Korean only in Korean', () => {
-    for (const k of ['auth.getApp', 'auth.getAppHint', 'auth.continueInBrowser', 'auth.linkCopied', 'auth.linkNotCopied'] as const)
+    for (const k of ['auth.getApp', 'auth.getAppHint', 'auth.continueInBrowser', 'rooms.menu.linkCopied', 'auth.linkNotCopied'] as const)
       for (const { id } of LOCALES) {
         const v = DICTS[id][k]
         expect({ id, k, ok: typeof v === 'string' && v.length > 0 && (id === 'ko' || !/[가-힣]/.test(v)) }).toEqual({ id, k, ok: true })
@@ -86,8 +86,8 @@ describe('words', () => {
     expect(translate('ko', 'auth.getApp')).toBe('초대 링크 복사하고 앱 받기')
     expect(translate('en', 'auth.getAppHint')).toBe("After installing, paste the link in the app's first screen.")
     expect(translate('ko', 'auth.getAppHint')).toBe('앱을 설치한 다음 첫 화면에 붙여 넣으세요.')
-    expect(translate('en', 'auth.linkCopied')).toBe('Link copied')
-    expect(translate('ko', 'auth.linkCopied')).toBe('링크를 복사했어요')
+    expect(translate('en', 'rooms.menu.linkCopied')).toBe('Link copied.')
+    expect(translate('ko', 'rooms.menu.linkCopied')).toBe('링크를 복사했어요.')
   })
 })
 

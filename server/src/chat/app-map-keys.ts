@@ -11,7 +11,7 @@ export const APP_MAP_KEYS = [
   'settings.allowances', 'settings.allowancesAi',
   // rooms
   'roomApps.menuAdd', 'roomApps.menuList', 'roomApps.address', 'rooms.menu.notify', 'rooms.notify.mentions', 'rooms.notify.off',
-  'rooms.info.rename', 'rooms.info.addPeople', 'rooms.react',
+  'rooms.info.addPeople', 'rooms.react',
   // Settings
   'notifications.title', 'notifications.quiet', 'settings.apps', 'settings.about', 'aiApps.title', 'settings.profile', 'integrations.title',
   // skills, files

@@ -9,7 +9,7 @@
 //   shared (it warns first), and the accounts members connected.
 // - Usage limits (#ai-limits). A phone's Usage limits page has Add limit as the Admin bar's + (barActions.tsx, QA TC-377).
 // Each group saves through its own endpoint as before: AI defaults and Who picks the engine show Cancel and Save once
-// something in them changed; the switches and the limits save at once. They stay apart from the Team settings form and
+// something in them changed (and a reload asks first while they show); the switches and the limits save at once. They stay apart from the Team settings form and
 // its save bar, which saves another endpoint (PATCH /api/admin/settings).
 import clsx from 'clsx'
 import { AlertTriangle, Plus, Trash2 } from 'lucide-react'
@@ -24,6 +24,7 @@ import { Badge, Button, IconButton, Switch, confirmDialog, inputCls, noKeyRepeat
 import { Loadable, OneLine, SettingRow, SettingsSection, useAction, useActionOk, useFocusAfterRemove, useOneAtATime } from './common'
 import { loadTeamCredentials, PersonalCredentialList, useTeamCredentials, type TeamCredentials } from './Credentials'
 import { useKeptDraft } from '../../lib/keptDraft'
+import { markBusy } from '../../lib/busy'
 import { PhoneChoiceRow, phoneNumberCls } from '../../components/phone/PhoneChoice'
 import { PhoneChecks } from '../../components/phone/PhoneChecks'
 import { ENGINE_LABEL } from '../../components/chat/EngineMenu'
@@ -93,9 +94,20 @@ function EngineGroups({ limits }: { limits: boolean }) {
   )
 }
 
-/** Cancel and Save under a group, once something in it changed. */
-function GroupSave({ busy, onSave, onCancel, testId }: { busy?: boolean; onSave: () => void; onCancel: () => void; testId?: string }) {
+/** Cancel and Save under a group, once something in it changed. While it shows, a reload or closing the tab asks first
+ * and the app does not reload by itself for an update (as Folder sharing's changes): a changed depth or model is not
+ * lost without a word (QA after #634). */
+export function GroupSave({ busy, onSave, onCancel, testId }: { busy?: boolean; onSave: () => void; onCancel: () => void; testId?: string }) {
   const t = useT()
+  useEffect(() => {
+    const release = markBusy('draft')
+    const ask = (e: BeforeUnloadEvent) => e.preventDefault()
+    window.addEventListener('beforeunload', ask)
+    return () => {
+      release()
+      window.removeEventListener('beforeunload', ask)
+    }
+  }, [])
   return (
     <div className="flex flex-wrap items-center justify-end gap-2 pt-2" data-testid={testId ? `${testId}-bar` : undefined}>
       <span className="mr-auto text-sm text-muted" role="status">{t('teamSettings.unsaved')}</span>

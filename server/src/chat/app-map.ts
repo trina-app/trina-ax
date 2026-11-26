@@ -97,8 +97,8 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
     `- ${tr('cardAlways', L)} on a card: not asked again; undo in ${set(PRODUCT_NAMED_AFTER_AI ? 'settings.allowances' : 'settings.allowancesAi')}.`,
     // a free-roam demo fences adding room apps (demo/guard.ts ROOM_APPS)
     o.freeRoam
-      ? `- Room ⋯: ${q('chat.pin')}. A group chat's also ${q('rooms.info.rename')}, ${q('rooms.info.addPeople')}; a team room: people follow its group, owners and admins rename.`
-      : `- Room ⋯: ${q('chat.pin')}, ${q('roomApps.menuAdd')} (${q('roomApps.menuList')} once it has some): Google Forms or any service posts into the room by its ${q('roomApps.address')}. A group chat's also ${q('rooms.info.rename')}, ${q('rooms.info.addPeople')}; a team room: people follow its group, owners and admins rename.`,
+      ? `- Room ⋯: ${q('chat.pin')}. A group chat's also ${q('chat.rename')}, ${q('rooms.info.addPeople')}; a team room: people follow its group, owners and admins rename.`
+      : `- Room ⋯: ${q('chat.pin')}, ${q('roomApps.menuAdd')} (${q('roomApps.menuList')} once it has some): Google Forms or any service posts into the room by its ${q('roomApps.address')}. A group chat's also ${q('chat.rename')}, ${q('rooms.info.addPeople')}; a team room: people follow its group, owners and admins rename.`,
     `- Room bell or ⋯ › ${q('rooms.menu.notify')}: ${q('rooms.notify.mentions')} / ${q('rooms.notify.off')}. ${q('notifications.quiet')}: ${set('notifications.title')}. Message hover: ${q('rooms.react')}. Mentions, thread replies: ${q('inbox.title')}.`,
     // the person's own AI and model only for someone who may pick one: a member read "if allowed" and told the asker
     // Profile might let them (CON-07.member, dev f394c9258 rerun 2026-11-17)

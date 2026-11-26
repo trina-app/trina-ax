@@ -23,6 +23,7 @@ import { putCached, readSchedules, scheduleKey, SHARED, useCachedRead } from '..
 import { chatChanged, reloadAsked, schedulesChanged } from '../store/live'
 import { useMeStrict } from '../store/session'
 import { toast } from '../store/ui'
+import { destructive } from '../lib/destructive'
 import AskCard from '../components/chat/AskCard'
 import { copyRoomIds, WithRoomNames } from '../components/RoomNames'
 import { ScheduleEditDialog } from '../components/settings/ScheduleEditDialog'
@@ -30,7 +31,7 @@ import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
 import { TitleMenu } from '../components/TitleMenu'
 import { MenuButton } from '../components/rooms/MenuButton'
 import { PhoneBarAction } from '../components/phone/PhoneBarAction'
-import { Button, EmptyState, ErrorNote, IconButton, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, inputCls, pageColumn, useMediaQuery } from '../components/ui'
+import { Button, EmptyState, ErrorNote, IconButton, Modal, PageHeader, Skeleton, StickyHeader, inputCls, pageColumn, useMediaQuery } from '../components/ui'
 import { Tooltip } from '../components/Tooltip'
 import { ListHeading, ListRow } from '../components/list/List'
 
@@ -670,15 +671,25 @@ export function ScheduledTask() {
   const [editing, setEditing] = useState(false)
   const remove = async (x: Schedule) => {
     const generation = life.current
-    if (!(await confirmDialog({ title: t('schedules.deleteTitle'), body: t('schedules.deleteBody', { title: scheduleName(x, t) }), confirm: t('schedules.delete'), danger: true }))) return
-    if (generation !== life.current) return
-    try {
-      await api.call(API.deleteSchedule, { params: { id: x.id } })
-      drop(x.id)
-      if (generation !== life.current) return
-      if (x.needsReview) schedulesChanged.emit()
-      navigate('/scheduled', { replace: true })
-    } catch (e) { fail(e) }
+    // lib/destructive.ts: its confirm, then "Scheduled task deleted." (no undo: the server keeps no deleted task)
+    await destructive({
+      confirm: { title: t('schedules.deleteTitle'), body: t('schedules.deleteBody', { title: scheduleName(x, t) }), confirm: t('common.delete') },
+      run: async () => {
+        if (generation !== life.current) return false
+        try {
+          await api.call(API.deleteSchedule, { params: { id: x.id } })
+        } catch (e) {
+          fail(e)
+          return false
+        }
+        drop(x.id)
+        if (generation !== life.current) return true
+        if (x.needsReview) schedulesChanged.emit()
+        navigate('/scheduled', { replace: true })
+        return true
+      },
+      done: () => ({ text: t('schedules.deleted'), level: 'success' }),
+    })
   }
   const project = s?.projectId ? projects?.find((p) => p.id === s.projectId) ?? null : null
   // a phone: "Edit" in the top bar and a red "Delete" row at the end of the page, as an iOS app has them (the name is
@@ -705,7 +716,7 @@ export function ScheduledTask() {
                 testId="schedule-menu"
                 items={[
                   { label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setEditing(true), testId: 'schedule-edit' },
-                  { label: t('schedules.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void remove(s), danger: true, testId: 'schedule-delete' },
+                  { label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void remove(s), danger: true, testId: 'schedule-delete' },
                 ]}
               />
             </>
@@ -727,7 +738,7 @@ export function ScheduledTask() {
         )}
         {phone && s && (
           <button type="button" onClick={() => void remove(s)} className="mt-8 flex min-h-11 w-full items-center justify-center rounded-lg bg-subtle px-4 text-sm font-medium text-danger" data-testid="schedule-delete-row">
-            {t('schedules.delete')}
+            {t('common.delete')}
           </button>
         )}
       </div>

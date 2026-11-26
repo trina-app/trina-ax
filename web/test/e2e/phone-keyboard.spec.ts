@@ -230,11 +230,11 @@ test('the ✦ side chat at its bottom: the newest answer stays right above its b
     const a = await box(last), b = await box(input)
     expect(a.y + a.height).toBeLessThanOrEqual(b.y)
     expect(b.y + b.height).toBeLessThanOrEqual(KB_TOP)
-    // its "AI can make mistakes" line steps aside while typing; the box sits on the keyboard
+    // a phone's box has no note under it (the header says "Only you"); the box sits on the keyboard
     await expect(side.getByTestId('side-chat-disclaimer')).toBeHidden()
     await onKeyboard(page, side.getByTestId('side-chat-box'))
     await closeKeyboard(page, kind)
-    await expect(side.getByTestId('side-chat-disclaimer')).toBeVisible()
+    await expect(side.getByTestId('side-chat-disclaimer')).toBeHidden()
     await expect.poll(() => gap(list)).toBeLessThanOrEqual(1)
   }
 })

@@ -264,6 +264,13 @@ export function severalAuthors(db: Database, chatId: string): boolean {
     WHERE m.chat_id = c.id AND m.role = 'user' AND m.author_id IS NOT NULL AND m.author_id <> c.user_id)`).get(chatId)
 }
 
+/** A fork (chat/fork.ts) holds a copy of another person's answer (one that ran their turn, or a hidden one's line):
+ * its messages keep the shared chat's view (messageView), as the person saw them there. */
+export function forkHoldsOthers(db: Database, chatId: string): boolean {
+  return !!db.query(`SELECT 1 FROM messages m JOIN chats c ON c.id = m.chat_id LEFT JOIN turns t ON t.id = m.turn_id
+    WHERE m.chat_id = ? AND m.fork_copy = 1 AND m.role = 'assistant' AND (m.withheld_copy = 1 OR t.user_id IS NULL OR t.user_id <> c.user_id) LIMIT 1`).get(chatId)
+}
+
 /** Did this person send a message in the chat (a shared chat they wrote in is in their chat list)? */
 export function wroteIn(db: Database, chatId: string, userId: string): boolean {
   return !!db.query("SELECT 1 FROM messages WHERE author_id = ? AND chat_id = ? AND role = 'user' LIMIT 1").get(userId, chatId)
@@ -390,6 +397,35 @@ export function chatFor(rt: ChatRuntime, userId: string, id: string, mode: 'view
   return { row: r, shared: true, kind: 'project', project, creator, editor }
 }
 
+/** The "Continued from ‹title›" line of a fork (chat/fork.ts, Chat.forkedFrom) for its person: the shared chat's title
+ * (as they see it there, a stored secret hidden) and id while they may open it, else its title at the copy alone. */
+export function forkedFromOf(rt: ChatRuntime, viewer: string, r: Pick<ChatRow, 'fork_of' | 'fork_title' | 'user_id'>): { title: string; chatId?: string } | undefined {
+  if (!r.fork_of) return undefined
+  try {
+    const a = chatFor(rt, viewer, r.fork_of, 'view')
+    return { title: redactorFor(rt.ctx, a.row.user_id).hide(a.row.title), chatId: a.row.id }
+  } catch { return { title: redactorFor(rt.ctx, r.user_id).hide(r.fork_title ?? '') } }
+}
+
+/** How far up a fork's chain its person's list looks (Chat.forkParents) */
+export const FORK_PARENTS_MAX = 8
+/** A fork's ancestors in its person's list (Chat.forkParents, migration 463 chats.fork_parent), nearest first: the list
+ * puts the row under the nearest one that is a row of the same list (web lib/forkTree.ts), so a parent deleted, hidden,
+ * pinned, filtered out or no longer open to them hands its forks up a level without any change here. Ids only, and only
+ * of chats that are `viewer`'s own, plus the first one that is not (the shared chat a fork came from): the chain never
+ * goes past a chat of someone else's, whose own parents are theirs (a fork they shared later). Empty: a top-level row. */
+export function forkParentsOf(db: Database, r: Pick<ChatRow, 'id' | 'fork_parent'>, viewer: string): string[] {
+  const out: string[] = []
+  const up = db.query('SELECT user_id, fork_parent FROM chats WHERE id = ?')
+  for (let p = r.fork_parent ?? null; p && out.length < FORK_PARENTS_MAX && p !== r.id && !out.includes(p);) {
+    out.push(p)
+    const x = up.get(p) as { user_id: string; fork_parent: string | null } | null
+    if (!x || x.user_id !== viewer) break
+    p = x.fork_parent
+  }
+  return out
+}
+
 /** Chat.shared.waiting: how many messages of the others wait there (shared-waiting.ts), only when some do */
 const othersWaiting = (rt: ChatRuntime, chatId: string, viewer: string): { waiting?: number } => {
   const n = rt.sharedWaiting.othersCount(chatId, viewer)
@@ -460,7 +496,9 @@ export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?:
   if (!isSharedRow(r)) {
     // a chat that stopped being shared after others wrote in it: its marker and last outcome are its creator's answers'
     const c = rt.store.toChat(r, rt.runState(r.id), rt.waitsForPerson(r.id), { ...(severalAuthors(rt.db, r.id) ? { answersOf: r.user_id } : {}), viewer, ending: rt.endingUnconfirmed(r.id), waitingForPlace: rt.waitsForPlace(r.id) })
-    return { ...c, title: hide(c.title) }
+    const forked = viewer === r.user_id ? forkedFromOf(rt, viewer, r) : undefined
+    const parents = viewer === r.user_id ? forkParentsOf(rt.db, r, viewer) : []
+    return { ...c, title: hide(c.title), ...(forked ? { forkedFrom: forked } : {}), ...(parents.length ? { forkParents: parents } : {}) }
   }
   const runner = rt.activeTurnUser(r.id)
   const c = rt.store.toChat(r, rt.runState(r.id), rt.waitsForPerson(r.id, viewer), { answersOf: r.user_id === viewer ? viewer : null, viewer, ending: rt.endingUnconfirmed(r.id), waitingForPlace: runner === viewer && rt.waitsForPlace(r.id) })
@@ -479,7 +517,10 @@ export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?:
   // project's shared chat has neither (docs/decisions/20261126-project-chat-mention-only.md): an older row there is not read
   const unread = !isConversationRow(r) ? null : o.unread ? o.unread.get(viewer) ?? null : unreadOf(rt.db, viewer, r.id)
   const muted = !!unread?.muted
-  return { ...c, title: hide(c.title), shared, ...waitsForOf(rt, viewer, r, aud, runner), ...(unread?.n ? { unseen: true as const, unreadCount: unread.n } : {}), ...(muted ? { muted: true as const } : {}) }
+  // a fork its creator shared later: the line back to the chat it came from is theirs alone
+  const forked = viewer === r.user_id ? forkedFromOf(rt, viewer, r) : undefined
+  const parents = viewer === r.user_id ? forkParentsOf(rt.db, r, viewer) : []
+  return { ...c, title: hide(c.title), shared, ...(forked ? { forkedFrom: forked } : {}), ...(parents.length ? { forkParents: parents } : {}), ...waitsForOf(rt, viewer, r, aud, runner), ...(unread?.n ? { unseen: true as const, unreadCount: unread.n } : {}), ...(muted ? { muted: true as const } : {}) }
 }
 
 /** Was this shared chat shared after it was made (chat/share-chat.ts marks the turns it had then SHARED_LATER)? An answer
@@ -494,7 +535,7 @@ const sharedLater = (db: Database, r: Pick<ChatRow, 'id'>): boolean =>
  * this view: its creator sees other people's turns as they did while it was shared (no usage, failure reason or step
  * detail of theirs, paths only where the creator may look, an answer hidden from them still hidden). */
 export function messageView(rt: ChatRuntime, r: Pick<ChatRow, 'id' | 'shared_at' | 'project_id' | 'people_shared_at'>, viewer: string, locale: Locale): MessageView | undefined {
-  if (!isSharedRow(r) && !severalAuthors(rt.db, r.id)) return undefined
+  if (!isSharedRow(r) && !severalAuthors(rt.db, r.id) && !forkHoldsOthers(rt.db, r.id)) return undefined
   const me = loadPrincipal(rt.db, viewer)
   const rules = rt.files.rules()
   const segs = (p: string) => p.split('/').filter(Boolean)
