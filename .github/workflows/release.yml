@@ -16,10 +16,12 @@
 #                 Linux .deb and AppImage files and SHA256SUMS(.sig)
 #     build-ami   stable only: starts team-image.yml on the tag (the new-team server AMI); a notice when AWS is not set up
 #
-# The Windows installer ships about once a week (owner, 2026-11-26: its signing plan counts every signing; docs/RELEASE-CI.md
-# 11장): prepare decides (scripts/release/windows-cadence.ts, from the GitHub Releases; a tag message line "Windows: yes"
-# or "Windows: no" decides instead). On the other days build-windows does not run, the office feed names the last
-# Windows build again (publish.ts --keep-windows) and the GitHub Release says so in one line. Everything else ships.
+# The Windows installer ships only when the Windows app changed, at most about once a week (owner, 2026-11-26: its
+# signing plan counts every signing, and most releases change only the web, which the app loads from the team server;
+# docs/RELEASE-CI.md 11장): prepare decides (scripts/release/windows-cadence.ts, from the GitHub Releases and the last
+# Windows release's checkout; a tag message line "Windows: yes" or "Windows: no" decides instead). On the other days
+# build-windows does not run, the office feed names the last Windows build again (publish.ts --keep-windows) and the
+# GitHub Release says so in one line. Everything else ships.
 #
 # The Linux server release does not wait for the desktop builds: when build-office or build-windows fails or gets no
 # runner, publish still runs (prepare, test and build-linux must pass), the office feed stays at the previous release,
@@ -51,7 +53,7 @@ on:
         type: choice
         options: [tag, staged, all]
       windows:
-        description: "The Windows installer: tag = as the tag message says (a 'Windows: yes' or 'Windows: no' line, else once a week, docs/RELEASE-CI.md 11장); yes = build it now; no = not in this release. A run again of a published tag always does what its first run did."
+        description: "The Windows installer: tag = as the tag message says (a 'Windows: yes' or 'Windows: no' line, else when the Windows app changed, at most once a week, docs/RELEASE-CI.md 11장); yes = build it now; no = not in this release. A run again of a published tag always does what its first run did."
         required: false
         default: tag
         type: choice
@@ -171,23 +173,50 @@ jobs:
           fi
           bun scripts/release/release-ci.ts rollout notes/tag-message.md "$INPUT_ROLLOUT" --notes-out notes/notes.md | tee -a "$GITHUB_OUTPUT"
           wc -c notes/notes.md
-      # the Windows installer about once a week (scripts/release/windows-cadence.ts has the rule): from the GitHub
-      # Releases (which had the installer, when, signed or not) and a "Windows: yes|no" line, taken out of the notes
-      - name: Does this release ship the Windows installer
-        id: windows
+      # the Windows installer when the Windows app changed, at most about once a week (scripts/release/windows-cadence.ts
+      # has the rule): from the GitHub Releases (which had the installer, when, signed or not), the Windows app of this
+      # tag against the last Windows release's (scripts/release/windows-inputs.ts) and a "Windows: yes|no" line, taken
+      # out of the notes
+      - name: The last release with the Windows installer
+        id: windows_prev
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.which.outputs.tag }}
-          INPUT_WINDOWS: ${{ inputs.windows }}
-          SIGNING: ${{ vars.WINDOWS_SIGNING_PROVIDER }}
-          LIMIT: ${{ vars.WINDOWS_SIGNING_MONTHLY_LIMIT }}
         run: |
           # 3 tries; still no answer: windows-cadence.ts leaves Windows out with a warning, the rest of the release goes on
           for i in 1 2 3; do
             gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json" && break
             rm -f "$RUNNER_TEMP/releases.json"; sleep 10
           done
-          bun scripts/release/windows-cadence.ts decide --tag "$TAG" --notes notes/notes.md --releases "$RUNNER_TEMP/releases.json" --input "$INPUT_WINDOWS" --signing "$SIGNING" --limit "$LIMIT" | tee -a "$GITHUB_OUTPUT"
+          bun scripts/release/windows-cadence.ts last --tag "$TAG" --releases "$RUNNER_TEMP/releases.json" | tee -a "$GITHUB_OUTPUT"
+      # that tag next to this one, to compare the Windows app with (no checkout: the 7 days alone decide)
+      - name: Check out the last Windows release
+        if: steps.windows_prev.outputs.tag != ''
+        continue-on-error: true
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: refs/tags/${{ steps.windows_prev.outputs.tag }}
+          path: .windows-last
+          persist-credentials: false
+      - name: Does this release ship the Windows installer
+        id: windows
+        env:
+          TAG: ${{ steps.which.outputs.tag }}
+          LAST: ${{ steps.windows_prev.outputs.tag }}
+          INPUT_WINDOWS: ${{ inputs.windows }}
+          SIGNING: ${{ vars.WINDOWS_SIGNING_PROVIDER }}
+          LIMIT: ${{ vars.WINDOWS_SIGNING_MONTHLY_LIMIT }}
+        run: |
+          # the packages both Windows apps are built from (no install scripts: only the JavaScript is bundled); a failed
+          # install leaves that tree out and windows-cadence.ts cannot compare (a warning, the 7 days decide)
+          # (3 minutes each at most: a hanging install never holds up the release)
+          timeout 180 bun install --frozen-lockfile --ignore-scripts || echo "::warning::bun install failed for $TAG"
+          tree=()
+          if [ -n "$LAST" ] && [ -d .windows-last/desktop ]; then
+            if (cd .windows-last && timeout 180 bun install --frozen-lockfile --ignore-scripts); then tree=(--last-tree .windows-last --last-tree-tag "$LAST")
+            else echo "::warning::bun install failed for $LAST"; fi
+          fi
+          bun scripts/release/windows-cadence.ts decide --tag "$TAG" --notes notes/notes.md --releases "$RUNNER_TEMP/releases.json" --input "$INPUT_WINDOWS" --signing "$SIGNING" --limit "$LIMIT" "${tree[@]}" | tee -a "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-notes
@@ -370,7 +399,8 @@ jobs:
   build-windows:
     name: Windows installer
     needs: prepare
-    # about once a week (prepare "Does this release ship the Windows installer"): skipped on the other days
+    # when the Windows app changed, at most about once a week (prepare "Does this release ship the Windows installer"):
+    # skipped on the other days
     if: ${{ needs.prepare.outputs.windows == 'true' }}
     runs-on: windows-2025
     # environment release: the SSL.com eSigner credentials are secrets of this environment (docs/RELEASE-CI.md 11장).
@@ -565,7 +595,7 @@ jobs:
           echo "linux_desktop=$LINUX_DESKTOP_OK" >> "$GITHUB_OUTPUT"
           if [ "$OFFICE_OK" = true ]; then ls -l in/release-office; else echo "::warning::build-office did not pass: no office zip in this release"; fi
           if [ "$WINDOWS_OK" = true ]; then ls -l in/release-windows
-          elif [ "$WINDOWS_PLANNED" != true ]; then echo "No Windows build in this release (weekly): the office feed keeps the last one"
+          elif [ "$WINDOWS_PLANNED" != true ]; then echo "No Windows build in this release (the Windows app did not change, or not yet a week): the office feed keeps the last one"
           else echo "::warning::build-windows did not pass: no Windows installer in this release"; fi
           if [ "$MAC_OK" = true ]; then ls -l in/release-mac; else echo "::warning::build-mac-app did not pass: no Mac app in this release"; fi
           if [ "$LINUX_DESKTOP_OK" = true ]; then ls -l in/release-linux-desktop; else echo "::warning::build-linux-desktop did not pass: no Linux desktop app in this release"; fi
@@ -604,7 +634,7 @@ jobs:
             mv "build/linux-$a/"*.tar.zst "build/linux-$a/"*.tar.gz build/server/
           done
           ls -l build/server
-      # without a Windows build this release (weekly), --keep-windows names the channel head's Windows app again
+      # without a Windows build this release (windows-cadence.ts), --keep-windows names the channel head's Windows app again
       - name: Office feed (zip + Windows installer)
         if: needs.prepare.outputs.feed == 'true' && needs.build-office.result == 'success' && (needs.build-windows.result == 'success' || needs.prepare.outputs.windows != 'true')
         env:
@@ -732,10 +762,10 @@ jobs:
           # no notes in the tag message: GitHub's generated notes (after the lines below)
           generate=false
           if [ ! -s notes/notes.md ]; then generate=true; fi
-          # a release without a Windows build by design (weekly) says which release's installer Windows keeps; a run again
+          # a release without a Windows build by design (windows-cadence.ts) says which release's installer Windows keeps; a run again
           # of the tag reads this line (scripts/release/windows-cadence.ts SKIP_LINE_START) and skips Windows again
           if [ "$WINDOWS_PLANNED" != true ]; then
-            winline="**Windows:** no new Windows installer in this release (it is published about once a week)${WINDOWS_LAST:+; the current Windows installer is the one of $WINDOWS_LAST}."
+            winline="**Windows:** no new Windows installer in this release (a new one comes when the Windows app changes, at most about once a week)${WINDOWS_LAST:+; the current Windows installer is the one of $WINDOWS_LAST}."
             { echo "$winline"; echo; cat notes/notes.md; } > notes/windows.md
             mv notes/windows.md notes/notes.md
           fi

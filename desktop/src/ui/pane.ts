@@ -8,7 +8,7 @@
 // first page is drawn this view shows the theme's own surface there (a loading line while a page loads). The edge
 // handle on the left (the strip this view reaches over the team page's edge) resizes the browser like the web app's
 // PanelDivider: drag, arrow keys when focused, double-click resets (docs/DECISIONS.md "브라우저 너비는 끌어서").
-import type { DesktopPaneState } from '@mycel/shared'
+import type { DesktopPaneState } from '@mycel/shared/desktop-bridge'
 import { browserAction } from '../common/browser-action'
 import { addActivity, dismissNotice, drivingLine, emptyActivity, markSeen, type ActivityView } from '../common/pane-activity'
 import { isBlankPage } from '../common/net-policy'

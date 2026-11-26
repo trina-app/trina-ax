@@ -1,6 +1,8 @@
-// The Windows installer about once a week, everything else every release (owner, 2026-11-26; docs/RELEASE-CI.md 11장,
-// docs/decisions/20261126-windows-weekly.md): the rule (scripts/release/windows-cadence.ts), the office feed that keeps
-// the last Windows build on the other days (publish.ts --keep-windows) and what reads it, and release.yml's wiring.
+// The Windows installer only when the Windows app changed, at most about once a week; everything else every release
+// (owner, 2026-11-26; docs/RELEASE-CI.md 11장, docs/decisions/20261126-windows-weekly.md,
+// docs/decisions/20261126-windows-when-changed.md): the rule (scripts/release/windows-cadence.ts), what counts as the
+// Windows app (scripts/release/windows-inputs.ts), the office feed that keeps the last Windows build on the other days
+// (publish.ts --keep-windows) and what reads it, and release.yml's wiring.
 import { afterAll, describe, expect, test } from 'bun:test'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -12,9 +14,11 @@ import { refreshWindowsApp } from '../../server/src/system/windows-app'
 import { verifyInstaller } from '../../desktop/src/common/update-verify'
 import { keptWindows, officeRelease, versionManifestAction } from '../../scripts/release/publish'
 import {
-  decideWindows, DEFAULT_MONTHLY_LIMIT, fetchSigned, main, peSigned, SIGNINGS_PER_RELEASE, SKIP_LINE_START, skipLine, windowsLineOf,
+  decideWindows, DEFAULT_MONTHLY_LIMIT, fetchSigned, main, peSigned, SIGNINGS_PER_RELEASE, SKIP_LINE_START, skipLine, windowsChange, windowsLineOf,
   type GhRelease, type WindowsContext,
 } from '../../scripts/release/windows-cadence'
+import { BRIDGE_FILES, bridgeVersions, changedBridges, changedParts, lockClosure, RAW_FILES, windowsFingerprint } from '../../scripts/release/windows-inputs'
+import { BUNDLE_ENTRIES } from '../../desktop/build-entries'
 
 const ROOT = path.resolve(import.meta.dir, '../..')
 const T = fs.mkdtempSync(path.join(os.tmpdir(), 'windows-cadence-'))
@@ -167,6 +171,55 @@ describe('the rule', () => {
     const failed = [{ ...rel('v0.20.9', 0, { windows: false }), body: '**Downloads not in this release yet:** Windows (installer). …' }, rel('v0.20.1', 2)]
     expect(decideWindows(ctx(failed))).toMatchObject({ windows: true })
   })
+  test('the same Windows app as the last Windows release: no installer, however old that one is', () => {
+    const same = { parts: [], bridges: [] }
+    for (const d of [1, 7, 40]) {
+      const r = decideWindows(ctx([rel('v0.20.1', d)], { change: same }))
+      expect(r, String(d)).toMatchObject({ windows: false, last: 'v0.20.1' })
+      expect(r.reason).toContain('the same as v0.20.1')
+      expect(r.warn).toBeUndefined()
+    }
+  })
+  test('a changed Windows app ships from 7 days and names what changed; before that a later release sends it', () => {
+    const changed = { parts: ['desktop/dist/main.cjs', 'desktop/package.json (without version)'], bridges: [] }
+    const early = decideWindows(ctx([rel('v0.20.1', 3)], { change: changed }))
+    expect(early).toMatchObject({ windows: false, last: 'v0.20.1' })
+    expect(early.reason).toContain('changed since v0.20.1 (desktop/dist/main.cjs, desktop/package.json (without version)), but that installer is 3 day(s) old')
+    const due = decideWindows(ctx([rel('v0.20.1', 7)], { change: changed }))
+    expect(due).toMatchObject({ windows: true })
+    expect(due.reason).toContain('and that installer is 7 days old')
+    const many = decideWindows(ctx([rel('v0.20.1', 9)], { change: { parts: 'abcdefgh'.split(''), bridges: [] } }))
+    expect(many.reason).toContain('a, b, c, d, e, f and 2 more')
+  })
+  test('a changed bridge version ships at once (old desks would be "too old" for the new server), within the plan', () => {
+    const bridge = { parts: ['desktop/dist/main.cjs'], bridges: ['LOCAL_APPS_BRIDGE_VERSION 1 → 2'] }
+    const r = decideWindows(ctx([rel('v0.20.1', 1)], { change: bridge }))
+    expect(r).toMatchObject({ windows: true, last: 'v0.20.1' })
+    expect(r.reason).toContain('LOCAL_APPS_BRIDGE_VERSION 1 → 2')
+    // "Windows: no" and the monthly plan still win
+    expect(decideWindows(ctx([rel('v0.20.1', 1)], { change: bridge, line: 'no' }))).toMatchObject({ windows: false })
+    const five = [rel('v0.20.5', 1), rel('v0.20.4', 8), rel('v0.20.3', 15), rel('v0.20.2', 22), rel('v0.20.1', 29)]
+    expect(decideWindows(ctx(five, { change: bridge, signing: true, signed: () => true }))).toMatchObject({ windows: false, warn: true })
+  })
+  test('"Windows: yes", no earlier installer, and an unsigned last one ship even when the app did not change', () => {
+    const same = { parts: [], bridges: [] }
+    expect(decideWindows(ctx([rel('v0.20.1', 1)], { change: same, line: 'yes' }))).toMatchObject({ windows: true })
+    expect(decideWindows(ctx([], { change: same }))).toMatchObject({ windows: true, last: null })
+    expect(decideWindows(ctx([rel('v0.20.1', 1)], { change: same, signing: true, signed: () => false }))).toMatchObject({ windows: true })
+    expect(decideWindows(ctx([rel('v0.20.1', 1)], { change: same, signing: true, signed: () => true }))).toMatchObject({ windows: false })
+  })
+  test('cannot tell whether it changed: the 7 days decide, with a warning', () => {
+    const unknown = { unknown: 'no checkout of v0.20.1 to compare with' }
+    expect(decideWindows(ctx([rel('v0.20.1', 3)], { change: unknown }))).toMatchObject({ windows: false, warn: true })
+    const r = decideWindows(ctx([rel('v0.20.1', 8)], { change: unknown }))
+    expect(r).toMatchObject({ windows: true, warn: true })
+    expect(r.reason).toContain('(no checkout of v0.20.1 to compare with)')
+  })
+  test('a run again of a published tag ignores the comparison', () => {
+    const skipped = { ...rel('v0.20.9', 0, { windows: false }), body: `${skipLine('v0.20.1')}\n\nA fix.` }
+    expect(decideWindows(ctx([skipped, rel('v0.20.1', 20)], { change: { parts: ['x'], bridges: ['B 1 → 2'] } }))).toMatchObject({ windows: false })
+    expect(decideWindows(ctx([rel('v0.20.9', 0), rel('v0.20.1', 2)], { change: { parts: [], bridges: [] } }))).toMatchObject({ windows: true })
+  })
   test('the GitHub Release line is the one release.yml writes', () => {
     const wf = fs.readFileSync(path.join(ROOT, '.github/workflows/release.yml'), 'utf8')
     const bash = /winline="(.+)"$/m.exec(wf)?.[1]
@@ -199,7 +252,8 @@ describe('the command release.yml runs', () => {
     const out: string[] = [], err: string[] = []
     await main(['decide', '--tag', 'v0.20.9', '--notes', f.notes, '--releases', f.releases], { out: (s) => out.push(s), err: (s) => err.push(s), fetch: noFetch, now: NOW })
     expect(out.join('')).toBe('windows=false\nwindows_last=v0.20.1\n')
-    expect(err.join('')).toStartWith('::notice::No Windows installer in this release')
+    // no checkout of v0.20.1 to compare with: the 7 days decide, with a warning
+    expect(err.join('')).toStartWith('::warning::No Windows installer in this release: it cannot tell whether the Windows app changed since v0.20.1 (no checkout of v0.20.1')
     expect(fs.readFileSync(f.notes, 'utf8')).toBe('A fix.\r\n')
   })
   test('signing on: it reads the installers\' headers it needs (feed first) and a plan over the limit warns', async () => {
@@ -212,6 +266,31 @@ describe('the command release.yml runs', () => {
     expect(out.join('')).toBe('windows=false\nwindows_last=v0.20.5\n')
     expect(err.join('')).toStartWith('::warning::No Windows installer in this release: 5 signed Windows release(s)')
     expect(asked.sort()).toEqual(['0.20.1', '0.20.2', '0.20.3', '0.20.4', '0.20.5'].map((v) => `https://updates.trina.app/office/${v}/Trina-AX-Setup-${v}-win-x64.exe`))
+  })
+  test('last: the tag release.yml checks out to compare with (empty when none or unreadable)', async () => {
+    const f = files('x', [rel('v0.20.8', 1, { windows: false }), rel('v0.20.5', 4), rel('v0.21.0-beta.1', 1)])
+    const run = async (tag: string, releases = f.releases) => { const out: string[] = []; await main(['last', '--tag', tag, '--releases', releases], { out: (s) => out.push(s) }); return out.join('') }
+    expect(await run('v0.20.9')).toBe('tag=v0.20.5\n')
+    expect(await run('v0.21.0-beta.2')).toBe('tag=v0.21.0-beta.1\n')
+    expect(await run('v0.20.9', path.join(f.dir, 'none.json'))).toBe('tag=\n')
+  })
+  test('decide compares the checkout of exactly that tag; the same app is a skip day after 20 days', async () => {
+    const f = files('A fix.\n', [rel('v0.20.1', 20)])
+    const last = fs.mkdtempSync(path.join(T, 'last-'))
+    fs.mkdirSync(path.join(last, 'desktop'))
+    const seen: string[][] = []
+    const compare = async (tree: string, lastTree: string) => { seen.push([tree, lastTree]); return { parts: [], bridges: [] } }
+    const out: string[] = [], err: string[] = []
+    await main(['decide', '--tag', 'v0.20.9', '--notes', f.notes, '--releases', f.releases, '--last-tree', last, '--last-tree-tag', 'v0.20.1'], { out: (s) => out.push(s), err: (s) => err.push(s), fetch: noFetch, now: NOW, compare })
+    expect(out.join('')).toBe('windows=false\nwindows_last=v0.20.1\n')
+    expect(err.join('')).toStartWith('::notice::No Windows installer in this release: the Windows app is the same as v0.20.1\'s')
+    expect(seen).toEqual([[path.resolve('.'), last]])
+    // a checkout of another tag is never compared: it cannot tell, the 7 days decide
+    const out2: string[] = [], err2: string[] = []
+    await main(['decide', '--tag', 'v0.20.9', '--notes', f.notes, '--releases', f.releases, '--last-tree', last, '--last-tree-tag', 'v0.19.0'], { out: (s) => out2.push(s), err: (s) => err2.push(s), fetch: noFetch, now: NOW, compare })
+    expect(seen.length).toBe(1)
+    expect(out2.join('')).toBe('windows=true\nwindows_last=v0.20.1\n')
+    expect(err2.join('')).toContain('(no checkout of v0.20.1 to compare with (the one given is v0.19.0))')
   })
   test('bad arguments stop it', async () => {
     const f = files('x', [])
@@ -322,6 +401,26 @@ describe('release.yml', () => {
     expect(decide.run).toContain('| tee -a "$GITHUB_OUTPUT"')
     expect(wf.jobs.prepare!.outputs).toMatchObject({ windows: '${{ steps.windows.outputs.windows }}', windows_last: '${{ steps.windows.outputs.windows_last }}' })
   })
+  test('prepare checks out the last Windows release next to this one and compares the Windows apps', () => {
+    const names = wf.jobs.prepare!.steps.map((s) => s.name ?? '')
+    const prev = step('prepare', 'The last release with the Windows installer')
+    const co = wf.jobs.prepare!.steps.find((s) => s.name === 'Check out the last Windows release') as Step & { uses?: string; with?: Record<string, unknown>; 'continue-on-error'?: boolean }
+    const decide = step('prepare', 'Does this release ship the Windows installer')
+    expect(names.indexOf(prev.name!)).toBeLessThan(names.indexOf(co.name!))
+    expect(names.indexOf(co.name!)).toBeLessThan(names.indexOf(decide.name!))
+    expect(prev.id).toBe('windows_prev')
+    expect(prev.run).toContain('bun scripts/release/windows-cadence.ts last --tag "$TAG" --releases "$RUNNER_TEMP/releases.json" | tee -a "$GITHUB_OUTPUT"')
+    expect(co.if).toBe("steps.windows_prev.outputs.tag != ''")
+    expect(co['continue-on-error']).toBe(true)
+    expect(co.uses).toStartWith('actions/checkout@')
+    expect(co.with).toEqual({ ref: 'refs/tags/${{ steps.windows_prev.outputs.tag }}', path: '.windows-last', 'persist-credentials': false })
+    expect(decide.env).toMatchObject({ LAST: '${{ steps.windows_prev.outputs.tag }}' })
+    expect(decide.run).toContain('timeout 180 bun install --frozen-lockfile --ignore-scripts || echo')
+    expect(decide.run).toContain('(cd .windows-last && timeout 180 bun install --frozen-lockfile --ignore-scripts)')
+    expect(decide.run).toContain('tree=(--last-tree .windows-last --last-tree-tag "$LAST")')
+    expect(decide.run).toContain('--limit "$LIMIT" "${tree[@]}" | tee -a "$GITHUB_OUTPUT"')
+    expect(JSON.stringify([prev, co, decide])).not.toContain('secrets.')
+  })
   test('build-windows runs only on a Windows day; the office feed then goes out with --keep-windows', () => {
     expect(wf.jobs['build-windows']!.if).toBe("${{ needs.prepare.outputs.windows == 'true' }}")
     const feed = step('publish', 'Office feed (zip + Windows installer)')
@@ -343,5 +442,88 @@ describe('release.yml', () => {
     expect(gh.indexOf('winline=')).toBeLessThan(gh.indexOf('missing[@]} -gt 0'))
     // GitHub's generated notes only when the tag message had none (not because of the line)
     expect(gh.indexOf('if [ ! -s notes/notes.md ]; then generate=true; fi')).toBeLessThan(gh.indexOf('winline='))
+  })
+})
+
+describe('what counts as the Windows app (scripts/release/windows-inputs.ts)', () => {
+  /** a tiny repository: only what the fingerprint reads; entries left out count as "missing" */
+  const tree = (files: Record<string, string>) => {
+    const dir = fs.mkdtempSync(path.join(T, 'tree-'))
+    const all: Record<string, string> = {
+      'bun.lock': '{\n  "lockfileVersion": 1,\n  "packages": {\n    "electron": ["electron@44.7.2", "", { "dependencies": { "@electron/get": "^5.0.0" } }, "sha512-a"],\n    "@electron/get": ["@electron/get@5.0.0", "", {}, "sha512-b"],\n    "zod": ["zod@4.6.7", "", {}, "sha512-c"],\n  },\n}\n',
+      'desktop/package.json': JSON.stringify({ name: '@mycel/desktop', version: '0.20.1', devDependencies: { electron: '44.7.2' } }),
+      'desktop/src/main/main.ts': 'const greeting = "hello"\nconsole.log(greeting)\n',
+      ...files,
+    }
+    for (const [f, text] of Object.entries(all)) { fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true }); fs.writeFileSync(path.join(dir, f), text) }
+    return dir
+  }
+  test('code: a change of what runs counts; a comment, a version bump or another lockfile entry does not', async () => {
+    const base = await windowsFingerprint(tree({}))
+    expect(base['desktop/dist/main.cjs']).not.toBe('missing')
+    expect(base['desktop/dist/preload-app.cjs']).toBe('missing')
+    expect(changedParts(base, await windowsFingerprint(tree({ 'desktop/src/main/main.ts': '// a comment\nconst greeting = "hello"\n\nconsole.log(greeting)\n' })))).toEqual([])
+    expect(changedParts(base, await windowsFingerprint(tree({ 'desktop/package.json': JSON.stringify({ name: '@mycel/desktop', version: '0.20.2', devDependencies: { electron: '44.7.2' } }) })))).toEqual([])
+    expect(changedParts(base, await windowsFingerprint(tree({ 'desktop/src/main/main.ts': 'console.log("hi")\n' })))).toEqual(['desktop/dist/main.cjs'])
+    expect(changedParts(base, await windowsFingerprint(tree({ 'desktop/package.json': JSON.stringify({ name: '@mycel/desktop', version: '0.20.1', devDependencies: { electron: '44.7.3' } }) })))).toEqual(['desktop/package.json (without version)'])
+    expect(changedParts(base, await windowsFingerprint(tree({ 'desktop/build-resources/icon.ico': 'ico' })))).toEqual(['desktop/build-resources/icon.ico'])
+    expect(changedParts(base, await windowsFingerprint(tree({ 'desktop/build-resources/mac-infoplist/ko.strings': 'x', 'desktop/build-resources/background.png': 'x' })))).toEqual([])
+    expect(changedParts(base, await windowsFingerprint(tree({ '.github/workflows/release.yml': 'env:\n  BUN_VERSION: 1.3.13\n' })))).toEqual(['Bun version (release.yml)'])
+    expect(changedParts(base, await windowsFingerprint(tree({ 'desktop/build-resources/installer.nsh': '!macro customUnInstall\n!macroend\n' })))).toEqual(['desktop/build-resources/installer.nsh'])
+  })
+  test('bun.lock: only what Electron and electron-builder pull in', () => {
+    const lock = { packages: {
+      electron: ['electron@1', '', { dependencies: { a: '^1' } }, 's'], a: ['a@1', '', { dependencies: { b: '1' }, optionalDependencies: { c: '1' } }, 's'],
+      b: ['b@1', '', {}, 's'], 'a/b': ['b@2', '', {}, 's'], c: ['c@1', '', {}, 's'], 'electron-builder': ['electron-builder@1', '', {}, 's'], zod: ['zod@4', '', {}, 's'],
+    } }
+    expect(Object.keys(lockClosure(lock, ['electron', 'electron-builder']))).toEqual(['a', 'a/b', 'c', 'electron', 'electron-builder'])
+  })
+  test('bridge versions: what the pages check against the app (the Mac-only voice input is not a Windows one)', () => {
+    const now = bridgeVersions(ROOT)
+    expect(Object.keys(now).sort()).toEqual(['DESKTOP_BRIDGE_VERSION', 'GOOGLE_SIGNIN_BRIDGE_VERSION', 'LOCAL_APPS_BRIDGE_VERSION', 'WORK_FILES_BRIDGE_VERSION', 'WORK_FILES_WIDE_VERSION'])
+    expect(changedBridges(now, now)).toEqual([])
+    expect(changedBridges({ ...now, LOCAL_APPS_BRIDGE_VERSION: 0 }, now)).toEqual([`LOCAL_APPS_BRIDGE_VERSION 0 → ${now.LOCAL_APPS_BRIDGE_VERSION}`])
+    const { GOOGLE_SIGNIN_BRIDGE_VERSION: _, ...before } = now
+    expect(changedBridges(before, now)).toEqual([`GOOGLE_SIGNIN_BRIDGE_VERSION none → ${now.GOOGLE_SIGNIN_BRIDGE_VERSION}`])
+    // every bridge version shared/ exports is read: a new one in another file would be missed
+    const exported = fs.readdirSync(path.join(ROOT, 'shared/src'), { recursive: true }).map(String).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+      .filter((f) => /^export const [A-Z0-9_]+_(BRIDGE_VERSION|WIDE_VERSION) = \d/m.test(fs.readFileSync(path.join(ROOT, 'shared/src', f), 'utf8'))).map((f) => `shared/src/${f}`)
+    expect(exported.sort()).toEqual([...BRIDGE_FILES].sort())
+  })
+  test('this repository: every part builds, and the same twice', () => {
+    // its own process, as release.yml runs it (Bun 1.3's bundler cannot read files this test process has loaded)
+    const run = () => {
+      const p = Bun.spawnSync([process.execPath, path.join(ROOT, 'scripts/release/windows-inputs.ts'), ROOT], { stderr: 'pipe' })
+      expect(p.exitCode, p.stderr.toString()).toBe(0)
+      return JSON.parse(p.stdout.toString()) as { parts: Record<string, string>; bridges: Record<string, number> }
+    }
+    const a = run()
+    expect(Object.entries(a.parts).filter(([, v]) => v === 'missing')).toEqual([])
+    expect(Object.keys(a.parts)).toEqual(expect.arrayContaining([...BUNDLE_ENTRIES.map(([, out]) => `desktop/dist/${out}`), 'desktop/electron-builder.config.ts', ...RAW_FILES]))
+    expect(a.bridges).toEqual(bridgeVersions(ROOT))
+    expect(changedParts(a.parts, run().parts)).toEqual([])
+  }, 60_000)
+  test('a tree that cannot be built: it cannot tell', async () => {
+    expect(await windowsChange(path.join(T, 'no-such-tree'), path.join(T, 'no-such-tree'))).toMatchObject({ unknown: expect.stringContaining('could not be built') })
+  })
+  test('desktop/build.ts builds from the same list, and electron-builder reads no Windows file the fingerprint leaves out', async () => {
+    const build = fs.readFileSync(path.join(ROOT, 'desktop/build.ts'), 'utf8')
+    expect(build).toContain("from './build-entries'")
+    expect(build).toContain('BUNDLE_ENTRIES.map(')
+    expect(build).not.toMatch(/one\('src\//)
+    const config = (await import('../../desktop/electron-builder.config')).default as Record<string, unknown>
+    // the keys a Windows build reads; the Mac's, the dmg's and Linux's are not in the Windows app
+    const forWindows = Object.keys(config).filter((k) => !['mac', 'dmg', 'linux', 'deb', 'appImage', 'toolsets'].includes(k))
+    expect(forWindows.sort()).toEqual(['appId', 'asar', 'copyright', 'directories', 'electronFuses', 'extraMetadata', 'files', 'nsis', 'productName', 'protocols', 'publish', 'win'].sort())
+    // every file a Windows key names (under desktop/ or build-resources/) is fingerprinted
+    const named: string[] = []
+    const walk = (v: unknown) => {
+      if (typeof v === 'string') {
+        for (const f of [path.join('desktop', v), path.join('desktop/build-resources', v)]) if (fs.existsSync(path.join(ROOT, f)) && fs.statSync(path.join(ROOT, f)).isFile()) named.push(f)
+      } else if (v && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    for (const k of forWindows) walk(config[k])
+    expect(named.filter((f) => f !== 'desktop/package.json' && !(RAW_FILES as readonly string[]).includes(f))).toEqual([])
+    expect(named).toContain('desktop/build-resources/installer.nsh')
   })
 })
