@@ -1,7 +1,7 @@
 // "Continue in the Mac app" (lib/open-app.ts; docs/decisions/20261116-desktop-first-onboarding.md): who gets /open-app
 // after setup and the files line, the link the button opens, and the code read from /app-signin's address.
 import { describe, expect, test } from 'bun:test'
-import { afterSetupPath, appComputer, appSignInHref, openAppLineShown, readAppSignInCode } from '../../src/lib/open-app'
+import { afterSetupPath, APP_SETUP_PATH, appComputer, appSignInHref, openAppLineShown, readAppSetupClaim, readAppSignInCode } from '../../src/lib/open-app'
 
 const HTTPS = 'https://acme.trina.app'
 const CODE = 'Zm9vYmFyYmF6cXV4MDEyMzQ1Njc4OWFiY2RlZmdoaWo'
@@ -62,5 +62,10 @@ describe('the link and the code', () => {
   test('/app-signin reads exactly #c=<43 characters>', () => {
     expect(readAppSignInCode(`#c=${CODE}`)).toBe(CODE)
     for (const h of ['', '#', `#c=${CODE}x`, `#c=${CODE.slice(1)}`, `#c=${CODE}&x=1`, `#x=1&c=${CODE}`, `#c=${CODE.slice(0, 42)}!`]) expect(readAppSignInCode(h)).toBeNull()
+  })
+  test('/app-setup (a team made from the desktop app) reads exactly #c=<43 characters>', () => {
+    expect(APP_SETUP_PATH).toBe('/app-setup')
+    expect(readAppSetupClaim(`#c=${CODE}`)).toBe(CODE)
+    for (const h of ['', '#', `#c=${CODE}x`, `#c=${CODE.slice(1)}`, `#c=${CODE}&x=1`, `#x=1&c=${CODE}`, `#c=${CODE.slice(0, 42)}!`]) expect(readAppSetupClaim(h)).toBeNull()
   })
 })
