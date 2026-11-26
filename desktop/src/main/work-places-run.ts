@@ -10,7 +10,7 @@ import { constants } from 'node:fs'
 import { lstat, open, readdir, readFile, stat } from 'node:fs/promises'
 import { join, posix, win32 } from 'node:path'
 import { considered, neverListed } from '@mycel/shared/file-scan'
-import type { FullDiskState } from '@mycel/shared'
+import type { FullDiskState } from '@mycel/shared/desktop-bridge'
 import { mdlsArgs, mergeIndexed, parseMdfind, parseMdls, macPath, powershellArgs, RECENT_DAYS, type IndexedFile } from '../common/work-index'
 import { appDataAllowed, cloudStorageRoot, uniqueLabels, homeExcluded, macCloudPlaces, macDataless, messengerPlaces, parseLnk, parseOfficeBookmarks, parseSharedFileList, parseStatFlags, parseSyncRoots, windowsCloudPlaces, workFolders, type Place } from '../common/work-places'
 

@@ -37,6 +37,7 @@ import { htmlPdfUnavailable } from '../files/html-pdf'
 import { pluginsOf } from '../plugins/manager'
 import { cancelPushSession } from '../notifications/push-events'
 import { webAllowAll } from '../tools/web-allow-all'
+import { autoModeAvailable, autoModeOn, autoModeTeam } from '../chat/auto-mode'
 import { mediaKeyOf } from './media-key'
 import { voidAppSignInCodes } from './app-signin'
 import { spendReauthFlow } from './reauth'
@@ -327,9 +328,10 @@ export class AuthService implements SessionService {
         ...profileOf(this.db, u.id),
         ...(status ? { statusMessage: status } : {}),
         ...(webAllowAll(this.db, u.id) ? { webAllowAll: true as const } : {}),
+        ...(autoModeOn(this.db, u.id) ? { autoMode: true as const } : {}),
       },
       groups,
-      team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, ...(settings.browserAllowAll && settings.webAllowAll ? { webAllowAll: true as const } : {}), ...teamIconOfMe(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db, this.ctx.files.speech), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), ...(wantsWavRecordings(this.ctx.files.speech) ? { voiceInputWav: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays, trashRetentionDays: settings.trashRetentionDays, projectCreators: settings.projectCreators, ...(settings.roomAlwaysAllow === false ? { alwaysAllowOff: true as const } : {}), ...(address ? { address } : {}) , ...(reportsWhere && settings.problemReports !== false && u.role !== 'guest' ? { problemReports: true as const } : {}), ...(u.role === 'guest' ? { uploadMaxBytes: roomFilesOf(this.ctx).maxFor(u.id) } : {}) },
+      team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, ...(settings.browserAllowAll && settings.webAllowAll ? { webAllowAll: true as const } : {}), ...teamIconOfMe(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db, this.ctx.files.speech), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), ...(wantsWavRecordings(this.ctx.files.speech) ? { voiceInputWav: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays, trashRetentionDays: settings.trashRetentionDays, projectCreators: settings.projectCreators, ...(settings.roomAlwaysAllow === false ? { alwaysAllowOff: true as const } : {}), ...(autoModeAvailable(this.db, u.id) ? { autoMode: autoModeTeam(this.db) as 'allowed' | 'default' } : {}), ...(address ? { address } : {}) , ...(reportsWhere && settings.problemReports !== false && u.role !== 'guest' ? { problemReports: true as const } : {}), ...(u.role === 'guest' ? { uploadMaxBytes: roomFilesOf(this.ctx).maxFor(u.id) } : {}) },
       session: { id: s.id, client: s.client, expiresAt: s.expires_at, tempLogin: tempLoginOf(s, u), ...(mediaKey ? { mediaKey } : {}) },
       // office mode runs dev's engine setup on purpose (docs/OFFICE.md): the office's desks get no DEV banner
       // ...nor a free-roam demo's visitor (docs/decisions/20261119-demo-free-roam-a.md)

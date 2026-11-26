@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { CLAIM_RETRY_MS, deliverSignInCode } from '../../desktop/src/common/sign-in-handoff'
 import { signInCode } from '../../desktop/src/common/address'
 import { appLink } from '../../server/src/integrations/google-drive/app-return'
+import { API, CLAIM_DRIVE_FLOW_PATH } from '../../shared/src/api'
 
 const CODE = 'c0deC0de_-c0deC0de_-c0deC0de_-c0deC0de_-abc'
 const TEAM = 'https://totoro.trina.app'
@@ -70,7 +71,9 @@ test('the app window posts through it, with its own session, and logs the link\'
   const claim = win.slice(win.indexOf('  private async claimSignIn('), win.indexOf('  offerLink(raw: string) {'))
   expect(claim).toContain('await deliverSignInCode({')
   expect(claim).toContain('const ses = app.webContents.session')
-  expect(claim).toContain('ses.fetch(o + API.claimDriveFlow.path')
+  // the claim endpoint's own path, named without bundling the Drive schemas (tests/unit/desktop-shared-imports.test.ts)
+  expect(claim).toContain('ses.fetch(o + CLAIM_DRIVE_FLOW_PATH')
+  expect(API.claimDriveFlow.path).toBe(CLAIM_DRIVE_FLOW_PATH)
   expect(claim).not.toMatch(/handoffLog\([^)]*\bc(ode)?\b\)/)
   const offer = win.slice(win.indexOf('  offerLink(raw: string) {'), win.indexOf('  async answerLink('))
   expect(offer).toContain('const code = this.app ? signInCode(raw, this.team?.origin) : null')

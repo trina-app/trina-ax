@@ -217,6 +217,11 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         void browserSettingsBridge()?.get().catch(() => null)
         return
       }
+      if (ev.data.code === 'auto_mode_changed') {
+        // auto mode changed (mine in another window, or the team value): the composer's pill follows (GET /api/me)
+        void useSession.getState().refreshMe()
+        return
+      }
       if (ev.data.code === 'web_access_changed') {
         // my "Allow all websites" for the AI's web reads changed (Settings in another window, an address card, the team
         // turning it off): Settings > Browser follows, and the desktop app re-reads GET /api/me itself when the setting is

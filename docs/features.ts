@@ -71,7 +71,7 @@ export const FEATURES: Feature[] = [
   { id: 'chat.browser', name: 'The AI uses the browser (desktop app)', area: 'AI chat', endpoints: ['pollCalls', 'postResult'], screens: ['/settings/browser'] },
   { id: 'chat.web-access', name: 'Allow all websites for the AI', area: 'AI chat', endpoints: ['setMyWebAccess'] },
   { id: 'chat.memory', name: 'What the AI remembers about me', area: 'AI chat', endpoints: ['*Memor*'], screens: ['/settings/memory'] },
-  { id: 'chat.allowances', name: 'What I allowed the AI in advance', area: 'AI chat', endpoints: ['*AiAllowance*'], screens: ['/settings/allowances'] },
+  { id: 'chat.allowances', name: 'What I allowed the AI in advance', area: 'AI chat', endpoints: ['*AiAllowance*', 'getAutoMode', 'setAutoMode'], screens: ['/settings/allowances'] },
   { id: 'chat.ai-access', name: 'Can I use AI now: ask the owner, AI not ready', area: 'AI chat', endpoints: ['getAiAccess', 'requestAiAccess', 'tellAiNotReady'] },
 
   // ---------------- Projects ----------------

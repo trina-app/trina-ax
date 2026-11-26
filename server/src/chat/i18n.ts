@@ -307,6 +307,10 @@ export const TEXT = {
   cardAlwaysNote: t('항상 허용하면 웹페이지나 파일을 읽은 뒤에도 이런 확인은 다시 묻지 않아요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.', "With Always allow, Trina won't ask about this kind of change again, even after reading web pages or files. Undo it in Settings › Allowed for Trina.", 'Dengan Selalu izinkan, Trina tidak akan menanyakan perubahan seperti ini lagi, bahkan setelah membaca halaman web atau file. Batalkan di Pengaturan › Diizinkan untuk Trina.', "常に許可すると、Webページやファイルを読んだ後でも、この種類の確認は二度と聞きません。設定 › トリナに許可したこと で元に戻せます。", "Con Permitir siempre, Trina no volverá a preguntar por este tipo de cambio, ni siquiera tras leer páginas web o archivos. Puede deshacerlo en Configuración › Permisos para Trina.", "选择始终允许后，即使读过网页或文件，Trina也不会再就这类修改询问你。可以在设置 › 允许Trina做的事中撤销。"),
   /** cardAlwaysNote for a kind without a line of its own (QA TC-ask2-15: "이런 확인" did not say what Always allow covers,
    * and a copy card after Always allow on read and save looked like a broken promise): {what} is ALWAYS_WHAT[kind] */
+  // auto mode (docs/decisions/20261125-auto-mode.md): the step a card it approved leaves in the answer, and the line when
+  // it pauses in a chat (AUTO_DAY_LIMIT)
+  autoModeStep: t('자동 모드로 진행했어요: {what}', 'Done in auto mode: {what}', 'Dilakukan dalam mode otomatis: {what}', '自動モードで進めました: {what}', 'Hecho en modo automático: {what}', '已在自动模式下完成：{what}'),
+  autoModePaused: t('자동 모드를 잠시 멈췄어요. 이 대화에서 오늘 자동 승인이 많아서 다시 물어볼게요.', 'Auto mode paused. It approved many steps in this chat today, so Trina asks again.', 'Mode otomatis dijeda. Mode ini sudah menyetujui banyak langkah di obrolan ini hari ini, jadi Trina bertanya lagi.', '自動モードを一時停止しました。このチャットで今日たくさん自動承認したので、また確認します。', 'Modo automático en pausa. Hoy aprobó muchos pasos en este chat, así que Trina vuelve a preguntar.', '自动模式已暂停。今天在这个聊天中自动批准了很多步骤，所以Trina会重新询问。'),
   cardAlwaysNoteKind: t('항상 허용하면 앞으로 {what} 다시 묻지 않아요. 파일이나 메시지가 시켜도 마찬가지예요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.', 'With Always allow, Trina no longer asks {what}, even when a file or message tells it to. Undo it in Settings › Allowed for Trina.', 'Dengan Selalu izinkan, Trina tidak lagi bertanya {what}, bahkan saat file atau pesan menyuruhnya. Batalkan di Pengaturan › Diizinkan untuk Trina.', '常に許可にすると、今後トリナは{what}も確認しません。ファイルやメッセージに指示された場合も同じです。設定 › トリナに許可したこと で元に戻せます。', 'Con Permitir siempre, Trina ya no pregunta {what}, incluso cuando un archivo o un mensaje se lo pide. Puede deshacerlo en Configuración › Permisos para Trina.', '选择始终允许后，Trina{what}不会再询问你，即使是文件或消息让它这样做。可以在设置 › 允许Trina做的事中撤销。'),
   /** cardAlwaysNote for the wider-audience card (save_wider), shorter (docs/decisions/20261122-widening-card-wording.md);
    * it still says that it holds after reading files or web pages */
@@ -692,6 +696,15 @@ export const ALWAYS_WHAT = {
   share_files: t('내 파일을 사람들에게 공유할 때', 'before it shares your files with people', 'sebelum membagikan file Anda kepada orang lain', 'あなたのファイルを人に共有するとき', 'antes de compartir sus archivos con personas', '在把你的文件共享给别人时'),
   bulk_files: t('프로젝트 폴더에 새 파일을 많이 둘 때', 'before it keeps many new files in a project folder', 'sebelum menyimpan banyak file baru di folder proyek', 'プロジェクトフォルダーに新しいファイルをたくさん置くとき', 'antes de dejar muchos archivos nuevos en una carpeta de proyecto', '在项目文件夹中保留大量新文件时'),
   dev_login: t('팀원이 파일을 바꾼 뒤 개발 환경에서 로그인을 쓰는 명령을 실행할 때', 'before it runs a dev environment command that can use a login after teammates changed files', 'sebelum menjalankan perintah lingkungan pengembangan yang dapat memakai login setelah rekan tim mengubah file', 'チームメイトがファイルを変更した後、開発環境でログインを使うコマンドを実行するとき', 'antes de ejecutar en el entorno de desarrollo un comando que puede usar un inicio de sesión después de que sus compañeros cambiaran archivos', '在队友更改文件后，于开发环境中运行可能使用登录的命令时'),
+} as const
+
+/** What a card auto mode approved did, for its step (autoModeStep's {what}); only the kinds AUTO_KINDS lets go. */
+export const AUTO_WHAT = {
+  big_download: t('1GB 넘는 파일 내려받기', 'download a file over 1 GB', 'mengunduh file di atas 1 GB', '1GBを超えるファイルのダウンロード', 'descargar un archivo de más de 1 GB', '下载超过1GB的文件'),
+  bulk_files: t('새 파일을 프로젝트 폴더에 두기', 'keep the new files in the project folder', 'menyimpan file baru di folder proyek', '新しいファイルをプロジェクトフォルダーに置く', 'dejar los archivos nuevos en la carpeta del proyecto', '把新文件留在项目文件夹中'),
+  save_wider: t('더 많은 사람이 보는 곳에 내 파일로 만든 것 저장', 'save what was made from your files where more people see it', 'menyimpan hasil dari file Anda di tempat yang dilihat lebih banyak orang', 'あなたのファイルから作ったものを、より多くの人が見る場所に保存', 'guardar lo hecho con sus archivos donde más personas lo ven', '把用你的文件做成的内容保存到更多人能看到的位置'),
+  move_files: t('내 파일 옮기기·복사·이름 바꾸기', 'move, copy or rename your files', 'memindahkan, menyalin, atau mengganti nama file Anda', 'あなたのファイルの移動・コピー・名前変更', 'mover, copiar o renombrar sus archivos', '移动、复制或重命名你的文件'),
+  skill_files: t('내 스킬 옮기기·복사·파일 바꾸기', 'move, copy or change files of your own skills', 'memindahkan, menyalin, atau mengubah file skill Anda sendiri', '自分のスキルの移動・コピー・ファイル変更', 'mover, copiar o cambiar archivos de sus propias habilidades', '移动、复制或更改你自己的技能文件'),
 } as const
 
 export function tr(key: keyof typeof TEXT, locale: Locale, vars: Record<string, string> = {}): string {

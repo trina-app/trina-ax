@@ -26,7 +26,7 @@ import { createGroup, deleteGroup, listGroups, updateGroup } from '../admin/grou
 import { explainEdit, explainFolder, explainNewPerson, explainPerson, explainTree } from '../admin/access-explain'
 import { oftenAskedSwitched } from '../chat/often-asked'
 import { isGuestUser } from '../credentials/guest-ai'
-import { BROWSER_POLICY_CHANGED, GUEST_FILE_LIMIT_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, SPEECH_CHANGED, updateTeamSettings, WEB_ACCESS_CHANGED } from '../admin/settings'
+import { AUTO_MODE_CHANGED, BROWSER_POLICY_CHANGED, GUEST_FILE_LIMIT_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, SPEECH_CHANGED, updateTeamSettings, WEB_ACCESS_CHANGED } from '../admin/settings'
 import { teamPolicyOff } from '../tools/web-allow-all'
 import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
 import { credentialsOf, noticeOwners } from '../credentials/store'
@@ -423,6 +423,10 @@ export const adminRoutes: RouteModule = {
       if ('roomEmail' in changed) void mailInOf(ctx).sync()
       // desktop apps re-read the browser policy from GET /api/me (off: "Allow all websites" goes back to asking)
       if ('browserAllowAll' in changed || 'webAllowAll' in changed) ctx.services.realtime.publishEach(() => BROWSER_POLICY_CHANGED)
+      // auto mode (chat/auto-mode.ts): its own audit row, and every composer shows or hides the pill (Me.team.autoMode);
+      // the team's "Always allow" switch turns auto mode off too
+      if ('autoMode' in changed) audit(ctx.db, { actor: auth.user.id, action: 'admin.auto_mode', target: null, detail: { from: cur.autoMode ?? 'off', to: next.autoMode ?? 'off' } })
+      if ('autoMode' in changed || 'roomAlwaysAllow' in changed) ctx.services.realtime.publishEach(() => AUTO_MODE_CHANGED)
       // composers show or hide the mic (Me.team.voiceInput)
       if ('speechProvider' in changed) ctx.services.realtime.publishEach(() => SPEECH_CHANGED)
       // guests' room boxes read their file limit again (Me.team.uploadMaxBytes); nobody else is told

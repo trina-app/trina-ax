@@ -1,5 +1,6 @@
 // Tiny DOM helpers and the preload API types for the desktop's own screens (no framework: two small screens).
-import { PRODUCT, type DesktopPaneState } from '@mycel/shared'
+import { PRODUCT } from '@mycel/shared/product'
+import type { DesktopPaneState } from '@mycel/shared/desktop-bridge'
 import { fillPlurals } from '@mycel/shared/plural'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import type { UiKey, UiLocale } from '../common/i18n'

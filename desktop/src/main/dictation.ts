@@ -8,7 +8,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { DesktopDictationCheck, DesktopDictationEvent } from '@mycel/shared'
+import type { DesktopDictationCheck, DesktopDictationEvent } from '@mycel/shared/desktop-bridge'
 
 /** an app language as the helper takes it */
 export const DICTATION_LANGUAGE = /^[a-z]{2,3}$/

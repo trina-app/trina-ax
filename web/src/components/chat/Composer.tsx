@@ -68,6 +68,7 @@ import { ComposerField } from '../composer/ComposerField'
 import { ComposerShell, fieldPad } from '../composer/ComposerShell'
 import { composerHint } from '../composer/hint'
 import type { Unsent } from '../composer/ComposerNotices'
+import { AutoModePill } from './AutoModePill'
 import { useDemoOut } from '../../store/demo'
 
 /** effort: the depth (빠르게 · 보통 · 꼼꼼하게); undefined / null = not chosen (the person's or the team's default) */
@@ -403,7 +404,9 @@ export default function Composer({
   // engine, the mic and send on the right), as in the AI apps' boxes (QA TC-1400): every computer, and a phone whenever the box has more
   // than + and send (Home's card, the engine picker, a team project's who-sees chip). A phone's plain chat box keeps
   // one line (+ · text · mic · send), with nothing under or beside it either
-  const stacked = !phone || !!card || !!pick || !!tools
+  // the auto mode pill (AutoModePill): while the team lets this person use it, never in a confidential chat
+  const autoPill = me?.team?.autoMode && confidential !== true ? <AutoModePill /> : null
+  const stacked = !phone || !!card || !!pick || !!tools || !!autoPill
 
   // attach: the + every message box has (composer/AttachMenu.tsx: its small menu on a computer, the attach sheet on a
   // phone); team files go on by reference
@@ -539,7 +542,7 @@ export default function Composer({
           data-testid="composer-input"
         />
       }
-      start={<>{attachControls}{tools}</>}
+      start={<>{attachControls}{tools}{autoPill}</>}
       end={enginePicker}
       send={answering
         ? { kind: 'answer', can: canSend, sending, onSend: submit, testId: 'send-answer' }

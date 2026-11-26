@@ -5,12 +5,14 @@
 // - a card kind the code knows (an "Always allow" kind, a TurnRequest kind, an allowance kind, a tool whose card waits)
 //   is not in the "Kinds" table, or the table names one the code no longer has;
 // - an entry is malformed: a repeated id, an empty field, a "where" file that does not exist, a Rule A status that is
-//   not OK, VIOLATION or OPEN.
+//   not OK, VIOLATION or OPEN;
+// - the Kinds table's `auto` column (auto mode, docs/decisions/20261125-auto-mode.md) has no value for a kind, says
+//   another value than AUTO_KINDS for an `always:` kind, or lets auto mode approve a kind on the floor.
 // The scan is by pattern, not by markers in the card code, so card code needs no comments of its own.
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { AiAllowance, CARD_ALWAYS_KINDS, TurnRequest } from '@mycel/shared/api'
+import { AiAllowance, AUTO_KINDS, CARD_ALWAYS_KINDS, TurnRequest } from '@mycel/shared/api'
 import { CARD_LATER_TOOLS } from '../../server/src/chat/open-questions'
 
 const REPO = path.resolve(import.meta.dir, '../..')
@@ -169,6 +171,37 @@ export function kindsOf(md: string): Map<string, string[]> {
   return m
 }
 
+/** The Kinds table's `auto` column, by kind ('' when the table has no such column or the cell is empty). */
+export function autoOf(md: string): Map<string, string> {
+  const m = new Map<string, string>()
+  for (const t of tablesIn(md, 'Kinds')) {
+    if (t.header[0] !== 'kind') continue
+    const a = t.header.indexOf('auto')
+    for (const r of t.rows) m.set(unquote(r[0]!), a < 0 ? '' : (r[a] ?? '').trim())
+  }
+  return m
+}
+const AUTO_VALUES = new Set(['auto', 'auto-if', 'ask', 'n/a'])
+
+/** What is wrong with the `auto` column: a missing or unknown value, a disagreement with AUTO_KINDS, a kind auto mode
+ * may not approve (not an `always:` kind: no code path lets it), a floor kind (irreversible, cost) not `ask`, a kind that
+ * sends to others marked plain `auto`. */
+export function autoProblems(md: string, all: Map<string, Record<string, string>>): string[] {
+  const out: string[] = []
+  const auto = autoOf(md), kinds = kindsOf(md)
+  for (const [k, v] of auto) {
+    if (!AUTO_VALUES.has(v)) { out.push(`${k}: the auto column is "${v}", not auto, auto-if, ask or n/a`); continue }
+    if (k.startsWith('always:')) {
+      const code = (AUTO_KINDS as Record<string, string>)[k.slice(7)]
+      if (code !== v) out.push(`${k}: the auto column says ${v}, AUTO_KINDS says ${code ?? 'nothing'}`)
+    } else if (v === 'auto' || v === 'auto-if') out.push(`${k}: only an always: kind can be approved by auto mode (no code path for ${v})`)
+    const reasons = (kinds.get(k) ?? []).map((id) => all.get(id)?.reason ?? '').join(', ')
+    if ((v === 'auto' || v === 'auto-if') && /\b(irreversible|cost)\b/.test(reasons)) out.push(`${k}: an entry is irreversible or costs money, so auto mode must ask`)
+    if (v === 'auto' && /sends-to-others/.test(reasons)) out.push(`${k}: an entry sends to others, so it is never plain auto`)
+  }
+  return out
+}
+
 const MD = fs.readFileSync(path.join(REPO, REGISTRY), 'utf8')
 const { entries, problems } = entriesOf(MD)
 
@@ -198,6 +231,26 @@ describe('ask registry (docs/ASKS.md)', () => {
     expect([...table.keys()].filter((k) => !code.has(k)).map((k) => `${k}: in the Kinds table, not in the code`)).toEqual([])
     const unknown = [...table].flatMap(([k, ids]) => (ids.length ? ids : ['(none)']).filter((id) => !entries.has(id)).map((id) => `${k}: ${id} has no registry entry`))
     expect(unknown).toEqual([])
+  })
+
+  test("the Kinds table's auto column has a value for every kind and agrees with AUTO_KINDS", () => {
+    const auto = autoOf(MD)
+    expect([...kindsOf(MD).keys()].filter((k) => !auto.get(k)).map((k) => `${k}: no auto value`)).toEqual([])
+    expect(autoProblems(MD, entries)).toEqual([])
+    // every always: kind of the code has a value in AUTO_KINDS
+    expect(CARD_ALWAYS_KINDS.filter((k) => !(k in AUTO_KINDS))).toEqual([])
+  })
+
+  test('the auto guard fails on a missing value, a disagreement and a floor kind', () => {
+    const row = (k: string) => MD.split('\n').find((l) => l.startsWith(`| \`${k}\``))!
+    const blank = MD.replace(row('always:big_download'), row('always:big_download').replace(/ auto \|$/, '  |'))
+    expect([...autoOf(blank)].filter(([, v]) => !v).map(([k]) => k)).toEqual(['always:big_download'])
+    const wrong = MD.replace(row('always:post_to_room'), row('always:post_to_room').replace(/ ask \|$/, ' auto-if |'))
+    expect(autoProblems(wrong, entries).join('\n')).toContain('always:post_to_room: the auto column says auto-if, AUTO_KINDS says ask')
+    const floor = MD.replace(row('always:video'), row('always:video').replace(/ ask \|$/, ' auto |'))
+    expect(autoProblems(floor, entries).join('\n')).toContain('always:video: an entry is irreversible or costs money')
+    const site = MD.replace(row('allowance:site'), row('allowance:site').replace(/ ask \|$/, ' auto-if |'))
+    expect(autoProblems(site, entries).join('\n')).toContain('allowance:site: only an always: kind')
   })
 
   test('each pattern group finds the calls it is for', () => {

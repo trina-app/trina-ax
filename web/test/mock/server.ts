@@ -89,7 +89,7 @@ import { MOCK_ANSWER_HEADER } from '../e2e/coverage-report'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
-  AiAllowance, ApiErrorResponse, CSRF_HEADER, sideQuoteOf, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, PresenceFrame, RoomTypingFrame, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
+  AiAllowance, type MyAutoMode, ApiErrorResponse, CSRF_HEADER, sideQuoteOf, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, PresenceFrame, RoomTypingFrame, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
   SetStatusBody, type MyStatus, type StatusClear,
   MemberEngineChoice, CARD_NEWS_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, PROMO_STYLES, DECK_ARTIFACT_KEY, NOTES_FOLDER, BRAND_FOLDER, BRAND_IMAGES_FOLDER, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule, type DeckBuild,
@@ -494,6 +494,13 @@ export class MockServer {
   memories: Memory[] = []
   /** Settings › 트리나에게 허용한 것 (POST /__test/ai-allowances sets them; one person's, like memories) */
   aiAllowances: AiAllowance[] = []
+  /** auto mode (docs/decisions/20261125-auto-mode.md): the person's own value by user id (absent: the team default) and
+   * the cards it approved (POST /__test/auto-mode sets them) */
+  autoModes = new Map<string, boolean>()
+  autoRecent: MyAutoMode['recent'] = []
+  autoAvailable = (u: User) => u.role !== 'guest' && this.settings.roomAlwaysAllow !== false && (this.settings.autoMode ?? 'off') !== 'off'
+  autoOn = (u: User) => this.autoAvailable(u) && (this.autoModes.get(u.id) ?? this.settings.autoMode === 'default')
+  autoState = (u: User): MyAutoMode => ({ available: this.autoAvailable(u), on: this.autoOn(u), team: this.settings.roomAlwaysAllow === false ? 'off' : this.settings.autoMode ?? 'off', recent: this.autoRecent })
   /** Settings › Scheduled tasks (POST /__test/schedule-review adds one nobody confirmed: needsReview) */
   schedules: (Schedule & { userId: string })[] = []
   /** each task's run history, newest first (GET /api/schedules/:id/runs; POST /__test/schedule `runs`, "Run now") */
@@ -772,6 +779,8 @@ export class MockServer {
     this.projectRowIds.clear()
     this.memories = []
     this.aiAllowances = []
+    this.autoModes = new Map()
+    this.autoRecent = []
     this.schedules = []
     this.scheduleRuns = new Map()
     this.scheduleRunMs = 200
@@ -1685,9 +1694,9 @@ export class MockServer {
     if (!choose) { delete prefs.engine; delete prefs.model }
     return {
       ...this.guestDetail(u),
-      user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs, canChooseEngine: choose, ...((st) => (st ? { statusMessage: st } : {}))(this.myStatus(u.id)), ...(this.webTeam() && this.webAccess.has(u.id) ? { webAllowAll: true as const } : {}) },
+      user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs, canChooseEngine: choose, ...((st) => (st ? { statusMessage: st } : {}))(this.myStatus(u.id)), ...(this.webTeam() && this.webAccess.has(u.id) ? { webAllowAll: true as const } : {}), ...(this.autoOn(u) ? { autoMode: true as const } : {}) },
       groups: this.groups.filter((g) => u.groupIds.includes(g.id)).map((g) => ({ id: g.id, name: g.name })),
-      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, ...(this.webTeam() ? { webAllowAll: true as const } : {}), iconVersion: this.teamIcon?.version ?? null, voiceInput: (this.speechNow() === 'local' && this.speechHost.localMissing.length === 0) || (this.speechNow() === 'openrouter' && this.speechKey.set), ...(this.speechNow() === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays, projectCreators: this.settings.projectCreators, ...(this.teamAddress ? { address: this.teamAddress } : {}) },
+      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, ...(this.webTeam() ? { webAllowAll: true as const } : {}), iconVersion: this.teamIcon?.version ?? null, voiceInput: (this.speechNow() === 'local' && this.speechHost.localMissing.length === 0) || (this.speechNow() === 'openrouter' && this.speechKey.set), ...(this.speechNow() === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays, projectCreators: this.settings.projectCreators, ...(this.autoAvailable(u) ? { autoMode: this.settings.autoMode as 'allowed' | 'default' } : {}), ...(this.teamAddress ? { address: this.teamAddress } : {}) },
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(), tempLogin: u.mustChangePassword && this.tempLogins.has(u.id) },
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
@@ -3770,6 +3779,14 @@ export class MockServer {
     listMemories: () => ({ items: this.memories, nextCursor: null }),
     // like server/src/routes/rooms.ts (rooms/ai-grants.ts): the person's own; an unknown id is 404
     listAiAllowances: () => ({ items: this.aiAllowances }),
+    // like server/src/routes/rooms.ts (chat/auto-mode.ts): 409 while the team does not let the person use it
+    getAutoMode: (c) => this.autoState(c.user),
+    setAutoMode: (c) => {
+      const b = c.body as { on: boolean }
+      if (b.on && !this.autoAvailable(c.user)) fail('conflict', 409, 'Your team does not let you use auto mode.', undefined, { reason: 'auto_mode_off' })
+      this.autoModes.set(c.user.id, b.on)
+      return this.autoState(c.user)
+    },
     deleteAiAllowance: (c) => {
       if (!this.aiAllowances.some((a) => a.id === c.params.id)) fail('not_found', 404)
       this.aiAllowances = this.aiAllowances.filter((a) => a.id !== c.params.id)
@@ -6535,6 +6552,7 @@ export class MockServer {
     else if (p === '/__test/speech-host') this.speechHost = { ...this.speechHost, ...(body as unknown as Partial<typeof this.speechHost>) }
     else if (p === '/__test/memory') this.memories.push({ id: uuidv7(), text: String(body.text), sourceChatId: null, createdAt: now() })
     else if (p === '/__test/ai-allowances') this.aiAllowances = ((body.items as unknown[]) ?? []).map((a) => AiAllowance.parse(a))
+    else if (p === '/__test/auto-mode') { if (body.team) this.settings.autoMode = body.team as 'off' | 'allowed' | 'default'; this.autoRecent = ((body.recent as unknown[]) ?? []) as MyAutoMode['recent'] }
     // a server event as the server would send it (a room's change card for a turn the spec's page.route answers; a
     // room's room.message.updated after a refused post)
     else if (p === '/__test/publish') this.publish(body.event as unknown as ServerEventInput)

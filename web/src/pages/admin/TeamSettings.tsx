@@ -260,6 +260,8 @@ export default function TeamSettingsPage() {
                         <AiVisionSwitch value={f.aiVision} onChange={(v) => setF({ ...f, aiVision: v })} />
                         <AiSubagentsSwitch value={f.aiSubagents} onChange={(v) => setF({ ...f, aiSubagents: v })} />
                         <SwitchRow id="ts-room-always" testId="team-room-always" value={f.roomAlwaysAllow} onChange={(v) => setF({ ...f, roomAlwaysAllow: v })} title={t('teamSettings.roomAlways')} desc={t('teamSettings.row.roomAlwaysDesc')} />
+                        {/* auto mode (docs/decisions/20261125-auto-mode.md): off by default; with "Always allow" off it is off too */}
+                        <AutoModeField value={f.autoMode ?? 'off'} alwaysOn={f.roomAlwaysAllow} onChange={(v) => setF((x) => (x ? { ...x, autoMode: v } : x))} />
                         {/* email into rooms (plan docs/AGENTS/plan/20261123-0421-room-email.md): off until an owner or admin turns it on;
                             an older server leaves the field out (off) */}
                         <SwitchRow id="ts-room-email" testId="team-room-email" value={f.roomEmail === true} onChange={(v) => setF({ ...f, roomEmail: v })} title={t('teamSettings.roomEmail')} desc={t('teamSettings.row.roomEmailDesc')} />
@@ -642,6 +644,29 @@ export function AnswerStepLimitField({ value, onChange }: { value: number; onCha
 }
 
 /** How long the company intro deck may take (server/src/intro-deck/tiers.ts): 3, 5 (the default, DEFAULT_DECK_TIER) or 10 minutes. */
+/** Auto mode for the team: off (nobody can turn it on), allowed (each person can; it starts off), on by default (each
+ * person can turn it off). Shown as off while the team's "Always allow" is off, which turns it off too. */
+export function AutoModeField({ value, alwaysOn, onChange }: { value: NonNullable<TeamSettings['autoMode']>; alwaysOn: boolean; onChange: (v: NonNullable<TeamSettings['autoMode']>) => void }) {
+  const t = useT()
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const values = ['off', 'allowed', 'default'] as const
+  const label = { off: t('teamSettings.autoModeOff'), allowed: t('teamSettings.autoModeAllowed'), default: t('teamSettings.autoModeDefault') }
+  const desc = alwaysOn ? t('teamSettings.row.autoModeDesc') : t('teamSettings.row.autoModeAlwaysOff')
+  if (phone)
+    return (
+      <PhoneChoiceRow title={t('teamSettings.autoMode')} desc={desc} value={value}
+        options={values.map((x) => ({ value: x, label: label[x] }))} onChange={onChange} testId="team-auto-mode" />
+    )
+  return (
+    <SettingRow id="ts-auto-mode" testId="team-auto-mode" title={t('teamSettings.autoMode')} desc={desc}
+      control={
+        <select id="ts-auto-mode" aria-describedby="ts-auto-mode-desc" className={clsx(inputCls, 'md:w-64')} value={value} disabled={!alwaysOn} onChange={(e) => onChange(e.target.value as NonNullable<TeamSettings['autoMode']>)}>
+          {values.map((x) => <option key={x} value={x}>{label[x]}</option>)}
+        </select>
+      } />
+  )
+}
+
 export function DeckTierField({ value, onChange }: { value: TeamSettings['introDeckTier'] | undefined; onChange: (v: TeamSettings['introDeckTier']) => void }) {
   const t = useT()
   const phone = useMediaQuery('(max-width: 767.98px)')
