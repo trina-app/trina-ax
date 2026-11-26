@@ -9,6 +9,9 @@
 //    1. The app opens `<console>/app/connect?state&challenge&port&locale[&store=1]` in the browser (RFC 8252: a loopback
 //       redirect, PKCE S256). The person signs in on the console and confirms; the console sends the browser to
 //       `http://127.0.0.1:<port>/console-callback?code&state` (or `?error=<AppConnectError>&state`).
+//       This is the Google way (Google allows no embedded web view). The e-mail way stays in the app, no browser:
+//       `POST /api/app/v1/email/start {email, locale, challenge[, store: true]}` → `{ok: true}` (a 6-digit code is
+//       mailed), then `POST /api/app/v1/email/verify {email, code, verifier}` → the same answer as step 2.
 //    2. `POST /api/app/v1/token {v:1, code, verifier}` → `{token, expiresAt, store}`: an opaque bearer token, 2 hours,
 //       good only for `/api/app/v1/*`. A token made with `store=1` (the Mac App Store build) reads and opens only: it
 //       cannot create, resume or retry a team, nor join the waiting list.
@@ -52,7 +55,12 @@ export const APP_PATHS = {
   me: `${APP_API_PREFIX}/me`,
   teams: `${APP_API_PREFIX}/teams`,
   waitlist: `${APP_API_PREFIX}/waitlist`,
+  emailStart: `${APP_API_PREFIX}/email/start`,
+  emailVerify: `${APP_API_PREFIX}/email/verify`,
 } as const
+/** the console's terms and privacy pages (on the console origin), linked under the app's own e-mail sign-in */
+export const APP_TERMS_PATH = '/legal/terms'
+export const APP_PRIVACY_PATH = '/legal/privacy'
 export const appTeamPath = (teamId: string, op?: 'retry' | 'resume' | 'owner-claim') =>
   `${APP_API_PREFIX}/teams/${encodeURIComponent(teamId)}${op ? `/${op}` : ''}`
 
@@ -101,6 +109,34 @@ export function appCallbackUrl(port: number, answer: { code: string; state: stri
   else u.searchParams.set('error', answer.error)
   u.searchParams.set('state', answer.state)
   return u.toString()
+}
+
+/** Sign-in with an e-mail code inside the app (no browser; owner change 2026-11-26). The app sends a PKCE challenge
+ * with the address; the console mails a 6-digit code (its own mail-code limits) and records the terms consent the app
+ * showed ("By continuing you agree to the Terms and Privacy"). The verify answers the same token as `/token`; the
+ * verifier binds it to the app that started it. `store: true` (the Mac App Store build): a sign-in-only token, never a
+ * new account. */
+export interface AppEmailStart { email: string; locale: string; challenge: string; store?: true }
+export interface AppEmailVerify { email: string; code: string; verifier: string }
+export const APP_EMAIL_CODE_RE = /^[0-9]{6}$/
+/** an e-mail address the app sends: trimmed, one @, no spaces or controls, at most 254 characters */
+export const isAppEmail = (s: unknown): s is string =>
+  typeof s === 'string' && s.length <= 254 && s === s.trim() && /^[^\s@\p{Cc}]{1,64}@[^\s@\p{Cc}]+\.[^\s@\p{Cc}]+$/u.test(s)
+
+export function parseAppEmailStart(raw: unknown): AppEmailStart | null {
+  const o = plain(raw)
+  if (!o) return null
+  const keys = Object.keys(o)
+  if (!keys.every((k) => ['email', 'locale', 'challenge', 'store'].includes(k)) || !['email', 'locale', 'challenge'].every((k) => k in o)) return null
+  if (!isAppEmail(o.email) || typeof o.locale !== 'string' || !LOCALE.test(o.locale) || typeof o.challenge !== 'string' || !B64URL43.test(o.challenge)) return null
+  if ('store' in o && o.store !== true) return null
+  return { email: o.email, locale: o.locale, challenge: o.challenge, ...(o.store === true ? { store: true as const } : {}) }
+}
+export function parseAppEmailVerify(raw: unknown): AppEmailVerify | null {
+  const o = plain(raw)
+  if (!o || !exactly(o, ['email', 'code', 'verifier'])) return null
+  if (!isAppEmail(o.email) || typeof o.code !== 'string' || !APP_EMAIL_CODE_RE.test(o.code) || typeof o.verifier !== 'string' || !VERIFIER.test(o.verifier)) return null
+  return { email: o.email, code: o.code, verifier: o.verifier }
 }
 
 export interface AppTokenRequest { v: 1; code: string; verifier: string }
@@ -286,6 +322,14 @@ export const APP_ERRORS = {
   already_set_up: 409,
   /** `owner-claim`: the team is not ready yet */
   not_ready: 409,
+  /** `email/verify`: the code is wrong (try again) */
+  code_invalid: 400,
+  /** `email/verify`: the code is too old or was replaced: send a new one */
+  code_expired: 400,
+  /** `email/start` or `email/verify`: too many codes or tries for this address; later */
+  /** (`email/start` always answers `{ok: true}`, also with `store: true` for an address with no account, so nobody can
+   * test which addresses have one; such a store sign-in then fails at verify with `code_invalid`) */
+  code_exhausted: 429,
   /** `owner-claim`: the team server is older than the console setup; `setupUrl` is the old one-time setup link */
   unsupported: 409,
   rate_limited: 429,

@@ -244,6 +244,26 @@ function ownerClaimVectors(k: ReturnType<typeof seedKey>) {
       callback: appCallbackUrl(53682, { code: claim, state }),
       cancelled: appCallbackUrl(53682, { error: 'cancelled', state }),
     },
+    email: {
+      start: {
+        valid: [{ email: 'owner@example.com', locale: 'en', challenge }, { email: 'owner@example.com', locale: 'ko', challenge, store: true }],
+        invalid: [
+          { raw: { email: 'owner@example.com', locale: 'en', challenge, store: false }, why: 'store is true or absent' },
+          { raw: { email: ' owner@example.com', locale: 'en', challenge }, why: 'surrounding spaces' },
+          { raw: { email: 'owner@localhost', locale: 'en', challenge }, why: 'a domain with a dot' },
+          { raw: { email: 'owner@example.com', locale: 'en' }, why: 'challenge is required' },
+          { raw: { email: 'owner@example.com', locale: 'en', challenge, password: 'x' }, why: 'unknown key' },
+        ],
+      },
+      verify: {
+        valid: [{ email: 'owner@example.com', code: '042917', verifier: Buffer.alloc(32, 3).toString('base64url') }],
+        invalid: [
+          { raw: { email: 'owner@example.com', code: '42917', verifier: Buffer.alloc(32, 3).toString('base64url') }, why: '6 digits' },
+          { raw: { email: 'owner@example.com', code: '04291a', verifier: Buffer.alloc(32, 3).toString('base64url') }, why: 'digits only' },
+          { raw: { email: 'owner@example.com', code: '042917', verifier: 'short' }, why: 'verifier' },
+        ],
+      },
+    },
     slugs: [
       ['Acme', 'acme'], ['Café Olé Studio', 'cafe-ole-studio'], ['  ACME — Seoul  ', 'acme-seoul'], ['東京チーム', 'team-x7k2'], ['ab', 'team-x7k2'],
     ].map(([name, slug]) => ({ name, suffix: 'x7k2', slug, out: suggestTeamSlug(name!, 'x7k2') })),

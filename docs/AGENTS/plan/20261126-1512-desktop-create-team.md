@@ -27,9 +27,18 @@ Out: "Use this computer as the server" (S0 keeps a slot), console single sign-on
   ("Your own team in about 5 minutes. Free, no card."), secondary "Join with an invite link". At the bottom a small link
   "Just look around first", which opens `https://demo.trina.app` in the browser (fixed URL, all builds).
 - **S1 Join.** Today's box and errors, "I don't know the address" inside it. Back and Esc go to S0.
-- **S2 Sign in.** "Continue in your browser to sign in." and Cancel. The console page `/app/connect` signs in (Google or
-  email code, terms), asks "Continue in the app as {email}?", then "You can close this tab." Errors: cancelled, expired
-  (10 min), offline; each offers Try again and Back.
+- **S2 Sign in** (owner change 2026-11-26: people who use e-mail never go to the browser). Two choices on the app screen:
+  - **Continue with Google**: the system browser and `/app/connect` (Google allows no embedded web view; a browser
+    signed in to Google is one click), then "You can close this tab." Errors: cancelled, expired (10 min), offline;
+    each offers Try again and Back.
+  - **E-mail, inside the app**: an e-mail field, **Send code**, then a 6-digit code field
+    (`POST /api/app/v1/email/start` and `/email/verify`, the console's mail-code limits). Under it "By continuing you
+    agree to the Terms and Privacy" with links, as the console's sign-in shows. Errors: wrong or expired code, too
+    many tries, offline; Send again, Use another e-mail.
+  - On a Mac, Google in a small system sheet (`ASWebAuthenticationSession`) instead of the full browser is a
+    follow-up PR: the app has no native module that can anchor the sheet to its window (the Swift dictation helper is
+    a separate process), it needs an app-scheme callback the contract does not allow yet, and e2e cannot drive it.
+    Windows and Linux keep the system browser.
 - **S3 Name your team.** One field, "Team name"; the address is derived and shown small ("acme.trina.app · Change").
   Region, zone and language come from the computer. Under it the Free plan rules from the console's `freePlan`, the
   Free terms and privacy links and one agree box; the button sends `planId:'free'` with the consent shown.
@@ -44,8 +53,8 @@ Out: "Use this computer as the server" (S0 keeps a slot), console single sign-on
   setup link in its own window), token expired on resume ("Sign in again to finish").
 - **Upgrade.** Admin › Plan: "Free plan · sleeps when idle · [Choose a plan]" opens the console's paid checkout. Owner
   only (open question 1). Hidden in the store build.
-- **Mac App Store build.** No create row. Under Join: "Already made a team? [Sign in]" runs S2 with `store=1`: sign-in
-  only; the token cannot create a team. Then the owned team opens, or "No team yet."
+- **Mac App Store build.** No create row. Under Join: "Already made a team? [Sign in]" runs S2 (both choices) with
+  `store=1` / `store: true`: sign-in only; the token cannot create a team. Then the owned team opens, or "No team yet."
 - **Removed:** "Install it yourself" on S0 (stays in the docs).
 - If the console's `/me` answers 404 (the hosting side is older), the app keeps today's first screen.
 
