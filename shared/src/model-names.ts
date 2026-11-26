@@ -38,3 +38,13 @@ export function claudeFamily(id: string): 'opus' | 'sonnet' | 'haiku' | null {
   const m = /^(?:claude-(?:\d+(?:[-.]\d+)?-)?)?(opus|sonnet|haiku)\b/.exec(base)
   return (m?.[1] as 'opus' | 'sonnet' | 'haiku' | undefined) ?? null
 }
+
+/**
+ * A Claude id that names no version ("haiku", "claude-haiku"): usage from before the real model was recorded (the
+ * model asked for, migration 456). Admin › Usage marks it as an earlier row rather than merge it with "Claude Haiku
+ * 5.5": which version answered then is not known.
+ */
+export function isUnversionedClaude(id: string): boolean {
+  const name = modelDisplayName(id)
+  return Object.values(CLAUDE_FAMILY).includes(name) && modelVersionName(id) === name
+}

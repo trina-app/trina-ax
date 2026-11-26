@@ -274,7 +274,7 @@ step the person starts; scheduled runs never reach them. "hidden for guests" mea
 | `ui.settings.providers.deleteMine` | `web/src/pages/admin/Credentials.tsx:952` | Settings › AI accounts › remove my own connection. | Remove the connection '{label}'? / '{label}' 연결을 삭제할까요? | Delete / Cancel | none | n/a | n/a | same | irreversible | OK |
 | `ui.admin.credentials.delete` | `web/src/pages/admin/Credentials.tsx:95` | Admin › AI connections › remove a team connection. | Remove the connection '{label}'? / '{label}' 연결을 삭제할까요? (`credentials.deleteConfirm`) | Delete / Cancel | none | n/a | n/a | admin only | irreversible | OK |
 | `ui.admin.credentials.planAck` | `web/src/pages/admin/Credentials.tsx:733` | Adding a subscription connection: a required checkbox. | I have read the notice above / 위 안내를 확인했어요 (`credentials.planNoticeAck`) | checkbox + Save | none | n/a | n/a | same | other:provider-terms | OK |
-| `ui.admin.ai.sharedSubscriptions` | `web/src/pages/admin/TeamAiSettings.tsx:312` | The owner turns subscription sharing on. | Enable subscription sharing? / 구독 공유를 켤까요? (`credentials.sharedRiskTitle`) | Enable sharing / Cancel | none | n/a | n/a | admin only | security | OK |
+| `ui.admin.ai.sharedSubscriptions` | `web/src/pages/admin/TeamAiSettings.tsx:339` | The owner turns subscription sharing on. | Enable subscription sharing? / 구독 공유를 켤까요? (`credentials.sharedRiskTitle`) | Enable sharing / Cancel | none | n/a | n/a | admin only | security | OK |
 | `ui.admin.devEnv.accept` | `web/src/pages/admin/DevEnvTeam.tsx:115` | Turning the team dev environment on: a required checkbox. | I understand the risks and turn it on for the team / … (`devEnvTeam.accept`) | checkbox + Save | none | n/a | n/a | admin only | security | OK |
 | `ui.admin.folderSharing.discard` | `web/src/pages/admin/FolderSharing.tsx:160` | Leaving the folder-access panel with unsaved edits. | Discard your changes? / 바꾼 내용을 버릴까요? | Discard / Cancel | none | n/a | n/a | admin only | other:unsaved | OK |
 | `ui.admin.folderSharing.save` | `web/src/pages/admin/FolderSharing.tsx:300` | A save that widens, narrows or cuts people off. | Let # more people open it? / Take access away? (`folderAccess.confirm*`) | Give access / Cancel | none | n/a | n/a | admin only | shows-private-to-others, security | OK |
@@ -308,6 +308,7 @@ step the person starts; scheduled runs never reach them. "hidden for guests" mea
 | `ui.leave.unsaved` | `web/src/components/FilePanel.tsx:321` | Closing the browser tab with an unsaved file edit (the browser's own "Leave site?"). | (browser) | Leave / Stay | none | n/a | n/a | same | other:unsaved | OK |
 | `ui.leave.uploads` | `web/src/components/FolderUploads.tsx:33` and `web/src/store/roomUploads.ts:254` | Closing the tab while files or room files are still uploading. | (browser) | Leave / Stay | none | n/a | n/a | same | other:unsaved | OK |
 | `ui.leave.recording` | `web/src/lib/useVoiceInput.ts:603` | Closing the tab while a voice recording runs. | (browser) | Leave / Stay | none | n/a | n/a | same | other:unsaved | OK |
+| `ui.leave.aiDefaults` | `web/src/pages/admin/TeamAiSettings.tsx:105` | Reloading or closing the tab with a change to Admin › Team settings › AI defaults or Who picks the engine not saved. | (browser) | Leave / Stay | none | n/a | n/a | admin only | other:unsaved | OK |
 
 ### Sign-in, setup and updates (로그인·설정·업데이트)
 
@@ -553,7 +554,7 @@ lines than the row fails the test; fewer passes.
 | `web/src/pages/admin/SkillManagers.tsx` | 1 | `ui.admin.skillManagers.remove` |
 | `web/src/pages/admin/Slack.tsx` | 1 | `ui.admin.slack.remove` |
 | `web/src/pages/admin/System.tsx` | 5 | `ui.admin.system.askCleanup`, `ui.admin.system.changeMode`, `ui.admin.system.connectedRemove`, `ui.admin.system.connectFolder`, `ui.admin.system.restoreBackup` |
-| `web/src/pages/admin/TeamAiSettings.tsx` | 1 | `ui.admin.ai.sharedSubscriptions` |
+| `web/src/pages/admin/TeamAiSettings.tsx` | 2 | `ui.admin.ai.sharedSubscriptions`, `ui.leave.aiDefaults` |
 | `web/src/pages/admin/TeamSettings.tsx` | 3 | `ui.admin.team.iconRemove`, `ui.admin.team.removeAllShares`, `ui.admin.team.speechKeyRemove` |
 | `web/src/pages/admin/common.tsx` | 1 | `definition` |
 | `web/src/pages/admin/jobs.tsx` | 1 | `ui.admin.system.update` |
