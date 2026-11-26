@@ -13,7 +13,7 @@ import { openDb } from '../../server/src/db'
 import { silentLogger } from '../../server/src/log'
 import { BackupManager } from '../../server/src/system/backup'
 import {
-  archiveUpload, cloudBackupPrepare, cloudBackupUpload, lastUploadedLocalId, relayKeyCommand, restoreArtifacts, restoreVerify,
+  archiveUpload, chainIds, cloudBackupPrepare, cloudBackupUpload, lastUploadedLocalId, relayKeyCommand, restoreArtifacts, restoreVerify,
   rotateSetupToken, setupStatus, uploadParts,
 } from '../../server/src/system/cloud-admin'
 import { resolveLayout } from '../../server/src/system/layout'
@@ -237,4 +237,16 @@ describe('admin.js wiring', () => {
     expect(BackupPrepareResult.parse(JSON.parse(p.out)).files.length).toBeGreaterThan(3)
     expect(run('cloud-backup', 'prepare', '--kind', 'weekly').code).toBe(1)
   }, 60_000)
+})
+
+// chain.json from mycel-enroll: before 2026-11-26 it wrote {format: 1, chain: [{backupId, files}]}, which made every
+// off-site restore fail ("ids.map is not a function", found on the staging cloud). Both shapes must read.
+describe('chainIds', () => {
+  test('an array of backup ids', () => { expect(chainIds(['bk_1', 'bk_2'])).toEqual(['bk_1', 'bk_2']) })
+  test("mycel-enroll's older object shape", () => {
+    expect(chainIds({ format: 1, chain: [{ backupId: 'bk_1', files: ['db.sqlite'] }, { backupId: 'bk_2', files: [] }] })).toEqual(['bk_1', 'bk_2'])
+  })
+  test('anything else is refused', () => {
+    for (const x of [null, 1, 'bk_1', { chain: 'bk_1' }, [1, 2], { chain: [{ id: 'bk_1' }] }]) expect(() => chainIds(x)).toThrow(/list of backup ids/)
+  })
 })
