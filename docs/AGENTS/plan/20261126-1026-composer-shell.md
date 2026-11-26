@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-26 10:26
 - Branch: `feat/composer-shell` (stacked on `fix/side-chat-stop`, PR #643, which adds `chat/StopButton.tsx`)
-- Status: in progress
+- Status: done
 - Where: web (`web/src/components/composer/` new, the four boxes that move onto it). Why: a UI consistency change of
   one surface type, no server change (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. Visible changes in four message boxes (the + menu, round send, Esc stops, mic in answer
@@ -156,3 +156,12 @@ line everywhere; one height 240 px; team files on computers in rooms and the sid
 `bun run typecheck`, `bun run check:prepush`, web unit suite, the e2e above.
 
 ## Result
+
+Built as planned in `web/src/components/composer/` (ComposerShell, ComposerField, AttachMenu, ComposerButtons,
+ComposerNotices, keys.ts, hint.ts); the four boxes moved onto it, one commit each, and their copies (attach menus and
+file inputs, send buttons, Enter handlers, height code, notices) are gone. Changed from the plan while building: a
+kept side-chat draft also reopens its chat after a reload when that chat is the room's newest (as a box with text
+keeps its chat while the page is open; without it the draft never came back), and the plan's `useKeptDraft` became two
+small keyed drafts (the side chat's carries its chat, the thread's its mentions). Tests: web unit suite, the guard,
+`composer-shell.spec.ts` (16 cases), and the related e2e specs.
+
