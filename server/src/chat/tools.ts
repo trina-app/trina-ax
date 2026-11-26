@@ -219,7 +219,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const cards = new Map<string, NonNullable<TurnTool['card']>>()
   const templateWrites = new Set<string>()
   /** a room session's connection tools: the asker's own Google apps (integrations/connections/tools.ts) */
-  const add = (t: Tool, o: { connection?: boolean; projectRoom?: boolean; integration?: boolean } = {}): boolean => {
+  const add = (t: Tool, o: { connection?: boolean; projectRoom?: boolean; integration?: boolean; browser?: boolean } = {}): boolean => {
     // a company profile draft (onboarding/draft.ts): web_fetch is its only tool besides the refused file tools, and a
     // draft from pasted text has none
     if (exec.profileDraft && (t.name !== 'web_fetch' || exec.profileDraft.scope.source !== 'website')) return false
@@ -251,7 +251,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // (a tool of SHARED_UNDER_ALWAYS too while the person's own Always for its card is on: Rule A)
     // a guest's memories stay out of shared chats (docs/decisions/20261125-auto-memory-shared-chats.md: members only)
     if (exec.shared && guest && SHARED_MEMBER_ONLY_TOOLS.has(t.name)) return false
-    if (exec.shared && !SHARED_TOOLS.has(t.name) && !o.connection && !o.projectRoom && !(Object.hasOwn(SHARED_UNDER_ALWAYS, t.name) && alwaysHere(exec.alwaysPlace?.(), SHARED_UNDER_ALWAYS[t.name]!) === 'on')) return false
+    // (the asker's own in-app browser too, each call behind their one notice: docs/decisions/20261126-shared-chat-own-tools.md)
+    if (exec.shared && !SHARED_TOOLS.has(t.name) && !o.connection && !o.projectRoom && !o.browser && !(Object.hasOwn(SHARED_UNDER_ALWAYS, t.name) && alwaysHere(exec.alwaysPlace?.(), SHARED_UNDER_ALWAYS[t.name]!) === 'on')) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
     if (t.label) labels.set(t.name, t.label.bind(t))
@@ -414,7 +415,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     if (work && !d.shared) add(saveWorkFileTool(exec, where, 'folder'))
     else if (work && exec.shared?.kind === 'people') add(saveWorkFileTool(exec, where, 'chat'))
   }
-  if (exec.browser) for (const t of PANE_TOOLS) add(browserTool(exec, t.name as BrowserToolName, t.description, t.inputSchema as unknown as Record<string, unknown>))
+  if (exec.browser) for (const t of PANE_TOOLS) add(browserTool(exec, t.name as BrowserToolName, t.description, t.inputSchema as unknown as Record<string, unknown>), { browser: true })
   // per-person tools (external-service connections), built from saved data at the start of the turn
   const prompt: string[] = []
   const context: string[] = []
@@ -1911,6 +1912,15 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
     name, description, inputSchema,
     async call(rawArgs) {
       const args = (rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? rawArgs : {}) as Record<string, unknown>
+      // a shared chat: the asker's one notice for their browser in this place first, and what its pages bring in joins
+      // the answer's read record as theirs (chat/turn.ts confirmSharedBrowser); nothing is opened without it
+      if (exec.shared) {
+        const no = await exec.confirmSharedBrowser()
+        if (no) return { ...text(no, true), summary: `${name} -> not run (shared chat: browser notice)` }
+        // ...and where other people wrote or a guest is here, an action waits for the asker's card (their Always holds)
+        const change = await exec.confirmSharedBrowserChange(name, args)
+        if (change) return { ...text(change, true), summary: `${name} -> not run (shared chat: browser change card)` }
+      }
       const person = turnPerson(exec)
       /** null when the address may be opened; otherwise the refusal for the AI */
       let allSites = false

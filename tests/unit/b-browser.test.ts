@@ -96,14 +96,15 @@ describe('browser tools', () => {
     expect(d.data.message.content).not.toContain('## Browser (desktop app)')
   })
 
-  test('the "no browser here" line only with the web-or-phone flag (turn.ts sets it for the person\'s own chat there): never in a confidential chat, a room or a shared chat, even with the flag', () => {
+  test('the "no browser here" line only with the web-or-phone flag (turn.ts sets it for the person\'s own chat or a shared chat there): never in a confidential chat or a room, even with the flag', () => {
     const user = loadPrincipal(h.ctx.db, 'alice')!
     const base: PromptInput = { user, groupNames: [], locale: 'en', timeZone: 'UTC', memories: [], project: null, browser: false, tools: [], history: null, now: new Date('2026-11-12T09:00:00Z') }
     const cases: [string, PromptInput, boolean][] = [
       ['own chat on the web', { ...base, browserInDesktopApp: true }, true],
       ['no flag', base, false],
       ['confidential', { ...base, browserInDesktopApp: true, confidential: 'chat' }, false],
-      ['shared', { ...base, browserInDesktopApp: true, shared: { project: 'Falcon', audience: 3, asker: user.name } }, false],
+      // a shared chat: the asker's own browser works there too (docs/decisions/20261126-shared-chat-own-tools.md)
+      ['shared', { ...base, browserInDesktopApp: true, shared: { project: 'Falcon', audience: 3, asker: user.name } }, true],
     ]
     for (const [name, input, has] of cases) {
       for (const text of [buildTurnPrompt(h.ctx.files, input), buildTurnContext(h.ctx.files, input)]) {

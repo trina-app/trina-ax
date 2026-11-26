@@ -39,7 +39,9 @@ function serveLocal(s: TestSocket, window: string) {
       const m = call.message as { id?: string; method: string; params?: { arguments?: { text?: string } } }
       seen.push({ window, method: m.method, turnId: call.turnId })
       const result = m.method === 'initialize' ? { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' } }
-        : m.method === 'tools/list' ? { tools: [{ name: 'echo', description: 'Say it back', inputSchema: { type: 'object', properties: { text: { type: 'string' } } }, annotations: { readOnlyHint: true } }] }
+        : m.method === 'tools/list' ? { tools: [{ name: 'echo', description: 'Say it back', inputSchema: { type: 'object', properties: { text: { type: 'string' } } }, annotations: { readOnlyHint: true } },
+          // a tool that acts (Aside's repl: code in the person's browser)
+          { name: 'repl', description: 'Run code in the browser', inputSchema: { type: 'object', properties: { code: { type: 'string' } } } }] }
         : m.method === 'tools/call' ? { content: [{ type: 'text', text: `echo: ${m.params?.arguments?.text ?? ''}` }] }
         : null
       s.send({ type: 'local.result', result: { callId: call.callId, ok: true, message: m.id === undefined ? null : { jsonrpc: '2.0', id: m.id, result } } })
@@ -174,5 +176,29 @@ describe("an app on alice's computer in each kind of chat", () => {
     expect(p.system).toContain('Aside (an app on the user\'s own computer, personal connection): not usable in this answer')
     expect(p.system).toContain('this message was sent from the web page')
     expect(p.system).toContain('Do not guess at other causes')
+  })
+})
+
+// docs/decisions/20261126-shared-chat-own-tools.md: the owner asked for a vendor reply with team files through their Daum
+// mail in Aside. An app on the computer takes code or a task, never a file's content: a team file handle given to it is
+// refused in plain words before anything reaches the desktop app (in a private chat and a shared one alike), so the AI
+// says so instead of promising an attachment
+describe('a team file handed to an app on the computer', () => {
+  for (const kind of ['private', 'shared'] as const) {
+    test(`${kind} chat: refused plainly, nothing reaches the desktop app`, async () => {
+      const chat = kind === 'private' ? await privateChat() : await projectChat()
+      const r = await ask(from.desk, chat, fake({ tool: 'my_aside__repl', args: { code: 'team-file:projects/falcon/plan.md' }, sayResult: true }))
+      expect(r.content).toContain('a team file cannot be attached through it')
+      expect(callsOf(r.started.turnId).some((s) => s.method === 'tools/call')).toBe(false)
+      const ev = h.ctx.db.query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool = 'my_aside__repl'").get(r.started.turnId) as { summary: string }
+      expect(ev.summary).toContain('refused (attachment: app on the computer)')
+    })
+  }
+  // security review of #647: at any depth and under any name but a file's content
+  test('a handle nested under another argument name is refused too', async () => {
+    const chat = await projectChat()
+    const r = await ask(from.desk, chat, fake({ tool: 'my_aside__repl', args: { code: 'x', opts: { command: ['team-file:projects/falcon/plan.md'] } }, sayResult: true }))
+    expect(r.content).toContain('a team file cannot be attached through it')
+    expect(callsOf(r.started.turnId).some((s) => s.method === 'tools/call')).toBe(false)
   })
 })

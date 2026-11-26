@@ -1,7 +1,7 @@
 # Connected services in shared chats: the team's, and the asker's own behind a card
 
 - Date: 2026-11-18
-- Status: accepted
+- Status: accepted (its team-file refusal is superseded by [20261126-shared-chat-own-tools.md](20261126-shared-chat-own-tools.md))
 - Supersedes: "connected services (and connecting one)" in the list of what a shared chat does not offer
   ([Shared project chats](../DECISIONS.md), `rooms/ai-tools.ts` SHARED_TOOLS, `chat/prompt.ts` sharedSection and
   SHARED_PROMPT_SECTIONS `connected`)

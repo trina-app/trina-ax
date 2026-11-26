@@ -2921,6 +2921,7 @@ export const id: Record<MessageKey, string> = {
   'audit.act.project.share_chats': "Berbagi chat proyek diubah",
   'audit.act.chat.shared_read': "Konfirmasi baca di chat bersama",
   'audit.act.chat.shared_connection': "Konfirmasi layanan terhubung di chat bersama",
+  'audit.act.chat.shared_browser_change': "Konfirmasi tindakan browser di chat bersama",
   'audit.act.chat.delete': "Chat bersama dihapus",
   'audit.act.chat.share': "Membagikan obrolan",
   'audit.act.chat.fork': "Melanjutkan obrolan di obrolan baru yang hanya dia lihat",
