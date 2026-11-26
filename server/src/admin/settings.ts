@@ -38,7 +38,7 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   roomAlwaysAllow: true,
   /** rooms may add an Email app (rooms/apps/mail): off until an owner or admin turns it on (owner, 2026-11-23) */
   roomEmail: false,
-  /** problem reports to the Trina AX team (system/problem-reports.ts): on unless an owner or admin turns it off */
+  /** problem reports to the <app> team (system/problem-reports.ts): on unless an owner or admin turns it off */
   problemReports: true,
   /** members share files they own (files/shares.ts): on unless an admin turns it off */
   memberFileShares: true,

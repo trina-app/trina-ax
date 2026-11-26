@@ -27,5 +27,5 @@ export const ProblemReportAccepted = z.object({ id: Uuid7 })
 
 export const PROBLEM_REPORTS = {
   sendProblemReport: endpoint({ method: 'POST', path: '/api/problem-reports', auth: 'user', owner: 'G', status: 202, body: ProblemReportBody, response: ProblemReportAccepted,
-    summary: 'Send a problem report to the Trina AX team: kept in an outbox and sent in the background, signed with this server\'s relay team key. Only the words, versions, platform, screen kind and, from 👎, the turn id, failure code and tool ids; the question and answer only with withConversation. 404 while the feature or the team switch is off; 429 problem_reports_limit past 5 a person or 30 a team a day; a guest: 403.' }),
+    summary: 'Send a problem report to the team that makes this app: kept in an outbox and sent in the background, signed with this server\'s relay team key. Only the words, versions, platform, screen kind and, from 👎, the turn id, failure code and tool ids; the question and answer only with withConversation. 404 while the feature or the team switch is off; 429 problem_reports_limit past 5 a person or 30 a team a day; a guest: 403.' }),
 } as const

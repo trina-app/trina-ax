@@ -1171,7 +1171,7 @@ export const TeamSettings = z.object({
    * omit it. */
   roomEmail: z.boolean().optional(),
   /** "팀원이 문제를 신고할 수 있어요" (default on; docs/decisions/20261126-problem-reports.md): Settings › About's "문제 신고"
-   * and 👎 under an AI answer send a report to the Trina AX team. Off: both are hidden and the server refuses. Shown only
+   * and 👎 under an AI answer send a report to the <app> team. Off: both are hidden and the server refuses. Shown only
    * where this server can send reports (Me.server.problemReports). Older servers omit it. */
   problemReports: z.boolean().optional(),
   /** "Members can share files they own" (default on; docs/DECISIONS.md "A member shares their own files"): a member's

@@ -141,7 +141,7 @@ export const Me = z.object({
     /** Always true: folder sharing is always on (owner 2026-11-17). Kept only for web and app builds from before, which
      * show folder sharing only when it is true; current clients do not read it. */
     folderShares: z.literal(true).optional(),
-    /** this server can send problem reports to the Trina AX team (server/src/system/problem-reports.ts): 'hosted' (a team
+    /** this server can send problem reports to the <app> team (server/src/system/problem-reports.ts): 'hosted' (a team
      * the hosting service runs) or 'self' (a self-installed server: the sheet says the report leaves it). Admin › Team
      * settings shows the switch only then. Absent: none (an edition without a hosted service, MYCEL_PROBLEM_REPORTS=off). */
     problemReports: z.enum(['hosted', 'self']).optional(),

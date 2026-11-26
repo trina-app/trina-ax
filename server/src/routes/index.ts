@@ -74,7 +74,7 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   slackRoutes, // C: the Slack connector (docs/SLACK.md); after chats, whose runtime its questions use
   demoRoutes, // demo company (`bun run demo:company`; 404 unless a development server runs with MYCEL_DEMO)
   linkNamesRoutes, // B: names of links to things in this app pasted into messages (docs/decisions/20261118-named-app-links.md); after chats, rooms and files
-  problemReportsRoutes, // G: problem reports to the Trina AX team (docs/decisions/20261126-problem-reports.md); after chats
+  problemReportsRoutes, // G: problem reports to the <app> team (docs/decisions/20261126-problem-reports.md); after chats
   appLinksRoutes, // G: /.well-known files for the phone app's links (docs/DECISIONS.md "First run, phase 2")
   webRoutes, // D (catch-all, keep last)
 ]
