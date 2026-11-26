@@ -4,6 +4,7 @@
 // under the pointer with its hover bar (components/messages/MessageActions.tsx); a date line starts each day; on phones a run's time shows
 // only when it differs from the run above it.
 import clsx from 'clsx'
+import { NATIVE_CALLOUT } from '../messages/MessageActions'
 import type { ReactNode } from 'react'
 import type { Locale, RoomMessage, UserRef } from '@mycel/shared/api'
 import { formatDateTime, intlTag } from '../../lib/format'
@@ -26,7 +27,7 @@ export const WORDS = 'select-text pointer-coarse:select-none'
  * focus in it (`lit`: being edited in the box below; a message a link or a quote's jump goes to is not lit, only scrolled
  * to: owner 2026-11-21) */
 export const messageRowClass = (lit: boolean) =>
-  clsx('group relative -mx-2 rounded-lg px-2 py-0.5 transition select-none pointer-coarse:[-webkit-touch-callout:none]', lit ? 'bg-accent-soft' : 'hover:bg-subtle has-[[role=menu]]:bg-subtle has-[[aria-expanded=true]]:bg-subtle has-[:focus-visible]:bg-subtle')
+  clsx('group relative -mx-2 rounded-lg px-2 py-0.5 transition select-none pointer-coarse:[-webkit-touch-callout:none]', NATIVE_CALLOUT, lit ? 'bg-accent-soft' : 'hover:bg-subtle has-[[role=menu]]:bg-subtle has-[[aria-expanded=true]]:bg-subtle has-[:focus-visible]:bg-subtle')
 
 /** For each run: its time reads the same as the time shown above it on the same day (a date line starts a new day).
  * Phones show such a time once: the first run of that minute has it. An event line shows no time, so a run compares

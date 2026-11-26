@@ -92,12 +92,19 @@ export function useActionItems(actions: readonly MessageAction[]): MenuItem[] {
   }))
 }
 
-/** A finger held on these is no long press of the message: a text box, a control of its own (a button, a link, an ask
- * or connect card's box), a dialog or menu over it, or a part with its own long-press menu (`data-own-menu`). */
-export const PRESS_SKIP = 'textarea, input, select, button, a, [role="dialog"], [role="menu"], [data-testid="ask-card"], [data-testid="connect-card"], [data-own-menu]'
-/** A room's message: its words' links and mentions keep the message's long press (their click is guarded:
- * rooms/MessageText.tsx), only a part with its own menu (a file chip, a picture) is skipped */
-export const ROOM_PRESS_SKIP = '[data-own-menu]'
+/** On every surface a finger held on a picture or a link gets the phone's own menu (save image, open or copy the link),
+ * never the message's sheet */
+export const NATIVE_PRESS = 'img, a[href]'
+/** A finger held on these is no long press of the message: a picture or a link (the phone's own menu), a text box, a
+ * control of its own (a button, an ask or connect card's box), a dialog or menu over it, or a part with its own
+ * long-press menu (`data-own-menu`). */
+export const PRESS_SKIP = `${NATIVE_PRESS}, textarea, input, select, button, a, [role="dialog"], [role="menu"], [data-testid="ask-card"], [data-testid="connect-card"], [data-own-menu]`
+/** A room's message: a mention or a quote keeps the message's long press; a picture or a link gets the phone's own menu,
+ * and a part with its own menu (a file chip, a room picture) its own */
+export const ROOM_PRESS_SKIP = `${NATIVE_PRESS}, [data-own-menu]`
+/** The phone's own menu stays on a picture or a link inside a message whose box turns it off (PRESS_BOX,
+ * rooms/MessageRun.tsx messageRowClass); a picture with a long-press menu of its own (`data-own-menu`) keeps it off */
+export const NATIVE_CALLOUT = 'pointer-coarse:[&_a[href]]:[-webkit-touch-callout:default] pointer-coarse:[&_img:not([data-own-menu]_img)]:[-webkit-touch-callout:default]'
 
 /** A message's long press on a touch screen (a finger, not a mouse; any width): spread `bind` on the message's box (it
  * holds the box's ref), its classes `box` on it, and give `signal` to its MessageActionSheet. `on` false: nothing (a
@@ -134,7 +141,7 @@ export function useMessagePress(on: boolean, skip: string = PRESS_SKIP) {
 }
 
 /** The message box's classes while it has a long press: the phone's own text selection and callout stay away */
-export const PRESS_BOX = 'relative pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]'
+export const PRESS_BOX = `relative pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] ${NATIVE_CALLOUT}`
 
 /** The one sheet a long press opens (a hidden "…" at the message's top right that `signal` opens). `title`: what it is
  * about, on a phone (the model that answered); `header`: above the rows on a touch screen (a room's reactions). */

@@ -86,3 +86,49 @@ test('a file an AI made opens in the right panel, a person\'s own file in the ro
     await page.unmount()
   }
 })
+
+test('a long press that starts on a picture or a link goes to the phone\'s own menu, never the sheet', async () => {
+  const { useMessagePress: usePress, MessageActionSheet: Sheet, PRESS_BOX: box, NATIVE_CALLOUT: native } = await import('../../src/components/messages/MessageActions')
+  const { FakeEvent } = await import('./dom-host')
+  function Box({ skip }: { skip?: string }) {
+    const press = usePress(true, skip)
+    return (
+      <div data-testid="box" className={press.box} {...press.bind}>
+        <p data-testid="words">words</p>
+        <img data-testid="pic" alt="chart" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" />
+        <a data-testid="link" href="https://example.com/brief">brief</a>
+        <Sheet signal={press.signal} actions={[{ id: 'copy', label: 'Copy', copy: { text: () => 'x' }, menuTestId: 'sheet-copy' }]} />
+      </div>
+    )
+  }
+  const { ROOM_PRESS_SKIP } = await import('../../src/components/messages/MessageActions')
+  for (const skip of [undefined, ROOM_PRESS_SKIP]) {
+    const page = await mount(<Box skip={skip} />)
+    const hold = async (id: string) => {
+      const ev = (type: string) => Object.assign(new FakeEvent(type, { bubbles: true, cancelable: true }), { pointerType: 'touch', clientX: 5, clientY: 5 })
+      page.get(id).dispatchEvent(ev('pointerdown'))
+      await page.settle(600)
+      const menu = ev('contextmenu')
+      page.get(id).dispatchEvent(menu)
+      page.get(id).dispatchEvent(ev('pointerup'))
+      await page.settle()
+      return menu
+    }
+    try {
+      // a picture and a link: no sheet, and the phone's own menu is not held back
+      for (const id of ['pic', 'link']) {
+        const menu = await hold(id)
+        expect(page.find('sheet-copy'), `${id} (${skip ?? 'chat'})`).toBeNull()
+        expect((menu as unknown as { defaultPrevented: boolean }).defaultPrevented, id).toBe(false)
+      }
+      // the words still open the sheet
+      await hold('words')
+      expect(page.find('sheet-copy')).not.toBeNull()
+      // the box turns the phone's menu off for the message, back on for its pictures and links
+      expect(page.get('box').className).toContain(box.split(' ').find((c) => c.includes('touch-callout:none'))!)
+      for (const c of native.split(' ')) expect(page.get('box').className).toContain(c)
+    } finally {
+      await page.unmount()
+    }
+  }
+})

@@ -21,8 +21,10 @@
   - **Touch screens (any width): a long press opens one sheet** (`useMessagePress`, `MessageActionSheet`) on the AI
     chat (questions and answers), a room's side chat, a room's timeline and thread, and a shared chat's thread (its
     answer and its replies). A room's sheet has its reactions on top; reactions stay only where rooms have them. A tap
-    shows nothing. Each surface keeps its skip list: the AI chat skips links, buttons, text boxes and cards; a room
-    skips only parts with their own menu (a link in a room message still opens the message's sheet). No sheet for a
+    shows nothing. A long press that starts on a picture (`img`) or a link (`a[href]`) inside a message, on every
+    surface, gets the phone's own menu (save image, open or copy the link) and never the sheet; the message box's
+    "no callout" is lifted for them (`NATIVE_CALLOUT`). Otherwise each surface keeps its skip list: the AI chat also
+    skips buttons, text boxes and cards; a room only parts with their own menu (a file chip, a room picture). No sheet for a
     message with nothing to act on (being sent, edited, streamed, hidden, deleted; an event line). The model that
     answered is the sheet's title on every AI answer.
   - **Phones:** the row under a message is hidden from sight only (screen readers and keyboards reach it); the newest

@@ -1,7 +1,7 @@
 // One way to act on a message (components/messages/MessageActions.tsx; docs/decisions/20261126-shared-message-actions.md),
 // in the browser at 1440 and at 390 with touch (and a touch tablet at 820):
-// - a long press opens the one sheet on an AI chat answer, my question, a room message (also from its link), a shared
-//   chat thread's answer and a reply in it; a tap shows nothing;
+// - a long press opens the one sheet on an AI chat answer, my question, a room message, a shared chat thread's answer
+//   and a reply in it; a tap shows nothing; on a picture or a link it opens nothing of ours (the phone's own menu);
 // - a computer has the same thread icon in the AI chat and in a room, and copy says "복사했어요" (✓ on the row, a toast
 //   from a menu);
 // - a document an AI made, sent to a room, opens in the right panel there as in the chat.
@@ -67,6 +67,16 @@ test.describe('390, touch', () => {
     // copy from the sheet: the shared words as a toast
     await sheet(page).getByRole('menuitem', { name: '답변 복사' }).click()
     await expect(page.getByText('복사했어요')).toBeVisible()
+    // a picture in an answer: the phone's own menu (save image), not the sheet
+    await answer.evaluate((el) => {
+      const img = document.createElement('img')
+      img.setAttribute('data-testid', 'probe-img')
+      img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw=='
+      img.style.width = '40px'; img.style.height = '40px'
+      el.querySelector('p')!.after(img)
+    })
+    await longPress(page, answer.getByTestId('probe-img'))
+    await expect(sheet(page)).toHaveCount(0)
     // Select text: the long press steps aside on that answer
     await longPress(page, answer.locator('p').first())
     await sheet(page).getByRole('menuitem', { name: '텍스트 선택' }).click()
@@ -96,9 +106,13 @@ test.describe('390, touch', () => {
     await shot(page, 'msgact-room-sheet-390.png')
     await sheet(page).getByRole('menuitem', { name: '복사', exact: true }).click()
     await expect(page.getByText('복사했어요')).toBeVisible()
-    // a long press on a link in a room message opens the message's sheet too (rooms keep their skip list)
-    await longPress(page, page.getByTestId('room-message').nth(1).locator('a').first())
-    await expect(sheet(page)).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(sheet(page)).toHaveCount(0)
+    // a long press on a link gets the phone's own menu (open, copy the link), never the message's sheet
+    const link = page.getByTestId('room-message').nth(1).locator('a[href]').first()
+    await longPress(page, link)
+    await expect(sheet(page)).toHaveCount(0)
+    expect(await link.evaluate((e) => getComputedStyle(e).getPropertyValue('-webkit-touch-callout') || 'default')).not.toBe('none')
   })
 
   test('shared chat thread: its answer on top and a reply open the same sheet', async ({ page }) => {
