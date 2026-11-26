@@ -2,9 +2,39 @@
 // 20261124-step-key-input.md): chosen by what each argument is called and the tool's schema, never by tool or service,
 // and never a secret, an id or an address's query.
 import { describe, expect, test } from 'bun:test'
-import { keyInputSuffix, opaqueValue, secretArgName, stepKeyInput, stepLabel, stepUrl } from '../../shared/src'
+import { choiceArg, keyInputSuffix, opaqueValue, secretArgName, stepKeyInput, stepLabel, stepUrl } from '../../shared/src'
 
 const NO_BROWSER = new Set<string>()
+
+describe('the item, never the verb (QA: Google Calendar · 일정 관리 · "create")', () => {
+  // workspace-mcp manage_event: `action` is required and first, the event's title is `summary`
+  const manageEvent = { type: 'object', properties: { action: { type: 'string' }, summary: { type: 'string' }, start_time: { type: 'string' }, event_id: { type: 'string' } }, required: ['action'] }
+  test('an event created: its title, not the action', () => {
+    expect(keyInputSuffix({ action: 'create', summary: 'QA 카드 확인2', start_time: '2026-11-27T15:00:00', timezone: 'Asia/Seoul' }, manageEvent)).toBe(' · "QA 카드 확인2"')
+  })
+  test('an event deleted by its id only: nothing, not "delete"', () => {
+    expect(keyInputSuffix({ action: 'delete', event_id: 'abc123def456ghi789jkl012' }, manageEvent)).toBe('')
+  })
+  test('any tool: a required choice argument is never the key input, by its name or its schema', () => {
+    for (const k of ['action', 'operation', 'mode', 'op', 'method', 'sheet_action', 'labelType', 'kind', 'format'])
+      expect(stepKeyInput({ [k]: 'update' }, { properties: { [k]: { type: 'string' } }, required: [k] })).toBeNull()
+    // an enum (or a oneOf of consts) of any name is a choice too
+    expect(stepKeyInput({ what: 'append' }, { properties: { what: { type: 'string', enum: ['append', 'replace'] } }, required: ['what'] })).toBeNull()
+    expect(stepKeyInput({ what: 'append' }, { properties: { what: { anyOf: [{ const: 'append' }, { const: 'replace' }, { type: 'null' }] } }, required: ['what'] })).toBeNull()
+    // the next required argument that is a name still shows
+    expect(stepKeyInput({ mode: 'append', dataset: 'linkedin_people' }, { properties: { mode: { type: 'string' }, dataset: { type: 'string' } }, required: ['mode', 'dataset'] })?.text).toBe('linkedin_people')
+    // an issue's summary (Jira) and a headline are titles
+    expect(stepKeyInput({ project: 'QA', summary: 'Card shows the verb' })?.text).toBe('Card shows the verb')
+    expect(stepKeyInput({ headline: 'Launch' })?.text).toBe('Launch')
+  })
+  test('choiceArg', () => {
+    expect(choiceArg('action')).toBe(true)
+    expect(choiceArg('event_action')).toBe(true)
+    expect(choiceArg('summary')).toBe(false)
+    expect(choiceArg('dataset', { properties: { dataset: { type: 'string' } } })).toBe(false)
+    expect(choiceArg('dataset', { properties: { dataset: { type: 'string', enum: ['a', 'b'] } } })).toBe(true)
+  })
+})
 
 describe('which argument', () => {
   test('a query first, then an address, a path, a command, a name', () => {
