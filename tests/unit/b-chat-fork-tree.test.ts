@@ -12,6 +12,7 @@ import { API, ApiError, type Attachment, type Chat, type Message, type PutChatAu
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
 import { forkNote } from '../../server/src/chat/prompt'
+import { forkOfOwn } from '../../server/src/chat/fork'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -118,6 +119,22 @@ describe('a fork of a shared chat, forked again', () => {
     expect(got.map((m) => [m.role, m.author?.id ?? null, m.content.split('\n')[0]])).toEqual([['user', 'alice', 'Alice asks'], ['assistant', null, 'ALICE'], ['user', 'bob', 'Bob asks'], ['assistant', null, 'BOB']])
     expect((db().query('SELECT MIN(fork_copy) AS n FROM messages WHERE chat_id = ?').get(f2.id) as { n: number }).n).toBe(1)
     expect(row(f2.id).others_words).toBe(1)
+  })
+
+  test('someone else\'s chat that stopped being shared after my fork: its first answer is still a shared chat\'s fork', async () => {
+    const s = await h.api('alice').call(API.createChat, { body: { projectId } })
+    await ask('alice', s.id, `Alice asks\n${fake({ say: 'A' })}`)
+    const f = await fork('bob', s.id)
+    expect(forkOfOwn(db(), s.id, 'bob', false)).toBeNull()
+    const was = row(s.id).shared_at as string
+    db().query('UPDATE chats SET shared_at = NULL WHERE id = ?').run(s.id)
+    try {
+      // not bob's: the shared chat's checks still run on his fork's first answer (chat/turn.ts)
+      expect(forkOfOwn(db(), s.id, 'bob', true)).toBeNull()
+      // alice's own chat now: a fork of it is hers
+      expect(forkOfOwn(db(), s.id, 'alice', false)).toEqual({ others: false })
+    } finally { db().query('UPDATE chats SET shared_at = ? WHERE id = ?').run(was, s.id) }
+    expect(row(f.id).fork_of).toBe(s.id)
   })
 
   test('a fork someone shared later: my fork of it never learns the chats above it', async () => {

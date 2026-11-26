@@ -257,9 +257,11 @@ export function forkCopiesOnly(rt: Pick<ChatRuntime, 'db'>, chat: Pick<ChatRow, 
 }
 
 /** The first answer of a fork (chat/turn.ts forkNote): was it made from its person's own chat ("Fork"), not from a
- * shared one? The chat it came from as it is now; gone, by whether the copy holds anyone else's words (`others`). */
-export function forkOfOwn(db: ChatRuntime['db'], sourceId: string, others: boolean): { others: boolean } | null {
-  const r = db.query('SELECT shared_at, people_shared_at FROM chats WHERE id = ?').get(sourceId) as { shared_at: string | null; people_shared_at: string | null } | null
+ * shared one? The chat it came from as it is now: `userId`'s and not shared (someone else's chat that stopped being
+ * shared after the fork is still a shared chat's fork, with its checks); gone, by whether the copy holds anyone else's
+ * words (`others`). */
+export function forkOfOwn(db: ChatRuntime['db'], sourceId: string, userId: string, others: boolean): { others: boolean } | null {
+  const r = db.query('SELECT user_id, shared_at, people_shared_at FROM chats WHERE id = ?').get(sourceId) as { user_id: string; shared_at: string | null; people_shared_at: string | null } | null
   if (!r) return others ? null : { others }
-  return r.shared_at || r.people_shared_at ? null : { others }
+  return r.user_id !== userId || r.shared_at || r.people_shared_at ? null : { others }
 }

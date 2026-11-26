@@ -998,7 +998,7 @@ export class TurnExec {
     // a fork of the person's own chat, or of a fork of theirs ("Fork", docs/decisions/20261126-chat-fork-tree.md): the
     // copied session is theirs alone and was never a shared chat's, so its first answer resumes it as any chat of theirs
     // does (no answer records there to check, chat/shared-answers.ts); the checks for this person below still run
-    const forkOwn = forkFirst ? forkOfOwn(rt.db, chat.fork_of!, othersWrote || forkHoldsOthers(rt.db, spec.chatId)) : null
+    const forkOwn = forkFirst ? forkOfOwn(rt.db, chat.fork_of!, spec.userId, othersWrote || forkHoldsOthers(rt.db, spec.chatId)) : null
     let forkPlain = false
     const toolSet = buildToolSet(this)
     this.toolSet = toolSet
