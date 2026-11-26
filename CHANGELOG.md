@@ -7,8 +7,8 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## 0.19.2 — 2026-11-26
 
-- Admin notes: 0.19.2 is an app update. No root file and no system package changed since 0.19.1, so a Linux server on 0.19.0 or newer installs it by itself in its update window. The restore fix is in `mycel-enroll`, which only the new hosted team image carries. There is no new migration and the reader level stays 9: going back to 0.19.1 needs no backup.
-- Restoring a hosted team server from its off-site backup works again. It stopped at the first step with "already exists".
+- Admin notes: 0.19.2 is an app update. No root file and no system package changed since 0.19.1, so a Linux server on 0.19.0 or newer installs it by itself in its update window. The restore fix is in `mycel-enroll`, which only the new hosted team image carries, and in the server, which now reads the backup list in both shapes. There is no new migration and the reader level stays 9: going back to 0.19.1 needs no backup.
+- Restoring a hosted team server from its off-site backup works again. It stopped at the first step with "already exists", and after that with "ids.map is not a function" (the list of backups it wrote and the list it read had different shapes).
 - After a failed restore of a hosted team server, the team comes back online on its old server. Its relay connection stayed refused.
 
 ## 0.19.1 — 2026-11-26

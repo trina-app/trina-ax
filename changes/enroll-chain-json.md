@@ -1,1 +1,0 @@
-- Restoring a hosted team server from its off-site backup works now. The restore stopped with "ids.map is not a function": the list of backups it wrote and the list it read had different shapes.
