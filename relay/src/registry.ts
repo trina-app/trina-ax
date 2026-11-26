@@ -402,7 +402,9 @@ export class Registry {
   /** Replace the team's key. Proof: the new key signed keyRotationString (checked here); the caller checked the old key or the recovery code.
    *  reuseOwn (operator API only): a key this team had before becomes live again (the CP's restore rollback gives the
    *  relay key back to the old team server after a failed restore). Without it any known key is refused. A key of
-   *  another team is always refused. The live key again with reuseOwn: no change. */
+   *  another team is always refused. The live key again with reuseOwn: no change.
+   *  keyRotationString has no time or nonce: with reuseOwn an operator could make an old key live again with its old
+   *  signature. The operator API is the CP only, and it sends a fresh proof from the team server (relay-key-proof). */
   rotateKey(teamId: string, publicKey: string, newKeySig: string, opts: { reuseOwn?: boolean } = {}): void {
     const key = parsePublicKey(publicKey)
     if (!key) throw new RegistryError('invalid_request', 'publicKey must be a base64 SPKI Ed25519 key')
