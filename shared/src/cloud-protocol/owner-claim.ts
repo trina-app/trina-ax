@@ -150,7 +150,7 @@ export function parseAppTokenRequest(raw: unknown): AppTokenRequest | null {
 }
 export function parseAppTokenAnswer(raw: unknown): AppTokenAnswer | null {
   const o = plain(raw)
-  if (!o || typeof o.token !== 'string' || !TOKEN.test(o.token) || typeof o.expiresAt !== 'string' || !isIso(o.expiresAt) || typeof o.store !== 'boolean') return null
+  if (!o || !exactly(o, ['token', 'expiresAt', 'store']) || typeof o.token !== 'string' || !TOKEN.test(o.token) || typeof o.expiresAt !== 'string' || !isIso(o.expiresAt) || typeof o.store !== 'boolean') return null
   return { token: o.token, expiresAt: o.expiresAt, store: o.store }
 }
 
@@ -264,7 +264,7 @@ export function parseAppCreateTeam(raw: unknown): AppCreateTeam | null {
 
 export function parseAppTeam(raw: unknown): AppTeam | null {
   const o = plain(raw)
-  if (!o || typeof o.id !== 'string' || !TEAM_ID.test(o.id) || typeof o.name !== 'string' || typeof o.slug !== 'string' || !teamSlugOk(o.slug)) return null
+  if (!o || typeof o.id !== 'string' || !TEAM_ID.test(o.id) || teamNameProblem(o.name) !== null || typeof o.slug !== 'string' || !teamSlugOk(o.slug)) return null
   if (typeof o.url !== 'string' || !/^https:\/\/[a-z0-9.-]+(?::[0-9]{1,5})?$/.test(o.url) && !/^http:\/\/(?:127\.0\.0\.1|[a-z0-9-]+\.localhost)(?::[0-9]{1,5})?$/.test(o.url)) return null
   if (typeof o.state !== 'string' || !(APP_TEAM_STATES as readonly string[]).includes(o.state) || typeof o.setUp !== 'boolean' || typeof o.planId !== 'string' || typeof o.comeback !== 'boolean') return null
   let provisioning: AppTeamProvisioning | null = null
@@ -274,12 +274,12 @@ export function parseAppTeam(raw: unknown): AppTeam | null {
     if (p.error !== null && p.error !== 'slug_conflict' && p.error !== 'setup_failed') return null
     provisioning = { step: p.step as AppTeamProvisioning['step'], error: p.error as AppTeamProvisioning['error'], waitingCapacity: p.waitingCapacity }
   }
-  return { id: o.id, name: o.name, slug: o.slug, url: o.url, state: o.state as AppTeamState, setUp: o.setUp, planId: o.planId, comeback: o.comeback, provisioning }
+  return { id: o.id, name: o.name as string, slug: o.slug, url: o.url, state: o.state as AppTeamState, setUp: o.setUp, planId: o.planId, comeback: o.comeback, provisioning }
 }
 
 export function parseAppMe(raw: unknown): AppMe | null {
   const o = plain(raw)
-  if (!o || typeof o.accountId !== 'string' || typeof o.email !== 'string' || typeof o.freeLeft !== 'boolean' || typeof o.waitlist !== 'boolean' || typeof o.store !== 'boolean') return null
+  if (!o || typeof o.accountId !== 'string' || !isAppEmail(o.email) || typeof o.freeLeft !== 'boolean' || typeof o.waitlist !== 'boolean' || typeof o.store !== 'boolean') return null
   let team: AppTeam | null = null
   if (o.team !== null && o.team !== undefined) { team = parseAppTeam(o.team); if (!team) return null }
   let freePlan: AppFreePlan | null = null
@@ -425,7 +425,7 @@ export function parseOwnerClaimOwner(raw: unknown): OwnerClaimOwner | null {
 
 export function parseOwnerClaimConfirmAnswer(raw: unknown): OwnerClaimConfirmAnswer | null {
   const o = plain(raw)
-  return o && o.ok === true && typeof o.spent === 'boolean' ? { ok: true, spent: o.spent } : null
+  return o && exactly(o, ['ok', 'spent']) && o.ok === true && typeof o.spent === 'boolean' ? { ok: true, spent: o.spent } : null
 }
 
 /** The UTF-8 string the team key signs: the Drive broker's, with this path. */
