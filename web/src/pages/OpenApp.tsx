@@ -227,13 +227,25 @@ export function AppSetup() {
   const live = useRef(true)
   const failed = (e: unknown): SetupState =>
     isApiError(e) && e.status === 410 ? { s: 'gone' } : isApiError(e) && e.status === 409 ? { s: 'setUp' } : { s: 'error', text: errorText(e, locale, t('error.network')) }
+  const preview = () => {
+    if (inApp && claim) previewOnce(claim).then((p) => { if (live.current) setState({ s: 'ready', p }) }, (e) => { if (live.current) setState(failed(e)) })
+  }
   useEffect(() => {
     live.current = true
-    if (inApp && claim) previewOnce(claim).then((p) => { if (live.current) setState({ s: 'ready', p }) }, (e) => { if (live.current) setState(failed(e)) })
+    preview()
     return () => { live.current = false }
     // once per page load
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  // the hosting service could not be asked (or another failure): the claim may still be good, so ask again
+  if (state.s === 'error')
+    return (
+      <AuthFrame title={t('appSetup.errorTitle')} sub={state.text} switcher={false}>
+        <Button variant="primary" className="w-full" onClick={() => { previewing = null; setState({ s: 'loading' }); preview() }} data-testid="app-setup-retry">
+          {t('appSetup.retry')}
+        </Button>
+      </AuthFrame>
+    )
   if (landing) return <Landing />
   if (state.s === 'gone' && !claim && signedInNow) return <Navigate to={signedInHome()} state={LANDING_STATE} replace />
   if (state.s === 'outside')
@@ -283,9 +295,9 @@ export function AppSetup() {
       </AuthFrame>
     )
   }
-  // expired, used or no claim; the team is set up already; or the request failed
+  // expired, used or no claim; or the team is set up already
   return (
-    <AuthFrame title={t(state.s === 'setUp' ? 'appSetup.doneTitle' : 'appSetup.goneTitle')} sub={state.s === 'error' ? state.text : state.s === 'gone' ? t('appSetup.gone') : undefined} switcher={false}>
+    <AuthFrame title={t(state.s === 'setUp' ? 'appSetup.doneTitle' : 'appSetup.goneTitle')} sub={state.s === 'gone' ? t('appSetup.gone') : undefined} switcher={false}>
       {signedInNow ? (
         <Button variant="primary" className="w-full" onClick={() => { landing = true; rerender((n) => n + 1) }} data-testid="app-setup-home-button">{t('appSignIn.continue')}</Button>
       ) : (

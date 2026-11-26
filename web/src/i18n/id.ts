@@ -38,6 +38,8 @@ export const id: Record<MessageKey, string> = {
   "appSetup.goneTitle": "Tautan ini sudah kedaluwarsa",
   "appSetup.gone": "Kembali ke aplikasi dan coba lagi.",
   "appSetup.doneTitle": "Tim ini sudah disiapkan",
+  "appSetup.errorTitle": "Tidak dapat menyelesaikan penyiapan tim Anda",
+  "appSetup.retry": "Coba lagi",
   'devEnv.title': "Lingkungan pengembangan",
   'devEnv.experiment': "Eksperimen",
   'devEnv.unavailable': "Server ini tidak dapat menjalankan lingkungan pengembangan.",

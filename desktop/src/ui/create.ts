@@ -136,6 +136,8 @@ function signIn(v: Extract<CreateView, { screen: 'signin' }>) {
 
 /** S3: one field, the address small under it ("acme.trina.app · Change"), the Free plan's rules, one agree box */
 function nameTeam(v: Extract<CreateView, { screen: 'name' }>, ctx: Ctx) {
+  // back from a failed setup over its address (slug_conflict): the name the person typed, to keep
+  if (v.name && !form.name) form.name = v.name
   const slugOk = () => teamSlugOk(slugNow())
   const ready = () => form.name.trim() !== '' && form.agreed && slugOk() && !v.busy
   const submit = h('button', { type: 'submit', class: 'primary', 'data-testid': 'create-submit', disabled: !ready() }, v.busy ? tr('create.creating') : tr('create.submit'))

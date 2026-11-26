@@ -38,6 +38,8 @@ export const zh: Record<MessageKey, string> = {
   "appSetup.goneTitle": "此链接已过期",
   "appSetup.gone": "请回到应用中再试一次。",
   "appSetup.doneTitle": "这个团队已经设置好了",
+  "appSetup.errorTitle": "没能完成团队设置",
+  "appSetup.retry": "重试",
   "devEnv.title": "开发环境",
   "devEnv.experiment": "实验",
   "devEnv.unavailable": "此服务器无法运行开发环境。",

@@ -201,6 +201,11 @@ function welcome() {
     { class: 'help-links' },
     h('button', { type: 'button', class: 'ghost', 'data-testid': 'no-address', onclick: () => show('unknown') }, tr('welcome.noAddress')),
     rows() ? h('button', { type: 'button', class: 'ghost', 'data-testid': 'join-back', onclick: () => show('start') }, tr('nav.back')) : demoLink(),
+    // a hosting console without the create flow (GET /me 404): still a way to make a team, on its website (never in the
+    // Mac App Store build: no sign-up or plans there)
+    state.offer === 'no' && !state.store
+      ? h('button', { type: 'button', class: 'ghost', 'data-testid': 'signup-web', onclick: () => ui.welcome.openLink('console') }, tr('start.signupWeb'), h('span', { class: 'out', 'aria-hidden': 'true' }, ' ↗'))
+      : null,
   )
   const storeSignIn = state.store && state.offer === 'yes'
     ? h('p', { class: 'store-signin', 'data-testid': 'store-signin' }, tr('start.storeAsk'), ' ', h('button', { type: 'button', class: 'inline', 'data-testid': 'store-signin-button', onclick: () => ui.create.signIn() }, tr('start.signIn')))

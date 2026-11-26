@@ -37,6 +37,8 @@ export const ko = {
   "appSetup.goneTitle": "이 링크는 만료됐어요",
   "appSetup.gone": "앱으로 돌아가 다시 시도해 주세요.",
   "appSetup.doneTitle": "이미 설정을 마친 팀이에요",
+  "appSetup.errorTitle": "팀 설정을 마치지 못했어요",
+  "appSetup.retry": "다시 시도",
   'devEnv.title': "개발 환경",
   'devEnv.experiment': "실험 기능",
   'devEnv.unavailable': "이 서버는 개발 환경을 실행할 수 없어요.",

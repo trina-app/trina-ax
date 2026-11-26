@@ -34,6 +34,10 @@ export interface Scenario {
   resumeError: { code: string; status: number } | null
   /** POST /email/verify answers code_expired for the newest code */
   emailCodeExpired: boolean
+  /** the next GET /teams/:id of a team being made says this setup failure (still provisioning), until a retry */
+  provisionError: 'slug_conflict' | 'setup_failed' | null
+  /** the bodies of POST /teams/:id/retry */
+  retries: unknown[]
 }
 
 const freePlan = { maxActiveMembers: 3, maxConcurrency: 1, diskGB: 5, termsUrl: 'https://terms.example.test/free', privacyUrl: 'https://terms.example.test/privacy', termsVersion: 'free-2026-11' }
@@ -47,7 +51,7 @@ export async function startFakeConsole() {
   let mailSeq = 0
   const log: { method: string; path: string; body: unknown; auth: string | null; cookie: string | null }[] = []
   let polls = 0
-  const sc: Scenario = { old: false, email: 'owner@example.com', owner: 'google', team: null, freeLeft: true, waitlist: false, createError: null, claimError: null, provisionPolls: 1, expireOnPoll: false, resumeError: null, emailCodeExpired: false }
+  const sc: Scenario = { old: false, email: 'owner@example.com', owner: 'google', team: null, freeLeft: true, waitlist: false, createError: null, claimError: null, provisionPolls: 1, expireOnPoll: false, resumeError: null, emailCodeExpired: false, provisionError: null, retries: [] }
   const claims = new Set<string>()
   const setups: { claim: string; password: string | null }[] = []
 
@@ -139,6 +143,10 @@ export async function startFakeConsole() {
           tokens.delete(bearer!)
           return fail(res, 401, 'unauthorized')
         }
+        if (sc.team.state === 'provisioning' && sc.provisionError) {
+          sc.team = { ...sc.team, provisioning: { step: 1, error: sc.provisionError, waitingCapacity: false } }
+          return send(res, 200, { team: sc.team })
+        }
         if (sc.team.state === 'provisioning') {
           polls++
           if (polls > sc.provisionPolls) sc.team = { ...sc.team, state: 'active', provisioning: null }
@@ -149,6 +157,12 @@ export async function startFakeConsole() {
       if ((op === 'resume' || op === 'retry') && req.method === 'POST') {
         if (tok.store) return fail(res, 403, 'forbidden')
         if (op === 'resume' && sc.resumeError) return fail(res, sc.resumeError.status, sc.resumeError.code)
+        if (op === 'retry') {
+          const b = body as { slug?: unknown } | null
+          sc.retries.push(b)
+          sc.provisionError = null
+          if (typeof b?.slug === 'string') sc.team = { ...sc.team, slug: b.slug, url: sc.team.url }
+        }
         sc.team = { ...sc.team, state: 'provisioning', provisioning: { step: 1, error: null, waitingCapacity: false } }
         polls = 0
         return send(res, 200, { team: sc.team })
@@ -250,7 +264,7 @@ else fetch('/api/setup/console/preview', { method: 'POST', headers: { 'content-t
     /** the codes "mailed" so far (newest last) */
     sent,
     reset() {
-      Object.assign(sc, { old: false, email: 'owner@example.com', owner: 'google', team: null, freeLeft: true, waitlist: false, createError: null, claimError: null, provisionPolls: 1, expireOnPoll: false, resumeError: null, emailCodeExpired: false })
+      Object.assign(sc, { old: false, email: 'owner@example.com', owner: 'google', team: null, freeLeft: true, waitlist: false, createError: null, claimError: null, provisionPolls: 1, expireOnPoll: false, resumeError: null, emailCodeExpired: false, provisionError: null, retries: [] })
       log.length = 0
       sent.length = 0
       mails.clear()

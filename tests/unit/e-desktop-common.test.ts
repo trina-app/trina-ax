@@ -417,12 +417,15 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
     const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
     expect(win).toContain("debug('team page failed to load', code, url.split('#')[0])")
   })
-  test('a new team owner setup page (/app-setup#c=<claim>) is read like the sign-in link: from outside only', () => {
+  test('a new team owner setup page (/app-setup#c=<claim>) is never read from a link: only the create flow opens it', () => {
     const claim = 'Zm9vYmFyYmF6cXV4MDEyMzQ1Njc4OWFiY2RlZmdoaWo'
     const team = `https://acme.${TEAM_DOMAIN}`
-    expect(readDesktopLink(link(`${team}/app-setup#c=${claim}`))).toMatchObject({ ok: true, host: `acme.${TEAM_DOMAIN}`, hosted: true, entryPath: `/app-setup#c=${claim}` })
-    for (const inner of [`${team}/app-setup#c=${claim}x`, `${team}/app-setup#c=${claim.slice(1)}`, `${team}/app-setup#c=${claim}&x=1`, `${team}/app-setup?c=${claim}`, `${team}/app-setup?x=1#c=${claim}`, `${team}/app-setup`])
-      expect(readDesktopLink(link(inner))).toEqual({ ok: false, error: 'link' })
+    // a claim in a link would make whoever opens it the owner of the sender's team, signed in as them
+    expect(readDesktopLink(link(`${team}/app-setup#c=${claim}`))).toEqual({ ok: false, error: 'invalid' })
+    for (const inner of [`${team}/app-setup#c=${claim}x`, `${team}/app-setup#c=${claim.slice(1)}`, `${team}/app-setup#c=${claim}&x=1`, `${team}/app-setup?c=${claim}`, `${team}/app-setup?x=1#c=${claim}`, `${team}/app-setup`, `${team}/APP-SETUP/#c=${claim}`])
+      expect(readDesktopLink(link(inner))).toEqual({ ok: false, error: 'invalid' })
+    // the sign-in link still works from outside
+    expect(readDesktopLink(link(`${team}/app-signin#c=${claim}`))).toMatchObject({ ok: true, entryPath: `/app-signin#c=${claim}` })
     expect(readDesktopLink(`${link(`${team}/app-setup`)}#c=${claim}`)).toBeNull()
     expect(readDesktopLink(link(`http://acme.${TEAM_DOMAIN}/app-setup#c=${claim}`))).toEqual({ ok: false, error: 'insecure' })
     // the first-run box refuses it, typed or pasted

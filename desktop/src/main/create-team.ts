@@ -7,7 +7,7 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { APP_EMAIL_CODE_RE, APP_PATHS, appTeamPath, isAppEmail, parseAppError, parseAppMe, parseAppTeam, suggestTeamSlug, teamSlugOk, type AppMe, type AppTeam } from '@mycel/shared/cloud-protocol/owner-claim'
-import { claimPage, noticeAction, noticeForError, oldSetupPage, type CreateNotice, type CreateView } from '../common/create-team'
+import { claimPage, noticeAction, noticeForError, oldSetupPage, slugSuffix, type CreateNotice, type CreateView } from '../common/create-team'
 import type { ApiAnswer, ConsoleSignIn } from './console-signin'
 import { debug } from './debug'
 
@@ -36,6 +36,8 @@ export class CreateTeam {
   /** counts flows: a step that finds it moved on (Back, Cancel, another start) stops */
   private run = 0
   private nameShownAt = 0
+  /** a team whose setup failed over its address (slug_conflict): S3's button retries it with the new address */
+  private slugRetry: AppTeam | null = null
 
   constructor(private readonly o: CreateTeamOptions) {}
 
@@ -116,6 +118,7 @@ export class CreateTeam {
   cancel() {
     this.next()
     this.o.signin.cancel()
+    this.slugRetry = null
     this.show({ screen: 'off' })
   }
 
@@ -124,16 +127,21 @@ export class CreateTeam {
     const v = this.v
     if (v.screen !== 'name' || v.busy || this.o.store) return
     const displayName = name.trim().slice(0, 60)
-    const s = slug.trim().toLowerCase() || suggestTeamSlug(displayName, 'team')
+    const s = slug.trim().toLowerCase() || suggestTeamSlug(displayName, slugSuffix())
     if (!displayName || !teamSlugOk(s)) return this.show({ ...v, slugError: !teamSlugOk(s) })
     const run = this.run
     this.show({ ...v, busy: true, slugError: false })
     // when the box was ticked, within this screen's time (the console records the consent with the terms version)
     const at = Number.isFinite(agreedAt) && agreedAt >= this.nameShownAt && agreedAt <= Date.now() ? agreedAt : Date.now()
-    const r = await this.o.signin.api('POST', APP_PATHS.teams, {
-      v: 1, planId: 'free', displayName, slug: s, timeZone: this.o.timeZone(), locale: this.o.locale(),
-      consent: { termsVersion: v.plan.termsVersion, shownAt: new Date(at).toISOString() },
-    })
+    // the team exists and failed over its address: the same team again with the new address (the console's retry)
+    const again = this.slugRetry
+    const r = again
+      ? await this.o.signin.api('POST', appTeamPath(again.id, 'retry'), { v: 1, slug: s })
+      : await this.o.signin.api('POST', APP_PATHS.teams, {
+        v: 1, planId: 'free', displayName, slug: s, timeZone: this.o.timeZone(), locale: this.o.locale(),
+        consent: { termsVersion: v.plan.termsVersion, shownAt: new Date(at).toISOString() },
+      })
+    if (run === this.run && again && r.status !== null && r.status < 300) this.slugRetry = null
     if (run !== this.run) return
     const team = r.status !== null && r.status < 300 ? parseAppTeam((r.body as { team?: unknown } | null)?.team) : null
     if (team) return this.starting(run, team)
@@ -261,6 +269,19 @@ export class CreateTeam {
 
   private starting(run: number, t: AppTeam) {
     this.team = t
+    // the setup failed while the team still reads as being made: never wait on it. Its address went to another team
+    // (slug_conflict): back to the name screen with the address open to change, and the button retries with the new
+    // one; anything else: the failed-setup notice with Try again
+    const failed = t.provisioning?.error
+    if (failed) {
+      this.clearPending()
+      if (failed === 'slug_conflict' && this.me?.freePlan && !this.o.store) {
+        this.slugRetry = t
+        this.nameShownAt = Date.now()
+        return this.show({ screen: 'name', email: this.me.email, plan: this.me.freePlan, busy: false, slugError: true, name: t.name })
+      }
+      return this.notice('provisionFailed')
+    }
     this.savePending({ teamId: t.id, name: t.name })
     this.show({ screen: 'starting', team: t.name, step: t.provisioning?.step ?? 0, waitingCapacity: t.provisioning?.waitingCapacity ?? false })
     this.pollTimer = setTimeout(() => void this.poll(run, t.id), this.o.pollMs ?? 3000)

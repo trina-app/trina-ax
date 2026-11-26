@@ -170,7 +170,7 @@ test.describe('in a Mac browser', () => {
     await signIn(p)
     await p.goto(`/app-signin#c=${code}`)
     await expect(p.getByRole('heading', { name: 'Someone else is signed in here' })).toBeVisible()
-    expect(new URL(p.url()).hash).toBe('')
+    await expect.poll(() => new URL(p.url()).hash).toBe('')
     await shot(p, '1440-light-9-app-signin-other-person')
     const me = await p.request.get('/api/me')
     expect(((await me.json()) as { user: { id: string } }).user.id).toBe('olga')
@@ -291,5 +291,63 @@ test.describe('on a phone', () => {
     await expect(page).toHaveURL(/\/welcome/)
     await page.goto('/files?path=users/kim')
     await expect(page.getByTestId('open-app-line')).toHaveCount(0)
+  })
+})
+
+// A hosted team made from the desktop app (pages/OpenApp.tsx AppSetup, server/src/auth/setup-console.ts). The test
+// server is not hosted, so the two setup calls are answered by the test (the server side is tests/unit/a-setup-console);
+// this checks the real page: the claim leaves the address, the welcome, the password field of an e-mail owner, a weak
+// password at the field, a failure with Try again (the preview asked again), an expired claim, and outside the app.
+test.describe('/app-setup (a team made from the desktop app)', () => {
+  const CLAIM = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8'
+  const PREVIEW = { teamName: 'Acme Studio', name: 'Alex Kim', email: 'alex@example.com', google: false }
+  test('welcome, password at the field, Try again after a failure, expired, outside the app', async ({ page, browser }) => {
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+    const ctx = await browser.newContext({ userAgent: MAC_CHROME, locale: 'en-US' })
+    const p = await ctx.newPage()
+    await fakeDesktop(p)
+    const previews: string[] = []
+    let previewAnswer: 'ok' | 'down' | 'gone' = 'down'
+    await p.route('**/api/setup/console/preview', async (r) => {
+      previews.push((r.request().postDataJSON() as { claim: string }).claim)
+      if (previewAnswer === 'ok') return r.fulfill({ status: 200, json: PREVIEW })
+      if (previewAnswer === 'gone') return r.fulfill({ status: 410, json: { error: { code: 'gone', message: 'This link has expired. Go back to the app and try again.' } } })
+      return r.fulfill({ status: 503, json: { error: { code: 'unavailable', message: "The hosting service can't be reached right now. Try again in a minute." } } })
+    })
+    await p.route('**/api/setup/console', (r) => r.fulfill({ status: 400, json: { error: { code: 'validation', message: 'Please choose a stronger password. This password is too common.', fields: { 'body.password': 'this password is too common' } } } }))
+    await p.goto(`/app-setup#c=${CLAIM}`)
+    await expect.poll(() => new URL(p.url()).hash).toBe('')
+    // the hosting service was down: its own title and Try again, not "expired" or a password sign-in
+    await expect(p.getByRole('heading', { name: "Couldn't finish setting up your team" })).toBeVisible()
+    await expect(p.getByTestId('app-setup-login')).toHaveCount(0)
+    previewAnswer = 'ok'
+    await p.getByTestId('app-setup-retry').click()
+    await expect(p.getByRole('heading', { name: 'Welcome to Acme Studio, Alex Kim' })).toBeVisible()
+    expect(previews).toEqual([CLAIM, CLAIM])
+    await expect(p.getByTestId('app-setup-continue')).toBeDisabled()
+    await p.getByTestId('app-setup-password').fill('password1')
+    await p.getByTestId('app-setup-continue').click()
+    await expect(p.getByText('Please choose a stronger password.', { exact: false })).toBeVisible()
+    // still on the welcome: the claim stays usable
+    await expect(p.getByRole('heading', { name: 'Welcome to Acme Studio, Alex Kim' })).toBeVisible()
+    await ctx.close()
+    // an expired claim
+    const c2 = await browser.newContext({ userAgent: MAC_CHROME, locale: 'en-US' })
+    const p2 = await c2.newPage()
+    await fakeDesktop(p2)
+    await p2.route('**/api/setup/console/preview', (r) => r.fulfill({ status: 410, json: { error: { code: 'gone', message: 'x' } } }))
+    await p2.goto(`/app-setup#c=${CLAIM}`)
+    await expect(p2.getByRole('heading', { name: 'This link has expired' })).toBeVisible()
+    await c2.close()
+    // a plain browser: nothing asked, the claim leaves the address
+    const c3 = await browser.newContext({ userAgent: MAC_CHROME, locale: 'en-US' })
+    const p3 = await c3.newPage()
+    let asked = 0
+    await p3.route('**/api/setup/console/**', (r) => { asked++; return r.abort() })
+    await p3.goto(`/app-setup#c=${CLAIM}`)
+    await expect(p3.getByTestId('app-setup-home')).toBeVisible()
+    await expect.poll(() => new URL(p3.url()).hash).toBe('')
+    expect(asked).toBe(0)
+    await c3.close()
   })
 })

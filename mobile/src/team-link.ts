@@ -12,11 +12,15 @@ export interface TeamInputOptions {
   teamDomain: string | null
   /** plain http to this machine (localhost, *.localhost, 127.x, [::1]) is allowed: the desktop app, for development */
   loopbackHttp: boolean
-  /** the desktop app's one-time sign-in link (`/app-signin#c=<code>`, web /open-app) and a new team's owner setup page
-   * (`/app-setup#c=<claim>`, the owner claim of shared/src/cloud-protocol/owner-claim.ts) are read: only for a link that
+  /** the desktop app's one-time sign-in link (`/app-signin#c=<code>`, web /open-app) is read: only for a link that
    * opened the desktop app from outside (desktop/src/common/address.ts readDesktopLink). The box and the phone refuse
-   * them: the code is for the app on the computer whose browser asked for it. */
+   * it: the code is for the app on the computer whose browser asked for it. */
   appSignIn?: boolean
+  /** a new team's owner setup page (`/app-setup#c=<claim>`, shared/src/cloud-protocol/owner-claim.ts) is read. No
+   * link from outside ever sets it (readDesktopLink does not): a claim in a link would make whoever opens it the owner
+   * of the sender's team, signed in as them. The desktop app opens that page only from its own create flow, with the
+   * path in hand (desktop/src/main/create-team.ts → openCreatedTeam), never through this reader. */
+  appSetup?: boolean
 }
 
 /**
@@ -33,8 +37,8 @@ export interface TeamInputOk {
   origin: string
   /** acme.trina.app, with a port when it has one: what the apps show (never Unicode) */
   host: string
-  /** the page to open first: '/', '/invite/<token>', '/join#t=<token>' or (appSignIn only) '/app-signin#c=<code>',
-   * '/app-setup#c=<claim>' */
+  /** the page to open first: '/', '/invite/<token>', '/join#t=<token>', (appSignIn only) '/app-signin#c=<code>' or
+   * (appSetup only) '/app-setup#c=<claim>' */
   entryPath: string
   /** the team name of a hosted address (acme of acme.trina.app), for "'acme' 팀을 찾지 못했어요" */
   name: string | null
@@ -201,7 +205,7 @@ export function parseTeamInput(raw: string, o: TeamInputOptions): TeamInput {
   // where they are not for (the box, the phone), so a code never opens the team's start in its place either
   const oneTime = /^\/(app-signin|app-setup)\/?$/i.exec(path)
   if (oneTime) {
-    if (!o.appSignIn) return { ok: false, error: 'invalid' }
+    if (!(oneTime[1]!.toLowerCase() === 'app-setup' ? o.appSetup : o.appSignIn)) return { ok: false, error: 'invalid' }
     if (u.search) return { ok: false, error: 'link' }
     const frag = new URLSearchParams(u.hash.replace(/^#/, ''))
     const code = frag.get('c') ?? ''

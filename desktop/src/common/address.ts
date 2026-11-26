@@ -32,8 +32,9 @@ export const LINK_SCHEME: string = PRODUCT.linkScheme
  * domains), read with the box's rules but stricter: https only, and never this machine (a link from a web page must
  * not point the app, its team view and its bridge at a local port). Typed addresses keep http to this machine for
  * development. Only here, the team's one-time sign-in link (`/app-signin#c=<code>`, the web's "Continue in the Mac
- * app") is read too, and a new team's owner setup page (`/app-setup#c=<claim>`, docs/decisions/20261126-desktop-create-team.md);
- * the box and the phone refuse both (shared/src/team-link.ts appSignIn). null: not a link for this app. */
+ * app") is read too; the box and the phone refuse it (shared/src/team-link.ts appSignIn). A new team's owner setup page
+ * (`/app-setup#c=<claim>`) is refused here as everywhere: from outside it would make the person who opens it the owner
+ * of the sender's team (the create flow opens it itself, main/create-team.ts). null: not a link for this app. */
 export function readDesktopLink(raw: string): TeamInput | null {
   const p = readAppLink(raw, { ...DESKTOP_INPUT, loopbackHttp: false, scheme: LINK_SCHEME, universal: false, appSignIn: true })
   return p?.ok && p.loopback ? { ok: false, error: 'insecure' } : p

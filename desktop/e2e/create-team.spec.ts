@@ -407,6 +407,48 @@ test('the Mac App Store build signs in with an e-mail code too (login only: stor
   }
 })
 
+test('a setup that fails while the team still reads as being made: never a wait forever', async () => {
+  // its address went to another team: back to the name, the address open to change; the button retries that team
+  fake.sc.provisionError = 'slug_conflict'
+  const { app, w } = await start()
+  try {
+    await w.getByTestId('create-team').click()
+    await w.getByTestId('signin-google').click()
+    await signInBrowser(app, 1)
+    await nameTeam(w)
+    await expect(w.getByTestId('slug-error')).not.toBeEmpty()
+    await expect(w.getByLabel('Team name')).toHaveValue('Acme Cafe')
+    await w.locator('#team-slug').fill('acme-cafe-2')
+    await w.getByTestId('agree').check()
+    await w.getByTestId('create-submit').click()
+    await expect.poll(() => fake.sc.retries.length).toBe(1)
+    expect(fake.sc.retries[0]).toEqual({ v: 1, slug: 'acme-cafe-2' })
+    // one team only: no second POST /teams
+    expect(fake.log.filter((l) => l.method === 'POST' && l.path === '/api/app/v1/teams').length).toBe(1)
+    const page = await teamView(app, '/app-setup')
+    await expect(page.locator('#welcome')).toHaveText('Welcome to Acme Cafe, owner')
+  } finally {
+    await close(app)
+  }
+  // any other failure: the failed-setup notice with Try again
+  fake.reset()
+  fake.sc.provisionError = 'setup_failed'
+  const again = await start()
+  try {
+    await again.w.getByTestId('create-team').click()
+    await again.w.getByTestId('signin-google').click()
+    await signInBrowser(again.app, 1)
+    await nameTeam(again.w)
+    await expect(again.w.getByTestId('notice-action')).toBeVisible()
+    await again.w.getByTestId('notice-action').click()
+    await expect.poll(() => fake.sc.retries.length).toBe(1)
+    const page = await teamView(again.app, '/app-setup')
+    await expect(page.locator('#welcome')).toHaveText('Welcome to Acme Cafe, owner')
+  } finally {
+    await close(again.app)
+  }
+})
+
 test('a console without the flow (GET /me 404): the first screen stays the box, no create row', async () => {
   fake.sc.old = true
   const { app, w } = await start()
@@ -415,6 +457,10 @@ test('a console without the flow (GET /me 404): the first screen stays the box, 
     await expect(w.locator('#address')).toBeVisible()
     await expect(w.getByTestId('create-team')).toHaveCount(0)
     await expect(w.getByTestId('store-signin')).toHaveCount(0)
+    // still a way to make a team: the website
+    await expect(w.getByTestId('signup-web')).toContainText('Make a team on the website')
+    await w.getByTestId('signup-web').click()
+    await expect.poll(async () => (await opened(app)).some((u) => u.startsWith(fake.origin))).toBe(true)
     expect(fake.log.filter((l) => l.path === '/api/app/v1/me').every((l) => l.auth === null)).toBe(true)
   } finally {
     await close(app)
