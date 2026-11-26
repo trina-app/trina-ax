@@ -159,14 +159,15 @@ describe('Linux: setting values are sealed only with a keyring', () => {
 })
 
 describe('the publisher is Trina Inc. on every platform', () => {
-  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'desktop/package.json'), 'utf8')) as { author: string }
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'desktop/package.json'), 'utf8')) as { author: string; homepage: string }
   const b = builderConfig as unknown as { copyright: string; linux: { maintainer: string } }
   test('Windows Publisher and exe CompanyName come from author; LegalCopyright and the Mac plist from copyright', () => {
     expect(pkg.author).toBe('Trina Inc.')
+    expect(pkg.homepage).toBe('https://trina.app')
     expect(b.copyright).toContain('Trina Inc.')
   })
   test('the .deb maintainer; no TreeSoop in any publisher string', () => {
     expect(b.linux.maintainer).toStartWith('Trina Inc. <')
-    expect(`${pkg.author} ${b.copyright} ${b.linux.maintainer}`).not.toMatch(/treesoop/i)
+    expect(`${pkg.author} ${b.copyright} ${b.linux.maintainer} ${pkg.homepage}`).not.toMatch(/treesoop/i)
   })
 })

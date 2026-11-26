@@ -11,10 +11,8 @@ Windows "Apps & features" Publisher, the exe's CompanyName and LegalCopyright, a
 same as the Authenticode signer. electron-builder takes all of these from `author` in desktop/package.json (`TreeSoop`)
 and `copyright` in electron-builder.config.ts.
 
-## Scope
-In: `author`, `copyright` (also the Mac Info.plist copyright), Linux `.deb` maintainer, a unit test.
-Out: `com.treesoop.mycel` app id (identity, must not change), treesoop.com team-address domain, desktop/package.json
-`homepage`, LICENSE/NOTICE, the Microsoft Store identity Publisher CN (already "Trina Inc." display name; CN comes from Partner Center).
+## In: `author`, `copyright` (also the Mac Info.plist copyright), Linux `.deb` maintainer, a unit test.
+Out: `com.treesoop.mycel` app id (identity, must not change), treesoop.com team-address domain, desktop/package.json`homepage`, LICENSE/NOTICE, the Microsoft Store identity Publisher CN (already "Trina Inc." display name; CN comes from Partner Center).
 Not touched: desktop/build.ts (batch #629/#632).
 
 ## Steps
