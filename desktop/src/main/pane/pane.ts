@@ -758,13 +758,12 @@ export class BrowserPane {
   /** Record a decision for both the site and (when private) the office-network scope. */
   grant(scopes: SiteScope[], host: string, d: PermissionDecision, turnId?: string) {
     let changed = false
-    // an Always on a public site keeps the site its button named (siteToKeep), as the server does; else this host
+    // one Always is one saved entry (one row in the allowed-sites list, one Delete). A public host without a port keeps
+    // the site its button named (siteToKeep, as the server does): it covers the host and its subdomains. A host with a
+    // port keeps host:port (a site entry has no port and would allow its other ports); no site to keep: this host.
     for (const s of scopes) {
-      changed = this.perms.grant(s, host, d, turnId) || changed
-      // a public site's Always also keeps the site its button named (siteToKeep), as the server does; the host with its
-      // port stays too, so it holds here also where the server keeps nothing (the team's Always switch off)
-      const site = d === 'always' && s === 'site' && !scopes.includes('private') ? siteToKeep(host) : null
-      if (site && site !== host) changed = this.perms.grant(s, site, d, turnId) || changed
+      const site = d === 'always' && s === 'site' && !scopes.includes('private') && !/:\d+$/.test(host) ? siteToKeep(host) : null
+      changed = this.perms.grant(s, site ?? host, d, turnId) || changed
     }
     if (changed) this.host.onSavePermissions(this.perms.toJSON())
   }

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-26 04:18
 - Branch: `fix/desktop-always-one-row`
-- Status: in progress
+- Status: done
 - Where: desktop/ (pane.ts), tests/unit, docs/decisions. Why: Desktop e2e fails on dev since #577 (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a duplicate row in the allowed-sites list goes away (no new behaviour)
 
@@ -31,4 +31,4 @@ corrected in place (same-day, status accepted).
 
 ## Result
 
-(to fill)
+desktop.spec.ts (22), person.spec.ts:17 and settings.spec.ts:41 pass locally on macOS; e-pane-one-always unit and check:prepush pass.
