@@ -40,6 +40,7 @@ import { webAllowAll } from '../tools/web-allow-all'
 import { mediaKeyOf } from './media-key'
 import { voidAppSignInCodes } from './app-signin'
 import { spendReauthFlow } from './reauth'
+import { problemReportsWhere } from '../system/problem-reports'
 
 export const SESSION_TTL_MS = 30 * 24 * 3600_000
 /** A session made by signing in with a temporary password lives this long unless the password is changed in it (it
@@ -311,6 +312,7 @@ export class AuthService implements SessionService {
     // the team's own address for its members (Settings › 앱): the relay's or the public one; without a relay the one
     // this request reached the server at
     const address = teamAddressOf(this.ctx, at)
+    const reportsWhere = problemReportsWhere(this.ctx)
     // my status message, also one that starts later (docs/DECISIONS.md "상태 메시지")
     const status = myStatusOf(this.db, u.id)
     const guest = u.role === 'guest' ? guestDetail(this.db, u.id) : undefined
@@ -327,7 +329,7 @@ export class AuthService implements SessionService {
         ...(webAllowAll(this.db, u.id) ? { webAllowAll: true as const } : {}),
       },
       groups,
-      team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, ...(settings.browserAllowAll && settings.webAllowAll ? { webAllowAll: true as const } : {}), ...teamIconOfMe(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db, this.ctx.files.speech), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), ...(wantsWavRecordings(this.ctx.files.speech) ? { voiceInputWav: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays, trashRetentionDays: settings.trashRetentionDays, projectCreators: settings.projectCreators, ...(settings.roomAlwaysAllow === false ? { alwaysAllowOff: true as const } : {}), ...(address ? { address } : {}) , ...(u.role === 'guest' ? { uploadMaxBytes: roomFilesOf(this.ctx).maxFor(u.id) } : {}) },
+      team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, ...(settings.browserAllowAll && settings.webAllowAll ? { webAllowAll: true as const } : {}), ...teamIconOfMe(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db, this.ctx.files.speech), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), ...(wantsWavRecordings(this.ctx.files.speech) ? { voiceInputWav: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays, trashRetentionDays: settings.trashRetentionDays, projectCreators: settings.projectCreators, ...(settings.roomAlwaysAllow === false ? { alwaysAllowOff: true as const } : {}), ...(address ? { address } : {}) , ...(reportsWhere && settings.problemReports !== false && u.role !== 'guest' ? { problemReports: true as const } : {}), ...(u.role === 'guest' ? { uploadMaxBytes: roomFilesOf(this.ctx).maxFor(u.id) } : {}) },
       session: { id: s.id, client: s.client, expiresAt: s.expires_at, tempLogin: tempLoginOf(s, u), ...(mediaKey ? { mediaKey } : {}) },
       // office mode runs dev's engine setup on purpose (docs/OFFICE.md): the office's desks get no DEV banner
       // ...nor a free-roam demo's visitor (docs/decisions/20261119-demo-free-roam-a.md)
@@ -340,7 +342,8 @@ export class AuthService implements SessionService {
         ...(windowsApp ? { windowsApp } : {}),
         // always on (owner 2026-11-17); still sent for web, desktop and phone builds from before, which show folder
         // sharing only when it is true
-        folderShares: true as const },
+        folderShares: true as const,
+        ...(reportsWhere ? { problemReports: reportsWhere } : {}) },
       passwordReset: u.password_reset_at ? { by: userRef(this.db, u.password_reset_by), at: u.password_reset_at } : null,
     }
   }

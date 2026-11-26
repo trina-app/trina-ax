@@ -58,6 +58,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   FILE_SHARES: 'Files shared one by one (links, Ask for access)',
   ACCESS_REQUESTS: 'Ask for access to a chat or project',
   LINK_NAMES: 'Names of links to things in this app (chips in messages)',
+  PROBLEM_REPORTS: 'Problem reports to the Trina AX team (Settings › About, 👎 under an answer)',
 }
 
 const WHO: Record<Endpoint['auth'], string> = {

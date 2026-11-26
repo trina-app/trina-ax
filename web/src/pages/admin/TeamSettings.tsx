@@ -263,6 +263,12 @@ export default function TeamSettingsPage() {
                         {/* email into rooms (plan docs/AGENTS/plan/20261123-0421-room-email.md): off until an owner or admin turns it on;
                             an older server leaves the field out (off) */}
                         <SwitchRow id="ts-room-email" testId="team-room-email" value={f.roomEmail === true} onChange={(v) => setF({ ...f, roomEmail: v })} title={t('teamSettings.roomEmail')} desc={t('teamSettings.row.roomEmailDesc')} />
+                        {/* problem reports to the Trina AX team (docs/decisions/20261126-problem-reports.md): on by default, shown only
+                            where this server can send them; a self-installed server says they leave it */}
+                        {me.server.problemReports && (
+                          <SwitchRow id="ts-problem-reports" testId="team-problem-reports" value={f.problemReports !== false} onChange={(v) => setF({ ...f, problemReports: v })} title={t('teamSettings.problemReports')}
+                            desc={me.server.problemReports === 'self' ? `${t('teamSettings.row.problemReportsDesc')} ${t('teamSettings.row.problemReportsSelf')}` : t('teamSettings.row.problemReportsDesc')} />
+                        )}
                         {/* who makes team projects (docs/DECISIONS.md "Projects live only in projects/"): members by default */}
                         <SwitchRow id="ts-project-creators" testId="team-project-creators" value={f.projectCreators !== 'admins'} onChange={(v) => setF({ ...f, projectCreators: v ? 'members' : 'admins' })} title={t('teamSettings.projectCreators')} desc={t('teamSettings.row.projectCreatorsDesc')} />
                         {/* a member shares a file of theirs with chosen people (QA TC-3093): on by default; the owner may remove
