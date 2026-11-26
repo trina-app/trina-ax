@@ -32,7 +32,7 @@ export default function ScheduledCard({ scheduled }: { scheduled: NonNullable<St
     <>
       {error && <span role="alert" className="mr-auto text-xs break-keep text-danger" data-testid="scheduled-card-error">{error}</span>}
       <Button size="sm" variant="ghost" busy={busy === 'pause'} disabled={busy !== null} onClick={() => void run(state === 'paused' ? 'resume' : 'pause')} data-testid="scheduled-card-pause">{state === 'paused' ? t('scheduledCard.resume') : t('scheduledCard.pause')}</Button>
-      <Button size="sm" variant="secondary" busy={busy === 'delete'} disabled={busy !== null} onClick={() => void run('delete')} data-testid="scheduled-card-delete">{t('scheduledCard.delete')}</Button>
+      <Button size="sm" variant="secondary" busy={busy === 'delete'} disabled={busy !== null} onClick={() => void run('delete')} data-testid="scheduled-card-delete">{t('common.delete')}</Button>
     </>
   )
   return (

@@ -59,7 +59,7 @@ export default function PostedCard({ posted, endedAt }: { posted: NonNullable<St
   const footer = gone ? undefined : (
     <>
       {error && <span role="alert" className="mr-auto text-xs break-keep text-danger" data-testid="posted-card-error">{error}</span>}
-      <Button size="sm" variant="ghost" busy={busy} onClick={() => void takeBack()} data-testid={undoLeft > 0 ? 'posted-card-undo' : 'posted-card-delete'}>{undoLeft > 0 ? `${t('postedCard.undo')} ${undoLeft}` : t('postedCard.delete')}</Button>
+      <Button size="sm" variant="ghost" busy={busy} onClick={() => void takeBack()} data-testid={undoLeft > 0 ? 'posted-card-undo' : 'posted-card-delete'}>{undoLeft > 0 ? `${t('common.undo')} ${undoLeft}` : t('common.delete')}</Button>
       <Button size="sm" variant="secondary" onClick={() => (viewPost ? viewPost(posted) : navigateTo(postPath(posted)))} aria-label={t('steps.postViewLabel')} data-testid="posted-card-view">{t('steps.postView')}</Button>
     </>
   )

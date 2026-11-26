@@ -854,7 +854,7 @@ function RunResult({ run: start, onClose, onUndone, onLookAgain, skipShare = fal
         ) : (
           <>
             {undo.s !== 'done' && v.done > 0 && (
-              <Button variant="ghost" busy={undo.s === 'busy'} onClick={() => void takeBack()} data-testid="find-work-undo"><Undo2 size={14} aria-hidden /> {t('files.findWork.undo')}</Button>
+              <Button variant="ghost" busy={undo.s === 'busy'} onClick={() => void takeBack()} data-testid="find-work-undo"><Undo2 size={14} aria-hidden /> {t('common.undo')}</Button>
             )}
             {undo.s !== 'done' && v.done > 0 && <Button onClick={() => { onClose(); navigate(`/files?path=${encodeURIComponent(folder)}`) }} data-testid="find-work-open">{t('files.findWork.open')}</Button>}
             <Button variant="primary" onClick={onClose} data-testid="find-work-done">{t('common.close')}</Button>

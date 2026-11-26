@@ -375,7 +375,7 @@ export default function Members() {
       {t('teamLink.until', { date: formatDateTime(link.expiresAt, locale) })}
     </>
   )
-  const linkCopy = link?.url && <CopyButton text={link.url} label={t('teamLink.copyLink')} showLabel className="border border-line" />
+  const linkCopy = link?.url && <CopyButton text={link.url} label={t('rooms.menu.copyLink')} showLabel className="border border-line" />
   const linkMenu = (
     <MemberMenu
       name={t('teamLink.title')}
@@ -633,7 +633,7 @@ export default function Members() {
           <SecretBox label={t('members.resetLink')} value={resetLink.url} note={t('members.resetLinkNote', { date: formatDateTime(resetLink.expiresAt, locale) })} />
           <LocalLinkNote url={resetLink.url} className="mt-2" />
           <div className="mt-3">
-            <CopyButton text={resetLink.url} label={t('members.copyLink')} showLabel className="border border-line" />
+            <CopyButton text={resetLink.url} label={t('rooms.menu.copyLink')} showLabel className="border border-line" />
           </div>
         </Modal>
       )}
@@ -895,7 +895,7 @@ function InviteCreated({ invite, onClose }: { invite: CreatedInvite; onClose: ()
       <SecretBox label={t('members.inviteLink')} value={url} note={t('members.inviteLinkNote')} />
       <LocalLinkNote url={url} className="mt-2" />
       <div className="mt-3 flex gap-2">
-        <CopyButton text={url} label={t('members.copyLink')} showLabel className="border border-line" />
+        <CopyButton text={url} label={t('rooms.menu.copyLink')} showLabel className="border border-line" />
         <Button size="sm" variant="ghost" onClick={() => setQr((v) => !v)}>
           <QrIcon size={14} aria-hidden /> {t('members.qr')}
         </Button>

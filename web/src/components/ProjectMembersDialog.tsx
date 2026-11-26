@@ -386,7 +386,7 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
                       </span>
                       {own(r) && (out ? (
                         <button type="button" className="touch-hit shrink-0 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-hover" onClick={() => keep(r)} aria-label={t('projects.undoRemoveLabel', { name: who })} data-testid={`project-other-rule-undo-${id}`}>
-                          {t('projects.undoRemove')}
+                          {t('common.undo')}
                         </button>
                       ) : (
                         <IconButton label={t('projects.removeMember', { name: who })} onClick={() => take(r)} className="touch-hit shrink-0" data-testid={`project-other-rule-remove-${id}`}>

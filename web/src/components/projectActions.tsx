@@ -2,7 +2,6 @@
 // list beside the rail and on the phone's tab): who may rename and delete it, its rename (the one call and its
 // optimistic queue), its delete or move to the trash (one confirm, by what it is on the server now) and the list menu's
 // items. Kept out of pages/Projects.tsx so the list beside the rail does not load the page.
-import { Link2, Pencil, Trash2, Users } from 'lucide-react'
 import type { Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { optimistic } from '../lib/optimistic'
@@ -16,8 +15,9 @@ import { hideProject, showProject, unhideProject, useProjects } from '../store/p
 import { projectNow } from './ProjectMembersDialog'
 import { leaveItems, useLeaveProject } from './LeaveProject'
 import { projectLink, useCopyLink, useTeamOrigin } from './ShareCopyLink'
-import { confirmDialog, menuOpener, promptDialog } from './ui'
-import type { MenuItem } from './rooms/MenuButton'
+import { menuOpener, promptDialog } from './ui'
+import { destructive } from '../lib/destructive'
+import { menuItem, orderMenu, type EntityItem } from './menus/entityMenu'
 
 /** A project's longest name (the server's UpdateProjectBody) */
 export const PROJECT_NAME_MAX = 100
@@ -33,7 +33,7 @@ export const mayDelete = (p: Project) => p.canDelete ?? mayManage(p)
 
 /** The menu item that deletes it says what it does (QA TC-1064): a team project in projects/ goes to the trash ("Move to
  * trash", as its confirm asks); in the trash, or any other project, "Delete". */
-export const deleteLabel = (t: ReturnType<typeof useT>, p: Project) => t(isProjectsFolder(p.folderPath) && !p.inTrash ? 'projects.moveToTrash' : 'common.delete')
+export const deleteLabel = (t: ReturnType<typeof useT>, p: Project) => t(isProjectsFolder(p.folderPath) && !p.inTrash ? 'files.moveToTrash' : 'common.delete')
 
 /** What deleting did: `gone` (deleted for good, or not found any more), the project in the trash now (a team project in
  * projects/ the caller still manages: the owner and admins), or null (cancelled, refused). */
@@ -149,36 +149,56 @@ export function useDeleteProject() {
             confirm: t('projects.deleteForGood'),
           }
         : { title: t('projects.deleteTitle', { name: now.name }), body: now.sharedChats ? t('projects.deleteBodyShared', { days, trash: t('sidebar.trash') }) : now.folderPath.startsWith('users/') ? t('projects.deletePersonal') : t('projects.deleteBody'), confirm: t('common.delete') }
-    if (!(await confirmDialog({ ...ask, danger: true }))) return null
-    if (toTrash) {
-      // at once (deleting for good and any other delete wait: they cannot be taken back)
-      // its members and whoever manages it keep it, In trash (the Projects list shows it to its members only)
-      const r = await trashProject(now, true, true, onShown, false)
-      if (!r.ok) {
-        if (!r.newest) return null
-        // someone else deleted it first
-        if (isApiError(r.error, 'not_found')) {
-          missing(p.id)
-          onShown?.('gone')
-          return 'gone'
+    // lib/destructive.ts: the confirm above, then one toast: in the trash with its Undo when the server says I may bring
+    // it back (Project.canRestore on the project it answers with; the restore is trashProject's own, on the same
+    // optimistic key), deleted for good with none
+    let gone = false
+    const r = await destructive<Exclude<Deleted, null>>({
+      confirm: ask,
+      run: async () => {
+        if (toTrash) {
+          // at once (deleting for good and any other delete wait: they cannot be taken back)
+          // its members and whoever manages it keep it, In trash (the Projects list shows it to its members only)
+          const r = await trashProject(now, true, true, onShown, false)
+          if (!r.ok) {
+            if (!r.newest) return null
+            // someone else deleted it first
+            if (isApiError(r.error, 'not_found')) {
+              missing(p.id)
+              onShown?.('gone')
+              gone = true
+              return 'gone'
+            }
+            toast({ level: 'error', text: errorText(r.error, locale, t('error.network')) })
+            return null
+          }
+          return r.reply ?? 'gone'
         }
-        toast({ level: 'error', text: errorText(r.error, locale, t('error.network')) })
-        return null
-      }
-      return r.reply ?? 'gone'
-    }
-    try {
-      await api.call(API.deleteProject, { params: { id: p.id } })
-    } catch (e) {
-      if (isApiError(e, 'not_found')) {
-        missing(p.id)
+        try {
+          await api.call(API.deleteProject, { params: { id: p.id } })
+        } catch (e) {
+          if (isApiError(e, 'not_found')) {
+            missing(p.id)
+            gone = true
+            return 'gone'
+          }
+          toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+          return null
+        }
+        deleted(p.id)
         return 'gone'
-      }
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-      return null
-    }
-    deleted(p.id)
-    return 'gone'
+      },
+      done: (d) => {
+        // gone before I asked (someone else deleted it): "not found" said it already
+        if (gone) return null
+        if (!toTrash) return { text: t('projects.deletedToast', { name: now.name }) }
+        const kept = d === 'gone' ? null : d
+        // back out of the trash, as its note's 되돌리기 does; a refusal says the server's words (trashProject)
+        const undo = kept?.canRestore ? () => trashProject(kept, false, true, onShown) : undefined
+        return { text: t('projects.trashedToast', { name: now.name }), ...(undo ? { undo } : {}) }
+      },
+    })
+    return r === false ? null : r
   }
 }
 
@@ -220,14 +240,25 @@ export function useRenameProject() {
 /** Who may rename it here: whoever manages it (mayManage), not while it is in the trash (its page has no name menu then) */
 export const mayRename = (p: Project) => !!mayManage(p) && !p.inTrash
 
+/** A project menu's Copy link (its page's name menu and its rows): its address on the team address
+ * (components/ShareCopyLink.tsx), and no "copied" when the browser refused it. */
+export function useProjectMenuLink() {
+  const t = useT()
+  const copyHref = useCopyLink()
+  const origin = useTeamOrigin()
+  return async (p: Pick<Project, 'id'>) => {
+    if (!(await copyHref(projectLink(p.id, origin)))) return
+    toast({ level: 'success', text: t('rooms.menu.linkCopied') })
+  }
+}
+
 /** The menu of a project in a list (a card on the Projects page, a row of 프로젝트's list beside the rail and on the
  * phone's tab): 이름 바꾸기 and 삭제 for whoever manages it (the same prompt and confirm as on its page), 멤버 for whoever
  * may change its members (`onMembers`: the members dialog, without leaving the list), 링크 복사 for everyone, 나가기
  * for a member. `select` wraps each item (the keyboard back on the "…"); `testId` prefixes the items' test ids. */
-export function useProjectMenuItems(p: Project, o: { testId: string; select: (fn: () => unknown) => () => void; onRenamed?: (p: Project) => void; onDeleted: (d: Exclude<Deleted, null>) => void; onMembers: () => void }): MenuItem[] {
+export function useProjectMenuItems(p: Project, o: { testId: string; select: (fn: () => unknown) => () => void; onRenamed?: (p: Project) => void; onDeleted: (d: Exclude<Deleted, null>) => void; onMembers: () => void }): EntityItem[] {
   const t = useT()
-  const copyHref = useCopyLink()
-  const origin = useTeamOrigin()
+  const copyProjectLink = useProjectMenuLink()
   const remove = useDeleteProject()
   const renameProject = useRenameProject()
   const leaveProject = useLeaveProject()
@@ -246,17 +277,14 @@ export function useProjectMenuItems(p: Project, o: { testId: string; select: (fn
     })
     if (d && !(d === 'gone' && gone)) o.onDeleted(d)
   }
-  const copyLink = async () => {
-    // on the team address (components/ShareCopyLink.tsx), and no "copied" when the browser refused it
-    if (!(await copyHref(projectLink(p.id, origin)))) return
-    toast({ level: 'success', text: t('rooms.menu.linkCopied') })
-  }
-  return [
-    ...(mayManage(p) ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: select(rename), testId: `${id}-rename` }] : []),
-    ...(p.membersEditable ? [{ label: t('projects.participants'), icon: <Users size={14} aria-hidden />, onSelect: select(o.onMembers), testId: `${id}-members` }] : []),
-    { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: select(copyLink), testId: `${id}-copy-link` },
+  const copyLink = () => copyProjectLink(p)
+  // the one list's order (components/menus/entityMenu.tsx): link, open in the app, rename, members, leave, delete
+  return orderMenu([
+    menuItem(t, 'copyLink', { onSelect: select(copyLink), testId: `${id}-copy-link` }),
+    ...(mayManage(p) ? [menuItem(t, 'rename', { onSelect: select(rename), testId: `${id}-rename` })] : []),
+    ...(p.membersEditable ? [menuItem(t, 'members', { onSelect: select(o.onMembers), testId: `${id}-members` })] : []),
     ...leaveItems(t, p, select(async () => { if (await leaveProject(p)) o.onDeleted('gone') }), `${id}-leave`),
     // the trash shows at once: the card says so, or (not kept there for me) goes
-    ...(mayDelete(p) ? [{ label: deleteLabel(t, p), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(del), testId: `${id}-delete` }] : []),
-  ]
+    ...(mayDelete(p) ? [menuItem(t, 'delete', { label: deleteLabel(t, p), onSelect: select(del), testId: `${id}-delete` })] : []),
+  ])
 }

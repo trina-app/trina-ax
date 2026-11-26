@@ -102,7 +102,7 @@ export function SendHere({ chatId, answerId, answer, roomId, target, onView }: {
       patch({ sent, sending: false, attempt: null })
       if (direct) {
         const id = r.message.id
-        toast({ level: 'success', text: t(sentKey(sent)), ms: 10_000, action: { label: t('postedCard.undo'), run: () => void useRooms.getState().remove(roomId, id).then(() => { patch({ sent: undefined }); toast({ level: 'info', text: t('postedCard.undone') }) }, (e) => toast({ level: 'error', text: errorText(e, locale, t('postedCard.undoFailed')) })) } })
+        toast({ level: 'success', text: t(sentKey(sent)), ms: 10_000, action: { label: t('common.undo'), run: () => void useRooms.getState().remove(roomId, id).then(() => { patch({ sent: undefined }); toast({ level: 'info', text: t('postedCard.undone') }) }, (e) => toast({ level: 'error', text: errorText(e, locale, t('postedCard.undoFailed')) })) } })
       }
     } catch (e) {
       // refused (4xx): nothing went, the next click is a new one; no answer or a server failure: it may have gone, so

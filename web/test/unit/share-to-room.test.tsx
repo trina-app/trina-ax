@@ -480,7 +480,7 @@ test('a direct confirm sends at once with the offered files; the toast offers Un
     expect(first!.body!.preview).toBe(true)
     expect(second!.body).toMatchObject({ roomId: team.id, confirmKey: 'key-1', attach: ['users/me/quote.xlsx'] })
     const toast = useUi.getState().toasts.at(-1)!
-    expect(toast).toMatchObject({ level: 'success', ms: 10_000, action: { label: en('postedCard.undo') } })
+    expect(toast).toMatchObject({ level: 'success', ms: 10_000, action: { label: en('common.undo') } })
     toast.action!.run()
     await m.until(() => calls.some((c) => c.method === 'DELETE' && c.path === `/api/rooms/${team.id}/messages/${sent.id}`), 'the delete')
   } finally {

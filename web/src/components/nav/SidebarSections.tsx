@@ -17,7 +17,7 @@
 // every part here takes the kind, through one small adapter per kind (KINDS: what an item's section is now, how it is
 // filed, its words), so there is one sections system and one name in both lists (nav/HistorySections.tsx draws them).
 import clsx from 'clsx'
-import { ArrowDown, ArrowUp, Hash, ListMinus, ListPlus, MoveRight, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Hash, ListPlus, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import { useMemo, useState, type ReactNode, type RefObject } from 'react'
 import { create } from 'zustand'
 import { graphemeCount, NAV_FOLDER_NAME_MAX, NavFolderName, type Chat, type NavFolder, type NavFolderKind, type Room } from '@mycel/shared/api'
@@ -31,6 +31,7 @@ import { isUnused } from '../chat/ChatState'
 import { toast } from '../../store/ui'
 import { Button, confirmDialog, inputCls, Modal, promptDialog } from '../ui'
 import { MenuButton, type MenuItem } from '../rooms/MenuButton'
+import { menuItem, type EntityItem } from '../menus/entityMenu'
 import { RoomIcon, useRoomTitle } from '../rooms/RoomIcon'
 import { SectionAddButton, useDropTarget, useFolders } from './NavFolders'
 
@@ -369,7 +370,7 @@ export function ChannelsAddMenu({ canMakeChannel, onNewChannel }: { canMakeChann
  * the list they open (`picker`, drawn beside the "⋯"): my sections of that list, the current one ticked, then New
  * section…. `on`: none at all (a hidden conversation, a side chat, a task's folded runs). `more`: the "⋯", where the
  * keyboard goes back from the list. */
-export function useSectionRowItems(o: { on: boolean; kind?: NavFolderKind; id: string; folderId?: string | null; more: RefObject<HTMLButtonElement | null> }): { items: MenuItem[]; picker: ReactNode } {
+export function useSectionRowItems(o: { on: boolean; kind?: NavFolderKind; id: string; folderId?: string | null; more: RefObject<HTMLButtonElement | null> }): { items: EntityItem[]; picker: ReactNode } {
   const t = useT()
   const kind = o.kind ?? 'rooms'
   const sections = useSections(kind, o.on)
@@ -377,9 +378,10 @@ export function useSectionRowItems(o: { on: boolean; kind?: NavFolderKind; id: s
   const [pick, setPick] = useState(0)
   if (!o.on) return { items: [], picker: null }
   const current = sections.find((f) => f.id === o.folderId) ?? null
-  const items: MenuItem[] = [
-    { label: t('sidebarSections.moveTo'), icon: <MoveRight size={14} aria-hidden />, onSelect: () => setPick((n) => n + 1), testId: 'row-section-move' },
-    ...(current ? [{ label: t('sidebarSections.remove'), icon: <ListMinus size={14} aria-hidden />, onSelect: () => void act.file(o.id, null), testId: 'row-section-remove' }] : []),
+  // the one menu list's section items (components/menus/entityMenu.tsx): right after the pin
+  const items: EntityItem[] = [
+    menuItem(t, 'section', { onSelect: () => setPick((n) => n + 1), testId: 'row-section-move' }),
+    ...(current ? [menuItem(t, 'unsection', { onSelect: () => void act.file(o.id, null), testId: 'row-section-remove' })] : []),
   ]
   const choices: MenuItem[] = [
     ...sections.map((f) => ({ label: f.name, checked: f.id === current?.id, onSelect: () => void act.file(o.id, f), testId: 'row-section-pick' })),

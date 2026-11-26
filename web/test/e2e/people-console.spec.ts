@@ -161,7 +161,7 @@ test('Members: "Team invite link" opens a popup; make, copy, and the page lists 
   // after making it, the popup shows the link with Copy
   const url = ((await dialog.getByTestId('team-link-url').textContent()) ?? '').trim()
   expect(url).toMatch(/\/join#t=tl[0-9a-f]+$/)
-  await dialog.getByRole('button', { name: t['teamLink.copyLink'] }).first().click()
+  await dialog.getByRole('button', { name: t['rooms.menu.copyLink'] }).first().click()
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(url)
   // Done closes it, focus goes back to the button
   await page.getByTestId('team-link-done').click()
@@ -170,7 +170,7 @@ test('Members: "Team invite link" opens a popup; make, copy, and the page lists 
   // the page lists it in a quiet row: uses, Copy, and "…" (settings or turn off)
   const row = page.getByTestId('team-link-row')
   await expect(row).toContainText(translate('ko', 'teamLink.uses', { used: 0, max: 20 }))
-  await row.getByRole('button', { name: t['teamLink.copyLink'] }).click()
+  await row.getByRole('button', { name: t['rooms.menu.copyLink'] }).click()
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(url)
   // Esc closes the popup too
   await row.getByTestId('member-more').click()

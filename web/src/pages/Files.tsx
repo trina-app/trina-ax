@@ -851,7 +851,7 @@ function Files() {
   const rename = async (e: FileEntry) => {
     // a file's name starts selected without its extension (".bashrc" and a folder: all of it)
     const dot = e.type === 'folder' ? -1 : e.name.lastIndexOf('.')
-    const name = await promptDialog({ title: t('files.rename'), label: t('files.newName'), initial: e.name, select: dot > 0 ? dot : e.name.length, confirm: t('common.save'), validate: (v) => (nameProblem(v) ? t(`files.name.${nameProblem(v)!}`) : null) })
+    const name = await promptDialog({ title: t('chat.rename'), label: t('files.newName'), initial: e.name, select: dot > 0 ? dot : e.name.length, confirm: t('common.save'), validate: (v) => (nameProblem(v) ? t(`files.name.${nameProblem(v)!}`) : null) })
     if (!name || name === e.name) return
     const dest = joinPath(parentPath(e.path), name)
     // the new name in its place in the folder at once
@@ -1586,7 +1586,7 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
     ...(onSuggest ? [{ label: t('suggest.button'), icon: icon(BookmarkPlus), onSelect: run(onSuggest), testId: 'suggest-skill-file' }] : []),
     ...(!folder ? [{ label: t('files.share'), icon: icon(Copy), onSelect: run(onShare), testId: 'share-file' }] : []),
     // rename, move and trash: off on a fixed folder, with the reason under the items (QA TC-224)
-    { label: t('files.rename'), icon: icon(Pencil), onSelect: run(onRename), disabled: !changeable, describedBy: fixedWhy, testId: 'file-rename' },
+    { label: t('chat.rename'), icon: icon(Pencil), onSelect: run(onRename), disabled: !changeable, describedBy: fixedWhy, testId: 'file-rename' },
     { label: t('files.move'), icon: icon(FolderInput), onSelect: run(onMove), disabled: !changeable, describedBy: fixedWhy, testId: 'file-move' },
     { label: t('files.moveToTrash'), icon: icon(Trash2), onSelect: run(onDelete), danger: true, disabled: !changeable, describedBy: fixedWhy, testId: 'file-trash' },
   ]

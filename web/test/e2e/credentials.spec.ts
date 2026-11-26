@@ -77,7 +77,7 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   expect(new URL((await open.getAttribute('href'))!).host).toBe('claude.com')
   // or the same link copied, for another browser (the one signed in to Claude)
   await dialog.getByRole('button', { name: '링크 복사' }).click()
-  await expect(dialog.getByRole('button', { name: '복사됨' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: '복사했어요' })).toBeVisible()
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(await open.getAttribute('href'))
   await expect(page.getByTestId('claude-code-submit')).toBeDisabled()
   await page.getByTestId('claude-code-input').fill('not a code')

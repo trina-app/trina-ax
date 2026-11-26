@@ -343,7 +343,7 @@ export function TeamLinkView({ data, inviter, team, about = null, messageLocale 
         <div className="flex items-center gap-1">
           <div className="flex h-9 min-w-0 flex-1 items-center gap-1 rounded-lg bg-subtle pr-0.5 pl-3 max-md:min-h-11">
             <MiddleCut text={url} />
-            <CopyQuiet text={url} label={t('teamLink.copyLink')} onCopied={sent} />
+            <CopyQuiet text={url} label={t('rooms.menu.copyLink')} onCopied={sent} />
           </div>
           <IconButton label={t('members.qr')} onClick={() => setQr((v) => !v)} aria-expanded={qr} data-testid="team-link-qr">
             <QrIcon size={16} aria-hidden />

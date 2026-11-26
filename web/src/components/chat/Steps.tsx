@@ -241,7 +241,7 @@ function MemoryUndo({ memory }: { memory: NonNullable<Step['memory']> }) {
   return (
     <button type="button" disabled={state === 'busy'} onClick={() => void undo()}
       className="touch-hit shrink-0 rounded-sm text-xs font-medium text-ink underline-offset-2 hover:underline disabled:opacity-50" data-testid="step-memory-undo">
-      {t('steps.memoryUndo')}
+      {t('common.undo')}
     </button>
   )
 }
@@ -279,7 +279,7 @@ function SkillUndo({ skill }: { skill: NonNullable<Step['skill']> }) {
   return (
     <button type="button" disabled={state === 'busy'} onClick={() => void undo()}
       className="touch-hit shrink-0 rounded-sm text-xs font-medium text-ink underline-offset-2 hover:underline disabled:opacity-50" data-testid="step-skill-undo">
-      {t('steps.memoryUndo')}
+      {t('common.undo')}
     </button>
   )
 }

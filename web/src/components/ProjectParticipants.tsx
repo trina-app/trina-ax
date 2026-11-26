@@ -327,7 +327,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
                   actions={tag === undefined && !readOnly ? (out ? (
                     <button type="button" className="touch-hit shrink-0 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-hover" onClick={() => undo(x)} data-testid={`participant-undo-${x.subjectType}-${x.subjectId}`}>
                       {/* (its name starts with the words it shows: "Undo · Keep Bob") */}
-                      {t('projects.undoRemove')}<span className="sr-only"> · {t('projects.undoRemoveLabel', { name: x.name })}</span>
+                      {t('common.undo')}<span className="sr-only"> · {t('projects.undoRemoveLabel', { name: x.name })}</span>
                     </button>
                   ) : (
                     <IconButton label={t('projects.removeMember', { name: x.name })} tip={removeTip ? `${t('projects.removeMember', { name: x.name })} · ${removeTip}` : true} onClick={() => remove(x)} className="touch-hit shrink-0" data-testid={`participant-remove-${x.subjectType}-${x.subjectId}`}>

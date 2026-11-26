@@ -16,7 +16,8 @@ import { isPeopleShared, keepFaces } from '../../lib/sharedChat'
 import { useChats } from '../../store/chats'
 import { useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
-import { confirmDialog, promptDialog } from '../ui'
+import { promptDialog } from '../ui'
+import { destructive } from '../../lib/destructive'
 
 /** a fork on its way (POST /api/chats/:id/fork): one at a time, from any menu */
 let forking = false
@@ -175,17 +176,21 @@ export function useChatActions() {
     const others = isPeopleShared(chat) && chat.shared?.by.id === me.user.id ? await othersIn(chat.id, me.user.id) : []
     const losing = !others.length ? '' : others.length > DELETE_NAMES ? t('chat.deleteOthersMore', { names: others.slice(0, DELETE_NAMES).join(t('rooms.nameSep')), n: others.length - DELETE_NAMES }) : t('chat.deleteOthers', { names: others.join(t('rooms.nameSep')) })
     const body = [t('chat.deleteBody', { days: chatTrashDays(me), trash: t('sidebar.trash') }), losing].filter(Boolean).join(' ')
-    if (!(await confirmDialog({ title: t('chat.deleteTitle'), body, confirm: t('common.delete'), danger: true }))) return false
-    const was = currentChat(chat)
-    // the chat on screen: Home, on a phone as 트리나 at its root, never on top of a project's stack (QA TC-255)
-    if (chatId === chat.id) openHome(navigate, me.user.id, { drop: true })
-    const r = await trashChat(was, true, { onShown })
-    if (!r.ok) return false
-    if (r.newest) {
-      const undo = () => void undoDelete({ ...was, deletedAt: now() }, t('chat.restoreFailed', { trash: t('sidebar.trash') }))
-      toast({ level: 'info', text: t('chat.deleted'), action: { label: t('common.undo'), run: undo } })
-    }
-    return true
+    // (the chat as it is once the person said yes)
+    let was = chat
+    // lib/destructive.ts: its confirm, then "Chat deleted." with its Undo once the server has it
+    const r = await destructive({
+      confirm: { title: t('chat.deleteTitle'), body, confirm: t('common.delete') },
+      run: async () => {
+        was = currentChat(chat)
+        // the chat on screen: Home, on a phone as 트리나 at its root, never on top of a project's stack (QA TC-255)
+        if (chatId === chat.id) openHome(navigate, me.user.id, { drop: true })
+        const r = await trashChat(was, true, { onShown })
+        return r.ok ? { newest: r.newest } : false
+      },
+      done: (r) => (r.newest ? { text: t('chat.deleted'), undo: () => undoDelete({ ...was, deletedAt: now() }, t('chat.restoreFailed', { trash: t('sidebar.trash') })) } : null),
+    })
+    return r !== false
   }
 
   /** pin a chat to the top of my list, or unpin it: mine only; my other windows hear it (chat.updated). On screen at
@@ -222,18 +227,6 @@ export function useChatActions() {
    * with the server's words. `onShown`: a list's own copy, told it left. */
   const hide = async (chat: Chat, onShown?: (c: Chat) => void): Promise<boolean> => {
     const was = currentChat(chat)
-    if (chatId === chat.id) openHome(navigate, me.user.id, { drop: true })
-    useChats.getState().removeChat(chat.id)
-    hideChatInGroups(chat.id)
-    onShown?.(was)
-    try {
-      await api.call(API.hideChat, { params: { id: chat.id } })
-    } catch (e) {
-      useChats.getState().upsertChat(was)
-      chatGroupsChanged()
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-      return false
-    }
     const back = async () => {
       try {
         const c = await api.call(API.unhideChat, { params: { id: chat.id } })
@@ -241,8 +234,26 @@ export function useChatActions() {
         chatGroupsChanged()
       } catch (e) { toast({ level: 'error', text: errorText(e, locale, t('error.network')) }) }
     }
-    toast({ level: 'info', text: t('chat.hidden'), action: { label: t('common.undo'), run: () => void back() } })
-    return true
+    // lib/destructive.ts: no confirm, "Hidden" with its Undo
+    const r = await destructive({
+      run: async () => {
+        if (chatId === chat.id) openHome(navigate, me.user.id, { drop: true })
+        useChats.getState().removeChat(chat.id)
+        hideChatInGroups(chat.id)
+        onShown?.(was)
+        try {
+          await api.call(API.hideChat, { params: { id: chat.id } })
+        } catch (e) {
+          useChats.getState().upsertChat(was)
+          chatGroupsChanged()
+          toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+          return false
+        }
+        return true
+      },
+      done: () => ({ text: t('chat.hidden'), undo: back }),
+    })
+    return r !== false
   }
 
   /** "Mute this chat" / "Unmute this chat" (a chat shared with people; docs/decisions/20261122-shared-chat-new-message-notices.md):
@@ -264,20 +275,26 @@ export function useChatActions() {
    * through a group, gone): the server's words, and it stays. `onShown`: a list's own copy, told it left. */
   const leave = async (chat: Pick<Chat, 'id' | 'title'> & Partial<Pick<Chat, 'shared'>>, onShown?: (c: Chat) => void, byName?: string): Promise<boolean> => {
     const name = byName ?? chat.shared?.by.name ?? ''
-    if (!(await confirmDialog({ title: t('chat.leaveTitle', { title: chat.title || t('chat.untitled') }), body: t('chat.leaveBody', { name }), confirm: t('chat.leaveConfirm'), danger: true }))) return false
-    try {
-      await api.call(API.leaveChat, { params: { id: chat.id } })
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-      return false
-    }
-    const was = currentChat(chat as Chat)
-    if (chatId === chat.id) openHome(navigate, me.user.id, { drop: true })
-    useChats.getState().removeChat(chat.id)
-    hideChatInGroups(chat.id)
-    onShown?.(was)
-    toast({ level: 'info', text: t('chat.left') })
-    return true
+    // lib/destructive.ts: its confirm, then "You left the chat." (no undo: only its creator adds me again)
+    const r = await destructive({
+      confirm: { title: t('chat.leaveTitle', { title: chat.title || t('chat.untitled') }), body: t('chat.leaveBody', { name }), confirm: t('chat.leaveConfirm') },
+      run: async () => {
+        try {
+          await api.call(API.leaveChat, { params: { id: chat.id } })
+        } catch (e) {
+          toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+          return false
+        }
+        const was = currentChat(chat as Chat)
+        if (chatId === chat.id) openHome(navigate, me.user.id, { drop: true })
+        useChats.getState().removeChat(chat.id)
+        hideChatInGroups(chat.id)
+        onShown?.(was)
+        return true
+      },
+      done: () => ({ text: t('chat.left') }),
+    })
+    return r !== false
   }
 
   /** "Fork" (my own chat) and "Continue in a chat only you see" (a shared one): POST /api/chats/:id/fork, then the new

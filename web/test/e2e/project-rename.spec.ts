@@ -108,7 +108,7 @@ test.describe('rename a project at 1440', () => {
     await expect(more).toHaveAccessibleName(translate('ko', 'rooms.menu.rowLabel', { name: 'Launch' }))
     await more.click()
     const menu = r.getByRole('menu')
-    await expect(menu.getByRole('menuitem')).toHaveText([t['chat.rename'], t['projects.participants'], t['rooms.menu.copyLink'], t['projects.leave'], t['projects.moveToTrash']])
+    await expect(menu.getByRole('menuitem')).toHaveText([t['rooms.menu.copyLink'], t['chat.rename'], t['projects.participants'], t['projects.leave'], t['files.moveToTrash']])
     await audit(page, 'row menu open')
     await shot(page, 'row-menu-1440')
     await menu.getByRole('menuitem', { name: t['chat.rename'] }).click()

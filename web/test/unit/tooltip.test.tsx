@@ -130,7 +130,7 @@ test("IconButton: its name is its tooltip, never the browser's title; tip=\"…\
   } finally { await m.unmount() }
 })
 
-test("CopyButton: the icon alone has the tooltip (\"복사됨\" for a moment after a copy from the keyboard); with its words shown, none", async () => {
+test("CopyButton: the icon alone has the tooltip (\"복사했어요\" for a moment after a copy from the keyboard); with its words shown, none", async () => {
   media(true)
   const nav = globalThis.navigator as unknown as { clipboard?: unknown }
   const had = nav.clipboard

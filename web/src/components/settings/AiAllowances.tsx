@@ -171,7 +171,7 @@ export function AiAllowances({ folded = false, bridge = browserSettingsBridge() 
                   </IconButton>
                 ) : (
                   <Button size="sm" variant="ghost" busy={busy === a.id} disabled={!!busy} aria-label={t('allowances.deleteLabel', { place })} onClick={() => void remove(a)} data-testid="allowance-delete">
-                    {t('allowances.delete')}
+                    {t('common.delete')}
                   </Button>
                 )}
               </li>
@@ -197,7 +197,7 @@ export function AiAllowances({ folded = false, bridge = browserSettingsBridge() 
                   </IconButton>
                 ) : (
                   <Button size="sm" variant="ghost" busy={busy === key} disabled={!!busy} aria-label={t('allowances.deleteLabel', { place })} onClick={() => void removeSite(r.host)} data-testid="allowance-delete">
-                    {t('allowances.delete')}
+                    {t('common.delete')}
                   </Button>
                 )}
               </li>

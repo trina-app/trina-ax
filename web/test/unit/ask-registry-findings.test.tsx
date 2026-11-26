@@ -241,7 +241,7 @@ describe('site cards without Always', () => {
     let m = await mount(<AskCard req={{ request: req }} onAnswer={async () => {}} />)
     try {
       expect(m.find('site-card-always')).toBeNull()
-      expect(choices(m)).toEqual([en('browser.allowOnce'), en('browser.deny')])
+      expect(choices(m)).toEqual([en('browser.allowOnce'), en('devEnvSite.deny')])
     } finally { await m.unmount() }
     m = await mount(<AskCard req={{ request: { ...req, noAlways: undefined } }} onAnswer={async () => {}} />)
     try { expect(m.find('site-card-always')).not.toBeNull() } finally { await m.unmount() }

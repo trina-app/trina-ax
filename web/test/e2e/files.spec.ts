@@ -206,7 +206,7 @@ test('upload small and chunked files, new folder, rename, trash and restore', as
   await expect(row(page, 'renamed.txt')).toBeVisible()
 
   // (no question first: docs/decisions/20261123-do-then-undo.md)
-  await rowMenu(page, 'renamed.txt', '휴지통으로')
+  await rowMenu(page, 'renamed.txt', '휴지통으로 옮기기')
   await expect(row(page, 'renamed.txt')).toHaveCount(0)
   await openFilesPlace(page, 'trash')
   // the name and the folder it was in, not the storage path (QA TC-1040)
@@ -371,7 +371,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     await expect(dialog).toHaveCount(0)
     await expect(row(page, 'drafts')).toBeVisible()
 
-    await rowMenu(page, 'drafts', t['files.rename'])
+    await rowMenu(page, 'drafts', t['chat.rename'])
     await expect(input).toHaveValue('drafts')
     await expect(error).toHaveCount(0)
     await input.fill('')
@@ -386,7 +386,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     const afterRename = await mutations()
     expect(afterRename.slice(before.length)).toEqual(['POST /api/files/mkdir', 'POST /api/files/move'])
 
-    await rowMenu(page, 'drafts-renamed', t['files.rename'])
+    await rowMenu(page, 'drafts-renamed', t['chat.rename'])
     await input.fill('cancelled-rename')
     await dialog.getByRole('button', { name: t['common.cancel'], exact: true }).click()
     await page.getByRole('button', { name: t['files.newFolder'], exact: true }).click()
@@ -495,7 +495,7 @@ test('nested dialogs: Esc closes only the top one (new-folder prompt over the mo
   await reset(page)
   await signIn(page)
   await page.goto('/files?path=marketing')
-  await rowMenu(page, 'notes.txt', '옮기기')
+  await rowMenu(page, 'notes.txt', /^옮기기$/)
   const picker = page.getByRole('dialog', { name: '"notes.txt" 옮기기' })
   await expect(picker).toBeVisible()
   await picker.getByRole('button', { name: '새 폴더' }).click()
@@ -688,7 +688,7 @@ test('move several files: one question for all that would become private, one to
   for (const name of ['notes.txt', 'data.csv', 'page.html']) await check(page, name).click()
   await expect(bar(page)).toContainText('3개 선택됨')
   const before = await moves(page)
-  await bar(page).getByRole('button', { name: '옮기기' }).click()
+  await bar(page).getByRole('button', { name: '옮기기', exact: true }).click()
   const picker = page.getByRole('dialog', { name: '3개 옮기기' })
   await picker.getByRole('button', { name: '팀 폴더' }).click()
   // the top folders by their words (docs/DECISIONS.md "Team folder basics"): users/ is 개인, Olga's own is 내 파일
@@ -722,7 +722,7 @@ test('move several files: one question for all that would become private, one to
   // and into the trash together, with one undo
   await page.goto('/files?path=docs')
   for (const name of ['notes.txt', 'data.csv']) await check(page, name).click()
-  await bar(page).getByRole('button', { name: '휴지통으로' }).click()
+  await bar(page).getByRole('button', { name: '휴지통으로 옮기기' }).click()
   await expect(page.getByText('2개를 휴지통으로 옮겼어요.')).toBeVisible()
   await expect(row(page, 'notes.txt')).toHaveCount(0)
   await page.getByRole('button', { name: '실행 취소' }).click()

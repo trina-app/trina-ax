@@ -435,13 +435,13 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.getByTestId('send').click()
     const site = page.getByTestId('site-card')
     await expect(site).toBeVisible()
-    const deny = site.getByRole('button', { name: '거부' })
+    const deny = site.getByRole('button', { name: '허용 안 함' })
     const colour = (sel: string) => page.evaluate((v) => { const e = document.createElement('span'); e.style.color = `var(${v})`; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c }, sel)
     expect(await deny.evaluate((e) => getComputedStyle(e).color)).toBe(await colour('--c-muted'))
     expect(await deny.evaluate((e) => getComputedStyle(e).color)).not.toBe(await colour('--c-danger'))
     // in the page the main button comes first and the quiet "no" last (a phone stacks them so; a computer shows the row
-    // reversed, [거부] [항상 허용] [이번만 허용]): the keyboard goes 이번만 허용 → 항상 허용 → 거부
-    await expect(site.getByTestId('ask-choices').getByRole('button')).toHaveText(['이번만 허용', '항상 허용', '거부'])
+    // reversed, [허용 안 함] [항상 허용] [이번만 허용]): the keyboard goes 이번만 허용 → 항상 허용 → 허용 안 함
+    await expect(site.getByTestId('ask-choices').getByRole('button')).toHaveText(['이번만 허용', '항상 허용', '허용 안 함'])
     await site.getByRole('button', { name: '항상 허용' }).focus()
     await page.keyboard.press('Tab')
     await expect(deny).toBeFocused()

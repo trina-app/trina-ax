@@ -411,20 +411,21 @@ describe('a chat row\'s "…"', () => {
     const pin = ['chat-row-pin', ko('chat.pin')]
     const link = ['chat-row-copy-link', ko('rooms.menu.copyLink')]
     try {
-      // Move to section after Rename (docs/decisions/20261122-trina-history-sections.md); a project's chat has it off
+      // the one list's order (docs/decisions/20261126-shared-menus.md): pin, section, mute, link, rename, move, share, delete
       // a chat of mine outside projects: Share (docs/DECISIONS.md "Chats shared with people and groups")
       const section = ['row-section-move', ko('sidebarSections.moveTo')]
-      // "새 채팅에서 이어 하기" on my own chat, "나만 보는 새 채팅에서 이어 하기" on a shared one (components/chat/forkItems.tsx)
+      // "새 채팅에서 이어 하기" on my own chat, "나만 보는 새 채팅에서 이어 하기" on a shared one (components/chat/forkItems.tsx),
+      // with people and tools in the one list's order
       const fork = ['chat-row-fork', ko('chat.fork')]
       const privately = ['chat-row-continue-privately', ko('chat.continuePrivately')]
-      expect(await items(m, '채팅 1')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], fork, section, ['chat-row-move', ko('chat.project.add')], ['chat-row-share', ko('chat.share.menu')], ['chat-row-delete', ko('common.delete')]])
-      expect(await items(m, '채팅 2')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], fork, section, ['chat-row-move', ko('chat.project.change')], ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 1')).toEqual([pin, section, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.add')], ['chat-row-share', ko('chat.share.menu')], fork, ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 2')).toEqual([pin, section, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.change')], fork, ['chat-row-delete', ko('common.delete')]])
       // shared project chats stay in their project: mine to rename and delete, an editor's to delete; a pin for anyone
       // and no "Mute this chat": a project's shared chat tells nothing but a mention (docs/decisions/
       // 20261126-project-chat-mention-only.md)
-      expect(await items(m, '채팅 3')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], privately, section, ['chat-row-delete', ko('common.delete')]])
-      expect(await items(m, '채팅 4')).toEqual([pin, link, privately, section, ['chat-row-delete', ko('common.delete')]])
-      expect(await items(m, '채팅 5')).toEqual([['chat-row-unpin', ko('chat.unpin')], link, privately, section])
+      expect(await items(m, '채팅 3')).toEqual([pin, section, link, ['chat-row-rename', ko('chat.rename')], privately, ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 4')).toEqual([pin, section, link, privately, ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 5')).toEqual([['chat-row-unpin', ko('chat.unpin')], section, link, privately])
     } finally {
       await m.unmount()
     }

@@ -931,7 +931,7 @@ function JoinChoices({ path, children, lean = false, browser = false }: { path: 
   const onAndroid = platform() === 'android'
   const copied = () => {
     setManual('copied')
-    toast({ level: 'success', text: t('auth.linkCopied') })
+    toast({ level: 'success', text: t('rooms.menu.linkCopied') })
   }
   // the copy runs inside the tap; when it worked, the tap's own navigation to the store goes ahead (no scripted
   // navigation after an await: Safari and iOS web views treat those differently). When it did not, the page stays,
@@ -939,7 +939,7 @@ function JoinChoices({ path, children, lean = false, browser = false }: { path: 
   const tap = (e: React.MouseEvent<HTMLAnchorElement>) => {
     const r = copyInTap(link, { doc: document, clipboard: navigator.clipboard })
     if (r.now) {
-      toast({ level: 'success', text: t('auth.linkCopied') })
+      toast({ level: 'success', text: t('rooms.menu.linkCopied') })
       return
     }
     e.preventDefault()

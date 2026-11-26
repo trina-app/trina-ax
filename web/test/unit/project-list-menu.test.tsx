@@ -37,6 +37,8 @@ const project = (id: string, name: string, o: Partial<Project> = {}): Project =>
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
 let list: Project[] = []
+/** the server says the caller may bring a trashed project back (Project.canRestore) */
+let restorable = false
 /** the server's own view of a project now, where it differs from the list (null: gone) */
 let now: Record<string, Project | null> = {}
 const calls: { key: string; url: string; body: unknown }[] = []
@@ -73,8 +75,15 @@ beforeAll(() => {
     if (key.startsWith('PATCH /api/projects/') && p) return json(200, { ...p, ...(JSON.parse(String(init!.body)) as object) })
     // a team project in projects/ goes to the trash first (it stays, inTrash); a second DELETE (or any other): for good
     if (key.startsWith('DELETE /api/projects/') && p) {
-      now[id] = /^projects\/[^/]+$/.test(p.folderPath) && !p.inTrash ? { ...p, inTrash: true, audience: 0, membersEditable: false } : null
+      now[id] = /^projects\/[^/]+$/.test(p.folderPath) && !p.inTrash ? { ...p, inTrash: true, audience: 0, membersEditable: false, ...(restorable ? { canRestore: true as const } : {}) } : null
       return new Response(null, { status: 204 })
+    }
+    if (key.startsWith('POST /api/projects/') && key.endsWith('/restore')) {
+      const pid = key.split('/').at(-2)!
+      const back = { ...(now[pid] ?? list.find((x) => x.id === pid)!), inTrash: false }
+      delete (back as Partial<Project>).canRestore
+      now[pid] = back
+      return json(200, back)
     }
     return json(500, { error: { code: 'internal', message: `no route ${key}` } })
   }) as unknown as typeof fetch
@@ -89,6 +98,7 @@ afterAll(() => {
 beforeEach(() => {
   list = [project(MINE, 'Acme launch'), project(SHARED, 'Acme sales', { sharedChats: 2 }), project(READ_ONLY, 'Acme finance', { canEdit: false })]
   now = {}
+  restorable = false
   calls.length = 0
   copied.length = 0
   // the list is kept between visits (store/projects.ts managed): each test starts from a first visit
@@ -122,8 +132,8 @@ describe('the Projects list', () => {
       expect(more.closest('a')).toBeNull()
       expect(card(m, 'Acme launch').querySelector('a')?.getAttribute('href')).toBe(`/projects/${MINE}`)
       expect(await open(m, 'Acme launch')).toEqual([
-        ['project-card-rename', ko('chat.rename')],
         ['project-card-copy-link', ko('rooms.menu.copyLink')],
+        ['project-card-rename', ko('chat.rename')],
         ['project-card-delete', ko('common.delete')],
       ])
       await m.click(within(card(m, 'Acme launch'), 'project-card-menu')!)
@@ -139,11 +149,11 @@ describe('the Projects list', () => {
     try {
       await loaded(m)
       expect(await open(m, 'Acme sales')).toEqual([
+        ['project-card-copy-link', ko('rooms.menu.copyLink')],
         ['project-card-rename', ko('chat.rename')],
         ['project-card-members', ko('projects.participants')],
-        ['project-card-copy-link', ko('rooms.menu.copyLink')],
         // a team project in projects/ goes to the trash: the item says so, as its confirm asks (QA TC-1064)
-        ['project-card-delete', ko('projects.moveToTrash')],
+        ['project-card-delete', ko('files.moveToTrash')],
       ])
       await m.click(within(card(m, 'Acme sales'), 'project-card-members')!)
       await m.until(() => m.find('participant-user-sora'), 'the members dialog')
@@ -306,12 +316,12 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
       await loaded4(m)
       expect(calls.find((c) => c.key === 'GET /api/projects')!.url).toContain('manage=1')
       expect(await open(m, 'Acme legal')).toEqual([
+        ['project-card-copy-link', ko('rooms.menu.copyLink')],
         ['project-card-rename', ko('chat.rename')],
         ['project-card-members', ko('projects.participants')],
-        ['project-card-copy-link', ko('rooms.menu.copyLink')],
-        ['project-card-delete', ko('projects.moveToTrash')],
+        ['project-card-delete', ko('files.moveToTrash')],
       ])
-      expect([ko('projects.moveToTrash'), translate('en', 'projects.moveToTrash')]).toEqual(['휴지통으로 옮기기', 'Move to trash'])
+      expect([ko('files.moveToTrash'), translate('en', 'files.moveToTrash')]).toEqual(['휴지통으로 옮기기', 'Move to trash'])
       expect(within(card(m, 'Acme legal'), 'project-card-state')).toBeNull()
       // the rename is the small prompt and sends the name only
       await m.click(within(card(m, 'Acme legal'), 'project-card-rename')!)
@@ -387,6 +397,31 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
       await m.unmount()
     }
   })
+
+  // docs/decisions/20261126-shared-menus.md: the trash says so with Undo when the server says I may bring it back
+  for (const may of [true, false])
+    test(`to the trash: "moved to the trash"${may ? ' with Undo, which brings it back' : ', no Undo for someone who may not restore it'}`, async () => {
+      list = [...list, outside()]
+      restorable = may
+      useUi.setState({ toasts: [] })
+      const m = await page()
+      try {
+        await loaded4(m)
+        await open(m, 'Acme legal')
+        await m.click(within(card(m, 'Acme legal'), 'project-card-delete')!)
+        await m.until(() => m.find('dialog-confirm'), 'the confirm')
+        await m.click('dialog-confirm')
+        const said = await m.until(() => useUi.getState().toasts.find((x) => x.text === ko('projects.trashedToast', { name: 'Acme legal' })), 'the toast')
+        expect(ko('projects.trashedToast', { name: 'Acme legal' })).toBe("'Acme legal' 프로젝트를 휴지통으로 옮겼어요.")
+        if (!may) return void expect(said.action).toBeUndefined()
+        expect(said.action?.label).toBe(ko('common.undo'))
+        said.action!.run()
+        await m.until(() => calls.some((c) => c.key === `POST /api/projects/${OUTSIDE}/restore`), 'the restore')
+        await m.until(() => useProjects.getState().byId[OUTSIDE]?.inTrash === false, 'out of the trash')
+      } finally {
+        await m.unmount()
+      }
+    })
 
   test('the trash confirm says where it goes and for how many days the team keeps it (QA TC-4971)', async () => {
     list = [...list, outside()]
