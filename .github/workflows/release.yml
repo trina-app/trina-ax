@@ -341,22 +341,20 @@ jobs:
     name: Windows installer
     needs: prepare
     runs-on: windows-2025
-    # environment release: the Azure app registration trusts only this environment's OIDC token (federated credential
-    # subject ...:environment:release, docs/RELEASE-CI.md 11장). Its deployment rules (v* tags, main) apply to this job
-    # too, signed or not: a release run is always from a tag (prepare checks it). Of the secrets it reads only the two
-    # Azure ids, never the release key or the Cloudflare token.
+    # environment release: the SSL.com eSigner credentials are secrets of this environment (docs/RELEASE-CI.md 11장).
+    # Its deployment rules (v* tags, main) apply to this job too, signed or not: a release run is always from a tag
+    # (prepare checks it). Of the secrets it reads only the four SSLCOM_*, never the release key or the Cloudflare token.
     environment: release
     timeout-minutes: 45
     permissions:
       contents: read
-      id-token: write # the Azure sign-in for code signing (OIDC): no Azure password or client secret is stored
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
-      # Artifact Signing (docs/RELEASE-CI.md 11장): repository variables name the account and certificate profile.
-      # All three empty = the unsigned installer, as before (desktop/scripts/win-sign.ts).
-      MYCEL_WIN_SIGN_ENDPOINT: ${{ vars.WINDOWS_SIGNING_ENDPOINT }}
-      MYCEL_WIN_SIGN_ACCOUNT: ${{ vars.WINDOWS_SIGNING_ACCOUNT }}
-      MYCEL_WIN_SIGN_PROFILE: ${{ vars.WINDOWS_SIGNING_PROFILE }}
+      # Code signing (docs/RELEASE-CI.md 11장): the repository variable WINDOWS_SIGNING_PROVIDER switches it on
+      # (`sslcom`). Empty = the unsigned installer, as before (desktop/scripts/win-sign.ts).
+      MYCEL_WIN_SIGN_PROVIDER: ${{ vars.WINDOWS_SIGNING_PROVIDER }}
+      CODESIGNTOOL_VERSION: v1.3.2
+      CODESIGNTOOL_SHA256: f14b1e1ef14bfa1fd00279c363aab0debbf5dcfba0e4bcdce5d22bb771de0e3a
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -366,28 +364,39 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
-      - name: Artifact Signing PowerShell module (pinned)
-        if: env.MYCEL_WIN_SIGN_PROFILE != ''
-        shell: pwsh
-        # the version Azure/artifact-signing-action v2.0.0 pins; it fetches signtool and the signing dlib itself
-        run: Install-Module -Name ArtifactSigning -RequiredVersion 0.1.8 -Repository PSGallery -Scope CurrentUser -Force
-      # just before the build, so the Azure CLI session is fresh when electron-builder signs
-      - name: Azure sign-in for code signing (OIDC)
-        if: env.MYCEL_WIN_SIGN_PROFILE != ''
-        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+      - name: Java for CodeSignTool (pinned)
+        if: env.MYCEL_WIN_SIGN_PROVIDER != ''
+        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          # signing needs a token only: the app's one role is on the certificate profile, not on a subscription
-          allow-no-subscriptions: true
-      - name: NSIS installer and latest.yml (signed when the WINDOWS_SIGNING_* variables are set, else unsigned)
+          distribution: temurin
+          java-version: '17'
+      - name: SSL.com CodeSignTool (pinned, sha256 checked)
+        if: env.MYCEL_WIN_SIGN_PROVIDER != ''
+        shell: pwsh
+        # the plain zip (the jar and the production conf/); the -windows zip only adds a 200 MB JDK 11
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'codesigntool.zip'
+          Invoke-WebRequest -Uri "https://github.com/SSLcom/CodeSignTool/releases/download/$env:CODESIGNTOOL_VERSION/CodeSignTool-$env:CODESIGNTOOL_VERSION.zip" -OutFile $zip
+          $sum = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
+          if ($sum -ne $env:CODESIGNTOOL_SHA256) { throw "CodeSignTool zip sha256 $sum, expected $env:CODESIGNTOOL_SHA256" }
+          $dir = Join-Path $env:RUNNER_TEMP 'codesigntool'
+          Expand-Archive -LiteralPath $zip -DestinationPath $dir -Force
+          "MYCEL_WIN_SIGN_TOOL=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: NSIS installer and latest.yml (signed when WINDOWS_SIGNING_PROVIDER is set, else unsigned)
+        # the credentials reach this step only when signing is switched on; an unsigned build gets empty values
+        env:
+          MYCEL_SSLCOM_USERNAME: ${{ vars.WINDOWS_SIGNING_PROVIDER != '' && secrets.SSLCOM_USERNAME || '' }}
+          MYCEL_SSLCOM_PASSWORD: ${{ vars.WINDOWS_SIGNING_PROVIDER != '' && secrets.SSLCOM_PASSWORD || '' }}
+          MYCEL_SSLCOM_CREDENTIAL_ID: ${{ vars.WINDOWS_SIGNING_PROVIDER != '' && secrets.SSLCOM_CREDENTIAL_ID || '' }}
+          MYCEL_SSLCOM_TOTP_SECRET: ${{ vars.WINDOWS_SIGNING_PROVIDER != '' && secrets.SSLCOM_TOTP_SECRET || '' }}
         run: |
           bun run --cwd desktop dist:win -- "-c.extraMetadata.version=$VERSION"
           ls -l desktop/release
           bun scripts/plugins/release-check.ts desktop/dist
           tr -d '\r' < desktop/release/latest.yml | grep -qx "version: $VERSION"
       - name: The installer and the app carry a valid signature
-        if: env.MYCEL_WIN_SIGN_PROFILE != ''
+        if: env.MYCEL_WIN_SIGN_PROVIDER != ''
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
