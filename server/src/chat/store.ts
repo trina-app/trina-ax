@@ -32,13 +32,13 @@ export interface ChatRow {
   people_shared_at: string | null
   /** migration 456: the chat's depth (Effort: quick | normal | thorough); null = not chosen (the team default) */
   effort: string | null
-  /** migration 459: a copy of this shared chat, made by "Continue in a chat only you see" (chat/fork.ts), ending at its
+  /** migration 462: a copy of this shared chat, made by "Continue in a chat only you see" (chat/fork.ts), ending at its
    * message fork_at; fork_title its title then; fork_pending: the copy's first answer has not run yet */
   fork_of?: string | null
   fork_at?: string | null
   fork_title?: string | null
   fork_pending?: number
-  /** migration 460: the chat this fork sits under in its person's list (a tree, chat/fork.ts forkParentsOf); NULL: a
+  /** migration 463: the chat this fork sits under in its person's list (a tree, chat/fork.ts forkParentsOf); NULL: a
    * top-level row ("Detach to top level" clears it; a purged parent hands it its own) */
   fork_parent?: string | null
 }
@@ -53,7 +53,7 @@ export interface MessageRow {
   history_small_model: number
   /** why the answer was stopped for its requester (migration 435): their account deleted or switched off */
   stopped_for?: string | null
-  /** migration 459: copied into a fork (chat/fork.ts); withheld_copy: an answer hidden from the person, copied as one
+  /** migration 462: copied into a fork (chat/fork.ts); withheld_copy: an answer hidden from the person, copied as one
    * line with nothing of it */
   fork_copy?: number
   withheld_copy?: number

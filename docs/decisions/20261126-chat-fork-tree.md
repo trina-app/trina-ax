@@ -29,7 +29,7 @@
     session as any chat of mine does, with the checks for me alone, and a note that it continues my chat.
   - **In the history, one level only:** a new chat sits indented once under the chat it came from; a continuation of a
     continuation sits at the same level, right under the first chat. No arrows, nothing folds. `chats.fork_parent`
-    (migration 460) apart from `fork_of`; `Chat.forkParents` (nearest first, at most 8, for the chat's own person, ids
+    (migration 463) apart from `fork_of`; `Chat.forkParents` (nearest first, at most 8, for the chat's own person, ids
     only, never past a chat of someone else's). A row sits under the nearest of them that is a row of the same list and
     the same date group, else it is a row of its own: a chat deleted, hidden, pinned, in another section, filtered out,
     no longer mine or not loaded yet hands its continuations up. Purged from the trash, a chat hands them to its own
@@ -48,4 +48,4 @@
 - **Tests:** tests/unit/b-chat-fork-tree.test.ts, tests/unit/b-chat-fork.test.ts, web/test/unit/fork-tree.test.ts,
   web/test/e2e/chat-fork-tree.spec.ts and chat-fork.spec.ts (1440 and 390, light and dark).
 - **Version impact:** minor (a new user-visible feature, an optional field on Chat and on PATCH /api/chats/:id, one
-  additive migration 460; older clients show these chats as plain rows).
+  additive migration 463; older clients show these chats as plain rows).

@@ -409,7 +409,7 @@ export function forkedFromOf(rt: ChatRuntime, viewer: string, r: Pick<ChatRow, '
 
 /** How far up a fork's chain its person's list looks (Chat.forkParents) */
 export const FORK_PARENTS_MAX = 8
-/** A fork's ancestors in its person's list (Chat.forkParents, migration 460 chats.fork_parent), nearest first: the list
+/** A fork's ancestors in its person's list (Chat.forkParents, migration 463 chats.fork_parent), nearest first: the list
  * puts the row under the nearest one that is a row of the same list (web lib/forkTree.ts), so a parent deleted, hidden,
  * pinned, filtered out or no longer open to them hands its forks up a level without any change here. Ids only, and only
  * of chats that are `viewer`'s own, plus the first one that is not (the shared chat a fork came from): the chain never

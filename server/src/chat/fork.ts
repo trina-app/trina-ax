@@ -8,7 +8,7 @@
 // "Fork" on a chat of the person's own, or on a fork of theirs (docs/decisions/20261126-chat-fork-tree.md): the same
 // copy, with the person as its only audience (everything on the branch; copies stay copies), in the chat's project while
 // they still see it. Each fork sits under the chat it came from in its person's history (chats.fork_parent, migration
-// 460; shared.ts forkParentsOf); their own computer uploads get rows of the fork's own (kept after the original is
+// 463; shared.ts forkParentsOf); their own computer uploads get rows of the fork's own (kept after the original is
 // purged); the first answer of a fork of their own chat resumes the copied session as any chat of theirs (turn.ts).
 //
 // What is copied, and how (one transaction, then the session file):
@@ -154,7 +154,7 @@ export function forkChat(rt: ChatRuntime, userId: string, chatId: string, o: For
         // another person's words in it: the mark that keeps the person's Always for sends to what their own message names
         // (chat/shared-actions.ts othersWordsIn), as in the shared chat
         c.session_tainted || (others ? 1 : 0), c.others_words || (others ? 1 : 0), c.room_outside, c.session_read_scope, src.id, msgs[msgs.length - 1]!.id, fromTitle,
-        // it sits under the chat it came from in my list (migration 460; "Detach to top level" clears it)
+        // it sits under the chat it came from in my list (migration 463; "Detach to top level" clears it)
         src.id)
     const insMsg = db.query(`INSERT INTO messages (id, chat_id, parent_id, role, author_id, content, attachments, steps, step_notes, status, error, turn_id, engine, model, files,
         created_at, updated_at, stop_reason, history_trimmed, history_small_model, stopped_for, fork_copy, withheld_copy) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)`)

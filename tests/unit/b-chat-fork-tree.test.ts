@@ -1,5 +1,5 @@
 // "Fork" on a chat of my own and on a fork, and forks as a tree in my history (docs/decisions/20261126-chat-fork-tree.md,
-// server/src/chat/fork.ts, migration 460). Covered: a fork of my own chat copies everything on the branch, in its
+// server/src/chat/fork.ts, migration 463). Covered: a fork of my own chat copies everything on the branch, in its
 // project, with no other person's mark, and its first answer resumes my copied session (and records my skill list); a
 // fork of a fork keeps the copies as copies and resumes too; my own uploads get rows of the fork's own, which keep the
 // picture and a send again after the original is purged; Chat.forkParents (nearest first, only for the person, never past
@@ -214,8 +214,8 @@ describe('the tree', () => {
     expect((await getChat('alice', f2.id)).forkedFrom?.chatId).toBeUndefined()
   })
 
-  test('migration 460: a fork made before sits under the chat it came from', () => {
-    const sql = fs.readFileSync(path.join(import.meta.dir, '../../server/migrations/460_b_chat_fork_tree.sql'), 'utf8')
+  test('migration 463: a fork made before sits under the chat it came from', () => {
+    const sql = fs.readFileSync(path.join(import.meta.dir, '../../server/migrations/463_b_chat_fork_tree.sql'), 'utf8')
     expect(sql).toContain('UPDATE chats SET fork_parent = fork_of WHERE fork_of IS NOT NULL')
     expect(sql.split('\n')[0]).toBe('-- min_compatible_reader: 1')
   })

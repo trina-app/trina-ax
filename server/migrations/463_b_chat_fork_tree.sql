@@ -4,7 +4,8 @@
 -- (where the copied words came from, the "Continued from" line): "Detach to top level" clears fork_parent only, and a
 -- chat purged from the trash hands its forks to its own parent (chat/runtime.ts purgeChat) while fork_of stays.
 -- Forks made before this sit under the chat they came from.
--- 460: 455 (#586), 456 (#631, #634), 457 (#636), 458 (#638) and 459 (#641) are on open PRs; 454 is the highest b on dev.
+-- 463: 461 (#586) is the highest b on dev; 462 is the chat fork (#641) in the same batch; 460 was this PR's
+-- earlier number, never on dev.
 -- Additive only (reader 1): an older build ignores the column (its forks show as plain rows).
 ALTER TABLE chats ADD COLUMN fork_parent TEXT;
 UPDATE chats SET fork_parent = fork_of WHERE fork_of IS NOT NULL;

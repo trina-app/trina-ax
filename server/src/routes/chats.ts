@@ -653,7 +653,7 @@ export const chatsRoutes: RouteModule = {
       if (body.model !== undefined) { sets.push('model = ?'); args.push(body.model) }
       else if (body.engine !== undefined && body.engine !== chat.engine) sets.push('model = NULL')
       if (body.effort !== undefined) { sets.push('effort = ?'); args.push(body.effort) }
-      // "Detach to top level": a fork of mine leaves the chat it sits under in my history (chat/fork.ts; migration 460).
+      // "Detach to top level": a fork of mine leaves the chat it sits under in my history (chat/fork.ts; migration 463).
       // Only where it rows: not its last activity (the list keeps its place by date)
       const detach = body.forkParent === null && !!chat.fork_parent && chat.user_id === auth.user.id
       if (detach) {
