@@ -7,7 +7,7 @@
 //   2. Shared before without the files (the owner's case): Share again shows the checkbox row on its own, Save off
 //      until it is ticked; ticked, Save adds them, and the row is gone after.
 //   3. Bob's link does not open: the panel says only Olga can add it, [추가 요청] sends the ask; Olga's Activity row
-//      names Bob, the file and the chat, [대화에 추가] adds it, and Bob's link opens the copy.
+//      names Bob, the file and the chat, [채팅에 추가] adds it, and Bob's link opens the copy.
 // The mock (test/mock/server.ts "Share the files from this chat too?"): POST /__test/chat-made {chatId, files, link}.
 // QA screenshots with SHOTS_DIR set: light and dark.
 import AxeBuilder from '@axe-core/playwright'
@@ -184,14 +184,14 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await shots(bob, 'blocked-panel')
       await ask.getByTestId('chat-file-ask-send').click()
       await expect(panel(bob).getByTestId('chat-file-ask-sent')).toHaveText('요청을 보냈어요. 답은 활동에서 볼 수 있어요.')
-      // Olga's Activity: who, which file, which chat; [대화에 추가]
+      // Olga's Activity: who, which file, which chat; [채팅에 추가]
       const notice = await openNotice(page, 'Bob')
       await expect(notice.getByTestId('notification-text')).toHaveText(`Bob님이 '${TITLE}' 대화에 ${PDF} 파일을 추가해 달라고 요청했어요`)
-      await expect(notice.getByTestId('access-request-share')).toHaveText('대화에 추가')
+      await expect(notice.getByTestId('access-request-share')).toHaveText('채팅에 추가')
       await audit(page, 'activity request')
       await shots(page, 'activity-request')
       await notice.getByTestId('access-request-share').click()
-      await expect(notice.getByTestId('access-request-done')).toHaveText('대화에 추가했어요')
+      await expect(notice.getByTestId('access-request-done')).toHaveText('채팅에 추가했어요')
       // Bob's link opens the copy now
       await openChat(bob, chatId)
       await fileLink(bob, PDF).click()
