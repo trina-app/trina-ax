@@ -7,6 +7,8 @@
 <b>팀 모두가 같이 쓰는 AI</b><br>
 트리나 AX는 팀의 파일, 스킬, 도구를 서버 하나에 모아요. 모두의 AI가 그걸 바탕으로 일해요.<br>동료가 하던 AI 세션을 그대로 이어받을 수 있어요. AI가 여는 파일은 모두 물어본 사람의 권한으로 확인해요.
 
+<a href="https://demo.trina.app"><img src="docs/images/readme/v4/try-demo-ko.png" height="40" alt="가입 없이 1분 만에 써 보기"></a>
+
 <a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-ko.png" height="40" alt="맥용 다운로드"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-ko.png" height="40" alt="Windows용 다운로드"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="App Store에서 다운로드"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Google Play에서 다운로드"></a><br>
 <sub>Linux: .deb와 AppImage(x64, arm64)는 <a href="https://ax.trina.app/download">다운로드 페이지</a>에 있어요</sub>
 

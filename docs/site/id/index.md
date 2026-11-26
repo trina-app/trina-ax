@@ -4,6 +4,8 @@ description: Trina AX menempatkan Claude Code dan Codex di satu server perusahaa
 ---
 
 :::note
+Ingin melihatnya dulu? [Coba dalam 1 menit, tanpa daftar](https://demo.trina.app).
+
 Hanya ingin mencoba? Jalankan [demo lokal](get-started/quickstart.md). Demo ini tidak memerlukan akun AI.
 :::
 

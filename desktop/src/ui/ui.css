@@ -434,6 +434,156 @@ button.ghost:hover {
   font-size: 13px;
   margin: 14px 0 0;
 }
+
+/* S0's two full-width rows (welcome.ts start): Create is the one accent, Join the plain outlined row */
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 14px 0 10px;
+}
+button.choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  text-align: left;
+}
+button.choice:not(.primary):hover {
+  background: var(--hover);
+}
+button.choice.primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.choice-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.choice-sub {
+  font-size: 13px;
+  font-weight: 400;
+}
+/* a link-like text button inside a line ("Change", "Sign in", the terms) */
+button.inline {
+  border: none;
+  background: transparent;
+  padding: 0 2px;
+  color: var(--accent-text);
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.store-signin {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 10px 0 0;
+}
+
+/* the create screens (create.ts) */
+.create .field-label {
+  display: block;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+.create .or {
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+  margin: 0 0 10px;
+}
+.create .field input[type='email'] {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--field-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--bg);
+}
+.create input[type='text'] {
+  width: 100%;
+  border: 1px solid var(--field-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--bg);
+}
+.slug-line {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+}
+.slug-edit {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 6px 0 0;
+}
+.slug-edit input[type='text'] {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  padding: 5px 8px;
+}
+.slug-domain {
+  color: var(--muted);
+  font-size: 13px;
+}
+.plan-title {
+  font-weight: 600;
+  margin: 10px 0 4px;
+}
+.plan {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.agree {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.agree input {
+  margin-top: 3px;
+}
+.legal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 6px 0 0 24px;
+  font-size: 13px;
+}
+.start-steps {
+  list-style: none;
+  padding: 0;
+  margin: 4px 0 0;
+}
+.start-steps li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  color: var(--muted);
+}
+.start-steps li.done,
+.start-steps li.now {
+  color: var(--text);
+}
+.start-steps .dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+}
+.start-steps li.done .dot {
+  background: var(--accent);
+  border-color: var(--accent);
+}
 .confirm .host {
   font-weight: 600;
   margin: 0 0 4px;

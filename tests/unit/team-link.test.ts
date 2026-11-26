@@ -295,6 +295,24 @@ describe('links from outside (phase 2): the reader and screen ④\'s gate', () =
       expect(m.isSignInPath('/app-signin/x')).toBe(false)
     }
   })
+  test('a new team owner setup page (/app-setup#c=<claim>) is read only with appSetup, which no link reader sets', () => {
+    const claim = 'Zm9vYmFyYmF6cXV4MDEyMzQ1Njc4OWFiY2RlZmdoaWo'
+    const inner = `https://acme.trina.app/app-setup#c=${claim}`
+    for (const m of [shared, phone]) {
+      // the desktop's outside-link options (appSignIn) do not open it
+      expect(m.readAppLink(link(inner), { ...DESK, appSignIn: true })).toEqual(err('invalid') as never)
+      expect(m.readAppLink(link(inner), { ...DESK, appSetup: true })).toEqual(acme(`/app-setup#c=${claim}`) as never)
+      // and appSetup does not open the sign-in link
+      expect(m.readAppLink(link(`https://acme.trina.app/app-signin#c=${claim}`), { ...DESK, appSetup: true })).toEqual(err('invalid') as never)
+      expect(m.readAppLink(link(inner), PHONE_LINKS)).toEqual(err('invalid') as never)
+      expect(m.readAppLink(link(inner), DESK)).toEqual(err('invalid') as never)
+      expect(m.parseTeamInput(inner, DESKTOP)).toEqual(err('invalid') as never)
+      expect(m.parseTeamInput(inner, PHONE)).toEqual(err('invalid') as never)
+      for (const bad of [`https://acme.trina.app/app-setup?c=${claim}`, `${inner}&c=x`, `https://acme.trina.app/app-setup#c=${claim.slice(2)}`])
+        expect(m.parseTeamInput(bad, { ...DESKTOP, appSetup: true })).toEqual(err('link') as never)
+      expect(m.isSignInPath('/app-setup')).toBe(true)
+    }
+  })
   test('④ cannot be skipped: nothing without a yes, a yes for the host it showed, only once ④ has been on screen a while, once', () => {
     for (const m of [shared, phone]) {
       const g = new m.LinkGate(600)

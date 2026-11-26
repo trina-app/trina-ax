@@ -7,6 +7,29 @@ Después de crear un equipo, la app le guía a usted, el propietario, por unos p
 
 Si creó el equipo en un navegador de un ordenador Mac o Windows, la página siguiente ofrece **Continuar en la app de Mac** (o **Continuar en la app de Windows**): la app inicia la sesión por sí sola, sin una segunda contraseña, y solo la app puede encontrar archivos de trabajo en su ordenador. **Continuar en el navegador** sigue con los pasos de esta página. Los pasos le acompañan: en la app se abren donde los dejó, con el sitio web de la empresa del enlace de registro ya escrito.
 
+## Crear un equipo desde la app de escritorio
+
+¿Aún no tiene equipo? La app de Mac y Windows le crea uno en el servicio alojado, con el plan gratuito y sin tarjeta:
+
+:::steps
+#### Crear un equipo gratis
+Abra la app y elija **Crear un equipo gratis**. (**Solo quiero echar un vistazo** abre un equipo de demostración en su navegador, sin registro.)
+
+#### Iniciar sesión
+Con **Continuar con Google**, su navegador abre el inicio de sesión de Google; después puede cerrar la pestaña. Con una dirección de correo no sale de la app: escríbala, pulse **Enviar código** y escriba el código de 6 dígitos del correo. Al continuar, acepta los Términos y la Política de privacidad.
+
+#### Poner nombre al equipo
+Escriba el nombre del equipo. La app propone su dirección (`acme.trina.app`); **Cambiar** elige otra. Lea los límites del plan gratuito, marque la casilla y créelo.
+
+#### Esperar unos minutos
+Crear el equipo tarda unos 3 a 5 minutos. Puede cerrar la app; al abrirla de nuevo vuelve a esta pantalla.
+
+#### Bienvenido a su equipo
+El equipo se abre en la app, con su sesión iniciada. Si inició sesión con Google, pulse **Continuar**. Si inició sesión con un código por correo, primero **elija una contraseña**: la usará en su teléfono y en otros ordenadores.
+:::
+
+Cada cuenta tiene un equipo gratuito. Si la suya ya tiene un equipo, la app ofrece **Abrirlo** en su lugar. Un equipo gratuito se duerme cuando nadie lo usa y despierta cuando alguien lo abre. El propietario cambia de plan en **Administración › Sistema › Plan › Elegir un plan**. La versión de la Mac App Store solo inicia sesión en un equipo que creó antes (**¿Ya creó un equipo?** **Iniciar sesión**).
+
 ## Los pasos
 
 :::steps

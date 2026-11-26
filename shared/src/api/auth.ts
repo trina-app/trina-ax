@@ -286,6 +286,28 @@ export const RedeemAppSignInBody = z.object({
   tokenMode: z.enum(['cookie']).default('cookie'),
 })
 
+/** A team made from the desktop app (server/src/auth/setup-console.ts, docs/decisions/20261126-desktop-create-team.md):
+ * the app opens `/app-setup#c=<claim>` from the hosting console; the page asks who the owner is (preview), then makes
+ * the owner and signs the app in (a desktop session, cookie). The claim's shape is checked by the server, which counts a
+ * bad one against the caller's address, so the schema only bounds its length. */
+export const ConsoleSetupPreviewBody = z.object({ claim: z.string().min(1).max(200) })
+export const ConsoleSetupPreview = z.object({
+  teamName: z.string(),
+  name: z.string(),
+  email: z.string(),
+  /** the owner signed in to the console with Google: the account is made with that Google account and no password;
+   * false: the page asks for a password (for the phone and other computers) */
+  google: z.boolean(),
+})
+export type ConsoleSetupPreview = z.infer<typeof ConsoleSetupPreview>
+export const ConsoleSetupBody = z.object({
+  claim: z.string().min(1).max(200),
+  /** required unless the owner signed in with Google (then refused); its strength is checked like every new password */
+  password: z.string().max(200).optional(),
+  client: z.literal('desktop').default('desktop'),
+  tokenMode: z.enum(['cookie']).default('cookie'),
+})
+
 /** Sign in with Google (server/src/auth/google-login.ts; docs/AGENTS/plan/20261122-0454-google-login.md). A person
  * connects their Google account in Settings › Security with their current password, then signs in with it. The answer
  * is Google's address to open in this window; Google comes back to this server, which signs in and opens `next`. */
@@ -413,6 +435,8 @@ export type MyUsage = z.infer<typeof MyUsage>
 export const AUTH = {
   setupStatus: endpoint({ method: 'GET', path: '/api/setup', auth: 'public', owner: 'A', response: SetupStatus, summary: 'Is first-run setup still needed (no owner yet)?' }),
   setup: endpoint({ method: 'POST', path: '/api/setup', auth: 'public', owner: 'A', status: 201, body: SetupBody, response: LoginResponse, summary: 'Create the team and its owner (only while no user exists; needs the setup token). Signs the owner in.' }),
+  setupConsolePreview: endpoint({ method: 'POST', path: '/api/setup/console/preview', auth: 'public', owner: 'A', body: ConsoleSetupPreviewBody, response: ConsoleSetupPreview, summary: 'A hosted team made from the desktop app, before its owner exists: the team name and who the owner is, from the hosting console\'s one-time claim (not spent).' }),
+  setupConsole: endpoint({ method: 'POST', path: '/api/setup/console', auth: 'public', owner: 'A', status: 201, body: ConsoleSetupBody, response: LoginResponse, summary: 'A hosted team made from the desktop app: make the owner from the hosting console\'s one-time claim (spent only after the account is made) and sign the app in.' }),
   login: endpoint({ method: 'POST', path: '/api/auth/login', auth: 'public', owner: 'A', body: LoginBody, response: LoginResponse, summary: 'Sign in with username + password (argon2id). Rate-limited per IP and per account.' }),
   logout: endpoint({ method: 'POST', path: '/api/auth/logout', auth: 'user', owner: 'A', allowWhilePasswordChange: true, response: empty, status: 204, summary: 'End this session and clear the cookie.' }),
   changePassword: endpoint({ method: 'POST', path: '/api/auth/password', auth: 'user', owner: 'A', allowWhilePasswordChange: true, body: ChangePasswordBody, response: Ok, summary: 'Change own password; ends every other session of this person.' }),
