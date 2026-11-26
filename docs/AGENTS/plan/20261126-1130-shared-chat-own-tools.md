@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-26 11:30
 - Branch: `fix/shared-chat-own-tools`
-- Status: in progress
+- Status: done
 - Where: server (chat turn, connection tools, prompt), docs. Why: the owner asked Trina, in a five-person team project
   chat, to reply to a vendor with two PDFs and a business registration through their own Daum mail (Aside), and Trina
   refused ("team files can't go out from a shared chat; continue in a chat only you see").
@@ -61,4 +61,7 @@ and the browser exclusion of the shared chat allowlist).
 
 ## Result
 
-(filled in at the end)
+Built as planned. The notice for the browser is kept in card_always_allow (no migration). A team-file handle is refused
+only where an app on the computer takes it as code or a task (Aside's repl/exec take no file's content: attaching team
+files through Aside's web mail cannot work, and Trina now says so). Area tests under Bun 1.3.12: 1435 tests in 151 files,
+all pass after one expected flip (b-shared-chats: browser now in SHARED_PROMPT_SECTIONS).
