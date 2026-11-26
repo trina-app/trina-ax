@@ -252,6 +252,14 @@ export function notePaths(n: StepNote): string[] {
 const notePathsListable = (n: StepNote, canList: ((p: string) => boolean) | null): boolean =>
   notePaths(n).every((p) => { try { return !!canList && canList(p) } catch { return false } })
 
+/** Another person's step notes as a shared chat gives them to the asker's fresh session (withStepRecords' rule): only
+ * the file tools' steps that keep team paths aside, and only notes whose paths `canList` may all list (the asker and
+ * everyone who sees the chat). A fork copies them this way (chat/fork.ts), so it carries nothing more. */
+export function othersNotesFor(steps: readonly StoredStep[], notes: StepNotes, canList: ((p: string) => boolean) | null): StepNotes {
+  const ok = new Set(steps.filter(othersNotes).map((x) => x.id))
+  return Object.fromEntries(Object.entries(notes).filter(([id, n]) => ok.has(id) && notePathsListable(n, canList)))
+}
+
 /**
  * The step records for a fresh session's history: for the newest STEP_RECORD_ANSWERS answers that are the asker's own
  * (and, in a chat shared now, other people's answers the asker sees: OTHER_RECORD_ANSWERS / OTHER_RECORD_CHARS per

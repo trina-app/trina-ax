@@ -47,6 +47,7 @@ import { roomsOf } from '../rooms/service'
 import { confirmMac } from '../chat/confirm-key'
 import { WIDENING_PAGE } from '../chat/widening'
 import { shareChat } from '../chat/share-chat'
+import { forkChat } from '../chat/fork'
 import { readChatNotices, setMuted } from '../chat/message-notices'
 import { chatAudienceView, chatWidening, checkWideningAdd, hideChat, leaveChat, peopleSharedChatsOf, previewChatAudience, putChatAudience, unhideOnOpen } from '../chat/people-share'
 import { resolveSubjects } from '../chat/chat-audience'
@@ -575,6 +576,20 @@ export const chatsRoutes: RouteModule = {
         .run(id, auth.user.id, body.projectId ?? null, title, title ? 'user' : 'auto', engine, model ?? null, now, now, shared ? now : null, body.sideRoomId ?? null)
       rt.publishChat(auth.user.id, id, 'created')
       return chatOut(rt, auth.user.id, rt.store.chatRow(id)!)
+    })
+
+    // "Continue in a chat only you see" on a shared chat (chat/fork.ts): a new chat of mine with the conversation as I see
+    // it. The engine and model of the original when I may use them, else what a new chat of mine gets
+    kit.handle(API.forkChat, ({ c, params, body, auth }) => {
+      checkBudget(ctx, auth.user.id, c.get('locale'))
+      const src = chatOf(rt, c, auth, params.id, 'view').row
+      let em: { engine: string; model: string | null }
+      try { em = newChatEngine(ctx, auth.user, { engine: src.engine as EngineId, model: src.model }, c.get('locale')) } catch { em = newChatEngine(ctx, auth.user, {}, c.get('locale')) }
+      const row = forkChat(rt, auth.user.id, params.id, { ...(body.leafId ? { leafId: body.leafId } : {}), engine: em.engine, model: em.model ?? null, locale: c.get('locale'),
+        // the title as I see it there (a stored connection secret of its creator never comes along)
+        title: (r) => chatOut(rt, auth.user.id, r).title })
+      rt.publishChat(auth.user.id, row.id, 'created')
+      return chatOut(rt, auth.user.id, row)
     })
 
     kit.handle(API.getChat, ({ c, params, auth }) => chatOut(rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view', { deleted: true }).row))

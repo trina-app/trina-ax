@@ -153,7 +153,7 @@ export class ChatFiles {
   /** Is this id a chat file's? */
   has(id: string): boolean { return !!this.ctx.db.query('SELECT 1 FROM chat_files WHERE id = ?').get(id) }
   /** Does the chat hold any chat file (its AI gets chat_file then)? */
-  inChat(chatId: string): boolean { return !!this.ctx.db.query('SELECT 1 FROM chat_files WHERE chat_id = ? LIMIT 1').get(chatId) }
+  inChat(chatId: string): boolean { return !!this.ctx.db.query('SELECT 1 FROM chat_files WHERE chat_id = ? LIMIT 1').get(chatId) || this.copiedRefs(chatId).size > 0 }
 
   /** The chain id of a file id (its root's; the id itself for a root or a file that is not a chat file's) */
   private chainOf(f: Pick<ChatFileRow, 'id'> & { root_id?: string | null }): string {
@@ -204,6 +204,24 @@ export class ChatFiles {
     return this.sent(root) && !this.onlyOnHidden(userId, root, hidden)
   }
 
+  /** The chat files a fork's messages carry by reference (Attachment.fromChat, chat/fork.ts): by the chat that keeps
+   * them, their chain ids. Empty for any other chat. */
+  private copiedRefs(chatId: string): Map<string, string[]> {
+    const out = new Map<string, string[]>()
+    const rows = this.ctx.db.query(`SELECT DISTINCT json_extract(j.value, '$.fromChat') AS src, json_extract(j.value, '$.id') AS id FROM messages m, json_each(m.attachments) j
+      WHERE m.chat_id = ? AND m.fork_copy = 1 AND json_valid(m.attachments) AND json_extract(j.value, '$.source') = 'chat' AND json_extract(j.value, '$.fromChat') IS NOT NULL`).all(chatId) as { src: string | null; id: string | null }[]
+    for (const r of rows) if (r.src && r.id && r.src !== chatId) out.set(r.src, [...(out.get(r.src) ?? []), r.id])
+    return out
+  }
+
+  /** The chat that keeps a file a fork's messages carry by reference (copiedRefs), by any id of its chain, or null. */
+  private copiedFrom(chatId: string, fileId: string): string | null {
+    const r = this.row(fileId)
+    const chainId = r ? chainIdOf(r) : fileId
+    for (const [src, ids] of this.copiedRefs(chatId)) if (ids.includes(chainId) && (!r || r.chat_id === src)) return src
+    return null
+  }
+
   /** The root of the chain a file id of this chat belongs to (a root's id or a version's), or null */
   private rootIn(chatId: string, fileId: string): ChatFileRow | null {
     const f = this.ctx.db.query('SELECT * FROM chat_files WHERE id = ? AND chat_id = ?').get(fileId, chatId) as ChatFileRow | null
@@ -227,6 +245,19 @@ export class ChatFiles {
       if (!this.mayOpen(userId, root, hiddenOnce)) continue
       const rows = this.chain(root.id)
       out.push({ id: root.id, root, head: rows[rows.length - 1] ?? root, versions: rows.length })
+    }
+    // a fork's copies of another chat's files (Attachment.fromChat, chat/fork.ts): each by its own chat's rule for this
+    // person now (they see that chat's files, and may open the chain there)
+    for (const [src, ids] of this.copiedRefs(chatId)) {
+      if (!this.seesChat(userId, src)) continue
+      let h: Set<string> | null = null
+      const hid = () => (h ??= withheldFrom(this.ctx.db, this.ctx.files.rules(), src, userId))
+      for (const id of ids) {
+        const root = this.rootIn(src, id)
+        if (!root || !this.mayOpen(userId, root, hid) || out.some((v) => v.id === root.id)) continue
+        const rows = this.chain(root.id)
+        out.push({ id: root.id, root, head: rows[rows.length - 1] ?? root, versions: rows.length })
+      }
     }
     return out.sort((a, b) => (a.head.created_at < b.head.created_at ? 1 : a.head.created_at > b.head.created_at ? -1 : 0))
   }
@@ -410,7 +441,13 @@ export class ChatFiles {
   open(userId: string, chatId: string, fileId: string, thumb: boolean, opts: { version?: number } = {}): { abs: string; name: string; quarantined: boolean; sha256: string; row: ChatFileRow; root: ChatFileRow } {
     // any id of a chain (its root's, a version's) opens the chain, checked on its root: the messages carry the root
     const root = this.rootIn(chatId, fileId)
-    if (!root) return fail('not_found')
+    if (!root) {
+      // a fork's copy (Attachment.fromChat, chat/fork.ts): opened in the chat that keeps it, by that chat's rule for this
+      // person now (the caller checked the fork itself); the same 404 when they no longer see it there
+      const src = this.copiedFrom(chatId, fileId)
+      if (src && this.seesChat(userId, src)) return this.open(userId, src, fileId, thumb, opts)
+      return fail('not_found')
+    }
     // not sent: its sender's alone (the root's uploader only, never a version's writer). A file carried only by answers
     // hidden from this person (chat/shared-answers.ts: a copy of a file such an answer made,
     // docs/decisions/20261121-share-chat-files.md): not theirs to open, as the answer is not (review M1)
@@ -624,7 +661,10 @@ export class ChatFiles {
     if (!this.seesChat(userId, chatId)) return fail('not_found')
     if ((this.ctx.db.query('SELECT deleted_at FROM chats WHERE id = ?').get(chatId) as { deleted_at: string | null } | null)?.deleted_at) return fail('not_found')
     if (safeOpsEnabled()) fileError('conflict', 'sharedChatSafeOps', undefined, { reason: 'safe_ops' })
-    return this.open(userId, chatId, fileId, false).root
+    const root = this.open(userId, chatId, fileId, false).root
+    // a fork's copy of another chat's file is read only here: a new version would change the shared chat's file
+    if (root.chat_id !== chatId) fail('conflict', undefined, { params: { reason: 'chat_file_read_only' } })
+    return root
   }
 
   private async writeVersionOf(userId: string, chatId: string, fileId: string, src: VersionSource, opts: PutVersionOptions, max: number): Promise<PutVersionResult> {

@@ -63,7 +63,7 @@ import { LinkAskAccess } from '../components/LinkAskAccess'
 import Composer, { type ComposerHandle, type EngineChoice } from '../components/chat/Composer'
 import { changeChat, trashChat, useChatActions } from '../components/chat/chatActions'
 import { AssistantMessage, UserMessage } from '../components/chat/Messages'
-import { ChatEventLine, eventsBetween, useAudienceEvents } from '../components/chat/ChatEvents'
+import { ChatEventLine, ForkedFromLine, eventsBetween, useAudienceEvents } from '../components/chat/ChatEvents'
 import { ImageGroup, ViewerMeta } from '../components/ImageViewer'
 import QueuedMessages from '../components/chat/QueuedMessages'
 import { ChatProjectCrumb, MoveToProjectDialog } from '../components/chat/ChatProject'
@@ -226,6 +226,25 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   // a shared project chat: what this person may do in it, whose question is being answered (not mine), and read-only
   // while safe operations are on
   const shared = chat?.shared
+  // "Continue in a chat only you see" (POST /api/chats/:id/fork): one at a time
+  const forking = useRef(false)
+  const forkHere = async (c: Chat) => {
+    if (forking.current) return
+    forking.current = true
+    const fallback = () => (c.projectId ? askPrivately(navigate, c.projectId, lastOwnQuestion(c.id, me?.user.id)) : askPrivatelyHome(navigate, lastOwnQuestion(c.id, me?.user.id)))
+    // the end of the branch on screen (my own unsent messages left out)
+    const leafId = (useChats.getState().threads[c.id]?.messages ?? []).filter((m) => !m.local).at(-1)?.id
+    try {
+      const made = await api.call(API.forkChat, { params: { id: c.id }, body: leafId ? { leafId } : {} })
+      upsertChat(made)
+      navigate(`/c/${made.id}`, { state: { chat: made } })
+    } catch (e) {
+      // (an older server has no such route: not_found; a guest outside their project: forbidden)
+      const reason = isApiError(e) ? e.body.params?.reason : null
+      if (isApiError(e, 'not_found') || isApiError(e, 'forbidden') || reason === 'fork_not_shared' || reason === 'fork_not_here') fallback()
+      else toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    } finally { forking.current = false }
+  }
   const rights = sharedRights(chat, me.user.id)
   const othersTurn = shared?.answering ?? null
   const sharedLine = sharedNote(chat)
@@ -404,6 +423,9 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   /** who asked the question an answer answers (a shared chat: edit, regenerate and "send to a room" are for one's own) */
   const askedBy = (m: { parentId: string | null }) => messages.find((x) => x.id === m.parentId)?.author?.id
   const mine = (id: string | undefined) => !shared || id === me.user.id
+  // who asked, above each question: a shared chat, and a chat of mine that holds other people's questions (a fork of a
+  // shared chat keeps their names: docs/decisions/20261126-chat-fork.md)
+  const authorsShown = !!shared || messages.some((x) => x.role === 'user' && !!x.author && x.author.id !== me.user.id)
   // a shared chat: the running answer is mine to stop only when I asked; someone else's turn holds the box instead
   const runningMine = shared ? (!!running && mine(askedBy(running))) || messages.some((m) => m.local?.state === 'sending') : busy
 
@@ -791,9 +813,10 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
               onRename={rights.creator ? () => void actions.rename(chat, setChat) : undefined}
               onMove={rights.canMove ? () => setMovingProject(true) : undefined}
               onDelete={rights.canDelete ? () => void actions.remove(chat) : undefined}
-              // a shared chat: the same question again in a chat only I see, in its project (my last question here); a
-              // chat shared with people: Home's box, no project
-              onPrivately={shared ? () => (chat.projectId ? askPrivately(navigate, chat.projectId, lastOwnQuestion(chat.id, me?.user.id)) : askPrivatelyHome(navigate, lastOwnQuestion(chat.id, me?.user.id))) : undefined}
+              // a shared chat: a chat only I see with this conversation so far, in its project (a chat shared with people:
+              // outside projects), the AI going on from it (POST /api/chats/:id/fork). Refused (an older server, a guest
+              // where they may not start one): the old way, my last question in a new chat's box
+              onPrivately={shared ? () => void forkHere(chat) : undefined}
               onHide={() => void actions.hide(chat)}
               onLeave={() => void actions.leave(chat)}
             />
@@ -829,6 +852,8 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
           <BoxAnswers.Provider value={chat?.deletedAt || readOnly ? null : (question?.request.requestId ?? null)}>
           <ChatLinks.Provider value={chatLinks}>
           <ImageGroup>
+            {/* a chat made by "Continue in a chat only you see": where it came from, above its first message */}
+            {chat?.forkedFrom && messages.length > 0 && !thread.nextCursor && !loading && <ForkedFromLine from={chat.forkedFrom} />}
             {messages.map((m, i) => {
               // who changed its people since the message before (a chat shared with people; nothing before the oldest
               // message read while older ones are still to load)
@@ -839,7 +864,7 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
                   <Fragment key={m.id}>
                     {before}
                     <ViewerMeta sender={{ kind: 'user', user: m.author ?? (shared ? null : me.user) }} at={m.createdAt}>
-                      <UserMessage m={m} chatId={chatId} busy={rowsBusy} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={!!shared} canEdit={!readOnly && mine(m.author?.id)} sideChat={!!chat?.sideRoomId} />
+                      <UserMessage m={m} chatId={chatId} busy={rowsBusy} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={authorsShown} canEdit={!readOnly && mine(m.author?.id)} sideChat={!!chat?.sideRoomId} />
                     </ViewerMeta>
                   </Fragment>
                 )

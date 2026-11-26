@@ -327,6 +327,10 @@ export const Chat = z.object({
    * how this run went (null while it runs). The lists fold the runs of one task into one row that opens the task
    * (docs/DECISIONS.md "Scheduled runs fold in Recent"). Absent = not a run, or the task is gone. */
   schedule: z.object({ id: z.string(), title: z.string(), templateId: z.string().nullable(), outcome: z.enum(['succeeded', 'problems', 'failed']).nullable() }).optional(),
+  /** a chat I made from a shared chat's "Continue in a chat only you see" (POST /api/chats/:id/fork): the line "Continued
+   * from ‹title›" above its copied messages. chatId while I may still open that chat (a link), else its title at the
+   * copy alone. Absent = not a fork. */
+  forkedFrom: z.object({ title: z.string(), chatId: Uuid7.optional() }).optional(),
   /** an answer finished here after I last had the chat on screen (POST /api/chats/:id/seen; migration 252). Absent = no. */
   unseen: z.literal(true).optional(),
   /** a chat shared with people: the messages of others (and Trina's answers to them) I have not read here yet
@@ -445,6 +449,10 @@ export const Attachment = z.object({
    * for them ("Trina for <name>"); `version` its number (the first file is 1). `size`, `mime`, `width`, `height` of the
    * attachment are the newest version's. Absent: never changed */
   updated: z.object({ by: z.string(), byName: z.string(), at: IsoTime, version: z.number().int().positive(), ai: z.literal(true).optional() }).optional(),
+  /** a chat file (source 'chat') of another chat, copied by reference into a chat only its person sees ("Continue in a
+   * chat only you see", server chat/fork.ts): the shared chat that keeps it. It opens through this chat's own routes
+   * while the person still sees that chat's files there; never a copy of the bytes */
+  fromChat: Uuid7.optional(),
 })
 export type Attachment = z.infer<typeof Attachment>
 /** One version of a chat file (server ChatFiles.versions: read {versions}, the web's history). Never a hash or a path. */

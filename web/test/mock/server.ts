@@ -3105,6 +3105,28 @@ export class MockServer {
       this.chats.push(chat)
       return { status: 201, body: chat }
     },
+    // "Continue in a chat only you see" (server chat/fork.ts): a new chat of mine, in the shared chat's project (one shared
+    // with people: outside projects), with its finished messages as I see them; the original is not changed
+    forkChat: (c) => {
+      const src = this.chats.find((y) => y.id === c.params.id && !y.deletedAt) ?? fail('not_found', 404)
+      const proj = this.sharedChats.get(src.id)?.projectId
+      if (!proj && !this.peopleShared.has(src.id)) fail('conflict', 409, '이 채팅은 나만 보는 채팅으로 이어 할 수 없어요.', undefined, { reason: 'fork_not_shared' })
+      const shown = this.path(src.id)
+      const cut = shown.findIndex((m) => m.status === 'streaming')
+      const msgs = cut < 0 ? shown : shown.slice(0, cut)
+      while (msgs.length && msgs[msgs.length - 1]!.role === 'user') msgs.pop()
+      if (!msgs.some((m) => m.role === 'assistant')) fail('conflict', 409, '아직 이어 갈 내용이 없어요. 답이 끝나면 다시 해 주세요.', undefined, { reason: 'fork_nothing' })
+      const chat: Chat = { id: uuidv7(), projectId: proj ?? null, title: src.title, engine: src.engine, model: src.model, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle', forkedFrom: { title: src.title, chatId: src.id } }
+      this.chats.push(chat)
+      this.chatOwners.set(chat.id, c.user.id)
+      const ids = new Map<string, string>()
+      for (const m of msgs) {
+        const copy = this.message({ ...m, id: uuidv7(), chatId: chat.id, parentId: m.parentId ? ids.get(m.parentId) ?? null : null, branch: { index: 0, count: 1, siblingIds: [] } })
+        ids.set(m.id, copy.id)
+      }
+      this.activeLeaf.set(chat.id, ids.get(msgs[msgs.length - 1]!.id)!)
+      return { status: 201, body: chat }
+    },
     getChat: (c) => {
       const x = this.chats.find((y) => y.id === c.params.id) ?? fail('not_found', 404)
       // a shared chat of a project in the trash: 404, with why for its members (chat/shared.ts chatFor; QA TC-1060)
@@ -8998,6 +9020,12 @@ export class MockServer {
       const x = base(c) as Chat
       if (othersPrivate(x.id, c.user)) fail('not_found', 404)
       return this.sharedChats.has(x.id) ? view(x, c.user) : x
+    })
+    // a fork is told to my windows only (routes/chats.ts forkChat: publishChat 'created')
+    over('forkChat', (c, base) => {
+      const out = base(c) as { status: number; body: Chat }
+      this.sharedSend((userId) => (userId === c.user.id ? { type: 'chat.updated', data: { chatId: out.body.id, change: 'created', chat: out.body } } : null))
+      return out
     })
     over('listMessages', (c, base) => {
       if (shared(c.params.id)) view(chatOf(c.params.id!), c.user)

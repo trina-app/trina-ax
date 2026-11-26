@@ -30,6 +30,12 @@ export interface ChatRow {
   /** migration 298: shared with chosen people and groups (chat_audience; chat/people-share.ts); its project_id is NULL
    * and shared_at stays NULL. null: not shared that way */
   people_shared_at: string | null
+  /** migration 457: a copy of this shared chat, made by "Continue in a chat only you see" (chat/fork.ts), ending at its
+   * message fork_at; fork_title its title then; fork_pending: the copy's first answer has not run yet */
+  fork_of?: string | null
+  fork_at?: string | null
+  fork_title?: string | null
+  fork_pending?: number
 }
 export interface MessageRow {
   id: string; chat_id: string; parent_id: string | null; role: 'user' | 'assistant'; author_id: string | null; content: string
@@ -42,6 +48,10 @@ export interface MessageRow {
   history_small_model: number
   /** why the answer was stopped for its requester (migration 435): their account deleted or switched off */
   stopped_for?: string | null
+  /** migration 457: copied into a fork (chat/fork.ts); withheld_copy: an answer hidden from the person, copied as one
+   * line with nothing of it */
+  fork_copy?: number
+  withheld_copy?: number
 }
 export interface ProjectRow {
   id: string; name: string; folder_path: string; instructions: string; created_by: string | null; created_at: string
@@ -57,8 +67,8 @@ export interface ProjectRow {
   folder_made?: number
 }
 
-export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source, room_id, seen_at, shared_at, side_room_id, people_shared_at'
-export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason, history_trimmed, history_small_model, stopped_for'
+export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source, room_id, seen_at, shared_at, side_room_id, people_shared_at, fork_of, fork_at, fork_title, fork_pending'
+export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason, history_trimmed, history_small_model, stopped_for, fork_copy, withheld_copy'
 export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, trashed_with, share_chats, folder_made'
 
 /** SQLite timestamps ("2026-10-21T03:04:05.678Z" from strftime, or ISO from JS) -> ISO with offset. */
@@ -95,16 +105,20 @@ type HeadRow = { root_id: string; user_id: string; size: number; mime: string; w
  * newest version: its size, type and picture size, and who changed it (Attachment.updated). The id stays the root's,
  * so the chip and every link open the chain, which opens its head. */
 export function chatFilesAsHeads(db: Database, chatId: string, atts: Attachment[]): Attachment[] {
-  const ids = atts.filter((a) => a.source === 'chat' && !a.unavailable).map((a) => a.id)
-  if (!ids.length) return atts
-  // the message's own chat only (a chain is never another chat's)
-  const rows = db.query(`SELECT c.root_id, c.user_id, c.size, c.mime, c.width, c.height, c.version, c.origin, c.created_at, u.name AS by_name FROM chat_files c LEFT JOIN users u ON u.id = c.user_id
-    WHERE c.chat_id = ? AND c.root_id IN (${ids.map(() => '?').join(',')}) ORDER BY c.version DESC, c.rowid DESC`).all(chatId, ...ids) as HeadRow[]
-  if (!rows.length) return atts
   const heads = new Map<string, HeadRow>()
-  for (const r of rows) if (!heads.has(r.root_id)) heads.set(r.root_id, r)
+  // the message's own chat only (a chain is never another chat's), or for a fork's copy the chat that keeps it
+  // (Attachment.fromChat, chat/fork.ts)
+  const byChat = new Map<string, string[]>()
+  for (const a of atts) if (a.source === 'chat' && !a.unavailable) { const c = a.fromChat ?? chatId; byChat.set(c, [...(byChat.get(c) ?? []), a.id]) }
+  if (!byChat.size) return atts
+  for (const [cid, ids] of byChat) {
+    const rows = db.query(`SELECT c.root_id, c.user_id, c.size, c.mime, c.width, c.height, c.version, c.origin, c.created_at, u.name AS by_name FROM chat_files c LEFT JOIN users u ON u.id = c.user_id
+      WHERE c.chat_id = ? AND c.root_id IN (${ids.map(() => '?').join(',')}) ORDER BY c.version DESC, c.rowid DESC`).all(cid, ...ids) as HeadRow[]
+    for (const r of rows) if (!heads.has(`${cid} ${r.root_id}`)) heads.set(`${cid} ${r.root_id}`, r)
+  }
+  if (!heads.size) return atts
   return atts.map((a) => {
-    const h = a.source === 'chat' ? heads.get(a.id) : undefined
+    const h = a.source === 'chat' ? heads.get(`${a.fromChat ?? chatId} ${a.id}`) : undefined
     if (!h) return a
     const { width: _w, height: _h, receivedSize: _r, ...rest } = a
     return {
@@ -179,15 +193,24 @@ export class ChatStore {
     if (atts.some((a) => a.source === 'chat')) atts = chatFilesAsHeads(this.db, r.chat_id, atts)
     // a shared chat (chat/shared.ts): as this viewer may see them, whoever attached them. A file kept with a chat shared
     // with people (chat/chat-files.ts) only for whoever sees it by that rule (not a project's people the chat got later)
+    // a fork's copy of another chat's file (Attachment.fromChat, chat/fork.ts): while the person sees that chat's files
+    // (its chat_files rule: chat/chat-files-access.ts), else blanked like any chat file they may not open
+    const sees = new Map<string, boolean>()
+    const seesFrom = (who: string, c: string) => { let v = sees.get(c); if (v === undefined) sees.set(c, (v = seesChatFiles(this.db, who, c))); return v }
     if (viewer !== undefined) {
       const blank = (a: Attachment) => (a.source === 'team' ? blankTeamAttachment(a) : { ...blankTeamAttachment(a), source: a.source })
-      const kept = atts.some((a) => a.source === 'chat') && seesChatFiles(this.db, viewer, r.chat_id)
+      const keptHere = atts.some((a) => a.source === 'chat' && !a.fromChat) && seesChatFiles(this.db, viewer, r.chat_id)
+      const kept = { has: (a: Attachment) => (a.fromChat ? seesFrom(viewer, a.fromChat) : keptHere) }
       // a file from someone else's computer this viewer may not open (one not copied at a first share: QA TC-2022; a
       // computer upload in a shared project chat) is left out for them, not a nameless "0 B" tile; its sender still sees
       // it. A team reference they may not open stays, as "unavailable" (it names nothing)
-      const chatRule = (out: Attachment[]) => out.map((a) => (a.source === 'chat' && !kept ? blank(a) : a)).filter((a) => !(a.unavailable && a.source !== 'team'))
+      const chatRule = (out: Attachment[]) => out.map((a) => (a.source === 'chat' && !kept.has(a) ? blank(a) : a)).filter((a) => !(a.unavailable && a.source !== 'team'))
       if (!this.viewAttachmentsAs) return chatRule(atts.map((a) => (a.source === 'chat' || (a.source !== 'team' && r.author_id === viewer) ? a : blank(a))))
       try { return chatRule(this.viewAttachmentsAs(viewer, r.author_id ?? null, atts)) } catch { return atts.filter((a) => a.source === 'team').map(blank) }
+    }
+    if (atts.some((a) => a.fromChat)) {
+      const owner = (this.db.query('SELECT user_id FROM chats WHERE id = ?').get(r.chat_id) as { user_id: string } | null)?.user_id
+      atts = atts.filter((a) => !a.fromChat || (!!owner && seesFrom(owner, a.fromChat)))
     }
     if (!atts.some((a) => a.source === 'team')) return atts
     const owner = (this.db.query('SELECT user_id FROM chats WHERE id = ?').get(r.chat_id) as { user_id: string } | null)?.user_id
