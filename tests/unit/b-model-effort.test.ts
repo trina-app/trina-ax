@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import os from 'node:os'
 import path from 'node:path'
 import { API, ApiError } from '@mycel/shared/api'
-import { claudeFamily, modelDisplayName } from '@mycel/shared'
+import { claudeFamily, modelDisplayName, modelVersionName } from '@mycel/shared'
 import { makeEnv } from '../lib/env'
 import { addCred, testCredCtx } from '../lib/credentials'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
@@ -98,7 +98,13 @@ describe('recording the model that answered', () => {
     expect(names).toContainEqual(['Claude Haiku', 11])
     expect(names).toContainEqual(['Claude Sonnet', 50])
     const admin = usage(env.db, { groupBy: 'model', to: new Date(Date.now() + 60_000).toISOString() } as Parameters<typeof usage>[1])
-    expect(admin.rows.map((r) => r.label)).toEqual(expect.arrayContaining(['Claude Opus', 'Claude Haiku', 'Claude Sonnet']))
+    // Admin keeps one row per real id (the CSV's key), named with its version: never two rows of one name
+    const want = [['claude-haiku-5-5', 'Claude Haiku 5.5'], ['claude-opus-5-5', 'Claude Opus 5.5 (claude-opus-5-5)'],
+      ['claude-opus-5-5-20261101', 'Claude Opus 5.5 (claude-opus-5-5-20261101)'], ['sonnet', 'Claude Sonnet']].sort()
+    expect(admin.rows.map((r) => [r.key, r.label]).sort()).toEqual(want)
+    // the model filter's choices read the same
+    const facets = usage(env.db, { groupBy: 'model', facets: true, to: new Date(Date.now() + 60_000).toISOString() } as Parameters<typeof usage>[1]).facets!
+    expect(facets.models.map((m) => [m.key, m.label]).sort()).toEqual(want)
     // the totals still count whole turns
     expect(admin.totals.turns).toBe(3)
   })
@@ -115,6 +121,8 @@ describe('recording the model that answered', () => {
     expect(['opus', 'claude-opus-5-5-20261101', 'anthropic/claude-opus-5-5', 'us.anthropic.claude-opus-5-5', 'claude-3-5-sonnet-20241022', 'claude-haiku-4-5[1m]'].map(modelDisplayName))
       .toEqual(['Claude Opus', 'Claude Opus', 'Claude Opus', 'Claude Opus', 'Claude Sonnet', 'Claude Haiku'])
     expect(modelDisplayName('gpt-5.5-codex')).toBe('GPT-5.5 Codex')
+    expect(['claude-opus-4-5-20251101', 'claude-sonnet-4-20250514', 'claude-3-5-sonnet-20241022', 'opus', 'claude-haiku-4-5[1m]', 'gpt-5.5'].map(modelVersionName))
+      .toEqual(['Claude Opus 4.5', 'Claude Sonnet 4', 'Claude Sonnet 3.5', 'Claude Opus', 'Claude Haiku 4.5', 'GPT-5.5'])
     expect(modelDisplayName('my-model')).toBe('my-model')
     expect(['opus', 'claude-sonnet-5-5', 'gpt-5.5'].map(claudeFamily)).toEqual(['opus', 'sonnet', null])
   })
@@ -138,7 +146,7 @@ describe('depth as engine flags', () => {
     expect(flag(buildClaudeLaunch({ ...base, effort: 'high' }, { bin: '/fake/old-claude', authMode: 'local-login', agentHome: '/a' }).args)).toBeNull()
   })
 
-  test('Codex: model_reasoning_effort is always sent once chosen (보통 = medium); nothing chosen sends nothing', () => {
+  test('Codex: model_reasoning_effort low / medium / high (the launch without a depth sends none; a chat turn always passes one, below)', () => {
     const conf = { bin: 'codex', codexHome: '/h', agentHome: '/a', catalog: '/cat.json', model: 'm1', auth: 'agent-own' as const }
     const setting = (a: string[]) => a.find((x) => x.startsWith('model_reasoning_effort='))
     expect(CODEX_REASONING).toEqual({ quick: 'low', normal: 'medium', thorough: 'high' })
@@ -186,6 +194,14 @@ describe('choosing, in a running server', () => {
     expect(turnEngine(h.ctx, { id: 'alice', role: 'member' }, { engine: 'claude-code', model: null, effort: null }, {}, 'en', () => null).effort).toBe('quick')
     await h.api('dana').call(API.updateEngines, { body: { defaultEffort: null } })
     await h.api('carol').call(API.updateMe, { body: { prefs: { effort: null } } })
+  })
+
+  test('a Codex turn nobody chose a depth for runs on 보통: model_reasoning_effort="medium", like the picker shows', async () => {
+    const chat = await h.api('carol').call(API.createChat, { body: { engine: 'codex' } })
+    expect(chat.effort ?? null).toBeNull()
+    const { done } = await ask(h, carol, 'carol', chat.id, fake({ echo: 'args' }))
+    expect(done.engine).toBe('codex')
+    expect(done.content).toContain('model_reasoning_effort=\\"medium\\"')
   })
 
   test('GET /api/engines: which engines take a depth', async () => {

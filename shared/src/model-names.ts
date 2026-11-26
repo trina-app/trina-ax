@@ -18,6 +18,20 @@ export function modelDisplayName(id: string): string {
   return raw
 }
 
+/**
+ * The same with the version the id names, where one id per row matters (Admin › Usage by model and its filter keep the
+ * real ids apart): "claude-opus-4-5-20251101" → "Claude Opus 4.5", "claude-3-5-sonnet-20241022" → "Claude Sonnet 3.5".
+ * An alias ("opus") or an id without a version keeps the plain name.
+ */
+export function modelVersionName(id: string): string {
+  const name = modelDisplayName(id)
+  const base = id.trim().toLowerCase().replace(/\[1m\]$/, '').split('/').pop()!.replace(/^(?:[a-z]{2}\.)?anthropic\./, '')
+  const after = /^claude-(?:opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d{1,2}))?(?![\d])/.exec(base)
+  const before = /^claude-(\d+)(?:[-.](\d{1,2}))?-(?:opus|sonnet|haiku|fable)\b/.exec(base)
+  const v = after ?? before
+  return v ? `${name} ${v[1]}${v[2] !== undefined ? '.' + v[2] : ''}` : name
+}
+
 /** The family of a Claude model id (for the plain hint under it), or null for any other model. */
 export function claudeFamily(id: string): 'opus' | 'sonnet' | 'haiku' | null {
   const base = id.toLowerCase().split('/').pop()!.replace(/^(?:[a-z]{2}\.)?anthropic\./, '')

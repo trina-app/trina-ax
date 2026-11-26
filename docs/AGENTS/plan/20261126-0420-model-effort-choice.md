@@ -35,8 +35,8 @@
     `turns.model`). A display-name map in `shared/` turns `claude-opus-5-5-…` into "Claude Opus".
 - **Choice, corrected:**
   - Claude Code: `--effort low|high`, nothing for 보통; the `--help` check stays (the pinned 2.1.305 has the flag).
-  - Codex: `-c model_reasoning_effort="low|medium|high"` is always sent when someone chose a depth, 보통 included
-    (`medium`): some Codex models default to `low`. Nothing chosen: no flag, as today.
+  - Codex: `-c model_reasoning_effort="low|medium|high"` is always sent, 보통 included (`medium`), also when nobody
+    chose a depth (보통 is what the picker shows then): some Codex models default to `low`.
   - API engine: unchanged.
   - Scheduled runs carry the owner's default depth; a run into a shared chat uses that chat's model and depth (fixes
     `schedules.ts` deciding the engine before the chat).
@@ -179,10 +179,9 @@ These live in Admin › Team settings › AI defaults, on existing rows. Nothing
 
 - **Codex:**
   - Model: the catalog list, as today.
-  - Depth: `-c model_reasoning_effort="low|high"` (no flag for 보통), passed in `server/src/engine/codex.ts` next to
-    `-c model=`.
-  - Shown only for catalog models whose `supported_reasoning_levels` include it. The locked catalog carries them;
-    confirm the field on codex-cli 0.163.0.
+  - Depth: always `-c model_reasoning_effort="low|medium|high"` (보통 and nothing chosen = `medium`; review of #631),
+    passed in `server/src/engine/codex.ts` next to `-c model=`.
+  - Shown for every Codex model in this version (the per-model `supported_reasoning_levels` filter is left for later).
   - The words are the same as for Claude.
 - **API engine:**
   - It has one model per team (`engine-api.json`), so it still gets no model picker.

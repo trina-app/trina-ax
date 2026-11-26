@@ -5,7 +5,7 @@
 import type { Database } from 'bun:sqlite'
 import type { z } from 'zod'
 import { DEMO_LIMIT_REASON, type Budget, type BudgetBody, type Locale, type UsageQuery, type UsageResponse } from '@mycel/shared/api'
-import { ANSWER_AVERAGE_DAYS, DEFAULT_TOKENS_PER_ANSWER, MIN_ANSWERS_FOR_AVERAGE, limitResetText, modelDisplayName } from '@mycel/shared'
+import { ANSWER_AVERAGE_DAYS, DEFAULT_TOKENS_PER_ANSWER, MIN_ANSWERS_FOR_AVERAGE, limitResetText, modelVersionName } from '@mycel/shared'
 import { newId } from '../db'
 import { fail } from '../http/errors'
 import { msg } from '../auth/messages'
@@ -293,6 +293,16 @@ function usageSeries(db: Database, groupBy: In<typeof UsageQuery>['groupBy'], wh
   return [...out.values()].sort((a, b) => a.day.localeCompare(b.day) || a.key.localeCompare(b.key))
 }
 
+/** Admin › Usage by model and its filter: each real id (the key, as the CSV keeps it) named with its version ("Claude
+ * Opus 4.5"); two ids that still read the same (an alias and a dated id of one version) get the id after the name, so
+ * no two rows look alike. A row without a model keeps its label. */
+function modelLabels<T extends { key: string; label: string }>(rows: T[]): T[] {
+  const named = rows.map((r) => ({ ...r, label: r.key ? modelVersionName(r.key) : r.label }))
+  const seen = new Map<string, number>()
+  for (const r of named) seen.set(r.label, (seen.get(r.label) ?? 0) + 1)
+  return named.map((r) => (r.key && (seen.get(r.label) ?? 0) > 1 ? { ...r, label: `${r.label} (${r.key})` } : r))
+}
+
 /** The filter choices: everything with usage in the range, whatever the filters are (so a choice never disappears). */
 function usageFacets(db: Database, range: string[]): NonNullable<UsageRes['facets']> {
   const w = 't.started_at >= ? AND t.started_at < ?'
@@ -300,7 +310,7 @@ function usageFacets(db: Database, range: string[]): NonNullable<UsageRes['facet
   return {
     users: db.query(`SELECT DISTINCT t.user_id AS key, COALESCE(u.name, t.user_id) AS label FROM turns t LEFT JOIN users u ON u.id = t.user_id WHERE ${w} ORDER BY label`).all(...range) as F[],
     engines: db.query(`SELECT DISTINCT t.engine AS key, t.engine AS label FROM turns t WHERE ${w} ORDER BY key`).all(...range) as F[],
-    models: (db.query(`SELECT DISTINCT COALESCE(t.model, '') AS key FROM ${TURN_MODEL_ROWS} t WHERE ${w} ORDER BY key`).all(...range) as { key: string }[]).map((r) => ({ key: r.key, label: r.key ? modelDisplayName(r.key) : '(default)' })),
+    models: modelLabels((db.query(`SELECT DISTINCT COALESCE(t.model, '') AS key FROM ${TURN_MODEL_ROWS} t WHERE ${w} ORDER BY key`).all(...range) as { key: string }[]).map((r) => ({ key: r.key, label: '(default)' }))),
     credentials: db.query(`SELECT DISTINCT t.credential_id AS key, COALESCE(c.label, '') AS label FROM turns t LEFT JOIN engine_credentials c ON c.id = t.credential_id WHERE ${w} AND t.credential_id IS NOT NULL ORDER BY label`).all(...range) as F[],
     groups: db.query('SELECT id AS key, name AS label FROM groups ORDER BY name').all() as F[],
   }
@@ -344,8 +354,9 @@ export function usage(db: Database, q: In<typeof UsageQuery>, now = new Date()):
     case 'credential': sql = `SELECT t.credential_id AS key, COALESCE(c.label, '') AS label, ${agg} FROM turns t LEFT JOIN engine_credentials c ON c.id = t.credential_id WHERE ${where} AND t.credential_id IS NOT NULL GROUP BY t.credential_id ORDER BY costUsd DESC, turns DESC`; break
   }
   const raw = q.groupBy === 'day' ? usageByLocalDay(db, where, params, src) : (db.query(sql.replace(/FROM turns t\b/g, `FROM ${src} t`)).all(...(q.groupBy === 'skill' ? [...range, ...params] : params)) as UsageRes['rows'])
-  // a model's name as people read it ("Claude Opus"); its key (and the CSV) keeps the real id
-  const rows = q.groupBy === 'model' ? raw.map((r) => ({ ...r, label: r.key ? modelDisplayName(r.key) : r.label })) : raw
+  // a model's name as people read it, with its version ("Claude Opus 4.5"): one row per real id, so two ids never show
+  // the same name; the key (and the CSV) keeps the real id
+  const rows = q.groupBy === 'model' ? modelLabels(raw) : raw
   // the totals count whole turns, unless the view is filtered to one model
   const tot = db.query(`SELECT ${agg} FROM ${q.model !== undefined ? TURN_MODEL_ROWS : 'turns'} t WHERE ${where}`).get(...params) as UsageRes['totals']
   // unpricedTurns / estimatedTurns (admin/usage-amount.ts): only when any

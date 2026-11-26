@@ -19,8 +19,8 @@
     composer's picker, kept for the chat and starting the next new chat. Settings › Profile "AI for new chats" holds the
     person's default, Admin › Team settings › AI defaults the team's.
     - Claude Code: `--effort low`, no flag, `--effort high` (the pinned 2.1.305 has it; the `--help` check stays).
-    - Codex: `model_reasoning_effort` low / medium / high, always sent once someone chose a depth (some Codex models
-      default to low); nothing chosen sends nothing.
+    - Codex: `model_reasoning_effort` low / medium / high, always sent: 보통 and nothing chosen are `medium`, so a run
+      matches the 보통 the picker shows (some Codex models default to low).
     - `xhigh`, `max` and "auto" are never offered: they burn the limits.
     - The API engine takes no depth in this version.
   - **Opus stays the default** on a subscription, as before. No Opus allowlist.

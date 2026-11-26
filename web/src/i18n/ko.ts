@@ -2639,7 +2639,7 @@ export const ko = {
   'engines.defaultEngine': '기본 엔진',
   'engines.defaultModel': '기본 모델',
   'engines.defaultEffort': "기본 생각 깊이",
-  'engines.defaultEffortHint': "새 채팅에서 AI가 얼마나 깊이 생각할지예요. 꼼꼼하게는 더 오래 걸리고 더 많이 써요.",
+  'engines.defaultEffortHint': "새 채팅에서 AI가 얼마나 깊이 생각할지예요. '꼼꼼하게'는 더 오래 걸리고 더 많이 써요.",
   'engines.defaultEngineOffOption': '{engine} (꺼짐)',
   'engines.defaultEngineOff': '이 AI는 꺼져 있어 새 채팅에서 쓸 수 없어요. 다른 AI를 골라 주세요.',
   'engines.concurrency': '동시 실행 수',

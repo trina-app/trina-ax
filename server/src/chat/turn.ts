@@ -1883,7 +1883,7 @@ export class TurnExec {
             authJson: dummyAuthJson({ credentialId: c.credentialId, kind, planType: meta.planType ?? null, fedramp: meta.fedramp === true }, t) }
         }
         this.launchModel = model ?? codex.model ?? null
-        const lr = buildCodexLaunch({ webSearch, turnId: spec.turnId, chatDir, token, systemPrompt: o.systemPrompt, message: recovered ? `${contextRecoverBlock(this.writtenText, this.steps.filter((x) => x.kind !== 'thinking' && !x.parentId && x.tool !== 'context').map((x) => ({ label: x.sv?.label ?? x.label, status: x.status })))}\n\n${o.message}` : o.message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools: o.extraTools, model, proxy, effort: spec.effort ?? null, ...(m ? { managed: m } : {}) }, codex)
+        const lr = buildCodexLaunch({ webSearch, turnId: spec.turnId, chatDir, token, systemPrompt: o.systemPrompt, message: recovered ? `${contextRecoverBlock(this.writtenText, this.steps.filter((x) => x.kind !== 'thinking' && !x.parentId && x.tool !== 'context').map((x) => ({ label: x.sv?.label ?? x.label, status: x.status })))}\n\n${o.message}` : o.message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools: o.extraTools, model, proxy, effort: spec.effort ?? 'normal', ...(m ? { managed: m } : {}) }, codex)
         const { exit, stderr, notes } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
         this.closeThinking()
         try { prepareCodexTurn(codex, chatDir) } catch (e) { rt.log.warn('codex home restore failed', { err: e }) } // a refreshed login goes back to its place

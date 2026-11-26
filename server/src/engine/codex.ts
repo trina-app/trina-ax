@@ -174,8 +174,8 @@ export function codexManagedArgs(m: CodexManaged): string[] {
   ]
 }
 
-/** The depth a person chose (Effort) as Codex's model_reasoning_effort. Always sent once chosen, 보통 too ('medium'):
- * some Codex models default to low. Not chosen: nothing, Codex's own default as before. */
+/** The depth (Effort) as Codex's model_reasoning_effort. A chat turn always sends one (chat/turn.ts: nothing chosen is
+ * 보통, 'medium'), so the run matches the 보통 the picker shows: some Codex models default to low. */
 export const CODEX_REASONING: Record<Effort, 'low' | 'medium' | 'high'> = { quick: 'low', normal: 'medium', thorough: 'high' }
 
 export function codexArgs(conf: CodexConf, o: { extraTools?: string[]; model?: string; managed?: CodexManaged; webSearch?: boolean; effort?: Effort | null } = {}): string[] {
