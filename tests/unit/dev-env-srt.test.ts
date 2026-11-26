@@ -25,7 +25,7 @@ import { _held, _heldSkills, holdPlaceholders, holdSkillFolders, SRT_DENY_DIRS, 
 import { cgroupDir, slicePath, type SpawnSpec, type SrtSystem, type UnitInfo } from '../../server/src/devenv/srt/system'
 import { JOB_DONE, JOB_DONE_NO_CHAT, JOB_FAILED, JOB_FAILED_NO_CHAT, JOB_UNKNOWN, pollSrt, REQUEST_DONE, REQUEST_SOURCE, REQUEST_WHY, requestNoticeText, runResultsForAI, tellHeldJobs, type RequestStop } from '../../server/src/devenv/jobs'
 import { closeChatQuestions } from '../../server/src/chat/open-questions'
-import { mayUseDevEnv, newConsent, saveTeamSetting, teamInForce, teamSetting } from '../../server/src/devenv/setting'
+import { commandMode, mayUseDevEnv, newConsent, saveTeamSetting, TEAM_SETTING_KEY, teamInForce, teamSetting } from '../../server/src/devenv/setting'
 import { BOX_TEXT_KEPT, boxBrowserText, boxLibsText, boxShellTool, sharedShellDescription, srtShellDescription } from '../../server/src/devenv/tool'
 import { _resetUpdateWait, beginUpdateWait, endUpdateWait } from '../../server/src/system/update-wait'
 import { fullInternet, grantUserSite, setFullInternet, userSites } from '../../server/src/devenv/sites'
@@ -1124,12 +1124,56 @@ describe('the team setting', () => {
     const admin = await h.api('carol').call(API.devEnvTeam, {})
     expect(admin.availability!.detail).toContain('polkit')
   })
-  test('off: the tool says so and runs nothing', async () => {
+  test('off, with documents mode off on the server: the tool says so and runs nothing', async () => {
     turnOnTeam({ enabled: false })
+    process.env.MYCEL_DOCUMENTS_MODE = '0'
+    try {
+      const r = await alice().call({ command: 'echo x' })
+      expect(r.isError).toBe(true)
+      expect(out(r)).toContain('off for you')
+      expect(runs.size).toBe(0)
+    } finally { delete process.env.MYCEL_DOCUMENTS_MODE }
+  })
+  // docs/decisions/20261124-documents-mode.md: the dev environment off, commands still build documents
+  // an admin's explicit choice is respected (security review of #508): documents mode only where the team never chose
+  const offerRow = () => {
+    h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(TEAM_SETTING_KEY)
+    h.ctx.db.query('INSERT INTO settings (key, value) VALUES (?, ?)').run(TEAM_SETTING_KEY, '{"enabled":false}')
+  }
+  test('documents mode: on where the team never chose, off where an admin saved off or left the person out', async () => {
+    offerRow()
+    expect(commandMode(h.ctx.db, h.ctx.files, 'alice')).toBe('documents')
+    turnOnTeam({ enabled: false })
+    expect(commandMode(h.ctx.db, h.ctx.files, 'alice')).toBeNull()
     const r = await alice().call({ command: 'echo x' })
     expect(r.isError).toBe(true)
     expect(out(r)).toContain('off for you')
-    expect(runs.size).toBe(0)
+    turnOnTeam({ scope: { mode: 'selected', groupIds: [], userIds: ['bob'] } })
+    expect(commandMode(h.ctx.db, h.ctx.files, 'bob')).toBe('full')
+    expect(commandMode(h.ctx.db, h.ctx.files, 'alice')).toBeNull()
+  })
+  test('never chosen: documents mode runs in the chat\'s work folder, offline, with no team folder; no job, dev server or site', async () => {
+    offerRow()
+    expect(commandMode(h.ctx.db, h.ctx.files, 'alice')).toBe('documents')
+    const before = runs.size
+    // a project chat too: never the project folder
+    const r = await alice().call({ command: 'echo built' })
+    expect(r.isError).toBeFalsy()
+    expect(runs.size).toBe(before + 1)
+    const s = lastSettings()
+    expect(s.network.allowedDomains).toEqual([])
+    const team = h.team
+    expect(s.filesystem.allowRead.filter((d) => d === team || d.startsWith(team + '/'))).toEqual([])
+    expect(s.filesystem.allowWrite.filter((d) => d === team || d.startsWith(team + '/'))).toEqual([])
+    expect(s.filesystem.denyRead).toContain(team)
+    const run = [...runs.values()].at(-1)!
+    expect(run.spec.cwd.startsWith(team)).toBe(false)
+    for (const extra of [{ job: true }, { background: true }, { request_sites: ['example.com'] }]) {
+      const x = await alice().call({ command: 'echo x', ...extra })
+      expect(x.isError).toBe(true)
+      expect(out(x)).toContain('documents mode')
+    }
+    expect(runs.size).toBe(before + 1)
   })
 })
 

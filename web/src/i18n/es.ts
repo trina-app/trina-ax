@@ -80,7 +80,7 @@ export const es: Record<MessageKey, string> = {
   "devEnvSites.fullTurnOn": "Activar",
   "devEnvSites.fullOn": "Internet completo está activado. La IA puede enviar los archivos que puede leer a cualquier sitio.",
   "devEnvTeam.accept": "Entiendo los riesgos y lo activo para el equipo",
-  "devEnvTeam.offer": "Está desactivado porque su equipo se creó antes de que existiera.",
+  "devEnvTeam.offer": "Está desactivado porque su equipo se creó antes de que existiera. Hasta que guarde una opción, los archivos de Word, PowerPoint y Excel se siguen creando aquí, sin internet y solo en la carpeta de cada chat.",
   "devEnvOffer.body": "Si lo activa, la IA ejecuta comandos en el servidor del equipo: rellena archivos de Excel y Word, ejecuta los scripts que trae una skill y usa Python o Node. Un comando solo ve las carpetas que puede abrir la persona que lo pidió y solo llega a sitios permitidos. Nada cambia hasta que lo active.",
   'common.cancel': "Cancelar",
   'common.choose': "Elegir",

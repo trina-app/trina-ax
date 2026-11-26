@@ -79,7 +79,7 @@ export const ko = {
   "devEnvSites.fullTurnOn": "켜기",
   "devEnvSites.fullOn": "전체 인터넷이 켜져 있어요. AI가 내가 읽을 수 있는 파일을 어느 사이트로든 보낼 수 있어요.",
   "devEnvTeam.accept": "위험을 이해했고 팀의 개발 환경을 켜요",
-  "devEnvTeam.offer": "이 기능이 생기기 전에 만든 팀이라 꺼져 있어요.",
+  "devEnvTeam.offer": "이 기능이 생기기 전에 만든 팀이라 꺼져 있어요. 그래도 설정을 저장하기 전까지는 Word·PowerPoint·Excel 파일을 인터넷 없이 각 채팅의 작업 폴더 안에서만 만들어요.",
   "devEnvOffer.body": "켜면 AI가 팀 서버에서 명령을 실행해요. 엑셀·워드 파일을 채우고, 스킬에 딸린 스크립트를 돌리고, Python이나 Node를 써요. 명령은 요청한 사람이 열 수 있는 폴더만 보고, 허용된 사이트에만 접속해요. 켜기 전에는 아무것도 바뀌지 않아요.",
 
   'common.cancel': '취소',

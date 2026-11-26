@@ -80,7 +80,7 @@ export const en: Record<MessageKey, string> = {
   "devEnvSites.fullTurnOn": "Turn on",
   "devEnvSites.fullOn": "Full internet is on. The AI can send files you can read to any site.",
   "devEnvTeam.accept": "I understand the risks and turn it on for the team",
-  "devEnvTeam.offer": "Off because your team was set up before this came.",
+  "devEnvTeam.offer": "Off because your team was set up before this came. Word, PowerPoint and Excel files are still built here, without internet and only in each chat's own folder, until you save a choice.",
   "devEnvOffer.body": "When it is on, the AI can run commands on the team server: fill in Excel and Word files, run the scripts that come with a skill, and use Python or Node. A command sees only the folders the person who asked may open, and reaches only allowed sites. Nothing changes until you turn it on.",
 
   'common.cancel': 'Cancel',

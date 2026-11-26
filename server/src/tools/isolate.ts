@@ -45,6 +45,10 @@ export interface IsolatedRun {
   helpersIn?: string
   /** macOS: more programs the converter may exec, each by its exact path (a shell's real binary behind /bin/sh) */
   execAlso?: string[]
+  /** Linux: the product's seccomp filter (native/internal/seccomp, the engine's) on the converter too, through the
+   * root-owned sandbox helper (MYCEL_SANDBOX_HELPER) inside bwrap; 'listen' keeps listen() (LibreOffice's own pipe).
+   * Where the server has no helper (dev, an install without the unit) the converter runs with bwrap alone, as others. */
+  seccomp?: 'listen'
   /** macOS: the headless browser's tighter profile (no Mach services but the ones it needs, no LaunchServices, no
    * opening apps or URLs, no Apple events; browserProfileRules) */
   browserProfile?: boolean
@@ -259,6 +263,14 @@ export function backgroundPrefix(platform: NodeJS.Platform = process.platform): 
   return p
 }
 
+/** where the sandbox helper is bound inside bwrap (the launcher's place for it too: native/cmd/mycel-sandbox) */
+const SANDBOX_IN_BWRAP = '/.sbx/mycel-sandbox'
+/** the root-owned sandbox helper the server unit names (MYCEL_SANDBOX_HELPER), or null */
+export function sandboxHelper(env: Record<string, string | undefined> = process.env): string | null {
+  const h = env.MYCEL_SANDBOX_HELPER ?? ''
+  return path.isAbsolute(h) && fs.existsSync(h) ? real(h) : null
+}
+
 /**
  * The command line and environment that run `o.cmd` isolated in `o.workDir` (a plain folder the server made, already
  * resolved): sandbox-exec on macOS, bwrap on Linux (inside the converter cgroup in production), else the converter
@@ -277,8 +289,12 @@ export function isolatedCommand(o: IsolatedRun & { workDir: string; timeoutMs: n
   } else if (kind === 'bwrap') {
     const bwrap = which('bwrap')!
     // production Linux: the converter starts inside the server's converter cgroup with rlimits (system/cgroups.ts)
+    // the seccomp step (o.seccomp): bwrap starts the helper, which loads the filter and execs the converter in place
+    const helper = o.seccomp ? sandboxHelper() : null
+    const inner = helper ? [SANDBOX_IN_BWRAP, 'exec', '--landlock', 'off', ...(o.seccomp === 'listen' ? ['--allow-listen'] : []), '--', cmd] : [cmd]
     argv = [...low, ...cgexecPrefix(o.timeoutMs, o.cpuThreads, o.cgroupLeaf), bwrap, ...bwrapArgs({ cmd, workDir, readPaths: o.readPaths ?? [], modern: bwrapIsModern(bwrap), curatedFonts: o.curatedFonts }),
-      ...Object.entries(env).flatMap(([k, v]) => ['--setenv', k, v]), cmd, ...o.args]
+      ...(helper ? ['--ro-bind', helper, SANDBOX_IN_BWRAP] : []),
+      ...Object.entries(env).flatMap(([k, v]) => ['--setenv', k, v]), ...inner, ...o.args]
   } else {
     argv = [...low, cmd, ...o.args]
   }

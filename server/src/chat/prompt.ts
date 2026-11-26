@@ -142,6 +142,9 @@ export interface PromptInput {
    * devEnvDownReason): no box_shell this turn, and the AI says so once (devEnvDownRule); 'staff': the asker is the
    * owner or an admin, 'member': anyone else (also every shared chat, which names no one's role) */
   devEnvDown?: 'staff' | 'member' | null
+  /** box_shell runs in documents mode this turn (devenv/setting.ts commandMode): offline, the chat's work folder only, so
+   * a skill's bundled scripts (in the team folder) cannot run there */
+  documentsOnly?: boolean
   /** a free-roam demo (docs/decisions/20261119-demo-free-roam-a.md): its fictional company's name; the AI is told what
    * the demo leaves out (demoRule) */
   demo?: { company: string; fakes?: boolean; banner?: boolean; bannerSource?: { path: string; exists: boolean } | null } | null
@@ -1328,7 +1331,7 @@ export function buildSubagentPrompt(files: FileService, i: PromptInput, tools: s
 export function subagentPromptSections(files: FileService, i: PromptInput, tools: string[]): Section[] {
   const has = new Set(tools)
   const rules = teamRules(files, i.user, i.shared ? i.roomReadable : null, i.promptTokens ?? DEFAULT_PROMPT_TOKENS)
-  const skills = skillsSection(files, i.user, i.skillList, i.roomReadable, { project: chatProjectOf(i), scripts: has.has('box_shell') })
+  const skills = skillsSection(files, i.user, i.skillList, i.roomReadable, { project: chatProjectOf(i), scripts: has.has('box_shell') && !i.documentsOnly })
   const base = [
     '# Rules from the team server for sub-agents',
     'These replace the general notes above where they differ: you work only through the tools you have, paths are team paths relative to the team root (e.g. shared/notes.md; never absolute paths), and saving files is fine when your task asks for it.',
@@ -1543,7 +1546,7 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
   const memories = memoryBlock(i.memories, memoryTokensOf(budget))
   const rules = i.guest ? '' : teamRules(files, i.user, i.shared ? i.roomReadable : null, Math.max(0, budget - textTokens(memories)))
   // the same section for every engine and the sub-agents (move_skill's own description says how to move one)
-  const skills = i.guest ? '' : skillsSection(files, i.user, i.skillList, i.roomReadable, { project: chatProjectOf(i), scripts: tools.has('box_shell') })
+  const skills = i.guest ? '' : skillsSection(files, i.user, i.skillList, i.roomReadable, { project: chatProjectOf(i), scripts: tools.has('box_shell') && !i.documentsOnly })
   const base = [
     i.guest ? `You are the team assistant of this team in ${PRODUCT.displayName} (the app), here helping a guest of the team (see "Guest" below).` : `You are the team assistant of this team in ${PRODUCT.displayName} (the app), working in the team's shared drive.`,
     teamNameLine(getTeamSettings(files.db).teamName),

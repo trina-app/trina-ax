@@ -37,7 +37,7 @@ import type { AppContext } from '../../context'
 import { newId } from '../../db'
 import { storageRoom } from '../../system/storage'
 import { resolveLayout } from '../../system/layout'
-import { mayUseDevEnv, teamSetting } from '../setting'
+import { commandMode, mayRunCommands, mayUseDevEnv, teamSetting } from '../setting'
 import { activePeople } from '../../team-files/service'
 import { ownSharedFolders, shareReaders } from '../../files/share-readers'
 import { startingRun } from './alive'
@@ -255,6 +255,8 @@ export async function devEnvDownReason(log?: { warn(m: string, d?: object): void
 export function personView(ctx: AppContext, userId: string, run?: RunWrites, shared?: SharedRun, scope?: SharedScopeNow | null, o: { hideSkills?: boolean } = {}): FolderView | null {
   let p
   try { p = ctx.files.principal(userId) } catch { return null }
+  // documents mode (setting.ts commandMode): no team folder at all, only the chat's work folder (settingsFor adds it)
+  if (isDocumentsMode(ctx, userId)) return { read: [], write: [], denyRead: [], denyWrite: [] }
   // a project run reads only folders that everyone who sees the project may read (access.ts, QA TC-095)
   const root = ctx.files.fx.root
   // every run hides the group and project skills folders (QA TC-4932). The hash a run is checked against is made
@@ -277,6 +279,9 @@ export function personView(ctx: AppContext, userId: string, run?: RunWrites, sha
   const there = (rel: string) => { try { return fs.statSync(rel === '' ? root : path.join(root, rel)).isDirectory() } catch { return false } }
   return { read: v.read.filter(there), write: v.write.filter(there), denyRead: v.denyRead.filter(there), denyWrite: v.denyWrite.filter(there) }
 }
+
+/** Does this person's command run in documents mode now (offline, work folder only)? */
+export const isDocumentsMode = (ctx: Pick<AppContext, 'db' | 'files'>, userId: string) => commandMode(ctx.db, ctx.files, userId) === 'documents'
 
 /** Who sees a shared chat now, as principals. Null when anyone of them cannot be loaded (fail closed). */
 type SharedScopeNow = { audience: Principal[]; within: string | null }
@@ -381,7 +386,7 @@ const runHash = (view: FolderView, run: RunWrites, scope?: SharedScopeNow | null
 /** The hash a running job or dev server is checked against: the view of a run in this space, and whether the person
  * may still use the dev environment. */
 export function accessHash(ctx: AppContext, space: Space): string {
-  if (!mayUseDevEnv(ctx.db, ctx.files, space.userId)) return 'off'
+  if (!mayRunCommands(ctx.db, ctx.files, space.userId)) return 'off'
   let run: RunWrites
   try { run = runWrites(ctx, srtConfig(), space) } catch { return 'off' }
   const scope = space.shared ? sharedScopeNow(ctx, space.shared) : null
@@ -541,12 +546,14 @@ function spaceAt(ctx: AppContext, o: { userId: string; chatId: string | null; pr
   if (!view) return null
   const shared = o.shared ? { shared: o.shared } : {}
   if (o.shared && !o.chatId) return null
-  const within = o.shared ? o.shared.within : o.project?.folderPath ?? null
+  // documents mode: always the chat's work folder, never a project folder (a shared project chat's too)
+  const docs = isDocumentsMode(ctx, o.userId)
+  const within = docs ? null : o.shared ? o.shared.within : o.project?.folderPath ?? null
   if (within !== null && within !== '' && (!o.shared || o.project?.folderPath === within)) {
     const root = path.join(ctx.files.fx.root, within)
     if (viewAccess(view, within) !== 'none' && fs.existsSync(root)) return { userId: o.userId, chatId: o.chatId, projectId: o.project?.id ?? null, root, ...shared }
   }
-  if (o.shared && o.shared.within !== null) return null
+  if (!docs && o.shared && o.shared.within !== null) return null
   if (!o.chatId) return null
   // a shared chat: a work folder of its own for the people who see it now (never the private one, sharedWork)
   let root: string
@@ -683,6 +690,9 @@ const snapshotNow = (ctx: AppContext, userId: string): NetSnapshot => netSnapsho
 /** The settings of a run, checked; throws with the reason when the run must not start. `once`: the sites allowed once
  * for this run (the turn's, or the row's). */
 async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: string, network: 'open' | 'offline', once: readonly string[] = [], stage?: string) {
+  // documents mode: never a network, whatever the call or the team's sites say
+  const docs = isDocumentsMode(ctx, space.userId)
+  if (docs) { network = 'offline'; once = [] }
   const run = runWrites(ctx, c, space)
   // a shared chat: what the run may read joins the answer's record first, with who sees the chat now
   // (the view below is made for the same people as the record)
@@ -697,7 +707,7 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
   const work = run.start === null ? space.root : scratchOf(ctx, c, space, scope, true)
   const hosts = teamHosts(ctx)
   // only this person's sites and switch: another person's never reach this run
-  const person = personNetNow(ctx, space.userId)
+  const person = docs ? { ...personNetNow(ctx, space.userId), sites: [] as string[], full: false } : personNetNow(ctx, space.userId)
   // a shared chat: no name of a folder some of its people may not open shows in a listing (srt/mounts.ts); the hash
   // below stays the view's. The entries given one by one are pinned (Linux: srt binds them, following links) and the
   // command checks them first inside the sandbox (entryGuard)
@@ -1213,6 +1223,7 @@ async function startRow(ctx: AppContext, row: RunRow): Promise<{ ok: true } | { 
   const c = srtConfig()
   // the person must still be allowed at the start (the setting or the folder rules can change while a job waits);
   // spawnRun builds the folder access again and checks the root
+  // jobs and dev servers are the dev environment's alone (documents mode runs foreground commands only)
   if (!mayUseDevEnv(ctx.db, ctx.files, row.user_id)) {
     takeCommand(c, row.id)
     endRow(ctx, row.id, { code: null, reason: 'setting', tail: '', lastLine: '' })
@@ -1264,7 +1275,7 @@ async function startRow(ctx: AppContext, row: RunRow): Promise<{ ok: true } | { 
   } finally { started() }
 }
 /** the hash of the view the run started with (accessHash's format) */
-const accessHashFrom = (ctx: AppContext, userId: string, viewHashValue: string) => (mayUseDevEnv(ctx.db, ctx.files, userId) ? viewHashValue : 'off')
+const accessHashFrom = (ctx: AppContext, userId: string, viewHashValue: string) => (mayRunCommands(ctx.db, ctx.files, userId) ? viewHashValue : 'off')
 
 /** Give free slots to waiting jobs and commands (queue.ts: one queue, fair share). Expired jobs end; tickets with no
  * waiting call end (lost). */

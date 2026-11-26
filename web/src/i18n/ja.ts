@@ -80,7 +80,7 @@ export const ja: Record<MessageKey, string> = {
   "devEnvSites.fullTurnOn": "オンにする",
   "devEnvSites.fullOn": "フルインターネットがオンです。AI は、あなたが読めるファイルを任意のサイトに送れます。",
   "devEnvTeam.accept": "リスクを理解したうえで、チームでオンにします",
-  "devEnvTeam.offer": "この機能ができる前に作られたチームなので、オフになっています。",
+  "devEnvTeam.offer": "この機能ができる前に作られたチームなので、オフになっています。設定を保存するまでは、Word・PowerPoint・Excelファイルはインターネットなしで、各チャットの作業フォルダの中だけで作ります。",
   "devEnvOffer.body": "オンにすると、AI がチームのサーバーでコマンドを実行します。Excel や Word のファイルに記入したり、スキルに付いているスクリプトを実行したり、Python や Node を使ったりできます。コマンドが見られるのは依頼した人が開けるフォルダーだけで、接続できるのは許可されたサイトだけです。オンにするまで何も変わりません。",
   'common.cancel': "キャンセル",
   'common.choose': "選択",
