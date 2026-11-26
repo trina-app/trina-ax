@@ -123,13 +123,22 @@ function findSideChat(roomId: string): Promise<string | null> {
   if (!p) {
     p = (async () => {
       const c = await newestSideChat(roomId)
-      if (!c || (!markerOf(c) && !queuedIn(c.id))) return null
+      if (!c || (!markerOf(c) && !queuedIn(c.id) && !keptIn(roomId, c.id))) return null
       await useChats.getState().loadThread(c.id)
       return c.id
     })().finally(() => looking.delete(roomId))
     looking.set(roomId, p)
   }
   return p
+}
+
+/** What I typed in this chat's box waits in it, kept by this browser (a reload: the box's kept draft, `side:<room id>`):
+ * as a box with text keeps its chat in this window (sideChatOpening), it opens on that chat */
+function keptIn(roomId: string, chatId: string): boolean {
+  const st = useSession.getState().status
+  if (st.kind !== 'signed-in') return false
+  const kept = parseKept(readDraft(st.me.user.id, `side:${roomId}`))
+  return !!kept && kept.chatId === chatId && !!kept.text.trim()
 }
 
 /** Messages of mine wait in the chat to be sent (store/sendQueue.ts): in this window, or kept by this browser (a reload). */
@@ -525,8 +534,9 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   // back after a recording: the newest words in sight, as they were while recording
   useEndAfterRecording(box, voice.recording, voice.busy, draft)
   // the box's draft kept on this device across reloads (lib/localData, `side:<room id>`), with the chat it was written
-  // in: it comes back only into that chat (or a new chat's into a new chat) once the panel knows which chat it shows, so
-  // which chat opens after a reload (sideChatOpening) is as before
+  // in: it comes back only into that chat (or a new chat's into a new chat) once the panel knows which chat it shows. As
+  // a box with text keeps its chat in this window, after a reload the newest side chat with a kept draft is the one
+  // that opens (findSideChat keptIn); an older chat's draft waits until that chat is opened again
   const keptKey = `side:${roomId}`
   const keptRead = useRef<string | null>(null)
   useEffect(() => {

@@ -44,8 +44,9 @@
   - The key or password warning on every send of every box whose text reaches the AI: the AI chat's and the side
     chat's (it checked answers only). Rooms and answer threads keep none: they are people's boxes, and a warning there
     would be a new rule for people's chats.
-  - Drafts kept on this device: the side chat's now across reloads, with the chat it was written in (it comes back only
-    into that chat, so which chat opens after a reload is unchanged); an answer thread's across closing and reloads,
+  - Drafts kept on this device: the side chat's now across reloads, with the chat it was written in: it comes back only
+    into that chat, and after a reload the room's newest side chat with a kept draft opens again, as a box with text
+    keeps its chat while the page is open; an answer thread's across closing and reloads,
     with its mentions.
 - **Kept different (decided elsewhere):** the side chat's queue and two-row phone box (20261118-side-chat-queued-sends,
   20261117-side-chat-mic); no "Send to Trina" in threads (20261118-thread-no-send-to-trina); no "@" in an AI chat's
