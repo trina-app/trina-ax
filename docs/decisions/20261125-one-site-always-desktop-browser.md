@@ -36,8 +36,9 @@
   that was stopped or ran out of time sends none (its result does not reach the server), so one answered then waits
   for the next result. Nothing is sent twice: a site the person removes in Settings is never brought back. A sign-out
   or another person's sign-in drops them all, and an entry is never sent with another person's result.
-- **On this computer** an Always on a public site keeps both the host with its port and the named site, so it holds here
-  also where the server keeps nothing.
+- **On this computer** an Always on a public site keeps one entry, so the list shows one row per answer: the named site
+  for a host without a port (it covers the host and its subdomains), host:port for a host with a port (a site has no
+  port), the host alone where no site may be kept. It holds here also where the server keeps nothing.
 - **Office addresses:** an office grant the person has for a host goes with every call to it, also when the server's
   own lookup does not see it as an office address (a name only the office network resolves).
 - **Not changed:** the desktop app still asks about every site nobody allowed (a redirect to another site, a link to a
