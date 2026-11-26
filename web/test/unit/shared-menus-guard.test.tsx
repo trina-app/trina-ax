@@ -201,8 +201,9 @@ describe('the real builders give the one order', () => {
 
 describe('destructive actions go through lib/destructive.ts', () => {
   /** confirm dialogs in web/src after 2026-11-26 (74 before, 5 now asked by the helper's one call): never more (undo, not
-   * a new confirm) */
-  const CONFIRMS = 69
+   * a new confirm). +1: auto mode's opt-in intro (Settings, #586), a choice to turn something on, not a destructive ask.
+   * A new confirm raises this only with that kind of reason. */
+  const CONFIRMS = 70
   const count = sources.reduce((n, s) => n + (s.text.match(/confirmDialog\(/g)?.length ?? 0), 0)
   test(`web/src asks at most ${CONFIRMS} confirms (now ${count})`, () => {
     expect(count).toBeLessThanOrEqual(CONFIRMS)
