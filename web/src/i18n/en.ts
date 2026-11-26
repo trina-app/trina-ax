@@ -2923,6 +2923,7 @@ export const en: Record<MessageKey, string> = {
   'audit.act.project.share_chats': "Project chat sharing changed",
   'audit.act.chat.shared_read': "Shared chat read check",
   'audit.act.chat.shared_connection': "Shared chat connection check",
+  'audit.act.chat.shared_browser_change': "Shared chat browser action check",
   'audit.act.chat.delete': "Shared chat deleted",
   'audit.act.chat.share': "Shared a chat",
   'audit.act.chat.fork': "Continued a chat in a new chat only they see",

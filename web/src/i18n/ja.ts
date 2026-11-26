@@ -2883,6 +2883,7 @@ export const ja: Record<MessageKey, string> = {
   'audit.act.project.share_chats': "プロジェクトのチャット共有を変更",
   'audit.act.chat.shared_read': "共有チャットの読み取り確認",
   'audit.act.chat.shared_connection': "共有チャットの接続サービス確認",
+  'audit.act.chat.shared_browser_change': "共有チャットのブラウザー操作確認",
   'audit.act.chat.delete': "共有チャットを削除",
   'audit.act.chat.share': "チャットを共有",
   'audit.act.chat.fork': "チャットを自分だけの新しいチャットで続けた",
