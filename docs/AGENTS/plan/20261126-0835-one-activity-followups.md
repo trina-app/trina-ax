@@ -74,6 +74,8 @@ Built as planned:
   - The 멘션·스레드 comments are rewritten.
 - **The stale e2e.** `file-share-links.spec.ts:282` now checks that removing a person asks no confirm, and that the
   box is ticked and honoured.
+- **Found on the way.** With #635's tighter chips, the DM chip was 43 px wide on a touch screen (`rail.spec.ts`
+  "every rail and list target is at least 44 px"). Chips are now at least 44 px wide on a coarse pointer.
 - **Screenshots.**
   - `bun run docs:reshoot --only chats/rooms-` retook `chats/rooms-list` and `chats/rooms-phone`, in en and zh.
   - The Acme scene has no group chat any more: its Launch email is a private channel. So the alt text in all six

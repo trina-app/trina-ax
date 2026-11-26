@@ -294,10 +294,10 @@ export function ActivityPanel() {
                   key={c}
                   type="button"
                   aria-pressed={shownChip === c}
-                  // a touch screen: the chip takes taps from a 44 px box around it (its ::after: 26 px inside the border + 2 × 9), and
-                  // looks the same
+                  // a touch screen: the chip takes taps from a 44 px box around it (its ::after: 26 px inside the border + 2 × 9) and
+                  // is at least 44 px wide (DM's short word is narrower), and looks the same
                   onClick={() => pick(c)}
-                  className={clsx("relative inline-flex h-7 items-center rounded-full border px-2.5 text-meta font-medium pointer-coarse:after:absolute pointer-coarse:after:inset-x-0 pointer-coarse:after:-inset-y-[9px] pointer-coarse:after:content-['']", shownChip === c ? 'border-ink bg-ink text-canvas' : 'border-field-border text-muted hover:bg-hover hover:text-ink')}
+                  className={clsx("relative inline-flex h-7 items-center justify-center rounded-full border px-2.5 text-meta font-medium pointer-coarse:min-w-11 pointer-coarse:after:absolute pointer-coarse:after:inset-x-0 pointer-coarse:after:-inset-y-[9px] pointer-coarse:after:content-['']", shownChip === c ? 'border-ink bg-ink text-canvas' : 'border-field-border text-muted hover:bg-hover hover:text-ink')}
                   data-testid={`activity-chip-${c}`}
                 >
                   {chipLabel(c, t)}
