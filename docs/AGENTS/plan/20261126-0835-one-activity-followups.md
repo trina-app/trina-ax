@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-26 08:35
 - Branch: `fix/one-activity-followups` (stacked on #635 `feat/one-activity` until that merges)
-- Status: in progress
+- Status: done
 - Where: trina-ax `server/` (rooms, notifications, a B migration), `web/`, `shared/`, `docs/site/`. Why: the
   Inbox count and Activity are component B's and the web app's (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. The Activity count stops counting replies the person silenced, the chip no longer jumps back
@@ -61,4 +61,20 @@ notifications, and the e2e for activity-panel and file-share-links.
 
 ## Result
 
-Filled in at the end.
+Built as planned:
+- **Silenced replies.** Migration `457_b_room_notice_silent.sql`. `roomNotice(…, silent)` keeps runs of silent notices
+  apart from counted ones. `COUNTED_SQL` leaves them out.
+  - Test: `tests/unit/b-rooms-notify.test.ts`. A silenced reply is listed and counts 0; a mention in a reply counts 1.
+- **The chip.** A chip click writes `?tab=` (a replace), and Back/Forward (POP) never puts an older chip back.
+  - Unit test: `activity-panel-one`.
+  - e2e: `activity-panel`, which picks 트리나 after a 스레드 link, opens a notice and goes Back.
+- **Leftovers.**
+  - `store/inbox.ts` keeps only `unread`.
+  - `markAllNoticesRead` lost its `only` argument (no caller used it).
+  - The 멘션·스레드 comments are rewritten.
+- **The stale e2e.** `file-share-links.spec.ts:282` now checks that removing a person asks no confirm, and that the
+  box is ticked and honoured.
+- **Screenshots.**
+  - `bun run docs:reshoot --only chats/rooms-` retook `chats/rooms-list` and `chats/rooms-phone`, in en and zh.
+  - The Acme scene has no group chat any more: its Launch email is a private channel. So the alt text in all six
+    languages now says what the shot shows.

@@ -210,7 +210,7 @@ To message one person, click their photo or name beside a message (an @mention o
 
 To bring in someone from outside the team, choose **Invite a guest** when you add people to a private channel, a group chat or a project. [Read about guests](guests.md).
 
-![The Chats list: Channels with Everyone and Marketing, then Direct messages with a group chat and a direct message](../images/chats/rooms-list.webp "The Chats list")
+![The Chats list: Channels with Everyone, the private channel Launch email and Marketing, then Direct messages with one direct message](../images/chats/rooms-list.webp "The Chats list")
 
 #### Ask Trina beside a conversation
 
@@ -244,7 +244,7 @@ before you send: **Only show link** (the default) sends just the link; **Show me
 marked as shared by you. A copy goes away if the original is deleted. To take a card off your own message, point at it
 and click **✕** (or choose **Remove preview** in the message's menu).
 
-![Chats on a phone: channels, a group chat and a direct message, with the five tabs at the bottom](../images/chats/rooms-phone.webp "Chats on a phone")
+![Chats on a phone: Channels with Everyone, a private channel and Marketing, then a direct message, with the five tabs at the bottom](../images/chats/rooms-phone.webp "Chats on a phone")
 
 ### Where your conversations are listed
 

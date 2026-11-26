@@ -205,7 +205,7 @@ Untuk mengirim pesan ke satu orang, klik foto atau namanya di samping pesan (@me
 
 Untuk mengajak orang dari luar tim, pilih **Undang tamu** saat Anda menambahkan orang ke saluran privat, obrolan grup, atau proyek. [Baca tentang tamu](guests.md).
 
-![Daftar Obrolan: Saluran dengan Everyone dan Marketing, lalu Pesan langsung dengan satu obrolan grup dan satu pesan langsung](../../images/chats/rooms-list.webp "Daftar Obrolan")
+![Daftar Obrolan: Saluran dengan Everyone, saluran privat Launch email dan Marketing, lalu Pesan langsung dengan satu pesan langsung](../../images/chats/rooms-list.webp "Daftar Obrolan")
 
 #### Bertanya ke Trina di samping percakapan
 
@@ -240,7 +240,7 @@ sebelum Anda mengirim: **Tampilkan tautan saja** (bawaan) hanya mengirim tautann
 dengan tanda bahwa Anda yang membagikannya. Salinan hilang jika pesan aslinya dihapus. Untuk menghapus kartu dari pesan Anda sendiri, arahkan kursor ke kartu
 lalu klik **✕** (atau pilih **Hapus pratinjau** di menu pesan).
 
-![Obrolan di ponsel: saluran, obrolan grup, dan pesan langsung, dengan lima tab di bagian bawah](../../images/chats/rooms-phone.webp "Obrolan di ponsel")
+![Obrolan di ponsel: Saluran dengan Everyone, satu saluran privat dan Marketing, lalu satu pesan langsung, dengan lima tab di bagian bawah](../../images/chats/rooms-phone.webp "Obrolan di ponsel")
 
 ### Tempat percakapan Anda tercantum
 
