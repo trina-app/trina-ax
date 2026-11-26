@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	"filippo.io/age"
@@ -233,8 +234,30 @@ func (e *Enroller) restore(r *enrollResponse, ot *oneTimeIdentity) error {
 	if _, _, err := e.fetchChain(ri, ids, staging); err != nil {
 		return err
 	}
-	if _, err := e.adminJS("restore-artifacts", "--dir", staging, "--to", e.P.Base); err != nil {
+	// restore-artifacts builds <out>/db/app.sqlite + <out>/team into a folder that must not exist yet (the same rule
+	// as restore-verify; it ends sessions in the restored database). The folder is in dataDir. BASE itself is
+	// root-owned: only this root process can put team/ in place.
+	dataDir, teamRoot, err := e.serverDirs()
+	if err != nil {
+		return fail("restore_failed", "%v", err)
+	}
+	out := filepath.Join(dataDir, ".restore-out")
+	clean := func() {
+		_ = osRemoveAll(out)
+		// restoreArtifacts builds in <out>.partial-<pid>: a crash there leaves it behind
+		if m, _ := filepath.Glob(out + ".partial-*"); m != nil {
+			for _, p := range m {
+				_ = osRemoveAll(p)
+			}
+		}
+	}
+	clean()
+	defer clean()
+	if _, err := e.adminJS("restore-artifacts", "--dir", staging, "--to", out); err != nil {
 		return err
+	}
+	if err := swapInRestored(out, dataDir, teamRoot, time.Now().UTC().Format("20060102T150405Z")); err != nil {
+		return fail("restore_failed", "%v", err)
 	}
 	if ri.CredentialsKeyAge != nil && *ri.CredentialsKeyAge != "" {
 		key, err := decryptAgeText(*ri.CredentialsKeyAge, ot.id)
@@ -331,4 +354,113 @@ func (e *Enroller) verifyRestore(r *enrollResponse, ot *oneTimeIdentity) (*verif
 	}
 	// a verify that ran but found a problem is still a finished enroll: the result carries ok=false
 	return res, nil
+}
+
+// serverDirs: dataDir and teamRoot from BASE/config/server.json (apply has written it), else BASE/data and BASE/team.
+// A server.json that is there but cannot be read is an error: the restore must not go to a guessed place.
+func (e *Enroller) serverDirs() (string, string, error) {
+	dataDir, teamRoot := filepath.Join(e.P.Base, "data"), filepath.Join(e.P.Base, "team")
+	path := filepath.Join(e.P.Base, "config", "server.json")
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return dataDir, teamRoot, nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("read %s: %v", path, err)
+	}
+	var c struct {
+		DataDir  string `json:"dataDir"`
+		TeamRoot string `json:"teamRoot"`
+	}
+	if err := json.Unmarshal(b, &c); err != nil {
+		return "", "", fmt.Errorf("%s is not valid JSON: %v", path, err)
+	}
+	if filepath.IsAbs(c.DataDir) {
+		dataDir = c.DataDir
+	}
+	if filepath.IsAbs(c.TeamRoot) {
+		teamRoot = c.TeamRoot
+	}
+	return dataDir, teamRoot, nil
+}
+
+// swapInRestored puts <out>/db/app.sqlite in place of <dataDir>/app.db and <out>/team in place of teamRoot. What was
+// there stays next to it as *.before-restore-<stamp>; the engine session stashes (data/sessions) of the replaced
+// database are moved aside too. It is the office restore's swap (swapInRestore, server/src/office/cli.ts) without
+// its endSessions (restore-artifacts did it) and setup token removal (restore mode writes no setup token). Runs before
+// the units start: nothing has the database open. When the team folder cannot be put in place, the database swap is
+// undone, so the VM never has a restored database with the old team folder.
+func swapInRestored(out, dataDir, teamRoot, stamp string) error {
+	incoming := filepath.Join(out, "db", "app.sqlite")
+	inTeam := filepath.Join(out, "team")
+	if !exists(incoming) || !exists(inTeam) {
+		return fmt.Errorf("restore-artifacts left no db/app.sqlite or team/ in %s", out)
+	}
+	// a rename does not cross file systems: refuse before anything moves
+	if ok, err := sameDevice(out, filepath.Dir(teamRoot)); err != nil || !ok {
+		return fmt.Errorf("%s and %s are not on one file system (%v)", out, teamRoot, err)
+	}
+	db := filepath.Join(dataDir, "app.db")
+	oldDb := db + ".before-restore-" + stamp
+	hadDb := exists(db)
+	if hadDb {
+		if err := os.Rename(db, oldDb); err != nil {
+			return fmt.Errorf("move the old database aside: %v", err)
+		}
+	}
+	for _, sfx := range []string{"-wal", "-shm"} {
+		_ = os.Remove(db + sfx)
+	}
+	if err := os.Rename(incoming, db); err != nil {
+		return fmt.Errorf("put the restored database in place: %v", err)
+	}
+	if err := os.Chmod(db, 0o600); err != nil {
+		return fmt.Errorf("chmod %s: %v", db, err)
+	}
+	undoDb := func() {
+		_ = os.Remove(db)
+		if hadDb {
+			_ = os.Rename(oldDb, db)
+		}
+	}
+	oldTeam := teamRoot + ".before-restore-" + stamp
+	hadTeam := exists(teamRoot)
+	if hadTeam {
+		if err := os.Rename(teamRoot, oldTeam); err != nil {
+			undoDb()
+			return fmt.Errorf("move the old team folder aside: %v", err)
+		}
+	}
+	if err := os.Rename(inTeam, teamRoot); err != nil {
+		if hadTeam {
+			_ = os.Rename(oldTeam, teamRoot)
+		}
+		undoDb()
+		return fmt.Errorf("put the restored team folder in place: %v", err)
+	}
+	if err := os.Chmod(teamRoot, 0o700); err != nil {
+		return fmt.Errorf("chmod %s: %v", teamRoot, err)
+	}
+	if stashes := filepath.Join(dataDir, "sessions"); exists(stashes) {
+		_ = os.Rename(stashes, stashes+".before-restore-"+stamp)
+	}
+	return nil
+}
+
+// sameDevice: a and b are on one file system (rename works between them).
+func sameDevice(a, b string) (bool, error) {
+	sa, err := os.Stat(a)
+	if err != nil {
+		return false, err
+	}
+	sb, err := os.Stat(b)
+	if err != nil {
+		return false, err
+	}
+	da, okA := sa.Sys().(*syscall.Stat_t)
+	db, okB := sb.Sys().(*syscall.Stat_t)
+	if !okA || !okB {
+		return true, nil
+	}
+	return da.Dev == db.Dev, nil
 }

@@ -399,17 +399,24 @@ export class Registry {
     })
   }
 
-  /** Replace the team's key. Proof: the new key signed keyRotationString (checked here); the caller checked the old key or the recovery code. */
-  rotateKey(teamId: string, publicKey: string, newKeySig: string): void {
+  /** Replace the team's key. Proof: the new key signed keyRotationString (checked here); the caller checked the old key or the recovery code.
+   *  reuseOwn (operator API only): a key this team had before becomes live again (the CP's restore rollback gives the
+   *  relay key back to the old team server after a failed restore). Without it any known key is refused. A key of
+   *  another team is always refused. The live key again with reuseOwn: no change.
+   *  keyRotationString has no time or nonce: with reuseOwn an operator could make an old key live again with its old
+   *  signature. The operator API is the CP only, and it sends a fresh proof from the team server (relay-key-proof). */
+  rotateKey(teamId: string, publicKey: string, newKeySig: string, opts: { reuseOwn?: boolean } = {}): void {
     const key = parsePublicKey(publicKey)
     if (!key) throw new RegistryError('invalid_request', 'publicKey must be a base64 SPKI Ed25519 key')
     if (!verifyB64(key, keyRotationString(teamId, publicKey), newKeySig)) throw new RegistryError('bad_signature', 'the new key did not sign the rotation', 401)
     tx(this.db, () => {
-      const other = this.db.prepare('SELECT team_id FROM team_keys WHERE public_key = ?').get(publicKey) as { team_id: string } | undefined
-      if (other) throw new RegistryError('key_in_use', 'this key is already registered', 409)
+      const known = this.db.prepare('SELECT id, team_id, revoked_at FROM team_keys WHERE public_key = ?').get(publicKey) as { id: string; team_id: string; revoked_at: string | null } | undefined
+      if (known && (known.team_id !== teamId || !opts.reuseOwn)) throw new RegistryError('key_in_use', 'this key is already registered', 409)
+      if (known && known.revoked_at === null) return
       const at = iso(this.now())
       this.db.prepare('UPDATE team_keys SET revoked_at = ? WHERE team_id = ? AND revoked_at IS NULL').run(at, teamId)
-      this.db.prepare('INSERT INTO team_keys (id, team_id, public_key, created_at) VALUES (?, ?, ?, ?)').run(randomUUID(), teamId, publicKey, at)
+      if (known) this.db.prepare('UPDATE team_keys SET revoked_at = NULL WHERE id = ?').run(known.id)
+      else this.db.prepare('INSERT INTO team_keys (id, team_id, public_key, created_at) VALUES (?, ?, ?, ?)').run(randomUUID(), teamId, publicKey, at)
     })
   }
 
