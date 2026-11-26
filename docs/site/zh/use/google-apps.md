@@ -27,7 +27,22 @@ AI 只会在这个人自己的对话中使用它，权限也和这个人在 Goog
 ![成员在设置 › 连接器中看到的 Gmail 页面：仅对你生效、连接器 › Gmail、右上角的连接按钮、AI 能用 Gmail 做什么，以及它的工具](../../images/connect/google-member-connect.webp "连接之前的 Gmail")
 
 #### 选择“连接”
-Google 自己的登录页面会在新窗口中打开（在桌面应用中，会在你的浏览器中打开）。如果你登录了不止一个 Google 账号，Google 会问你用哪一个：选择你想用的那个。
+新窗口会打开（在桌面应用中，会在你的浏览器中打开）。在由 Trina 托管的团队中，它会先显示 Trina 的开始页面，写明你的团队，并说明
+Trina AX 可以做什么：选择**前往 Google**。接着 Google 自己的登录页面会打开。如果你登录了不止一个 Google 账号，Google 会问你用哪一个：选择你想用的那个。
+
+#### 通过 Google 的警告
+在 Google 审核 Trina 的 Google 应用期间，Google 会在显示权限之前先显示 **Google 未验证此应用**。这是 Google 关于审核的提示，
+不是你的账号有问题。只需点两下：
+
+1. 选择文字下方的**高级**。
+
+   ![Google 的警告页面：Google 未验证此应用，标出了高级链接](../../images/connect/google-warning-1-zh.webp "第一下：高级")
+
+2. 选择展开的文字最下方的**转至Trina AX（不安全）**。
+
+   ![高级下展开的文字：只有在了解风险的情况下才继续，标出了转至Trina AX（不安全）链接](../../images/connect/google-warning-2-zh.webp "第二下：转至Trina AX（不安全）")
+
+使用 Google Workspace 的公司可以改用公司自己的 Google 应用，让所有人都跳过这个警告：见下文[选择哪种 Google 登录](#选择哪种-google-登录)。
 
 #### 保持所有选项都勾选
 Google 会显示一个页面，写明 Trina AX，并逐行列出它可以做的事，每项权限一行，例如“阅读、撰写和发送电子邮件”。有些行带有选项框。请保持**所有**选项都勾选，然后选择**继续**（Continue）。
@@ -119,10 +134,19 @@ https://<your team address>/api/integrations/google-apps/callback
 
 Gmail、日历、文档和表格应用运行在 Linux 服务器上。在 Mac 应用中，它们的页面会显示“团队服务器暂不支持”。
 
-## 在 Google 的页面上显示公司名称
+## 选择哪种 Google 登录
 
-使用 Google Workspace 的公司可以让所有 Google 应用都通过公司自己的 Google 应用登录，这样大家在 Google 的页面上会看到公司名称，
-不会出现警告：[使用公司自己的 Google 应用](google-own-app.md)。
+登录 Google 有两种方式。你的团队对全部五个 Google 应用使用其中一种。
+
+| | Trina 的登录 | 公司自己的 Google 应用 |
+|---|---|---|
+| 谁可以连接 | 任何 Google 账号：公司的 Google Workspace 账号或个人 Gmail 账号 | 只有公司 Google Workspace 中的账号 |
+| 设置 | 在由 Trina 托管的团队中不需要设置 | 由 IT 管理员设置一次，大约 15 分钟：[使用公司自己的 Google 应用](google-own-app.md) |
+| Google 的页面 | 在 Google 审核 Trina 的应用期间显示 **Google 未验证此应用**：[点两下](#连接-google-应用所有人) | 显示公司的应用名称，没有警告 |
+| 可以使用的人数 | 审核期间受 Google 限制 | 不限 |
+
+先使用 Trina 的登录。如果公司使用 Google Workspace 并且不想看到警告，或者 Google 提示应用已达到人数上限，就改用公司自己的应用。
+之后大家需要重新连接一次 Google。
 
 ## 常见问题
 
@@ -132,6 +156,7 @@ Gmail、日历、文档和表格应用运行在 Linux 服务器上。在 Mac 应
 | **Google 要求你重新登录。** | 在应用的页面上选择**重新连接**。这通常发生在修改密码之后，或者公司管理员取消了访问权限。 |
 | Google 页面上出现 **`redirect_uri_mismatch`**（自己运行的服务器） | Google Cloud 中的某个返回地址和 Trina AX 显示的不一样。请从**设置**对话框中重新复制。 |
 | **“This app is blocked”** 或 **`admin_policy_enforced`** | 公司的 Google 管理员限制了哪些应用可以使用 Google 账号。请他们信任这个应用：见[在管理控制台信任应用](google-own-app.md#可选在管理控制台信任应用)。 |
-| **Google hasn't verified this app** | 这是处于测试（Testing）状态的外部（External）应用。只有当应用是你的管理员创建的时，才选择 **Advanced** › **Go to …**；或者请他们改用公司自己的应用。 |
+| **Google 未验证此应用**（Google hasn't verified this app） | 使用 Trina 的登录时：选择**高级**，再选择**转至Trina AX（不安全）**（[截图](#连接-google-应用所有人)）。如果是管理员创建的、处于测试（Testing）状态的应用：只有当应用是你的管理员创建的时，才选择**高级**（Advanced）›**转至…**（Go to …）；或者请他们把它设为**内部**（Internal）。 |
+| **已屏蔽访问权限**（Access blocked），或 Google 提示应用已达到用户数上限 | 审核期间，Trina 的登录已达到 Google 的上限。由管理员把团队改为[公司自己的 Google 应用](google-own-app.md)。 |
 
 面向开发者和运维人员的完整说明：[Google 应用](../../../GOOGLE-APPS.md)（英文）和 [Google Drive](../../../GOOGLE-DRIVE.md)（英文）。

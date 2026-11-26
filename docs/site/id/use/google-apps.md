@@ -29,8 +29,25 @@ ikon pensil menandai alat yang mengubah sesuatu. **Hubungkan** ada di kanan atas
 ![Halaman Gmail di Pengaturan › Konektor untuk anggota: Just for you, Connectors › Gmail, tombol Connect di kanan atas, apa yang dilakukan AI dengan Gmail, dan alat-alatnya](../../images/connect/google-member-connect.webp "Gmail, sebelum dihubungkan")
 
 #### Pilih Hubungkan
-Halaman masuk Google sendiri terbuka di jendela baru (di aplikasi desktop, di browser Anda). Jika Anda masuk ke lebih
-dari satu akun Google, Google menanyakan akun yang mana: pilih akun yang Anda maksud.
+Jendela baru terbuka (di aplikasi desktop, di browser Anda). Di tim yang di-hosting oleh Trina, jendela itu lebih dulu
+menampilkan halaman awal Trina, yang menyebut nama tim Anda dan apa yang boleh dilakukan Trina AX: pilih **Lanjutkan ke
+Google**. Lalu halaman masuk Google sendiri terbuka. Jika Anda masuk ke lebih dari satu akun Google, Google menanyakan
+akun yang mana: pilih akun yang Anda maksud.
+
+#### Lewati peringatan Google
+Selama Google masih meninjau aplikasi Google milik Trina, Google menampilkan **Google belum memverifikasi aplikasi ini**
+sebelum izin-izinnya. Itu pemberitahuan Google tentang peninjauan tersebut, bukan masalah pada akun Anda. Cukup dua klik:
+
+1. Pilih **Lanjutan** di bawah teksnya.
+
+   ![Halaman peringatan Google: Google belum memverifikasi aplikasi ini, dengan tautan Lanjutan ditandai](../../images/connect/google-warning-1-id.webp "Klik pertama: Lanjutan")
+
+2. Pilih **Buka Trina AX (tidak aman)** di bagian bawah teks yang terbuka.
+
+   ![Teks di bawah Lanjutan, dengan tautan Buka Trina AX (tidak aman) ditandai](../../images/connect/google-warning-2-id.webp "Klik kedua: Buka Trina AX (tidak aman)")
+
+Perusahaan yang memakai Google Workspace bisa melewatkan peringatan ini untuk semua orang dengan memakai aplikasi Google
+miliknya sendiri: lihat [Masuk Google yang mana](#masuk-google-yang-mana) di bawah.
 
 #### Biarkan semua kotak tetap dicentang
 Google menampilkan halaman yang menyebut Trina AX dan mencantumkan apa saja yang boleh dilakukannya, satu baris per izin,
@@ -149,11 +166,20 @@ Halaman setiap aplikasi mencantumkan, di bawah **API Google**, API yang perlu di
 Aplikasi Gmail, Calendar, Docs, dan Sheets berjalan di server Linux. Di aplikasi Mac, halamannya menampilkan "Belum
 tersedia di server tim".
 
-## Menampilkan nama perusahaan Anda di layar Google
+## Masuk Google yang mana
 
-Perusahaan yang memakai Google Workspace bisa membuat semua aplikasi Google masuk dengan aplikasi Google miliknya
-sendiri, sehingga orang melihat nama perusahaan dan tidak ada peringatan di layar Google:
-[Memakai aplikasi Google milik perusahaan Anda](google-own-app.md).
+Ada dua cara masuk ke Google. Tim Anda memakai salah satunya untuk kelima aplikasi Google.
+
+| | Masuk milik Trina | Aplikasi Google milik perusahaan Anda |
+|---|---|---|
+| Siapa yang bisa menghubungkan | Akun Google apa pun: akun Google Workspace perusahaan atau akun Gmail pribadi | Hanya akun Google Workspace perusahaan Anda |
+| Penyiapan | Tidak ada, di tim yang di-hosting oleh Trina | Sekitar 15 menit, sekali, oleh admin IT: [Memakai aplikasi Google milik perusahaan Anda](google-own-app.md) |
+| Layar Google | **Google belum memverifikasi aplikasi ini** selama Google meninjau aplikasi Trina: [dua klik](#menghubungkan-aplikasi-google-semua-orang) | Nama aplikasi perusahaan Anda, tanpa peringatan |
+| Berapa banyak orang | Dibatasi Google selama peninjauan berjalan | Tanpa batas |
+
+Mulailah dengan masuk milik Trina. Jika perusahaan Anda memakai Google Workspace dan Anda tidak ingin ada peringatan,
+atau Google mengatakan aplikasinya sudah mencapai batas, beralihlah ke aplikasi milik perusahaan Anda. Setelah itu orang
+menghubungkan Google lagi sekali.
 
 ## Masalah
 
@@ -163,7 +189,8 @@ sendiri, sehingga orang melihat nama perusahaan dan tidak ada peringatan di laya
 | **Google meminta Anda masuk lagi.** | Pilih **Hubungkan kembali** di halaman aplikasinya. Ini terjadi setelah kata sandi diganti, atau saat admin perusahaan Anda mencabut akses. |
 | **`redirect_uri_mismatch`** di halaman Google (server yang dikelola sendiri) | Alamat kembali di Google Cloud berbeda dari yang ditampilkan Trina AX. Salin lagi dari dialog **Siapkan**. |
 | **"This app is blocked"** atau **`admin_policy_enforced`** | Admin Google perusahaan Anda membatasi aplikasi mana yang boleh memakai akun Google. Minta mereka memercayai aplikasinya: lihat [Memercayai aplikasi di Admin console](google-own-app.md#opsional-memercayai-aplikasi-di-admin-console). |
-| **Google hasn't verified this app** | Aplikasi External yang masih dalam tahap Testing. Pilih **Advanced** › **Go to …** hanya jika admin Anda yang membuat aplikasinya; atau minta mereka beralih ke aplikasi milik perusahaan Anda sendiri. |
+| **Google belum memverifikasi aplikasi ini** | Dengan masuk milik Trina: pilih **Lanjutan**, lalu **Buka Trina AX (tidak aman)** ([gambar](#menghubungkan-aplikasi-google-semua-orang)). Dengan aplikasi buatan admin Anda yang masih dalam tahap Testing: pilih **Lanjutan** › **Buka …** hanya jika admin Anda yang membuatnya, atau minta mereka mengaturnya ke **Internal**. |
+| **Akses diblokir** atau Google mengatakan aplikasi sudah mencapai batas penggunanya | Masuk milik Trina sudah mencapai batas Google selama peninjauan berjalan. Admin mengalihkan tim ke [aplikasi Google milik perusahaan Anda](google-own-app.md). |
 
 Detail lengkap untuk pengembang dan operator: [Google apps](../../../GOOGLE-APPS.md) (bahasa Inggris) dan
 [Google Drive](../../../GOOGLE-DRIVE.md) (bahasa Inggris).

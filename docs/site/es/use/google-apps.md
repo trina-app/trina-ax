@@ -30,8 +30,25 @@ herramientas que cambian algo. **Conectar** está arriba a la derecha.
 ![La página de Gmail en Configuración › Conectores de un miembro: Solo para usted, Conectores › Gmail, el botón Conectar arriba a la derecha, lo que hace la IA con Gmail y sus herramientas](../../images/connect/google-member-connect.webp "Gmail, antes de conectar")
 
 #### Elija Conectar
-Se abre la propia página de inicio de sesión de Google en una ventana nueva (en la app de escritorio, en su navegador).
-Si tiene la sesión iniciada en más de una cuenta de Google, Google le pregunta cuál: elija la que quiere usar.
+Se abre una ventana nueva (en la app de escritorio, en su navegador). En un equipo alojado por Trina, primero muestra la
+página de inicio de Trina, que nombra a su equipo y dice qué puede hacer Trina AX: elija **Continuar a Google**. Después
+se abre la propia página de inicio de sesión de Google. Si tiene la sesión iniciada en más de una cuenta de Google,
+Google le pregunta cuál: elija la que quiere usar.
+
+#### Supere el aviso de Google
+Mientras Google sigue revisando la app de Google de Trina, Google muestra **Google no ha verificado esta aplicación**
+antes de los permisos. Es el aviso de Google sobre la revisión, no un problema de su cuenta. Bastan dos clics:
+
+1. Elija **Configuración avanzada** debajo del texto.
+
+   ![La página de aviso de Google: Google no ha verificado esta aplicación, con el enlace Configuración avanzada marcado](../../images/connect/google-warning-1-es.webp "Primer clic: Configuración avanzada")
+
+2. Elija **Ir a Trina AX (no seguro)** al final del texto que se abre.
+
+   ![El texto bajo Configuración avanzada, con el enlace Ir a Trina AX (no seguro) marcado](../../images/connect/google-warning-2-es.webp "Segundo clic: Ir a Trina AX (no seguro)")
+
+Una empresa con Google Workspace puede evitar este aviso para todos usando su propia app de Google: vea
+[Qué inicio de sesión de Google](#qué-inicio-de-sesión-de-google) más abajo.
 
 #### Deje todas las casillas marcadas
 Google muestra una página que nombra a Trina AX y enumera lo que puede hacer, una línea por permiso, como "Leer,
@@ -147,11 +164,19 @@ La página de cada app enumera, en **API de Google**, las API que hay que activa
 Las apps de Gmail, Calendar, Docs y Sheets funcionan en servidores Linux. En la app de Mac sus páginas dicen "Aún no
 disponible en el servidor del equipo".
 
-## Mostrar el nombre de su empresa en la pantalla de Google
+## Qué inicio de sesión de Google
 
-Una empresa con Google Workspace puede hacer que todas las apps de Google inicien sesión con su propia app de Google, de
-modo que las personas vean el nombre de la empresa y ningún aviso en la pantalla de Google:
-[Usar la app de Google de su empresa](google-own-app.md).
+Hay dos formas de iniciar sesión en Google. Su equipo usa una de ellas para las cinco apps de Google.
+
+| | Inicio de sesión de Trina | La app de Google de su empresa |
+|---|---|---|
+| Quién puede conectar | Cualquier cuenta de Google: una cuenta de Google Workspace de la empresa o una cuenta personal de Gmail | Solo las cuentas del Google Workspace de su empresa |
+| Configuración | Ninguna en un equipo alojado por Trina | Unos 15 minutos, una vez, a cargo de un administrador de TI: [Usar la app de Google de su empresa](google-own-app.md) |
+| Pantalla de Google | **Google no ha verificado esta aplicación** mientras Google revisa la app de Trina: [dos clics](#conectar-una-app-de-google-todos) | El nombre de la app de su empresa, sin aviso |
+| Cuántas personas | Limitado por Google mientras dura la revisión | Sin límite |
+
+Empiece con el inicio de sesión de Trina. Si su empresa usa Google Workspace y no quiere el aviso, o Google dice que la
+app ha alcanzado su límite, cambie a la app propia de su empresa. Las personas vuelven a conectar Google una vez.
 
 ## Problemas
 
@@ -161,7 +186,8 @@ modo que las personas vean el nombre de la empresa y ningún aviso en la pantall
 | **Google le pide que inicie sesión de nuevo.** | Elija **Volver a conectar** en la página de la app. Ocurre después de un cambio de contraseña, o cuando el administrador de su empresa retiró el acceso. |
 | **`redirect_uri_mismatch`** en la página de Google (servidores propios) | Una dirección de regreso en Google Cloud difiere de la que muestra Trina AX. Cópiela de nuevo desde el cuadro **Configurar**. |
 | **"This app is blocked"** o **`admin_policy_enforced`** | El administrador de Google de su empresa limita qué apps pueden usar las cuentas de Google. Pídale que marque la app como de confianza: vea [Marcar la app como de confianza en la Admin console](google-own-app.md#opcional-marcar-la-app-como-de-confianza-en-la-admin-console). |
-| **Google hasn't verified this app** | Una app External en Testing. Elija **Advanced** › **Go to …** solo si su administrador creó la app; o pídale que cambie a la app propia de su empresa. |
+| **Google no ha verificado esta aplicación** | Con el inicio de sesión de Trina: elija **Configuración avanzada** y después **Ir a Trina AX (no seguro)** ([imágenes](#conectar-una-app-de-google-todos)). Con una app que su administrador creó en Testing: elija **Configuración avanzada** › **Ir a …** solo si su administrador la creó, o pídale que la ponga en **Internal**. |
+| **Acceso bloqueado**, o Google dice que la app ha alcanzado su límite de usuarios | El inicio de sesión de Trina ha alcanzado el límite de Google mientras dura la revisión. Un administrador cambia el equipo a [la app de Google de su empresa](google-own-app.md). |
 
 Todos los detalles para desarrolladores y operadores: [Google apps](../../../GOOGLE-APPS.md) (en inglés) y
 [Google Drive](../../../GOOGLE-DRIVE.md) (en inglés).

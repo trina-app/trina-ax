@@ -29,8 +29,24 @@ something. **Connect** is at the top right.
 ![Gmail's page in Settings › Connectors for a member: Just for you, Connectors › Gmail, the Connect button at the top right, what the AI does with Gmail, and its tools](../images/connect/google-member-connect.webp "Gmail, before you connect")
 
 #### Choose Connect
-Google's own sign-in page opens in a new window (in the desktop app, in your browser). If you are signed in to more
-than one Google account, Google asks which one: pick the one you mean.
+A new window opens (in the desktop app, in your browser). On a team hosted by Trina it first shows Trina's start page,
+which names your team and says what Trina AX may do: choose **Continue to Google**. Then Google's own sign-in page
+opens. If you are signed in to more than one Google account, Google asks which one: pick the one you mean.
+
+#### Pass Google's warning
+While Google is still reviewing Trina's Google app, Google shows **Google hasn't verified this app** before the
+permissions. It is Google's notice about the review, not a problem with your account. It takes two clicks:
+
+1. Choose **Advanced** under the text.
+
+   ![Google's warning page: Google hasn't verified this app, with the Advanced link marked](../images/connect/google-warning-1-en.webp "First click: Advanced")
+
+2. Choose **Go to Trina AX (unsafe)** at the bottom of the text that opens.
+
+   ![The text under Advanced: Continue only if you understand the risks, with the Go to Trina AX (unsafe) link marked](../images/connect/google-warning-2-en.webp "Second click: Go to Trina AX (unsafe)")
+
+A company on Google Workspace can skip this warning for everyone by using its own Google app: see
+[Which Google sign-in](#which-google-sign-in) below.
 
 #### Keep every box ticked
 Google shows a page that names Trina AX and lists what it may do, one line per permission, such as "Read, compose and
@@ -142,10 +158,19 @@ Each app's page lists, under **Google APIs**, the APIs to switch on for it:
 The Gmail, Calendar, Docs and Sheets apps run on Linux servers. On the Mac app their pages say "Not on your team's
 server yet".
 
-## Show your company's name on Google's screen
+## Which Google sign-in
 
-A company on Google Workspace can have every Google app sign in with its own Google app, so people see the company's
-name and no warning on Google's screen: [Use your company's own Google app](google-own-app.md).
+There are two ways to sign in to Google. Your team uses one of them for all five Google apps.
+
+| | Trina's sign-in | Your company's own Google app |
+|---|---|---|
+| Who can connect | Any Google account: a company Google Workspace account or a personal Gmail account | Only accounts of your company's Google Workspace |
+| Setup | None on a team hosted by Trina | About 15 minutes, once, by an IT admin: [Use your company's own Google app](google-own-app.md) |
+| Google's screen | **Google hasn't verified this app** while Google reviews Trina's app: [two clicks](#connect-a-google-app-everyone) | Your company's app name, no warning |
+| How many people | Limited by Google while the review runs | No limit |
+
+Start with Trina's sign-in. If your company is on Google Workspace and you want no warning, or Google says the app has
+reached its limit, switch to your company's own app. People then connect Google again once.
 
 ## Problems
 
@@ -155,6 +180,7 @@ name and no warning on Google's screen: [Use your company's own Google app](goog
 | **Google asked you to sign in again.** | Choose **Reconnect** on the app's page. This happens after a password change, or when your company's admin removed access. |
 | **`redirect_uri_mismatch`** on Google's page (self-run servers) | A return address in Google Cloud differs from the one Trina AX shows. Copy it again from the **Set up** dialog. |
 | **"This app is blocked"** or **`admin_policy_enforced`** | Your company's Google admin limits which apps may use Google accounts. Ask them to trust the app: see [Trust the app in the Admin console](google-own-app.md#optional-trust-the-app-in-the-admin-console). |
-| **Google hasn't verified this app** | An External app in Testing. Choose **Advanced** › **Go to …** only if your admin made the app; or ask them to switch to your company's own app. |
+| **Google hasn't verified this app** | With Trina's sign-in: choose **Advanced**, then **Go to Trina AX (unsafe)** ([pictures](#connect-a-google-app-everyone)). With an app your admin made in Testing: choose **Advanced** › **Go to …** only if your admin made it, or ask them to make it **Internal**. |
+| **Access blocked** or Google says the app has reached its user limit | Trina's sign-in has reached Google's limit while the review runs. An admin switches the team to [your company's own Google app](google-own-app.md). |
 
 Full details for developers and operators: [Google apps](../../GOOGLE-APPS.md) and [Google Drive](../../GOOGLE-DRIVE.md).

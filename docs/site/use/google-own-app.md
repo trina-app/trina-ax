@@ -21,8 +21,9 @@ It takes about 15 minutes: most of it in Google Cloud, then one dialog in Trina 
 :::
 
 :::note
-The screenshots on this page use a made-up team, "Acme". Google Cloud's own screens are not shown, because they change
-often: this page quotes Google's labels and links to each Google Cloud page instead.
+The screenshots on this page use a made-up team, "Acme", and a made-up Google Cloud project, "acme-trina". Google
+changes its console from time to time: if a screen looks different, follow the label quoted in the text and the link to
+the Google Cloud page.
 :::
 
 ## Who it is for
@@ -48,9 +49,12 @@ Sign in to [Google Cloud](https://console.cloud.google.com/) with an account of 
 
 :::steps
 #### Make a project
-Open [New project](https://console.cloud.google.com/projectcreate). Give it a name you will recognize, such as
-"acme-trina", keep your company under **Organization**, and choose **Create**. Make sure the new project is chosen at
-the top of the page before the next steps.
+Open [New project](https://console.cloud.google.com/projectcreate). Give it a **Project name** you will recognize,
+such as "acme-trina". Under **Parent resource** (or **Organization**), choose your company: the app can only be
+**Internal** when the project belongs to your company's organization ("No organization" in the picture is the account
+used for these pictures). Choose **Create**, then make sure the new project is chosen at the top of the page before the next steps.
+
+![Google Cloud's New Project page: Project name acme-trina, the Project ID under it, Parent resource, and the Create button](../images/google-own-app/cloud-new-project.webp "New Project")
 
 #### Switch on five APIs
 Open each page below and choose **Enable**:
@@ -61,14 +65,24 @@ Open each page below and choose **Enable**:
 - [Google Docs API](https://console.cloud.google.com/apis/library/docs.googleapis.com)
 - [Google Sheets API](https://console.cloud.google.com/apis/library/sheets.googleapis.com)
 
-Switch on all five, even if your team uses only some of the Google apps today.
+Switch on all five, even if your team uses only some of the Google apps today. Once an API is on, its page shows
+**Manage** and **API Enabled** in place of **Enable**.
+
+![The Gmail API page in Google Cloud with the Enable button](../images/google-own-app/cloud-enable-api.webp "Gmail API: Enable")
 
 #### Name the app and set it to Internal
 Open [Google Auth Platform](https://console.cloud.google.com/auth/overview). The first time, it shows **Get started**:
 
 1. **App Information**: an **App name** people will recognize, such as "Acme Trina", and a **User support email**.
+   Choose **Next**.
+
+   ![Get started, App Information: App name Acme Trina, User support email, and Next](../images/google-own-app/cloud-get-started.webp "Get started: App Information")
+
 2. **Audience**: choose **Internal**. Only accounts of your company can use the app, and Google does not need to
-   review it.
+   review it. (In the picture **Internal** is greyed out, because the account used for these pictures has no organization. With an
+   account of your company it can be chosen.)
+
+   ![Get started, Audience: Internal, only available to users within your organization, and External](../images/google-own-app/cloud-audience.webp "Get started: Audience")
 3. **Contact Information**: an email address Google may write to about the project.
 4. **Finish**: agree to Google's policy and choose **Create**.
 
@@ -76,8 +90,14 @@ Later you can change these in [Branding](https://console.cloud.google.com/auth/b
 [Audience](https://console.cloud.google.com/auth/audience).
 
 #### Add the permissions
-Open [Data access](https://console.cloud.google.com/auth/scopes) and choose **Add or remove scopes**. Under **Manually
-add scopes**, paste the whole block below, choose **Add to table**, then **Update**, then **Save**.
+Open [Data access](https://console.cloud.google.com/auth/scopes) and choose **Add or remove scopes**.
+
+![The Data Access page with the Add or remove scopes button](../images/google-own-app/cloud-data-access.webp "Data Access")
+
+A panel opens on the right. At its bottom, under **Manually add scopes**, paste the whole block below, choose **Add to
+table**, then **Update**, then **Save** on the page.
+
+![The panel's Manually add scopes box with the permissions pasted, and the Add to table button](../images/google-own-app/cloud-manual-scopes.webp "Manually add scopes")
 
 ```
 openid
@@ -99,7 +119,10 @@ of them is refused.
 Open [Clients](https://console.cloud.google.com/auth/clients) and choose **Create client**.
 
 1. **Application type**: **Web application**.
-2. **Name**: anything, such as "Trina AX".
+2. **Name**: anything, such as "Trina AX". People do not see it.
+
+   ![Create OAuth client ID: Application type Web application and Name Trina AX](../images/google-own-app/cloud-client-type.webp "Create client: type and name")
+
 3. Under **Authorized redirect URIs**, choose **Add URI** twice and paste both return addresses. Copy them from Trina AX
    (the dialog in the next part shows them, each with **Copy**). They look like this, with your team's address:
 
@@ -108,8 +131,12 @@ Open [Clients](https://console.cloud.google.com/auth/clients) and choose **Creat
    https://<your team address>/api/integrations/google-apps/callback
    ```
 
+   ![Authorized redirect URIs with the two return addresses of the made-up team acme.trina.app](../images/google-own-app/cloud-client-redirects.webp "Authorized redirect URIs")
+
 4. Choose **Create**. In **OAuth client created**, choose **Download JSON** and keep the file. Google shows the secret
    only now; if you lose it, make a new secret for the client.
+
+   ![OAuth client created, with the client ID and secret hidden in the picture, and the Download JSON button](../images/google-own-app/cloud-client-created.webp "OAuth client created: Download JSON")
 :::
 
 ## In Trina AX

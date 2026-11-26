@@ -28,8 +28,24 @@ Google Drive, Gmail, Google Calendar, Google Docs, Google Sheets는 Trina AX에 
 ![멤버가 보는 설정 › 커넥터의 Gmail 페이지: 나에게만 적용(Just for you), 커넥터 › Gmail, 오른쪽 위의 연결(Connect) 버튼, AI가 Gmail로 하는 일, 도구 목록](../../images/connect/google-member-connect.webp "연결하기 전의 Gmail")
 
 #### 연결 누르기
-새 창에 Google 로그인 페이지가 열려요(데스크톱 앱에서는 브라우저로 열려요). Google 계정에 여러 개 로그인돼 있으면
-Google이 어느 계정인지 물어요. 연결하려는 계정을 골라요.
+새 창이 열려요(데스크톱 앱에서는 브라우저로 열려요). Trina가 운영하는 팀이면 먼저 Trina의 시작 페이지가 나와요. 우리
+팀 이름과 Trina AX가 할 수 있는 일이 적혀 있어요. **Google로 계속**을 눌러요. 그러면 Google 로그인 페이지가 열려요.
+Google 계정에 여러 개 로그인돼 있으면 Google이 어느 계정인지 물어요. 연결하려는 계정을 골라요.
+
+#### Google 경고 넘기기
+Google이 아직 Trina의 Google 앱을 검토하는 동안에는 권한 화면 전에 **Google에서 확인하지 않은 앱**이라는 화면이 떠요.
+검토 중이라는 Google의 안내일 뿐, 내 계정에 문제가 있는 게 아니에요. 두 번만 누르면 돼요.
+
+1. 글 아래의 **고급**을 눌러요.
+
+   ![Google 경고 화면: Google에서 확인하지 않은 앱, 고급 링크에 표시](../../images/connect/google-warning-1-ko.webp "첫 번째: 고급")
+
+2. 펼쳐진 글 맨 아래의 **Trina AX(으)로 이동(안전하지 않음)** 링크를 눌러요.
+
+   ![고급을 누르면 펼쳐지는 글: 위험을 이해하는 경우에만 계속하라는 안내, Trina AX(으)로 이동(안전하지 않음) 링크에 표시](../../images/connect/google-warning-2-ko.webp "두 번째: Trina AX(으)로 이동(안전하지 않음)")
+
+Google Workspace를 쓰는 회사는 회사의 Google 앱을 쓰면 모두가 이 경고 없이 넘어가요. 아래
+[어떤 Google 로그인을 쓸까요](#어떤-google-로그인을-쓸까요)를 봐요.
 
 #### 모든 항목에 체크한 채로 두기
 Google이 Trina AX 이름과 함께, Trina AX가 할 수 있는 일을 "이메일 읽기, 작성, 보내기"처럼 권한마다 한 줄씩 보여
@@ -136,10 +152,19 @@ https://<your team address>/api/integrations/google-apps/callback
 Gmail, Calendar, Docs, Sheets 앱은 Linux 서버에서 돌아가요. 맥 앱에서는 이 앱들 페이지에 "이 팀 서버에서는 아직 못
 써요"가 떠요.
 
-## Google 화면에 회사 이름 보이기
+## 어떤 Google 로그인을 쓸까요
 
-Google Workspace를 쓰는 회사는 모든 Google 앱이 회사의 Google 앱으로 로그인하게 할 수 있어요. 그러면 Google 화면에 회사
-이름이 보이고 경고도 뜨지 않아요. 방법은 [회사의 Google 앱 쓰기](google-own-app.md)에 있어요.
+Google 로그인 방법은 두 가지예요. 팀은 다섯 Google 앱 모두에 그중 하나를 써요.
+
+| | Trina의 로그인 | 회사의 Google 앱 |
+|---|---|---|
+| 누가 연결할 수 있나요 | 모든 Google 계정: 회사 Google Workspace 계정이나 개인 Gmail 계정 | 회사 Google Workspace 계정만 |
+| 설정 | Trina가 운영하는 팀은 할 게 없어요 | IT 관리자가 한 번, 15분쯤: [회사의 Google 앱 쓰기](google-own-app.md) |
+| Google 화면 | Google이 Trina의 앱을 검토하는 동안 **Google에서 확인하지 않은 앱**이 떠요: [두 번 누르기](#google-앱-연결하기-모두) | 회사 앱 이름이 보이고 경고가 없어요 |
+| 쓸 수 있는 사람 수 | 검토하는 동안은 Google이 제한해요 | 제한 없어요 |
+
+처음에는 Trina의 로그인으로 시작해요. 회사가 Google Workspace를 쓰고 경고를 없애고 싶거나, Google이 앱의 사용자 한도에
+닿았다고 하면 회사의 Google 앱으로 바꿔요. 그러면 각자 Google을 한 번 다시 연결해요.
 
 ## 문제가 생기면
 
@@ -149,6 +174,7 @@ Google Workspace를 쓰는 회사는 모든 Google 앱이 회사의 Google 앱�
 | **Google에서 다시 로그인하라고 해요.** | 앱 페이지에서 **다시 연결**을 눌러요. 비밀번호를 바꿨거나 회사 관리자가 접근 권한을 없앴을 때 생겨요. |
 | Google 페이지에 **`redirect_uri_mismatch`** (직접 운영하는 서버) | Google Cloud에 넣은 돌아올 주소가 Trina AX에 보이는 주소와 달라요. **설정** 창에서 다시 복사해요. |
 | **"This app is blocked"** 또는 **`admin_policy_enforced`** | 회사의 Google 관리자가 Google 계정을 쓸 수 있는 앱을 제한하고 있어요. 관리자에게 앱을 신뢰해 달라고 부탁해요. 방법은 [Admin console에서 앱 신뢰하기](google-own-app.md#선택-admin-console에서-앱-신뢰하기)에 있어요. |
-| **Google에서 확인하지 않은 앱**이라고 떠요 | 테스트 중인 External 앱이에요. 관리자가 만든 앱일 때만 **Advanced** › **Go to …** 순서로 눌러요. 아니면 회사의 Google 앱으로 바꿔 달라고 관리자에게 부탁해요. |
+| **Google에서 확인하지 않은 앱**이라고 떠요 | Trina의 로그인이면 **고급**, **Trina AX(으)로 이동(안전하지 않음)** 순서로 눌러요([그림](#google-앱-연결하기-모두)). 관리자가 만든 테스트 중인 앱이면, 관리자가 만든 앱일 때만 **고급** › **…(으)로 이동** 순서로 눌러요. 아니면 앱을 **Internal**로 바꿔 달라고 관리자에게 부탁해요. |
+| **액세스 차단됨**이 뜨거나, Google이 앱의 사용자 한도에 닿았다고 해요 | 검토하는 동안 Trina의 로그인이 Google의 한도에 닿았어요. 관리자가 팀을 [회사의 Google 앱](google-own-app.md)으로 바꿔요. |
 
 개발자와 운영자를 위한 자세한 내용: [Google 앱](../../../GOOGLE-APPS.md) (영어), [Google Drive](../../../GOOGLE-DRIVE.md) (영어).

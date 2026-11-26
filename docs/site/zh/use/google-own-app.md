@@ -21,8 +21,8 @@ description: 在 Google Cloud 中为公司创建一个“内部” Google 应用
 :::
 
 :::note
-本页截图使用的是一个虚构的团队“Acme”。这里没有展示 Google Cloud 自己的页面，因为它们经常变化：本页会引用 Google
-的标签名称，并附上每个 Google Cloud 页面的链接。
+本页截图使用的是一个虚构的团队“Acme”和一个虚构的 Google Cloud 项目“acme-trina”。Google 会不时更改它的控制台：
+如果某个页面看起来不一样，请按照正文中引用的标签名称和 Google Cloud 页面的链接操作。
 :::
 
 ## 适用对象
@@ -44,8 +44,11 @@ description: 在 Google Cloud 中为公司创建一个“内部” Google 应用
 
 :::steps
 #### 创建项目
-打开[新建项目](https://console.cloud.google.com/projectcreate)。起一个你认得出的名称，例如“acme-trina”，在**组织**
-（Organization）下保留你的公司，然后选择**创建**（Create）。进行后面的步骤之前，请确认页面顶部选中的是这个新项目。
+打开[新建项目](https://console.cloud.google.com/projectcreate)。填写一个你认得出的 **Project name**（项目名称），例如
+“acme-trina”。在 **Parent resource**（父级资源，或 **Organization**，组织）下选择你的公司：只有项目属于公司的组织时，应用才能设为
+**Internal**（内部）（截图中的“No organization”是因为截图所用的账号没有组织）。选择 **Create**（创建），然后在进行后面的步骤之前，确认页面顶部选中的是这个新项目。
+
+![Google Cloud 的 New Project 页面：Project name 为 acme-trina，下方是 Project ID、Parent resource，以及 Create 按钮](../../images/google-own-app/cloud-new-project.webp "New Project（新建项目）")
 
 #### 启用五个 API
 打开下面每个页面，选择**启用**（Enable）：
@@ -56,14 +59,23 @@ description: 在 Google Cloud 中为公司创建一个“内部” Google 应用
 - [Google Docs API](https://console.cloud.google.com/apis/library/docs.googleapis.com)
 - [Google Sheets API](https://console.cloud.google.com/apis/library/sheets.googleapis.com)
 
-五个都要启用，即使团队现在只用到其中一部分 Google 应用。
+五个都要启用，即使团队现在只用到其中一部分 Google 应用。API 启用后，它的页面上原来的 **Enable** 会变成 **Manage**（管理）和
+**API Enabled**（API 已启用）。
+
+![Google Cloud 中带有 Enable 按钮的 Gmail API 页面](../../images/google-own-app/cloud-enable-api.webp "Gmail API：Enable")
 
 #### 给应用命名并设为“内部”
 打开 [Google Auth Platform](https://console.cloud.google.com/auth/overview)。第一次打开时，它会显示**开始**（Get started）：
 
 1. **应用信息**（App Information）：填写大家认得出的**应用名称**（App name），例如“Acme Trina”，以及**用户支持电子邮件**
-   （User support email）。
-2. **受众群体**（Audience）：选择**内部**（Internal）。只有公司的账号可以使用这个应用，Google 也不需要审核它。
+   （User support email）。选择 **Next（下一步）**。
+
+   ![Get started 的 App Information：App name 为 Acme Trina、User support email，以及 Next](../../images/google-own-app/cloud-get-started.webp "Get started：App Information")
+
+2. **受众群体**（Audience）：选择**内部**（Internal）。只有公司的账号可以使用这个应用，Google 也不需要审核它。（截图中的
+   **Internal** 是灰色的，因为截图所用的账号没有组织。用公司的账号就可以选择它。）
+
+   ![Get started 的 Audience：Internal（仅供组织内的用户使用）和 External](../../images/google-own-app/cloud-audience.webp "Get started：Audience")
 3. **联系信息**（Contact Information）：填写 Google 可能会就这个项目联系你的邮箱地址。
 4. **完成**（Finish）：同意 Google 的政策，然后选择**创建**（Create）。
 
@@ -72,8 +84,13 @@ description: 在 Google Cloud 中为公司创建一个“内部” Google 应用
 
 #### 添加权限
 打开[数据访问](https://console.cloud.google.com/auth/scopes)（Data access），选择**添加或移除范围**（Add or remove scopes）。
-在**手动添加范围**（Manually add scopes）下，粘贴下面整段内容，选择**添加到表格**（Add to table），再选择**更新**（Update），
-最后选择**保存**（Save）。
+
+![带有 Add or remove scopes 按钮的 Data Access 页面](../../images/google-own-app/cloud-data-access.webp "Data Access（数据访问）")
+
+右侧会打开一个面板。在面板底部的**手动添加范围**（Manually add scopes）下，粘贴下面整段内容，选择**添加到表格**（Add to
+table），再选择**更新**（Update），最后在页面上选择**保存**（Save）。
+
+![面板中的 Manually add scopes 输入框，已粘贴权限，以及 Add to table 按钮](../../images/google-own-app/cloud-manual-scopes.webp "Manually add scopes（手动添加范围）")
 
 ```
 openid
@@ -94,7 +111,10 @@ https://www.googleapis.com/auth/spreadsheets
 打开[客户端](https://console.cloud.google.com/auth/clients)（Clients），选择**创建客户端**（Create client）。
 
 1. **应用类型**（Application type）：**Web 应用**（Web application）。
-2. **名称**（Name）：随意，例如“Trina AX”。
+2. **名称**（Name）：随意，例如“Trina AX”。大家看不到它。
+
+   ![Create OAuth client ID：Application type 为 Web application，Name 为 Trina AX](../../images/google-own-app/cloud-client-type.webp "创建客户端：类型和名称")
+
 3. 在**已获授权的重定向 URI**（Authorized redirect URIs）下，选择两次**添加 URI**（Add URI），粘贴两个返回地址。请从
    Trina AX 中复制它们（下一部分的对话框会显示这两个地址，每个都带有**复制**按钮）。它们看起来像这样，只是换成你团队的地址：
 
@@ -103,8 +123,12 @@ https://www.googleapis.com/auth/spreadsheets
    https://<your team address>/api/integrations/google-apps/callback
    ```
 
+   ![Authorized redirect URIs 中虚构团队 acme.trina.app 的两个返回地址](../../images/google-own-app/cloud-client-redirects.webp "Authorized redirect URIs（已获授权的重定向 URI）")
+
 4. 选择**创建**（Create）。在**已创建 OAuth 客户端**（OAuth client created）中，选择**下载 JSON**（Download JSON）并保存好文件。
    Google 只在这时显示密钥；如果弄丢了，请为这个客户端新建一个密钥。
+
+   ![OAuth client created：截图中隐藏了客户端 ID 和密钥，以及 Download JSON 按钮](../../images/google-own-app/cloud-client-created.webp "OAuth client created：Download JSON")
 :::
 
 ## 在 Trina AX 中

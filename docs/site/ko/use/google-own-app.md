@@ -21,8 +21,8 @@ Google Drive, Gmail, Google Calendar, Google Docs, Google Sheets를 연결할 �
 :::
 
 :::note
-이 페이지의 화면은 가상의 팀 "Acme"로 찍었어요. Google Cloud 화면은 자주 바뀌어서 싣지 않았어요. 대신 Google의 메뉴
-이름을 그대로 적고 Google Cloud 페이지마다 링크를 달았어요.
+이 페이지의 화면은 가상의 팀 "Acme"와 가상의 Google Cloud 프로젝트 "acme-trina"로 찍었어요. Google은 콘솔 화면을 가끔
+바꿔요. 화면이 다르게 보이면 본문에 적은 메뉴 이름과 Google Cloud 페이지 링크를 따라가요.
 :::
 
 ## 누구를 위한 건가요
@@ -44,9 +44,12 @@ Google Workspace가 없는 작은 팀은 **Testing** 상태의 **External** 앱�
 
 :::steps
 #### 프로젝트 만들기
-[New project](https://console.cloud.google.com/projectcreate)를 열어요. "acme-trina"처럼 알아보기 쉬운 이름을 붙이고,
-**Organization**은 회사로 둔 채 **Create**를 눌러요. 다음 단계로 가기 전에 페이지 맨 위에서 새 프로젝트가 선택돼
-있는지 확인해요.
+[New project](https://console.cloud.google.com/projectcreate)를 열어요. **Project name**에 "acme-trina"처럼 알아보기
+쉬운 이름을 넣어요. **Parent resource**(또는 **Organization**)에서는 회사를 골라요. 프로젝트가 회사 조직에 속해야 앱을
+**Internal**로 만들 수 있어요(그림의 "No organization"은 이 그림을 찍은 계정에 조직이 없어서 그래요). **Create**를 누르고, 다음 단계로
+가기 전에 페이지 맨 위에서 새 프로젝트가 선택돼 있는지 확인해요.
+
+![Google Cloud의 New Project 페이지: Project name에 acme-trina, 그 아래 Project ID, Parent resource, Create 버튼](../../images/google-own-app/cloud-new-project.webp "New Project")
 
 #### API 다섯 개 켜기
 아래 페이지를 하나씩 열고 **Enable**을 눌러요.
@@ -57,13 +60,23 @@ Google Workspace가 없는 작은 팀은 **Testing** 상태의 **External** 앱�
 - [Google Docs API](https://console.cloud.google.com/apis/library/docs.googleapis.com)
 - [Google Sheets API](https://console.cloud.google.com/apis/library/sheets.googleapis.com)
 
-지금은 팀이 Google 앱 몇 개만 쓰더라도 다섯 개를 모두 켜요.
+지금은 팀이 Google 앱 몇 개만 쓰더라도 다섯 개를 모두 켜요. 켜진 API는 페이지에 **Enable** 대신 **Manage**와
+**API Enabled**가 보여요.
+
+![Google Cloud의 Gmail API 페이지와 Enable 버튼](../../images/google-own-app/cloud-enable-api.webp "Gmail API: Enable")
 
 #### 앱 이름 정하고 Internal로 설정하기
 [Google Auth Platform](https://console.cloud.google.com/auth/overview)을 열어요. 처음이면 **Get started**가 보여요.
 
-1. **App Information**: 사람들이 알아볼 **App name**(예: "Acme Trina")과 **User support email**.
-2. **Audience**: **Internal**을 골라요. 회사 계정만 이 앱을 쓸 수 있고, Google 검토도 필요 없어요.
+1. **App Information**: 사람들이 알아볼 **App name**(예: "Acme Trina")과 **User support email**을 넣고 **Next(다음)** 버튼을
+   눌러요.
+
+   ![Get started의 App Information: App name에 Acme Trina, User support email, Next 버튼](../../images/google-own-app/cloud-get-started.webp "Get started: App Information")
+
+2. **Audience**: **Internal**을 골라요. 회사 계정만 이 앱을 쓸 수 있고, Google 검토도 필요 없어요. (그림에서
+   **Internal**이 흐리게 보이는 건 이 그림을 찍은 계정에 조직이 없어서예요. 회사 계정이면 고를 수 있어요.)
+
+   ![Get started의 Audience: 조직 안의 사용자만 쓸 수 있는 Internal과 External](../../images/google-own-app/cloud-audience.webp "Get started: Audience")
 3. **Contact Information**: 이 프로젝트에 대해 Google이 연락할 이메일 주소.
 4. **Finish**: Google 정책에 동의하고 **Create**를 눌러요.
 
@@ -71,8 +84,14 @@ Google Workspace가 없는 작은 팀은 **Testing** 상태의 **External** 앱�
 [Audience](https://console.cloud.google.com/auth/audience)에서 바꿀 수 있어요.
 
 #### 권한 추가하기
-[Data access](https://console.cloud.google.com/auth/scopes)를 열고 **Add or remove scopes**를 눌러요. **Manually add
-scopes**에 아래 블록을 통째로 붙여 넣고 **Add to table**, **Update**, **Save**를 차례로 눌러요.
+[Data access](https://console.cloud.google.com/auth/scopes)를 열고 **Add or remove scopes**를 눌러요.
+
+![Add or remove scopes 버튼이 있는 Data Access 페이지](../../images/google-own-app/cloud-data-access.webp "Data Access")
+
+오른쪽에 패널이 열려요. 패널 맨 아래 **Manually add scopes**에 아래 블록을 통째로 붙여 넣고 **Add to table**,
+**Update**를 차례로 누른 뒤 페이지에서 **Save**를 눌러요.
+
+![패널의 Manually add scopes 칸에 권한을 붙여 넣은 모습과 Add to table 버튼](../../images/google-own-app/cloud-manual-scopes.webp "Manually add scopes")
 
 ```
 openid
@@ -93,7 +112,10 @@ Trina AX가 다섯 앱에서 요청하는 권한을 모두 모은 목록이에�
 [Clients](https://console.cloud.google.com/auth/clients)를 열고 **Create client**를 눌러요.
 
 1. **Application type**: **Web application**.
-2. **Name**: 아무 이름이나 괜찮아요. 예: "Trina AX".
+2. **Name**: 아무 이름이나 괜찮아요. 예: "Trina AX". 사람들에게는 보이지 않아요.
+
+   ![Create OAuth client ID: Application type은 Web application, Name은 Trina AX](../../images/google-own-app/cloud-client-type.webp "Create client: 유형과 이름")
+
 3. **Authorized redirect URIs**에서 **Add URI**를 두 번 누르고 돌아올 주소 두 개를 붙여 넣어요. 주소는 Trina AX에서
    복사해요(다음 부분의 창에 **복사** 버튼과 함께 나와요). 우리 팀 주소가 들어간 이런 모양이에요.
 
@@ -102,8 +124,12 @@ Trina AX가 다섯 앱에서 요청하는 권한을 모두 모은 목록이에�
    https://<your team address>/api/integrations/google-apps/callback
    ```
 
+   ![가상의 팀 acme.trina.app의 돌아올 주소 두 개를 넣은 Authorized redirect URIs](../../images/google-own-app/cloud-client-redirects.webp "Authorized redirect URIs")
+
 4. **Create**를 눌러요. **OAuth client created**에서 **Download JSON**을 눌러 파일을 보관해요. Google은 비밀 값을 이때만
    보여 줘요. 잃어버리면 그 클라이언트에 새 비밀 값을 만들어요.
+
+   ![OAuth client created: 그림에서는 가린 클라이언트 ID와 비밀 값, Download JSON 버튼](../../images/google-own-app/cloud-client-created.webp "OAuth client created: Download JSON")
 :::
 
 ## Trina AX에서

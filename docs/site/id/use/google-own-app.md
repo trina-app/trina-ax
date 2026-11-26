@@ -22,8 +22,9 @@ Prosesnya sekitar 15 menit: sebagian besar di Google Cloud, lalu satu dialog di 
 :::
 
 :::note
-Tangkapan layar di halaman ini memakai tim rekaan, "Acme". Layar Google Cloud sendiri tidak ditampilkan karena sering
-berubah: halaman ini mengutip label Google dan menautkan ke setiap halaman Google Cloud sebagai gantinya.
+Tangkapan layar di halaman ini memakai tim rekaan, "Acme", dan proyek Google Cloud rekaan, "acme-trina". Google
+sesekali mengubah konsolnya: jika suatu layar terlihat berbeda, ikuti label yang dikutip di teks dan tautan ke halaman
+Google Cloud.
 :::
 
 ## Untuk siapa
@@ -49,9 +50,12 @@ Masuk ke [Google Cloud](https://console.cloud.google.com/) dengan akun perusahaa
 
 :::steps
 #### Buat proyek
-Buka [New project](https://console.cloud.google.com/projectcreate). Beri nama yang mudah Anda kenali, misalnya
-"acme-trina", biarkan perusahaan Anda di **Organization**, lalu pilih **Create**. Pastikan proyek baru itu terpilih di
-bagian atas halaman sebelum langkah berikutnya.
+Buka [New project](https://console.cloud.google.com/projectcreate). Beri **Project name** yang mudah Anda kenali,
+misalnya "acme-trina". Di **Parent resource** (atau **Organization**), pilih perusahaan Anda: aplikasi hanya bisa
+**Internal** jika proyeknya milik organisasi perusahaan Anda ("No organization" di gambar adalah akun yang dipakai untuk gambar ini). Pilih
+**Create**, lalu pastikan proyek baru itu terpilih di bagian atas halaman sebelum langkah berikutnya.
+
+![Halaman New Project di Google Cloud: Project name acme-trina, Project ID di bawahnya, Parent resource, dan tombol Create](../../images/google-own-app/cloud-new-project.webp "New Project")
 
 #### Aktifkan lima API
 Buka setiap halaman di bawah dan pilih **Enable**:
@@ -62,15 +66,25 @@ Buka setiap halaman di bawah dan pilih **Enable**:
 - [Google Docs API](https://console.cloud.google.com/apis/library/docs.googleapis.com)
 - [Google Sheets API](https://console.cloud.google.com/apis/library/sheets.googleapis.com)
 
-Aktifkan kelimanya, meskipun tim Anda saat ini baru memakai sebagian aplikasi Google.
+Aktifkan kelimanya, meskipun tim Anda saat ini baru memakai sebagian aplikasi Google. Setelah API aktif, halamannya
+menampilkan **Manage** dan **API Enabled** di tempat **Enable**.
+
+![Halaman Gmail API di Google Cloud dengan tombol Enable](../../images/google-own-app/cloud-enable-api.webp "Gmail API: Enable")
 
 #### Beri nama aplikasi dan atur ke Internal
 Buka [Google Auth Platform](https://console.cloud.google.com/auth/overview). Pertama kali, halaman ini menampilkan
 **Get started**:
 
 1. **App Information**: **App name** yang dikenali orang, misalnya "Acme Trina", dan **User support email**.
+   Pilih **Next (Berikutnya)**.
+
+   ![Get started, App Information: App name Acme Trina, User support email, dan Next](../../images/google-own-app/cloud-get-started.webp "Get started: App Information")
+
 2. **Audience**: pilih **Internal**. Hanya akun perusahaan Anda yang bisa memakai aplikasi ini, dan Google tidak perlu
-   meninjaunya.
+   meninjaunya. (Di gambar, **Internal** berwarna abu-abu karena akun yang dipakai untuk gambar ini tidak punya organisasi. Dengan akun
+   perusahaan Anda, pilihan itu bisa dipilih.)
+
+   ![Get started, Audience: Internal, hanya tersedia untuk pengguna di organisasi Anda, dan External](../../images/google-own-app/cloud-audience.webp "Get started: Audience")
 3. **Contact Information**: alamat email yang bisa dihubungi Google tentang proyek ini.
 4. **Finish**: setujui kebijakan Google dan pilih **Create**.
 
@@ -78,8 +92,14 @@ Nanti Anda bisa mengubahnya di [Branding](https://console.cloud.google.com/auth/
 [Audience](https://console.cloud.google.com/auth/audience).
 
 #### Tambahkan izin
-Buka [Data access](https://console.cloud.google.com/auth/scopes) dan pilih **Add or remove scopes**. Di bawah **Manually
-add scopes**, tempel seluruh blok di bawah, pilih **Add to table**, lalu **Update**, lalu **Save**.
+Buka [Data access](https://console.cloud.google.com/auth/scopes) dan pilih **Add or remove scopes**.
+
+![Halaman Data Access dengan tombol Add or remove scopes](../../images/google-own-app/cloud-data-access.webp "Data Access")
+
+Panel terbuka di sebelah kanan. Di bagian bawahnya, di bawah **Manually add scopes**, tempel seluruh blok di bawah,
+pilih **Add to table**, lalu **Update**, lalu **Save** di halamannya.
+
+![Kotak Manually add scopes di panel dengan izin yang sudah ditempel, dan tombol Add to table](../../images/google-own-app/cloud-manual-scopes.webp "Manually add scopes")
 
 ```
 openid
@@ -101,7 +121,10 @@ tanpa salah satunya akan ditolak.
 Buka [Clients](https://console.cloud.google.com/auth/clients) dan pilih **Create client**.
 
 1. **Application type**: **Web application**.
-2. **Name**: apa saja, misalnya "Trina AX".
+2. **Name**: apa saja, misalnya "Trina AX". Orang tidak melihatnya.
+
+   ![Create OAuth client ID: Application type Web application dan Name Trina AX](../../images/google-own-app/cloud-client-type.webp "Create client: jenis dan nama")
+
 3. Di bawah **Authorized redirect URIs**, pilih **Add URI** dua kali dan tempel kedua alamat kembali. Salin dari Trina AX
    (dialog di bagian berikutnya menampilkannya, masing-masing dengan **Salin**). Bentuknya seperti ini, dengan alamat
    tim Anda:
@@ -111,8 +134,12 @@ Buka [Clients](https://console.cloud.google.com/auth/clients) dan pilih **Create
    https://<your team address>/api/integrations/google-apps/callback
    ```
 
+   ![Authorized redirect URIs dengan dua alamat kembali tim rekaan acme.trina.app](../../images/google-own-app/cloud-client-redirects.webp "Authorized redirect URIs")
+
 4. Pilih **Create**. Di **OAuth client created**, pilih **Download JSON** dan simpan file itu. Google hanya menampilkan
    rahasianya saat ini; jika hilang, buat rahasia baru untuk klien itu.
+
+   ![OAuth client created, dengan client ID dan rahasia disembunyikan di gambar, dan tombol Download JSON](../../images/google-own-app/cloud-client-created.webp "OAuth client created: Download JSON")
 :::
 
 ## Di Trina AX
