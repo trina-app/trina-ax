@@ -1,4 +1,4 @@
-// A message's hover bar on computers (components/rooms/MessageHoverBar.tsx, in RoomMessages): ✅ 👀 👍 toggle mine
+// A message's hover bar on computers (components/messages/MessageActions.tsx, layout "float", in RoomMessages): ✅ 👀 👍 toggle mine
 // through the reactions API, 반응 추가 opens six more and "More emoji" (the picker), 스레드에서 답장 opens the thread, ⋮ holds copy (and edit and
 // delete for my own); none on event lines or deleted messages, no thread button on a reply; under the list's first
 // message; Esc closes its menu.

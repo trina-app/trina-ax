@@ -1,10 +1,10 @@
 // A message's actions on a phone (components/chat/Messages.tsx): a touch screen has no hover, so under 768px copy, edit
-// and retry wait for a tap on the message, except under the newest answer. Until then they are out of sight only
-// (sr-only): a screen reader still reads them and a keyboard still reaches them. The branch switch ("‹ 1 / 2 ›") always
-// shows.
+// and retry are in the message's long-press sheet (components/messages/MessageActions.tsx), except under the newest
+// answer. The row is out of sight only (sr-only): a screen reader still reads it and a keyboard still reaches it. A tap
+// shows nothing. The branch switch ("‹ 1 / 2 ›") always shows.
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
-import { AssistantMessage, UNTIL_TAP, UserMessage } from '../../src/components/chat/Messages'
+import { AssistantMessage, IN_SHEET, UserMessage } from '../../src/components/chat/Messages'
 import { CHAT, msg } from './fixtures'
 import { installDom, mount, removeDom } from './dom-host'
 
@@ -22,13 +22,13 @@ afterAll(() => {
 const answer = (m: ReturnType<typeof msg>, isLast: boolean) => <AssistantMessage m={m} chatId={CHAT} isLast={isLast} busy={false} switchedFrom={null} onRegenerate={() => {}} onSelectBranch={() => {}} onAskOwnFolder={() => {}} />
 
 test('hidden from sight only: out of view on a touch phone, kept for screen readers and the keyboard', () => {
-  expect(UNTIL_TAP).toContain('max-md:pointer-coarse:')
-  expect(UNTIL_TAP).toContain('sr-only')
-  expect(UNTIL_TAP).toContain('not-focus-within:')
-  expect(UNTIL_TAP).not.toMatch(/(^|:)hidden\b/)
+  expect(IN_SHEET).toContain('max-md:pointer-coarse:')
+  expect(IN_SHEET).toContain('sr-only')
+  expect(IN_SHEET).toContain('not-focus-within:')
+  expect(IN_SHEET).not.toMatch(/(^|:)hidden\b/)
 })
 
-test('on a phone the actions of my message and of an older answer wait for a tap; the newest answer keeps its row', async () => {
+test('on a phone the actions of my message and of an older answer are in the sheet; the newest answer keeps its row', async () => {
   const q = msg({ role: 'user', content: 'first question' })
   const older = msg({ role: 'assistant', content: 'first answer', model: 'claude-x' })
   const newest = msg({ role: 'assistant', content: 'second answer' })
@@ -43,26 +43,23 @@ test('on a phone the actions of my message and of an older answer wait for a tap
     const cls = (box: string, id: string) => page.get(box).querySelector(`[data-testid="${id}"]`)!.className
     const mine = (id: string) => page.get('user-message').querySelector(`[data-testid="${id}"]`)!.className
     // without a branch switch the whole row waits (it takes no room), its buttons inside it
-    expect(mine('message-actions')).toContain(UNTIL_TAP)
-    expect(mine('message-actions-tap')).toContain(UNTIL_TAP)
-    expect(cls('older', 'answer-actions')).toContain(UNTIL_TAP)
-    expect(cls('older', 'answer-actions-tap')).toContain(UNTIL_TAP)
-    expect(cls('newest', 'answer-actions')).not.toContain(UNTIL_TAP)
-    expect(cls('newest', 'answer-actions-tap')).not.toContain(UNTIL_TAP)
+    expect(mine('message-actions')).toContain(IN_SHEET)
+    expect(mine('message-actions-tap')).toContain(IN_SHEET)
+    expect(cls('older', 'answer-actions')).toContain(IN_SHEET)
+    expect(cls('older', 'answer-actions-tap')).toContain(IN_SHEET)
+    expect(cls('newest', 'answer-actions')).not.toContain(IN_SHEET)
+    expect(cls('newest', 'answer-actions-tap')).not.toContain(IN_SHEET)
     // still there, with their names, for a screen reader and the keyboard
     expect(page.get('edit-message').getAttribute('aria-label')).toBeTruthy()
     expect(page.get('older').querySelector('[data-testid="regenerate"]')!.getAttribute('aria-label')).toBeTruthy()
     // a computer still shows them on hover or focus
     expect(mine('message-actions')).toContain('group-hover:opacity-100')
     expect(cls('older', 'answer-actions')).toContain('group-hover:opacity-100')
-    // a tap on the message brings its row
+    // a tap on the message brings nothing: the long press opens the sheet
     await page.click('user-text')
-    expect(mine('message-actions')).not.toContain(UNTIL_TAP)
-    expect(mine('message-actions-tap')).not.toContain(UNTIL_TAP)
-    expect(cls('older', 'answer-actions')).toContain(UNTIL_TAP)
+    expect(mine('message-actions')).toContain(IN_SHEET)
     await page.click(page.get('older').querySelector('[data-testid="assistant-message"]')!)
-    expect(cls('older', 'answer-actions')).not.toContain(UNTIL_TAP)
-    expect(cls('older', 'answer-actions-tap')).not.toContain(UNTIL_TAP)
+    expect(cls('older', 'answer-actions')).toContain(IN_SHEET)
   } finally {
     await page.unmount()
   }
@@ -87,8 +84,8 @@ test('the branch switch always shows: only the other actions wait for the tap', 
       [page.get('older').querySelector('[data-testid="answer-actions"]')!, page.get('older').querySelector('[data-testid="answer-actions-tap"]')!],
     ] as const) {
       const nav = row.querySelector('[data-testid="branch-nav"]')!
-      expect(row.className).not.toContain(UNTIL_TAP)
-      expect(tap.className).toContain(UNTIL_TAP)
+      expect(row.className).not.toContain(IN_SHEET)
+      expect(tap.className).toContain(IN_SHEET)
       // the switch is not inside the part that waits
       expect(tap.contains(nav)).toBe(false)
       expect(nav.querySelector('[data-testid="branch-label"]')!.textContent).toMatch(/\d \/ 2/)
