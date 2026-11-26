@@ -816,7 +816,7 @@ export function AssistantMessage({
   const threadable = !!onThread && !m.withheld && (m.status === 'done' || m.status === 'stopped')
   // 👎 (docs/decisions/20261126-problem-reports.md): a finished answer, where this server sends reports and the team allows
   // it (a guest never: Me.team.problemReports is absent for them)
-  const reportable = !!meNow?.team.problemReports && !streaming && !m.local && (m.status === 'done' || m.status === 'error' || m.status === 'stopped')
+  const reportable = !!meNow?.team?.problemReports && !streaming && !m.local && (m.status === 'done' || m.status === 'error' || m.status === 'stopped')
   const openReport = () => {
     const question = m.parentId ? useChats.getState().threads[chatId]?.messages.find((x) => x.id === m.parentId)?.content ?? '' : ''
     setReporting({ messageId: m.id, conversation: reportConversation && !m.withheld ? { question, answer: m.content } : null })
