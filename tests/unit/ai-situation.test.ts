@@ -293,13 +293,13 @@ describe('built from real state', () => {
     expect(m).toContain('Role: the team\'s owner.')
   })
 
-  test('a shared chat never carries the block (the person\'s role is not its people\'s to know)', () => {
+  test('a shared chat carries the block as the person\'s own chat does (docs/decisions/20261126-shared-chat-everything.md)', () => {
     const input: PromptInput = {
       user: h.ctx.files.principal('alice'), groupNames: [], locale: 'en', timeZone: 'UTC', memories: [], project: null, browser: false, tools: [], history: null,
       situation: { ...base }, shared: { project: 'Atlas', audience: 3, asker: 'Alice Kim' },
     }
-    expect(buildTurnPrompt(h.ctx.files, input)).not.toContain('About this person and place')
-    expect(buildTurnContext(h.ctx.files, input)).not.toContain('About this person and place')
+    expect(buildTurnPrompt(h.ctx.files, input)).toContain('About this person and place')
+    expect(buildTurnContext(h.ctx.files, input).includes('About this person and place')).toBe(buildTurnContext(h.ctx.files, { ...input, shared: null }).includes('About this person and place'))
     expect(buildTurnPrompt(h.ctx.files, { ...input, shared: null })).toContain('About this person and place')
   })
 

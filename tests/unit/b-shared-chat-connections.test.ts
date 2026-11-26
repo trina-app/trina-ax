@@ -428,7 +428,7 @@ describe('the instructions and the provider in a shared chat', () => {
   const shared = (o: { guest?: boolean; audience?: string[] } = {}): SharedConnections => ({ locale: 'en', audience: () => o.audience ?? ['alice', 'bob'], guestHere: () => !!o.guest, confirm: async () => null, attach: async () => null })
   const build = (o: { guest?: boolean } = {}) => integrationToolProvider(h.ctx).build({ userId: 'alice', chatId: 'none', turnId: 'none', browser: false, scheduled: false, shared: shared(o) })
 
-  test('each connection says what it returns shows to everyone here, after one notice; connecting a new one is not offered here', () => {
+  test('each connection says what it returns shows to everyone here, after one notice; connecting a new one works as in an own chat (docs/decisions/20261126-shared-chat-everything.md)', () => {
     const b = build()
     const names = b.tools.map((t) => t.name)
     expect(names).toContain(TEAM_TOOL)
@@ -436,8 +436,8 @@ describe('the instructions and the provider in a shared chat', () => {
     const line = (name: string) => b.prompt!.split('\n').find((l) => l.startsWith(`- ${name} `))!
     expect(line('Bright Data')).toContain('what it returns shows to everyone in this shared chat (the first time the user uses it here the server shows them a short notice')
     expect(line('Alice Mail')).toContain("in this shared chat it is the user's own: what it returns shows to everyone here")
-    expect(b.prompt).toContain('connecting is not done in a shared chat')
-    expect(b.prompt).not.toContain('connect_service')
+    expect(b.prompt).not.toContain('connecting is not done in a shared chat')
+    expect(b.prompt).toContain('or ask you to connect one (connect_service)')
   })
 
   test('a guest in the chat: no team connection tool, and the list says why', () => {

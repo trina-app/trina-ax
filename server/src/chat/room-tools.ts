@@ -7,9 +7,10 @@
 //   save_room_file  a copy of such a file (its own bytes) put into the team folder: the same lookup as room_file, then
 //              the AI's other byte saves' path (placeProduced) and the wider-audience card with the room as the source
 //              (below)
-// What they read is the person's own view (rooms/reader.ts). Offered only in a person's own chats (chat/tools.ts): never
-// in a shared project chat, a confidential chat (not local tools), a
-// draft chat, an approved scheduled template (its scope refuses them), or to a sub-agent (subagents.ts PARENT_ONLY).
+// What they read is the person's own view (rooms/reader.ts). Offered in a person's own chats and in shared chats
+// (chat/tools.ts), where what a call found reaches the chat only after the read card when someone there is not in that
+// room (TurnExec.confirmSharedRead with the rooms it found; docs/decisions/20261126-shared-chat-everything.md); never in
+// a confidential chat (not local tools), a draft chat, an approved scheduled template (its scope refuses them), or to a sub-agent (subagents.ts PARENT_ONLY).
 // A call of any of them:
 //   - marks the chat for good (chats.rooms_seen, TurnExec.markRoomsSeen): room messages are other people's words, so
 //     from then on every tool call that may change something waits for the person's yes on a card (chat/turn.ts
@@ -200,9 +201,14 @@ export function roomReadTools(exec: TurnExec): Tool[] {
    * group a moment ago) has them put right before anything is read, as GET /api/rooms does. Never throws: the read
    * itself goes by the member rows as they are. */
   const syncMine = () => { try { roomsOf(rt.ctx).syncFor(spec.userId) } catch (e) { rt.log.warn('room sync before a read failed', { err: e }) } }
+  /** the rooms a result showed messages of, as read sources */
+  const roomSources = (r: Pick<ReadResult, 'seen'>): ReadSource[] => r.seen.map((x) => ({ type: 'room', id: x.roomId, ...(x.fromSeq !== undefined ? { fromSeq: x.fromSeq } : {}) }))
+  /** a shared chat: what a call found reaches the chat only after the read card when someone who sees the chat is not
+   * in that room or does not see that part of it (docs/decisions/20261126-shared-chat-everything.md); null: go on */
+  const sharedNo = (tool: string, sources: ReadSource[]): Promise<string | null> => (exec.shared && sources.length ? exec.confirmSharedRead(tool, {}, { sources }) : Promise.resolve(null))
   /** what a result showed: the rooms join the chat's read scope (their members see it) */
   const record = (r: Pick<ReadResult, 'seen' | 'outside'>) => {
-    const add: ReadSource[] = r.seen.map((s) => ({ type: 'room', id: s.roomId, ...(s.fromSeq !== undefined ? { fromSeq: s.fromSeq } : {}) }))
+    const add: ReadSource[] = roomSources(r)
     addSources(rt.db, spec.chatId, add)
     // messages apps posted (rooms/apps) are outside content, like a web page: no room card is skipped after them
     // (chats.room_outside; "Always allow" keeps its existing rule, owner decision 11)
@@ -238,6 +244,8 @@ export function roomReadTools(exec: TurnExec): Tool[] {
         const r = search ? searchRooms(rt.db, spec.userId, shownTimeZone(spec.timeZone, rt.timeZone), a.data) : listRooms(rt.db, spec.userId, shownTimeZone(spec.timeZone, rt.timeZone), a.data.room)
         // messages found: the chat has read room messages (before the result reaches the AI)
         if (r.seen.length || (search && (r.count ?? 0) > 0)) exec.markRoomsSeen()
+        const shut = await sharedNo('rooms', [...roomSources(r), ...(r.listed ?? []).map((id): ReadSource => ({ type: 'room', id }))])
+        if (shut) return { ...text(shut, true), summary: 'rooms -> not shown (shared chat)' }
         record(r)
         return { ...text(r.text, !r.ok), summary: `rooms -> ${search ? 'search' : 'list'}${r.ok ? `, ${r.count ?? 0} shown` : ', invalid input'}` }
       },
@@ -253,6 +261,8 @@ export function roomReadTools(exec: TurnExec): Tool[] {
         const refused = guestRoomRefusal(a.data.room)
         if (refused) { label('room_read'); return { ...text(refused, false), summary: 'room_read -> no room (guest)' } }
         const r = noRoomsTool(readRoom(rt.db, spec.userId, shownTimeZone(spec.timeZone, rt.timeZone), a.data))
+        const shut = await sharedNo('room_read', [...roomSources(r), ...(r.listed ?? []).map((id): ReadSource => ({ type: 'room', id }))])
+        if (shut) { label('room_read'); return { ...text(shut, true), summary: 'room_read -> not read (shared chat)' } }
         record(r)
         // a side chat's own room: its links are this conversation's (tools/url-gate.ts noteRoomLinks)
         if (r.ok) try { noteRoomLinks(rt.db, spec.chatId, spec.userId, r.text) } catch {}
@@ -273,7 +283,16 @@ export function roomReadTools(exec: TurnExec): Tool[] {
         const refused = guestRoomRefusal(a.data.room)
         if (refused) { label('room_file'); return { ...text(refused, false), summary: 'room_file -> no room (guest)' } }
         try {
-          const r = await readRoomFile(exec, files, a.data, (name) => { named = name })
+          // a shared chat: what the file is joins the chat's read scope only after the read card
+          const found: ReadSource[] = []
+          const r = await readRoomFile(exec, files, a.data, (name) => { named = name }, exec.shared ? (x) => { found.push(x) } : undefined)
+          // (several rooms matched the name: their names, by the ids the answer lists)
+          if (exec.shared && !found.length) for (const c of r.content) if (c.type === 'text' && c.text.startsWith('Several of the user\'s rooms match')) for (const m of c.text.matchAll(/room_id=([0-9a-f-]{36})/g)) found.push({ type: 'room', id: m[1]! })
+          if (exec.shared && found.length) {
+            const no = await sharedNo('room_file', found)
+            if (no) return { ...text(no, true), summary: 'room_file -> not read (shared chat)' }
+            addSources(rt.db, spec.chatId, found)
+          }
           return guest ? { ...r, content: r.content.map((c) => (c.type === 'text' ? { ...c, text: c.text.replace(ROOMS_HINT, GUEST_ROOMS_HINT) } : c)) } : r
         } finally { label('room_file', named) }
       },
@@ -306,19 +325,52 @@ export function roomReadTools(exec: TurnExec): Tool[] {
         syncMine()
         let named = ''
         const to = a.data.save_as?.trim().slice(0, 80)
+        // a shared chat: the copy's name and place come into the chat and a later read of it there is the asker's own
+        // folder's, so the room goes through the read card first (security review of the shared-chat change)
+        if (exec.shared) {
+          let room: string | null = null
+          try { const f = findRoom(rt.db, spec.userId, a.data.room); room = f && 'one' in f ? f.one.room.id : null } catch { room = null }
+          const shut = room ? await sharedNo('save_room_file', [{ type: 'room', id: room }]) : null
+          if (shut) { label('save_room_file'); return { ...text(shut, true), summary: 'save_room_file -> not saved (shared chat)' } }
+        }
         try { return await saveRoomFile(exec, files, a.data, (n) => { named = n }, planned.take(args), { tool: 'save_room_file', args }) } finally { label('save_room_file', named && to ? `${named} → ${to}` : named) }
       },
     },
   ]
 }
 
-/** room_file in a chat turn: readRoomFileFor with the turn's person, picture budget and read scope. */
-function readRoomFile(exec: TurnExec, files: TurnFiles, a: RoomFileArgs, named: (name: string) => void) {
+/**
+ * The room tools of a shared chat (docs/decisions/20261126-shared-chat-everything.md): the person's own (roomReadTools,
+ * every room they are in, behind the read card for what someone here cannot see). In a project's shared chat a call
+ * that names the project's own chat room keeps projectRoomTools's no-card read of what everyone here sees there.
+ */
+export function sharedRoomTools(exec: TurnExec): Tool[] {
+  const full = roomReadTools(exec)
+  const roomId = projectRoomOfChat(exec)
+  if (!roomId) return full
+  const own = new Map(projectRoomTools(exec, roomId).map((t) => [t.name, t]))
+  /** the call names the project's own room (its id, or a name that finds only it) */
+  const ownRoom = (args: unknown): boolean => {
+    const ref = args && typeof args === 'object' ? (args as { room?: unknown }).room : undefined
+    if (typeof ref !== 'string') return false
+    if (ref === roomId) return true
+    try { const f = findRoom(exec.rt.db, exec.spec.userId, ref); return !!f && 'one' in f && f.one.room.id === roomId } catch { return false }
+  }
+  return full.map((t) => {
+    const o = own.get(t.name)
+    if (!o) return t
+    return { ...t, description: `${t.description} This project's own chat room is room_id=${roomId}: reading it here needs no card.`, call: (args, files) => (ownRoom(args) ? o.call(args, files) : t.call(args, files)) }
+  })
+}
+
+/** room_file in a chat turn: readRoomFileFor with the turn's person, picture budget and read scope (`seen`: where what
+ * it read goes instead, a shared chat's call that waits for the read card). */
+function readRoomFile(exec: TurnExec, files: TurnFiles, a: RoomFileArgs, named: (name: string) => void, seen?: (s: ReadSource) => void) {
   const { rt, spec } = exec
   return readRoomFileFor({
     ctx: rt.ctx, userId: spec.userId, timeZone: shownTimeZone(spec.timeZone, rt.timeZone), signal: exec.abort.signal,
     toolCtx: () => ({ user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal }),
-    seen: (s) => addSources(rt.db, spec.chatId, [s]),
+    seen: seen ?? ((s) => addSources(rt.db, spec.chatId, [s])),
     // a guest's turn has no save_room_file (chat/guest-tools.ts): never told to use it
     canSave: !isGuestUser(rt.db, spec.userId),
     pdfPages: true,

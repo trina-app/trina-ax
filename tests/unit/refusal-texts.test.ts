@@ -180,12 +180,15 @@ describe('the instructions say what each kind of chat cannot do, and where to do
     for (const L of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(SCREEN.continuePrivately(L)).toBe(DICTS[L]['chat.continuePrivately'])
   })
 
-  test('a shared chat: what is missing there, and an own chat instead', () => {
+  test('a shared chat: nothing a member has is missing there; an own chat named where a search does not find something', () => {
     const t = sharedSection({ project: 'Atlas', audience: 3, asker: 'Alice Kim' }, 'ko')
     // everything SHARED_TOOLS leaves out (review S2), and always the way to a chat only they see, by its name in the
     // person's language (docs/DECISIONS.md "Team project chats shared by default")
-    expect(t).toContain("Not available in a shared chat: naming this chat; listing, moving or renaming skills; putting other people's team files in the trash (files you made yourself in this chat for Alice Kim, which nobody else changed, do go to the trash with delete_files: use it when Alice Kim asks, never say you cannot delete those); files and folders teammates shared with Alice Kim one by one (Files › Shared with me (\"파일 › 나에게 공유된 파일\"): they are Alice Kim's alone, so do not search Alice Kim's own folder for them or suggest attaching them here); changing the project's members; team chat rooms (reading them or posting to one); Google Drive (whoever has it connected: it is not a missing connection, so never ask anyone to connect it); connecting a new service (Alice Kim connects one in Settings › Connectors (\"설정 › 커넥터\") or in a chat only they see); the dev environment.")
-    expect(t).toContain('Alice Kim can ask again in a chat only they see: the item "나만 보는 새 채팅에서 이어 하기" in the menu that opens from this chat\'s title at the top')
+    // nothing is listed as off for a member since docs/decisions/20261126-shared-chat-everything.md
+    expect(t).not.toContain('Not available in a shared chat')
+    expect(t).toContain("Everything you do in a chat only Alice Kim sees works here too")
+    // the way to a chat only they see, by its name in the person's language, is still said where something is not found
+    expect(t).toContain('"나만 보는 새 채팅에서 이어 하기"')
     // a member's memories work here (docs/decisions/20261125-auto-memory-shared-chats.md); a guest's do not
     expect(t).not.toContain('memories')
     expect(sharedSection({ project: 'Atlas', audience: 3, asker: 'Guest Kim' }, 'ko', false, true)).toContain('Not available in a shared chat: memories about Guest Kim')

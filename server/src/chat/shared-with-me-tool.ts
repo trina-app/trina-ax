@@ -10,8 +10,9 @@
 //   whole team), the day, its link (/f/<id>, which read opens). For a file their folders already show, its place in
 //   words too. Never a path of a file the folder rules do not show them (the link page shows none either).
 // - Names are other people's words: one line, cut, our block tags neutralized, quoted.
-// - Offered where the read tools open a shared file (sharedWithMeOff; turn.ts grantReads): the person's own chat and a
-//   ✦ side chat. Never a scheduled run, a shared chat, a guest, a confidential chat, a template or restricted run, a question from Slack, a
+// - Offered where the read tools open a shared file (sharedWithMeOff; turn.ts grantReads): the person's own chat, a ✦
+//   side chat and a shared chat, where the list goes through the read card first when someone there cannot open what it
+//   names (docs/decisions/20261126-shared-chat-everything.md). Never a scheduled run, a guest, a confidential chat, a template or restricted run, a question from Slack, a
 //   sub-agent (subagents.ts PARENT_ONLY_TOOLS), or a call without a chat turn (the remote connector).
 import { SharedWithMeInput } from '@mycel/shared'
 import { FILE_SHARE_EVERYONE, fileLinkUrl } from '@mycel/shared/api'
@@ -22,6 +23,7 @@ import { sharedFoldersWith } from '../files/shared-folder-reads'
 import { confidentialChat } from '../safe-ops/confidential'
 import { zonedDay } from '../system/time-zone'
 import { neutralizeTags } from './prompt'
+import { sourceOf, type ReadSource } from './read-scope'
 import { SCREEN } from '../policy/refusal'
 import { fold, mainOnly } from './shared-actions'
 import type { Tool } from './tools'
@@ -44,7 +46,6 @@ type OffExec = Pick<TurnExec, 'rt' | 'spec' | 'shared' | 'restricted' | 'templat
 /** Why shared_with_me is not offered in this turn (and refused when reached anyway), or null: it is. The same turns
  * whose read tools open a file through a grant (chat/turn.ts TurnFiles.grantReads). */
 export function sharedWithMeOff(exec: OffExec): string | null {
-  if (exec.shared) return 'a shared chat'
   if (exec.restricted || exec.templateRun) return 'a run limited to one task'
   if (exec.fromSlack) return 'a question from Slack'
   // nobody watches a scheduled run, and a file another member shared must not act there (as the grant reads: turn.ts)
@@ -67,11 +68,7 @@ export function sharedWithMeTool(exec: TurnExec): Tool {
       const a = SharedWithMeInput.safeParse(args)
       if (!a.success) return text('Invalid input: ' + a.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '), true)
       const off = sharedWithMeOff(exec)
-      // a shared chat: files shared with the person are theirs alone, and their links do not open here either (no grant
-      // reads): where they are instead, never "send the link" (AI scenario SWM-01.project)
-      if (off) return { ...text(exec.shared
-        ? `Not available in a shared chat: files and folders shared with the user one by one are theirs alone, and they do not open here. Tell the user plainly that they can open them in ${SCREEN.sharedWithMe(exec.spec.locale)}, or ask in a chat only they see. Do not search their own folder for them.`
-        : `Not available here (${off}). Ask the user for the file's link.`, true), summary: 'shared_with_me -> refused: not here' }
+      if (off) return { ...text(`Not available here (${off}). Ask the user for the file's link.`, true), summary: 'shared_with_me -> refused: not here' }
       const main = mainOnly(exec, files)
       if (main === 'sub-agent') return { ...text('Not available to a sub-agent. The main assistant passes you the file\'s link.', true), summary: 'shared_with_me -> refused: sub-agent' }
       if (main === 'disabled') return { ...text('Access denied: this account is disabled.', true), summary: 'shared_with_me -> denied: account disabled' }
@@ -82,6 +79,9 @@ export function sharedWithMeTool(exec: TurnExec): Tool {
       const want = fold(a.data.query ?? '')
       const max = Math.min(a.data.limit ?? SHARED_WITH_ME_MAX, SHARED_WITH_ME_MAX)
       const lines: string[] = []
+      // where each listed file or folder is (a shared chat's read card: who here could not open it)
+      const rules = rt.files.rules()
+      const places: ReadSource[] = []
       let cursor: string | undefined
       let more = false
       scan: for (let page = 0; page < SCAN_PAGES; page++) {
@@ -105,6 +105,7 @@ export function sharedWithMeTool(exec: TurnExec): Tool {
           // a file their folders show too: where it is, in words (never for one only the grant opens)
           let where = ''
           if (o.by !== 'grant') { try { where = `, also in the user's folders: ${q(exec.place(o.share.path.split('/').slice(0, -1).join('/')), 120)}` } catch {} }
+          places.push(sourceOf(db, rules, o.share.path))
           lines.push(`- ${q(o.name)}${it.sharedBy ? ` from ${q(it.sharedBy, 60)}` : ' from a former member'}, ${to}, ${day(it.sharedAt)}${where}: ${fileLinkUrl(it.linkId)}`)
         }
         if (!r.next) break
@@ -122,6 +123,8 @@ export function sharedWithMeTool(exec: TurnExec): Tool {
         for (const f of got.files) {
           if (want && !fold(f.name).includes(want) && !fold(f.sharedBy ?? '').includes(want)) continue
           const to = f.to.kind === 'you' ? 'shared with the user' : f.to.kind === 'everyone' ? 'shared with everyone on the team' : `shared with the group ${q(f.to.name, 60)}`
+          const row = shares.row(f.id)
+          if (row) places.push(sourceOf(db, rules, row.path))
           folderLines.push(`- folder ${q(f.name)}${f.sharedBy ? ` from ${q(f.sharedBy, 60)}` : ' from a former member'}, ${to}, ${day(f.at)}: ${f.url}`)
         }
       } catch {}
@@ -129,6 +132,12 @@ export function sharedWithMeTool(exec: TurnExec): Tool {
         return { ...text(want
           ? `No file shared with the user matches "${neutralizeTags((a.data.query ?? '').replace(/\s+/g, ' ').trim().slice(0, 80))}"${more || moreFolders ? ' among the newest ones' : ''}. Call shared_with_me without query to see them all, or ask the user for the file's link.`
           : 'No file is shared with the user one by one right now (files in their folders are found with list, glob and grep).'), summary: 'shared_with_me -> 0 shown' }
+      }
+      // a shared chat: the list joins the chat only after the read card when someone here could not open what it names
+      // (docs/decisions/20261126-shared-chat-everything.md); a no keeps it out
+      if (exec.shared) {
+        const no = await exec.confirmSharedRead(SHARED_WITH_ME_TOOL, args, { sources: places })
+        if (no) return { ...text(no, true), summary: 'shared_with_me -> not shown (shared chat)' }
       }
       return {
         ...text([

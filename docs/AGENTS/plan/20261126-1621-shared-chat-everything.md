@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-26 16:21
 - Branch: `feat/shared-chat-everything`
-- Status: in progress
+- Status: done
 - Where: server (chat tools, turn, prompt, routes), docs. Why: the owner (11-26, "다 되는거 아니야?"): in a shared chat
   the asker's AI does everything it does in a private chat; where other people would see something they cannot open,
   the one-time notice or the read card asks the asker first. No blanket offs.
@@ -73,4 +73,8 @@ someone here cannot open what comes back. Bun 1.3.12 unit tests of the areas, ty
 
 ## Result
 
-(filled in at the end)
+All eleven items lifted as planned. Changed from the plan after review: "earlier yes" approvals hold in a shared chat
+only while nobody else wrote there (other people's words could ask for the same send again); a guest's turn keeps its
+room tools as before (only the group chat they were invited to); a share link that does not open is counted as its
+owner's place (the read card asks); save_room_file and a name that matches several rooms go through the read card too.
+Tests: tests/unit/b-shared-chat-everything.test.ts, c-drive-tools, and the suites that asserted the old blocks.

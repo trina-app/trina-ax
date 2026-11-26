@@ -364,7 +364,7 @@ describe('delete_files and the AI\'s own files', () => {
   })
 
   test('which refusals own files go past: never a sub-agent, a restricted, template or confidential chat', async () => {
-    expect([...OWN_OVERRIDES].sort()).toEqual(['others', 'roomsSeen', 'scheduled', 'shared', 'sharedFile', 'slack'])
+    expect([...OWN_OVERRIDES].sort()).toEqual(['roomsSeen', 'scheduled', 'shared', 'sharedFile', 'slack'])
     const { rel } = scratchDir('s10')
     const { exec } = execOf({ shared: true })
     const r = await deleteFilesTool(exec).call({ paths: [rel] }, new TurnFiles())

@@ -195,6 +195,16 @@ function attachments(ctx: AppContext, auth: AuthInfo, chatId: string, ids: strin
  * with it (chat/chat-files.ts: Attachments.lookup finds only the caller's own of this chat). */
 const sharedAttachment = (a: ChatAccess, x: Attachment): boolean => x.source === 'team' || (x.source === 'chat' && a.kind === 'people')
 
+/** A shared chat's attachments: a computer upload of the sender in this chat from before it was shared goes in as a
+ * reference to its file in their own folder (AttachmentStore.asReference), so it is a team file of theirs like any other
+ * there: behind the read card in a project chat, a copy kept with a chat shared with people (attachCopies;
+ * docs/decisions/20261126-shared-chat-everything.md). Anything else unchanged. */
+async function sharedUploads(ctx: AppContext, a: ChatAccess, userId: string, picked: Attachment[]): Promise<Attachment[]> {
+  const store = ctx.services.attachments
+  if (!a.shared || !store?.asReference || picked.every((x) => sharedAttachment(a, x))) return picked
+  return Promise.all(picked.map((x) => (sharedAttachment(a, x) ? x : store.asReference!(userId, a.row.id, x))))
+}
+
 function messagesPage(rt: ChatRuntime, chat: ChatRow, cursor: string | undefined, limit: number, viewer: string, locale: Locale, through?: string): { items: Message[]; nextCursor: string | null } {
   // one view for the page (a shared chat: the answers hidden from the viewer are worked out once)
   const view = messageView(rt, chat, viewer, locale)
@@ -885,9 +895,9 @@ export const chatsRoutes: RouteModule = {
         const p = messageInChat(rt, chat.id, parentId)
         if (p.role !== 'assistant') fail('validation', tr('badParent', c.get('locale')), { fields: { 'body.parentId': 'must be an answer' } })
       }
-      const picked = attachments(ctx, auth, chat.id, body.attachmentIds, c.get('locale'))
+      const picked = await sharedUploads(ctx, a, auth.user.id, attachments(ctx, auth, chat.id, body.attachmentIds, c.get('locale')))
       // a shared chat takes team files only (D3), and a chat shared with people its own files too (chat/chat-files.ts):
-      // a computer upload in someone's own folder never reaches it
+      // a computer upload of this chat from before it was shared goes in as a team file of the sender (sharedUploads)
       if (a.shared && picked.some((x) => !sharedAttachment(a, x))) fail('conflict', tr('sharedChatUpload', c.get('locale')), { params: { reason: 'shared_chat_upload' } })
       checkBudget(ctx, auth.user.id, c.get('locale'))
       // a chat shared with people: a team file some people here cannot open goes in as a copy kept with the chat (QA
@@ -962,7 +972,7 @@ export const chatsRoutes: RouteModule = {
       if (target.role !== 'user') fail('validation', tr('notUserMessage', c.get('locale')))
       if (a.shared && target.author_id !== auth.user.id) fail('forbidden', tr('sharedChatOwnMessages', c.get('locale')), { params: { reason: 'shared_chat_own_messages' } })
       busy(a, c.get('locale'), auth.user.id)
-      const picked = attachments(ctx, auth, chat.id, body.attachmentIds, c.get('locale'))
+      const picked = await sharedUploads(ctx, a, auth.user.id, attachments(ctx, auth, chat.id, body.attachmentIds, c.get('locale')))
       if (a.shared && picked.some((x) => !sharedAttachment(a, x))) fail('conflict', tr('sharedChatUpload', c.get('locale')), { params: { reason: 'shared_chat_upload' } })
       checkBudget(ctx, auth.user.id, c.get('locale'))
       // as a send (QA TC-7286)
