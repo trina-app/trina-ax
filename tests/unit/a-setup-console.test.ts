@@ -13,7 +13,7 @@ import { confirmInBackground, setOwnerClaimClient, type OwnerClaimClient } from 
 import { bootstrapOwner } from '../../server/src/auth/accounts'
 import { getUser } from '../../server/src/auth/users'
 import { getTeamSettings } from '../../server/src/admin/settings'
-import { harness, type Harness } from './a-lib'
+import { harness, SETUP_TOKEN, type Harness } from './a-lib'
 
 setDefaultTimeout(30_000)
 
@@ -186,6 +186,38 @@ describe('setup from the hosting console', () => {
     ;(h.ctx.config as any).deployment = 'self'
     expect((await h.client().try('POST', PREVIEW, { claim })).status).toBe(404)
     expect(cp.calls).toEqual([])
+  })
+
+  // the console's old setup link (the setup token) and the owner claim never both make an owner, in either order
+  const OLD_SETUP = { setupToken: SETUP_TOKEN, teamName: 'Acme', locale: 'en', owner: { username: 'olga', name: 'Olga Owner', password: 'owner horse battery 42' } }
+  test('old setup link first, then the claim: the claim is refused and stays unspent; nothing is asked of the console', async () => {
+    expect((await h.client().try('POST', '/api/setup', OLD_SETUP)).status).toBe(201)
+    const claim = cp.add()
+    expect((await h.client().try('POST', PREVIEW, { claim })).status).toBe(409)
+    expect((await h.client().try('POST', SETUP, { claim, password: 'owner horse battery 42' })).status).toBe(409)
+    expect(cp.calls).toEqual([])
+    expect(cp.claims.get(claim)!.spent).toBe(false)
+    expect(users()).toBe(1)
+  })
+  test('the claim first, then the old setup link: the link is refused (the token is spent too)', async () => {
+    const claim = cp.add()
+    expect((await h.client().try('POST', SETUP, { claim, password: 'owner horse battery 42' })).status).toBe(201)
+    expect(h.ctx.config.setupToken).toBeNull()
+    const old = await h.client().try('POST', '/api/setup', OLD_SETUP)
+    expect([403, 409]).toContain(old.status)
+    // through the relay the token is checked first: refused the same way
+    expect((await h.client({ via: 'relay' }).try('POST', '/api/setup', OLD_SETUP)).status).toBe(403)
+    expect(users()).toBe(1)
+    expect((h.ctx.db.query("SELECT username FROM users").get() as { username: string }).username).toBe('alex.kim')
+  })
+  test('both at once: exactly one owner', async () => {
+    const claim = cp.add()
+    const [a, b] = await Promise.all([
+      h.client().try('POST', SETUP, { claim, password: 'owner horse battery 42' }),
+      h.client().try('POST', '/api/setup', OLD_SETUP),
+    ])
+    expect([a.status, b.status].filter((s) => s === 201).length).toBe(1)
+    expect(users()).toBe(1)
   })
 
   test('bootstrapOwner: the username from the e-mail when none is given', async () => {
