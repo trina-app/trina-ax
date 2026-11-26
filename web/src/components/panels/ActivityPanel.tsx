@@ -332,7 +332,7 @@ function RowFace({ id, name, ai }: { id?: string | null; name?: string | null; a
 }
 
 /** A conversation (a mention, a reply in a thread I follow, in a room or under a shared AI chat's answer): the writer's
- * photo; who and the line, "@" when it mentions me (two lines at most); where it was (#room › 스레드, a DM, the chat)
+ * photo; who and the line, which carries its own @name (two lines at most; a screen reader hears "mention" on the dot); where it was (#room › 스레드, a DM, the chat)
  * and when; a dot while unread. Opens the room or the thread (noticeTarget), 활동 still lit. */
 function ConversationRow({ item, open, onOpen }: { item: InboxNotification; open: boolean; onOpen: () => void }) {
   const t = useT(), locale = useLocale()
@@ -367,7 +367,7 @@ function ConversationRow({ item, open, onOpen }: { item: InboxNotification; open
       wrap
       face
       icon={face}
-      name={<><bdi data-testid="activity-panel-who">{who}</bdi>{line ? <span className={unread ? 'text-ink' : 'text-muted'}>{': '}{mention && <span aria-hidden className="font-semibold text-accent-text">@</span>}<bdi data-testid="activity-panel-line">{line}</bdi></span> : null}</>}
+      name={<><bdi data-testid="activity-panel-who">{who}</bdi>{line ? <span className={unread ? 'text-ink' : 'text-muted'}>{': '}<bdi data-testid="activity-panel-line">{line}</bdi></span> : null}</>}
       nameTestId="activity-panel-text"
       meta={<>{where && <><bdi data-testid="activity-panel-where">{where}</bdi> · </>}<time dateTime={item.room?.at ?? item.createdAt}>{listTime(item.room?.at ?? item.createdAt, locale, t('sidebar.yesterday'))}</time></>}
       end={
