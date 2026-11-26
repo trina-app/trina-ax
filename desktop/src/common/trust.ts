@@ -2,7 +2,7 @@
 // opened, at exactly the team address or the team's pinned direct address. iframes (artifacts, previews), other
 // origins and pages the team page navigated to get nothing; neither does a page at the team address whose document has
 // an opaque origin (a `sandbox` CSP, like /sandbox/frame opened as the whole page: QA TC-220). Pure: unit-tested in tests/unit/e-desktop-common.test.ts.
-import { PRODUCT } from '@mycel/shared'
+import { PRODUCT } from '@mycel/shared/product'
 import { originOf } from './address'
 
 export interface SenderFrame {

@@ -3,9 +3,10 @@
 // here it gets the desktop's rules: the hosted team domain, and plain http only for this machine (development).
 // Pure: no Electron, unit-tested in tests/unit/e-desktop-common.test.ts and tests/unit/team-link.test.ts.
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
-import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
+import { PRODUCT } from '@mycel/shared/product'
+import { SOURCE_CODE } from '@mycel/shared/source'
 import { classifyHostStatic } from './netaddr'
-import { GOOGLE_APP_RETURN_PATH } from '@mycel/shared/api'
+import { GOOGLE_APP_RETURN_PATH } from '@mycel/shared/api/auth'
 import { mayBeAsleep, parseTeamInput, readAppLink, relayAnswer, relayRename, wakeTeam, type RelayAnswer, type TeamInput, type TeamInputError, type TeamInputOptions, type WakeAnswer, type WakeSteps } from '@mycel/shared/team-link'
 
 export { hostLineNow, hostLineShown, isLoopbackHost, isSignInPath } from '@mycel/shared/team-link'
