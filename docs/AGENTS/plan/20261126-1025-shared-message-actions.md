@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-26 10:25
 - Branch: `feat/shared-message-actions`
-- Status: draft
+- Status: in progress
 - Where: trina-ax `web/src/components/messages/` (new, the one place), callers in `web/src/components/chat/` and
   `web/src/components/rooms/`. Why: the AI chat, a room's side chat, rooms and threads each built their own message
   actions; the owner asked for shared components managed in one place ("컴포넌트화, 공통관리"), UX audit package B.
@@ -28,13 +28,21 @@ The same message action looks and opens the same way on every surface:
 
 In:
 
-- `web/src/components/messages/messageActions.tsx` — the registry: `ActionId` (`copy`, `copyLink`, `edit`, `thread`,
-  `askTrina`, `sendToChat`, `regenerate`, `suggestSkill`, `removePreview`, `delete`), one icon each (`ACTION_ICON`),
-  `MessageAction` (id, label, run, disabled, danger, testId), `toMenuItems()` for sheets and ⋮ menus (danger last on a
-  phone, as `MenuButton` already sorts).
-- `useMessagePress(on)` — the one long-press binding (touch only, any width; a finger held on a control, a text box,
-  a card or a `[data-own-menu]` is no long press; the phone's own text menu kept away). Replaces `usePhonePress`, the
-  rooms' `useLongPress` wiring and the thread reply's.
+- `web/src/components/messages/MessageActions.tsx` — the registry: `ActionId` (`copy`, `copyLink`, `selectText`,
+  `edit`, `thread`, `askTrina`, `sendToChat`, `regenerate`, `suggestSkill`, `removePreview`, `delete`), one icon each
+  (`ACTION_ICON`), `MessageAction` (id, label, run or copy, disabled, danger, `testId` for its button, `menuTestId` for
+  its sheet/menu row), `useActionItems()` for sheets and ⋮ menus (danger last on a phone, as `MenuButton` already sorts).
+- `useMessagePress(on, skip)` — the one long-press binding (touch only, any width; the phone's own text menu kept
+  away). Each surface keeps its own skip list, as today: the AI chat and side chat skip controls, links, text boxes and
+  cards (`PRESS_SKIP`); a room's message and a thread reply skip only parts with their own menu (`ROOM_PRESS_SKIP`,
+  `[data-own-menu]`), so a long press on a link, a mention or the quote still opens the sheet. Replaces
+  `usePhonePress`, the rooms' `useLongPress` wiring and the thread reply's.
+- **No sheet when there is nothing to act on** (`on` false or no actions): a message on its way or failed (`m.local`),
+  being edited, an answer still streaming, a withheld answer (only its branch switch), a deleted room message, an event
+  line, a withheld room message. A guest's answer sheet has no "suggest a skill".
+- **Select text** (`selectText`, sheet only, AI chat / side chat / a shared chat's thread answer): the long press steps
+  aside on that message and the phone's own selection works until a touch outside it, so part of a long answer can
+  still be copied on a phone (Claude's and Slack's phone apps have the same item).
 - `MessageActionSheet` — the one sheet (a hidden `MenuButton` opened by the press signal; optional title, optional
   header for the rooms' reaction strip). Replaces `PressSheet`, the rooms' inline `MenuButton`, the thread reply's.
 - `MessageActions` — the computer's actions, two layouts of one component and one icon set:
@@ -42,37 +50,45 @@ In:
   them, then `thread`/`askTrina` icons, then ⋮ with the rest; what `MessageHoverBar` does today, moved here) and
   `layout="row"` (the row under an AI chat message, Claude-like: each action an icon button with a tooltip). Both draw
   an action's icon from `ACTION_ICON`. `MessageHoverBar.tsx` goes; its quick-reaction constant moves with it.
-- `useMessageCopy()` / `CopyAction` — one copy behaviour: a button that stays on screen turns into ✓ with the label
-  "복사했어요" for 1.5 s; from a sheet or a ⋮ menu (the menu is gone) the same words as a toast. One key
-  `messages.copied` in six languages (the old `rooms.copied` text); `rooms.copied` is removed. Rich copy (HTML) of an
-  AI answer is kept. Link copy keeps its own words ("링크를 복사했어요").
+- Copy (`MessageAction.copy`) — one copy behaviour: a button that stays on screen turns into ✓ with the label
+  "복사했어요" for 1.5 s; from a sheet or a ⋮ menu (the menu is gone) the same words as a toast, only when the copy
+  worked. One key `messages.copied` in six languages (the old `rooms.copied` text); `rooms.copied` is removed. Rich copy
+  (HTML) of an AI answer is kept. Link copy keeps its own words ("링크를 복사했어요"). Out: the copy buttons inside an
+  answer's code blocks, tables and quotes (`Markdown.tsx`, "복사됨") are content controls, not message actions.
 - `openMessageFile()` in `web/src/lib/messageFiles.ts` — the one opener for a file an AI made: a picture in the image
   viewer, any other file in the right panel (`openFilePreview`). Used by the chat's attachment tiles and, new, by a room
   file chip under a message an AI made (a shared answer, `RoomMessage.sharedAnswer`, or an old room-AI answer,
-  `authorKind === 'ai'`). People's own uploads in rooms keep the full-window viewer (recorded decision "The room file
-  viewer"). The chip still registers in the viewer's ← → list so stepping from a photo still reaches it.
+  `authorKind === 'ai'`; `Files` gets the flag from the message). People's own uploads in rooms keep the full-window
+  viewer (recorded decision "The room file viewer"). Such a chip has one opener: it leaves the viewer's ← → list, so
+  stepping from a photo never shows it in the viewer stage. It gives up the viewer's who/when/where bar and its thread /
+  Trina column for that file; the panel has its own header, download and "Ask Trina".
 - Surfaces moved onto these: AI chat (`UserMessage`, `AssistantMessage`), side chat (same components), room timeline
   and room thread (`RoomMessages.tsx` `MessageRow`), shared chat thread (`ChatThreadPanel.tsx` `ReplyRow`, and
   `ThreadAnswer`, which gains copy on the float bar and in the long-press sheet, plus the answer's step list as the
   chat shows it, folded).
-- Phone rule after this, one for every surface: actions live in the long-press sheet. The newest AI answer in an AI
-  chat or side chat keeps its row in sight (as today in the AI chat); every other message's row is hidden from sight
-  only (sr-only: screen readers and keyboards still reach it). A tap no longer reveals icons. The branch switch
-  ("‹ 1/2 ›") stays in sight. The side chat's send button keeps its place under every finished answer.
-- "Send to a conversation": the chat's `ShareToRoom` and the side chat's `SendHere` both show as the same icon button
-  (`MessageSquareShare`, tooltip and name = its words: "대화방에 보내기" / "스레드에 보내기"); the side chat keeps its ▾
-  for the room and its "✓ 보냈어요 · 보기" line. In the sheet it is one labelled row.
-- Guard test `web/test/unit/message-actions-guard.test.ts`: message surfaces (`components/chat/Messages.tsx`,
-  `ChatThreadPanel.tsx`, `components/rooms/RoomMessages.tsx`, `SideChatPanel.tsx`, `ThreadPanel.tsx`, and any new file
-  that renders `data-testid="...message..."` rows under `components/chat|rooms`) may not import `useLongPress`, may not
-  pass `openSignal` to `MenuButton`, may not import `MessageSquareReply`, may not toast copy words of their own
-  (`common.copied`, `rooms.copied`), and room file chips go through `openMessageFile`. Unit tests for the registry,
-  the sheet and copy.
-- e2e `web/test/e2e/message-actions.spec.ts` at 1440×900 and 390×844 (touch, `hasTouch`): long press opens the same
-  sheet on an AI chat answer, my question, a side chat answer, a room message, a room thread reply and a shared chat
-  thread reply; the desktop bar has the same thread icon in the chat and the room; copy says "복사했어요" from the
-  sheet and ✓ on the row; an AI document sent to a room opens in the right panel. Existing e2e and unit tests that
-  encode "tap to show" are updated.
+- Phone rule after this, one for every surface: actions live in the long-press sheet. The newest AI answer in the AI
+  chat keeps its row in sight (as today); in a room's side chat every answer's icons stay in the sheet (CHATS-17,
+  docs/AGENTS/plan/20261111-1938-phone-polish-2.md, unchanged), its send button stays in sight. Every other message's
+  row is hidden from sight only (sr-only: screen readers and keyboards still reach it). A tap no longer reveals icons.
+  The branch switch ("‹ 1/2 ›") stays in sight. The model that answered is the sheet's title on every AI answer (it
+  was only the side chat's), so a phone still shows it for an older answer.
+- "Send to a conversation": one icon (`ACTION_ICON.sendToChat`) in the chat's row, the chat's sheet and the side
+  chat's button. The side chat keeps its words beside the icon ("스레드에 보내기 ▾" / "대화방에 보내기"): it sends in one
+  click with no dialog, so where it goes must be read, on a phone too (owner decision "Trina side chat: send here").
+  The chat's icon opens the dialog, so its tooltip is enough.
+- Guard test `web/test/unit/message-actions-guard.test.ts`, on an explicit list of message surface files
+  (`components/chat/Messages.tsx`, `ChatThreadPanel.tsx`, `components/rooms/RoomMessages.tsx`, `ThreadPanel.tsx`,
+  `SideChatPanel.tsx`, `SendHere.tsx`): none imports `useLongPress`, `CopyButton` or a lucide icon of `ACTION_ICON`,
+  passes `openSignal` to a `MenuButton`, or uses the words `common.copied` / `rooms.copied`; nothing in `web/src`
+  imports `MessageSquareReply` (the second thread icon) or the removed `MessageHoverBar`. Plus a render test: a shared
+  answer's chip opens the panel (`openMessageFile`), a person's chip the viewer. Unit tests for the registry, the sheet
+  gating cases above and copy.
+- e2e `web/test/e2e/message-actions.spec.ts` at 1440×900 and 390×844 (`hasTouch`, long press via touch pointer
+  events), and one case at 820×1180 touch (a tablet: the long press opens the menu, the AI chat's icons stay in sight):
+  long press opens the same sheet on an AI chat answer, my question, a room message (also from a link and the quote),
+  a room thread reply and a shared chat thread reply; the desktop bar has the same thread icon in the chat and the room;
+  copy says "복사했어요" from the sheet and ✓ on the row; an AI document sent to a room opens in the right panel with
+  the thread column open. Existing e2e and unit tests that encode "tap to show" are updated.
 
 Out:
 
@@ -104,7 +120,9 @@ New: `docs/decisions/20261126-shared-message-actions.md` "Every message's action
 - [The room file viewer](../../DECISIONS.md) — the "Where" list: a file chip under an AI-made message (a shared answer)
   opens in the right panel like the chat's; people's own files keep the viewer.
 - The AI chat's phone "tap to show" (Messages.tsx header comment, `message-actions-phone` tests) — replaced by the long
-  press; the newest answer keeps its row.
+  press; the newest answer keeps its row. CHATS-17 (side chat) is unchanged.
+- [The room file viewer](../../DECISIONS.md): an AI-made file loses the viewer bar and column (accepted: the owner asked
+  for the same opener as the chat).
 - Kept: [20261118-thread-no-send-to-trina](../../decisions/20261118-thread-no-send-to-trina.md); reactions only in
   rooms; [20261116-chat-answer-threads](../../decisions/20261116-chat-answer-threads.md) (thread replies have copy and
   delete only).
