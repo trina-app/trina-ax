@@ -53,14 +53,19 @@ test('a thread row says who and where with the newest line and the count; a clic
   await signIn(page)
   const state = await routeInbox(page)
   await routeThread(page)
-  // a computer: a scheduled run's notice is 활동's (the panel beside the rail), the conversation rows are 대화's 멘션·스레드
+  // a computer: every notice is 활동's (the panel beside the rail, the one Activity), the conversation rows too
   await page.goto('/activity')
   const run = (await activityRows(page)).filter({ hasText: '주간 보고서 정리' })
   await expect(run).toHaveAttribute('href', `/c/${id(500)}`)
   await expect(run).toContainText('"주간 보고서 정리" 예약 작업이 끝났어요.')
   await expect(run.locator('time')).toBeVisible()
   await expect(page.getByRole('link', { name: /주간 보고서 정리/ })).toHaveCount(1)
-  await page.goto('/activity?in=chats')
+  // the panel has the five conversation rows beside the run, each with who and where
+  await expect(page.getByTestId('activity-panel').locator('[data-chip="conversation"]')).toHaveCount(5)
+  await expect(page.getByTestId('activity-panel').getByTestId('activity-panel-where').first()).toContainText('#디자인 리뷰 › 스레드')
+  // the page's rows in full (a phone's Activity): who, where, the line and the count
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/activity')
   const rows = page.getByTestId('notification-room-row')
   await expect(rows).toHaveCount(5)
   const first = rows.first()
@@ -77,13 +82,17 @@ test('a thread row says who and where with the newest line and the count; a clic
   await expect(rows.nth(3).getByTestId('notification-room-line')).toHaveText('@@전체: @전체 다음 주 화요일은 사무실이 쉬어요')
   await expect(rows.nth(4).getByTestId('notification-room-who')).toHaveText('트리나')
   await expect(rows.nth(4).getByTestId('notification-room-line')).toHaveText('요약: 이번 주 안에 시안 두 개를 정리하면 돼요')
-  // no notice of the app's own among the conversations
-  await expect(page.getByTestId('notification-chat-link')).toHaveCount(0)
+  // the app's own notice is listed with them (the one Activity)
+  await expect(page.getByTestId('notification-item')).toHaveCount(6)
   // Activity reads like Slack's: the time right after the name, on the first line, in every row
   const firstBox = (await first.boundingBox())!, rowTime = (await first.locator('time').boundingBox())!
   expect(rowTime.y - firstBox.y).toBeLessThan(24)
-  // the click: the thread, the reply in the middle of it picked out and in sight, the notice read
-  await first.click()
+  // the click (a computer: the panel's row, 활동 still lit): the thread, the reply in the middle of it picked out and in
+  // sight, the notice read
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/activity')
+  await page.getByTestId('activity-panel').locator('[data-chip="conversation"]').filter({ hasText: '좋아요, 그럼 금요일까지' }).click()
+  await expect(page.getByTestId('rail-activity')).toHaveAttribute('aria-current', 'page')
   await expect(page).toHaveURL(new RegExp(`/rooms/${ROOM_ID}/t/${ROOT}\\?m=${TARGET.id}$`))
   const picked = page.getByTestId('room-thread').locator('[data-highlight]')
   await expect(picked).toContainText(TARGET.body)

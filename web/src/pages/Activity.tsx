@@ -4,9 +4,8 @@
 // is the writer's photo (a bell for a notice of the app's own), who and the time, the line, and underneath where it was
 // (a DM, #room › Thread) or what it is about. The unread count sits on the right. The whole row opens the place and reads
 // it; a notice with nowhere to open keeps its "Mark as read". The preferences stay in Settings › Notifications (the gear).
-// Opened from a phone's 대화 tab (its 멘션·스레드 row, `?in=chats`: lib/screens.ts CHATS_ACTIVITY) it is that tab's page of
-// the conversations only: All · Mentions · Threads, rows of rooms (no notice of the app's own: the server sends only
-// those, GET /api/notifications?only=rooms), named "멘션·스레드". "Nothing here" is never said while older pages are left:
+// It is the one Activity (docs/decisions/20261126-one-activity.md): mentions, thread replies and the app's own notices
+// together; an old link to 대화's 멘션·스레드 (`?in=chats`) opens it, its tab kept. "Nothing here" is never said while older pages are left:
 // a tab, "Unreads" or a search that shows nothing of what is loaded reads the next pages by itself (AUTO_PAGES of them,
 // once for that choice), then says "not in the latest N" with "Load more". A read again (a new notice, the rooms
 // changing) is one request: the newest rows, with the older ones already loaded kept after them. "Mark all as read" (at
@@ -21,7 +20,6 @@ import { api, API, errorText } from '../lib/api'
 import { intlTag, localDay } from '../lib/format'
 import { badgeText, isPrivateChannel, isProjectRoom } from '../lib/rooms'
 import { aiName, TAB_ROOT } from '../lib/tabs'
-import { activityInChats, CHATS_ACTIVITY } from '../lib/screens'
 import { keepPendingReads, markAllNoticesRead, markNoticeRead, noticeReadAsked, noticeReadKey, useActivityUnread } from '../store/inbox'
 import { optimisticPending } from '../lib/optimistic'
 import { useLocale, useT, type MessageKey } from '../i18n'
@@ -46,7 +44,7 @@ import { rowName } from '../components/list/List'
 import { Avatar } from '../components/Avatar'
 import { useAvatarOf } from '../store/people'
 
-/** a reply in a thread under a shared AI chat's answer: a conversation row, on 대화's 멘션·스레드 with the rooms' rows */
+/** a reply in a thread under a shared AI chat's answer: a conversation row, as a room thread's */
 export const isChatThreadRow = (item: InboxNotification): boolean => item.code === 'chat.thread_reply'
 
 type T = ReturnType<typeof useT>
@@ -65,8 +63,6 @@ const isFilter = (s: string | null): s is Filter => FILTERS.some((f) => f.id ===
 /** while nothing loaded shows, this many older pages (30 rows each) are read by themselves, once per tab, Unreads and
  * search text: 300 rows with the first page, then "Load more" */
 const AUTO_PAGES = 9
-/** the conversations' tabs (opened from 대화): DMs are that tab's own list */
-const CHATS_FILTERS = FILTERS.filter((f) => f.id !== 'dms')
 
 /** Which tabs a notice shows under (shared: the server marks a tab read by the same rule) */
 export const inFilter = activityTabHas
@@ -86,22 +82,20 @@ function dayLabel(iso: string, t: T, locale: ReturnType<typeof useLocale>, now =
 
 const timeOf = (iso: string, locale: ReturnType<typeof useLocale>) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 
-/** The page for the address: the conversations' (from 대화) or the whole Activity, each with its own state, so going from one
- * to the other (a tab of the phone's bar) starts afresh. On a computer 활동's list is the panel beside the rail (components/panels/ActivityPanel.tsx): this page is then the notice opened
- * from it (`?n=<id>`) or, with none, where to look; an old link to the Mentions or Threads tab goes to 대화's
- * 멘션·스레드, where those are now. */
+/** The page for the address. On a computer 활동's list is the panel beside the rail (components/panels/ActivityPanel.tsx,
+ * which picks the chip `?tab=` names): this page is then the notice opened from it (`?n=<id>`) or, with none, where to
+ * look. A phone: the whole Activity. An old link to 대화's 멘션·스레드 (`?in=chats`, removed) goes here, its tab kept. */
 export default function Activity() {
   const [params] = useSearchParams()
-  const chats = activityInChats(params.toString())
   const computer = useMediaQuery('(min-width: 768px)')
-  if (computer && !chats) {
-    const tab = params.get('tab')
-    if (tab === 'mentions' || tab === 'threads') return <Navigate to={`${CHATS_ACTIVITY}&tab=${tab}`} replace />
-    // the DMs tab (back on dev with #666): direct and group chats are 대화's own list, its 멘션·스레드 has no DMs tab
-    if (tab === 'dms') return <Navigate to={CHATS_ACTIVITY} replace />
-    return <ActivityOpened key={params.get('n') ?? ''} id={params.get('n')} />
+  if (params.get('in') === 'chats') {
+    const next = new URLSearchParams(params)
+    next.delete('in')
+    const rest = next.toString()
+    return <Navigate to={rest ? `/activity?${rest}` : '/activity'} replace />
   }
-  return <ActivityPage key={chats ? 'chats' : 'all'} chats={chats} />
+  if (computer) return <ActivityOpened key={params.get('n') ?? ''} id={params.get('n')} />
+  return <ActivityPage />
 }
 
 /** The main area beside 활동's list: the notice opened from it (read as it opens), or what the list is for. */
@@ -168,27 +162,26 @@ function ActivityOpened({ id }: { id: string | null }) {
 /** what the page keeps between visits */
 type KeptPage = { items: InboxNotification[]; cursor: string | null; serverUnread: number }
 
-/** `chats`: the conversations only (opened from 대화): rows of rooms, without the DMs tab */
-function ActivityPage({ chats }: { chats: boolean }) {
+function ActivityPage() {
   const t = useT(), locale = useLocale()
   const [params, setParams] = useSearchParams()
-  const filters = chats ? CHATS_FILTERS : FILTERS
+  const filters = FILTERS
   const asked = params.get('tab')
   const filter: Filter = isFilter(asked) && filters.some((f) => f.id === asked) ? asked : 'all'
-  const shows = (item: InboxNotification, f: Filter) => inFilter(item, f) && (!chats || isRoomRow(item) || isChatThreadRow(item))
-  const title = chats ? t('feed.chats') : t('inbox.title')
+  const shows = (item: InboxNotification, f: Filter) => inFilter(item, f)
+  const title = t('inbox.title')
   const setFilter = (f: Filter) => setParams((p) => { const n = new URLSearchParams(p); if (f === 'all') n.delete('tab'); else n.set('tab', f); return n }, { replace: true })
   const [unreadOnly, setUnreadOnly] = useState(false)
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
   // the list as this window last showed it (store/listCache.ts): a visit after the first shows it at once and reads
   // it behind it
-  const feedKey = `feed:page:${chats ? 'chats' : 'all'}`
+  const feedKey = 'feed:page:all'
   const [kept] = useState(() => peekCached<KeptPage>(feedKey))
   const [items, setItems] = useState<InboxNotification[] | null>(kept?.items ?? null)
   const [cursor, setCursor] = useState<string | null>(kept?.cursor ?? null)
   const [error, setError] = useState<string | null>(null)
-  // the server's unread count with the last read (this page's part of it: the conversation rows on 대화's page)
+  // the server's unread count with the last read
   const [serverUnread, setServerUnread] = useState(kept?.serverUnread ?? 0)
   useEffect(() => { rememberCached<KeptPage>(feedKey, items ? { items, cursor, serverUnread } : undefined) }, [feedKey, items, cursor, serverUnread])
   // the older page on its way (its cursor), and how many reads have ended: the reading of older pages looks again
@@ -210,17 +203,16 @@ function ActivityPage({ chats }: { chats: boolean }) {
    * already loaded kept after them from where the new first rows end in what was there; those keep how they were read. */
   const load = useCallback(async (after?: string) => {
     const generation = life.current
-    const only = chats ? { only: 'rooms' as const } : {}
     if (after) {
       if (pagingRef.current === after) return
       pagingRef.current = after
       setPaging(after)
       try {
-        const inbox = await api.call(API.listNotifications, { query: { limit: 30, cursor: after, ...only } })
+        const inbox = await api.call(API.listNotifications, { query: { limit: 30, cursor: after } })
         if (generation !== life.current || cursorRef.current !== after) return
         setList(keepPendingReads([...new Map([...(itemsRef.current ?? []), ...inbox.items].map((item) => [item.id, item])).values()], itemsRef.current))
         setEnd(inbox.nextCursor)
-        setServerUnread(chats ? inbox.roomUnreadCount ?? 0 : inbox.unreadCount)
+        setServerUnread(inbox.unreadCount)
         setError(null)
       } catch (e) { if (generation === life.current && cursorRef.current === after) setError(errorText(e, locale, t('error.network'))) }
       finally {
@@ -233,7 +225,7 @@ function ActivityPage({ chats }: { chats: boolean }) {
     }
     const seq = ++sequence.current
     try {
-      const inbox = await api.call(API.listNotifications, { query: { limit: Math.min(100, Math.max(30, shown.current)), ...only } })
+      const inbox = await api.call(API.listNotifications, { query: { limit: Math.min(100, Math.max(30, shown.current)) } })
       if (generation !== life.current || seq !== sequence.current) return
       const fresh = inbox.items, tail = fresh.at(-1), previous = itemsRef.current ?? []
       const from = inbox.nextCursor && tail ? previous.findIndex((x) => x.id === tail.id) : -1
@@ -242,13 +234,13 @@ function ActivityPage({ chats }: { chats: boolean }) {
       // (a row being marked read here keeps its mark: this read may be from before it)
       setList(keepPendingReads([...fresh, ...older], previous))
       setEnd(older.length ? cursorRef.current : inbox.nextCursor)
-      setServerUnread(chats ? inbox.roomUnreadCount ?? 0 : inbox.unreadCount)
+      setServerUnread(inbox.unreadCount)
       setError(null)
     } catch (e) { if (generation === life.current && seq === sequence.current) setError(errorText(e, locale, t('error.network'))) }
     finally { if (generation === life.current) setEnded((n) => n + 1) }
     // useT returns a fresh function; its translations change only with locale. setList and setEnd use refs and setters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locale, chats])
+  }, [locale])
   useEffect(() => {
     void load()
     const off = notificationsChanged.on(() => void load()), reload = reloadAsked.on(() => void load())
@@ -300,7 +292,7 @@ function ActivityPage({ chats }: { chats: boolean }) {
     // shown read at once; a failure puts the rows back with a toast (store/inbox.ts)
     const marked = new Set(itemsRef.current?.filter((x) => !x.readAt && shows(x, tab)).map((x) => x.id))
     const was = serverUnread
-    const r = await markAllNoticesRead(tab, chats ? 'rooms' : undefined, (readAt) => {
+    const r = await markAllNoticesRead(tab, undefined, (readAt) => {
       if (generation !== life.current) return
       setList(itemsRef.current?.map((x) => (marked.has(x.id) && !x.readAt === !!readAt ? { ...x, readAt } : x)) ?? null)
       // All read: nothing is left beyond the loaded rows either (the button goes)
@@ -316,7 +308,7 @@ function ActivityPage({ chats }: { chats: boolean }) {
     .filter((x) => shows(x, filter) && (!unreadOnly || !x.readAt) && (!q || wordsOf(x).toLocaleLowerCase().includes(q)))
     .sort((a, b) => at(b).localeCompare(at(a))),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [items, filter, unreadOnly, q, rooms, locale, chats])
+  [items, filter, unreadOnly, q, rooms, locale])
   const groups = useMemo(() => {
     const out: { day: string; label: string; items: InboxNotification[] }[] = []
     for (const item of visible) {
@@ -430,9 +422,9 @@ function ActivityPage({ chats }: { chats: boolean }) {
         {items && !visible.length && !cursor && (
           // DMs: a DM's own messages (with files or without) are in Chats, never a row here (server rooms/inbox.ts
           // LISTED_SQL): the tab says where they are (QA TC-f2-b02)
-          <EmptyState screen icon={<Inbox size={28} />} title={filter === 'dms' && !unreadOnly && !q ? t('feed.dmsEmpty') : items.some((x) => shows(x, 'all')) && (filter !== 'all' || unreadOnly || q) ? t('feed.emptyFiltered') : chats ? t('feed.chatsEmpty') : t('notifications.empty')}>
+          <EmptyState screen icon={<Inbox size={28} />} title={filter === 'dms' && !unreadOnly && !q ? t('feed.dmsEmpty') : items.some((x) => shows(x, 'all')) && (filter !== 'all' || unreadOnly || q) ? t('feed.emptyFiltered') : t('notifications.empty')}>
             {/* 대화 has unread conversations (its tab's count, components/rail/railBadges.ts): "nothing here" points there */}
-            {!chats && unreadRooms(rooms) > 0 && <Link to={TAB_ROOT.chats} className="font-medium text-accent-text hover:underline" data-testid="activity-new-in-chats">{t('feed.newInChats')}</Link>}
+            {unreadRooms(rooms) > 0 && <Link to={TAB_ROOT.chats} className="font-medium text-accent-text hover:underline" data-testid="activity-new-in-chats">{t('feed.newInChats')}</Link>}
           </EmptyState>
         )}
         {groups.map((g, i) => (

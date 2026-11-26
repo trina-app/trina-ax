@@ -1,6 +1,6 @@
 // Lists and small reads as this window last had them, by a key (docs/DECISIONS.md "Lists, Search and Settings open
-// at once"): 팀 스킬, Search's lists, Settings › Connectors and Notifications, Scheduled tasks, 활동 and the
-// conversations' 멘션·스레드. Going back to one shows what was there at once and reads it again behind it (the
+// at once"): 팀 스킬, Search's lists, Settings › Connectors and Notifications, Scheduled tasks and 활동.
+// Going back to one shows what was there at once and reads it again behind it (the
 // placeholder shows only on the very first read), as the rooms (#611) and the Projects and Files lists (#698) do.
 //
 // Two ways in:

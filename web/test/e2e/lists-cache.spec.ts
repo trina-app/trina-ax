@@ -44,7 +44,6 @@ const PLACES = (phone: boolean): { name: string; url: string; lists: RegExp[] }[
   { name: '예약 작업', url: '/scheduled', lists: [/^\/api\/schedules$/] },
   { name: 'Connectors', url: '/settings/connectors', lists: [/^\/api\/integrations$/, /^\/api\/integrations\/google-apps$/, /^\/api\/integration-templates$/, /^\/api\/me\/credentials$/] },
   { name: 'Notifications', url: '/settings/notifications', lists: [/^\/api\/notification-preferences$/, /^\/api\/me\/credentials$/] },
-  { name: '멘션', url: '/activity?in=chats&tab=mentions', lists: [/^\/api\/notifications\?limit=\d+&only=rooms$/] },
   ...(phone ? [{ name: '활동', url: '/activity', lists: [/^\/api\/notifications\?limit=\d+$/] }] : []),
 ]
 
@@ -63,6 +62,9 @@ for (const vp of [{ w: 1440, h: 900 }, { w: 390, h: 844 }]) {
       await settled(page)
     }
     if (!phone) {
+      // (out of the Settings dialog, the last place, which covers the rail)
+      await go(page, '/')
+      await settled(page)
       await openPlace(page, 'activity')
       await expect(page.getByTestId('activity-panel')).toBeVisible()
       await settled(page)
@@ -79,7 +81,9 @@ for (const vp of [{ w: 1440, h: 900 }, { w: 390, h: 844 }]) {
       for (const re of p.lists) expect(reads.filter((u) => re.test(u)).length, `${p.name}: ${re} read at most once`).toBeLessThanOrEqual(1)
     }
     if (!phone) {
-      // 활동 beside the rail: its list at once
+      // 활동 beside the rail: its list at once (out of the Settings dialog first, the last place, which covers the rail)
+      await go(page, '/')
+      await settled(page)
       await openPlace(page, 'trina')
       await settled(page)
       await watchSkeleton(page)

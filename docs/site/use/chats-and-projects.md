@@ -203,8 +203,8 @@ A direct chat with someone who left the team says "<name> left the team" and has
 ## Team chat
 
 **Chats** on the bar on the left (on a phone, the **Chats** tab) is where people talk to each other: **Channels**
-(one for everyone in the team, one per group, and the private channels you are in) and **Direct messages** (one-to-one chats and group chats). **Mentions & threads**
-at the top collects the messages that name you and the threads you follow.
+(one for everyone in the team, one per group, and the private channels you are in) and **Direct messages** (one-to-one chats and group chats).
+The messages that name you and the new replies in threads you follow are in **Activity**, with your other notices.
 
 To message one person, click their photo or name beside a message (an @mention of them, or their row in a conversation's member list, works too). A small card opens with their name and title: **Message** opens your direct message with them. On a phone the card opens from the bottom of the screen. Your own card has **Edit profile** instead. Apps, and people who are no longer in the team, have no card; a guest can message only the people in their group chat or project.
 

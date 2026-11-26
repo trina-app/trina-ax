@@ -108,11 +108,11 @@ for (const [name, viewport, phone] of SIZES) {
         return route.fulfill({ json: { read: 2 } })
       })
       const markAll = await hold(page, /\/api\/notifications\/read$/, 'POST')
-      // a computer: the conversations' notices are 대화's 멘션·스레드 (the 활동 panel has the others: the test below)
-      await page.goto(phone ? '/activity' : '/activity?in=chats')
-      const unread = page.locator('[data-testid="notification-room-row"][data-unread]')
+      // a computer: 활동's list beside the rail, the one Activity (its header's button); a phone: the page's
+      await page.goto('/activity')
+      const unread = page.locator(phone ? '[data-testid="notification-room-row"][data-unread]' : '[data-testid="activity-panel-row"][data-unread]')
       await expect(unread).toHaveCount(2)
-      const button = page.getByTestId('activity-mark-all-read')
+      const button = page.getByTestId(phone ? 'activity-mark-all-read' : 'activity-panel-mark-all')
 
       // refused first: the marks go at once, then come back with one toast
       await button.click()

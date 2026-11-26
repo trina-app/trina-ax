@@ -705,10 +705,8 @@ describe('web strings of the QA pass', () => {
     expect(translate('zh', 'notifications.event.chat.thread_mentionNamed', { name: 'Ana', title: 'Launch' })).toBe('Ana在“Launch”的话题中提到了你。')
     for (const l of ['es', 'id'] as const) expect(translate(l, 'notifications.event.chat.thread_mentionNamed', { name: 'Ana', title: 'Launch' })).toContain('“Launch”')
     expect(translate('id', 'home.greeting', { name: 'Mina' })).toBe('Halo Mina, ada yang bisa saya bantu?')
-    expect(translate('id', 'feed.chats')).toBe('Sebutan & utas')
-    expect(translate('id', 'activity.inChats')).toBe('Sebutan & utas ada di Obrolan')
     expect(translate('es', 'projectsPanel.fold.by', { names: 'Ana' })).toBe('Mención de Ana')
-    for (const k of ['feed.chats', 'activity.inChats'] as const) expect(translate('id', k)).not.toMatch(/Mention|thread/)
+    expect(translate('id', 'notifications.roomThreadRepliesDesc')).toContain('Aktivitas')
   })
 
   test('ja and zh relative time: no space between the number and its word', () => {

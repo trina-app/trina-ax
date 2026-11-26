@@ -1,8 +1,8 @@
 // How many Inbox notices I have not read: one count for the whole window, read once and again when the server says the
-// Inbox changed (or after a reconnect, or a change of what I may open). The rail's 활동 shows it whole. A phone
-// counts each unread thing once across its tabs (QA TC-256): the conversation rows (mentions, thread replies) are the 대화
-// tab's, which counts their rooms already, so the 나 tab and the 활동 row on top of its list show only the rest (the app's
-// own notices), and 대화's 멘션·스레드 row a dot for them. Loaded while at least one of them is on screen.
+// Inbox changed (or after a reconnect, or a change of what I may open). Activity is one place with every notice
+// (docs/decisions/20261126-one-activity.md): the rail's 활동, the phone's 나 tab and its 활동 row all show the whole count,
+// mentions, DMs and thread replies with the app's own notices (their rooms keep their own marks on 대화, as in Slack).
+// Loaded while at least one of them is on screen.
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { ActivityTab, InboxNotification } from '@mycel/shared/api'
@@ -74,24 +74,11 @@ export function useInboxUnread(): number {
   return useInbox((s) => s.unread)
 }
 
-/** A phone's 나 count: the unread notices that are not conversation rows (those are counted on 대화). */
-export function useNoticeUnread(): number {
-  useEffect(watch, [])
-  return useInbox((s) => s.unread - s.rooms)
-}
-
-/** How many conversation rows (mentions, thread replies) are unread: a phone's 멘션·스레드 row shows a dot for them. */
-export function useRoomNoticeUnread(): number {
-  useEffect(watch, [])
-  return useInbox((s) => s.rooms)
-}
-
-/** The computer's 활동 (rail/Rail.tsx, panels/ActivityPanel.tsx): the unread notices that are not
- * conversation rows, the same number as the 활동 list's own unread rows. Conversation rows are 대화's, of any room (a
- * muted room's too: that room's choice is to stay quiet). */
+/** 활동's count, on the computer's rail and the phone's 나 tab (rail/Rail.tsx, BottomTabs.tsx, panels/ActivityPanel.tsx):
+ * every unread notice, the same number as the 활동 list's own unread rows. */
 export function useActivityUnread(): number {
   useEffect(watch, [])
-  return useInbox((s) => s.notices)
+  return useInbox((s) => s.unread)
 }
 
 /** Read the count again now (the 활동 list read or marked something). */

@@ -198,8 +198,8 @@ Obrolan langsung dengan seseorang yang sudah keluar dari tim menampilkan "<nama>
 ## Obrolan tim
 
 **Obrolan** di bilah kiri (di ponsel, tab **Obrolan**) adalah tempat orang saling berbicara: **Saluran**
-(satu untuk semua orang di tim, satu per grup, dan saluran privat tempat Anda bergabung) dan **Pesan langsung** (obrolan 1:1 dan obrolan grup). **Mention & thread**
-di bagian atas mengumpulkan pesan yang menyebut nama Anda dan utas yang Anda ikuti.
+(satu untuk semua orang di tim, satu per grup, dan saluran privat tempat Anda bergabung) dan **Pesan langsung** (obrolan 1:1 dan obrolan grup).
+Pesan yang menyebut nama Anda dan balasan baru di utas yang Anda ikuti ada di **Aktivitas**, bersama pemberitahuan Anda yang lain.
 
 Untuk mengirim pesan ke satu orang, klik foto atau namanya di samping pesan (@mention orang itu, atau barisnya di daftar anggota percakapan, juga bisa). Sebuah kartu kecil terbuka dengan nama dan jabatannya: **Kirim pesan** membuka obrolan 1:1 Anda dengan orang itu. Di ponsel, kartu terbuka dari bawah layar. Kartu Anda sendiri berisi **Edit profil**. Aplikasi dan orang yang sudah tidak ada di tim tidak punya kartu; tamu hanya bisa mengirim pesan ke orang di obrolan grup atau proyeknya.
 

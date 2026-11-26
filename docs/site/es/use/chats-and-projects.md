@@ -197,8 +197,8 @@ Un chat directo con alguien que dejó el equipo dice "<nombre> dejó el equipo" 
 ## Chat del equipo
 
 **Chats** en la barra de la izquierda (en un teléfono, la pestaña **Chats**) es donde las personas hablan entre sí: **Canales**
-(uno para todo el equipo, uno por grupo y los canales privados en los que está) y **Mensajes directos** (chats 1:1 y chats de grupo). **Menciones e hilos**,
-arriba, reúne los mensajes que le mencionan y los hilos que sigue.
+(uno para todo el equipo, uno por grupo y los canales privados en los que está) y **Mensajes directos** (chats 1:1 y chats de grupo).
+Los mensajes que le mencionan y las respuestas nuevas en los hilos que sigue están en **Actividad**, con sus demás avisos.
 
 Para escribir a una sola persona, haga clic en su foto o en su nombre junto a un mensaje (también sirve una @mención o su fila en la lista de miembros de una conversación). Se abre una tarjeta pequeña con su nombre y su cargo: **Enviar mensaje** abre su chat 1:1 con esa persona. En un teléfono la tarjeta se abre desde la parte inferior de la pantalla. Su propia tarjeta tiene **Editar perfil**. Las aplicaciones y las personas que ya no están en el equipo no tienen tarjeta; un invitado solo puede escribir a las personas de su chat de grupo o de su proyecto.
 
