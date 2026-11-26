@@ -1,0 +1,1 @@
+- Restoring a hosted team server from its off-site backup works again. It stopped at the first step with "already exists".
