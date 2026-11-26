@@ -205,6 +205,14 @@ describe('team-image.yml: the qcow2 job', () => {
     expect(withKey[0]!.run).toContain("printf 'ax-template-v1\\n%s\\n%s' \"$TEMPLATE\" \"$sha\"")
     expect(j.steps.find((s) => s.name === 'Remove the release key')).toMatchObject({ if: 'always()', run: 'rm -f "$RUNNER_TEMP/release-key.pem"' })
   })
+  test('its AWS session is cut down to the snapshot reads (inline session policy)', () => {
+    const aws = j.steps.find((s) => s.uses?.startsWith('aws-actions/configure-aws-credentials@'))!
+    const pol = JSON.parse(String(aws.with!['inline-session-policy'])) as { Statement: { Effect: string; Action: string | string[]; Resource: string }[] }
+    const acts = pol.Statement.flatMap((s) => ([] as string[]).concat(s.Action))
+    expect(acts.sort()).toEqual(['ebs:GetSnapshotBlock', 'ebs:ListSnapshotBlocks', 'kms:Decrypt'])
+    expect(pol.Statement.every((s) => s.Effect === 'Allow')).toBe(true)
+    expect(pol.Statement[0]!.Resource).toBe('arn:aws:ec2:ap-northeast-2::snapshot/*')
+  })
   test('it reads the feed itself (a re-run after a failed qcow2 makes it), the AMI manifest checked first', () => {
     expect(run).toContain('teamax-$tv.qcow2.json')
     expect(run).not.toContain('steps.release.outputs.build')

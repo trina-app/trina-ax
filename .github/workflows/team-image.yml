@@ -354,6 +354,10 @@ jobs:
           aws-region: ${{ env.AMI_REGION }}
           role-session-name: team-image-qcow2-${{ github.run_id }}
           role-duration-seconds: 7200
+          # this job only reads one snapshot: the session is cut down to the EBS direct reads and the KMS decrypt of the
+          # encrypted snapshot (the role's own policy still applies on top; STS GetCallerIdentity is always allowed)
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ebs:ListSnapshotBlocks","ebs:GetSnapshotBlock"],"Resource":"arn:aws:ec2:ap-northeast-2::snapshot/*"},{"Effect":"Allow","Action":"kms:Decrypt","Resource":"*"}]}
       - name: The root snapshot as a qcow2
         if: steps.feed.outputs.build == 'true'
         env:
