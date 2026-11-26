@@ -38,6 +38,8 @@ export const es: Record<MessageKey, string> = {
   "appSetup.goneTitle": "Este enlace venció",
   "appSetup.gone": "Vuelva a la aplicación e inténtelo de nuevo.",
   "appSetup.doneTitle": "Este equipo ya está configurado",
+  "appSetup.errorTitle": "No se pudo terminar de configurar su equipo",
+  "appSetup.retry": "Intentar de nuevo",
   'devEnv.title': "Entorno de desarrollo",
   'devEnv.experiment': "Experimento",
   'devEnv.unavailable': "Este servidor no puede ejecutar entornos de desarrollo.",
