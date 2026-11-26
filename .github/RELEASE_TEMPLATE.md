@@ -8,7 +8,7 @@ Use this to write the annotated tag message before the release workflow runs. Re
 Rollout: all
 ```
 
-**Windows / 윈도우:** the Windows installer is added about once a week, by itself (docs/RELEASE-CI.md 11장 "윈도우는 일주일에 한 번"); every other download ships with every release. For a Windows fix that cannot wait, add the line `Windows: yes` on its own; `Windows: no` leaves Windows out. The workflow removes the line from the notes. / 윈도우 설치 파일은 약 일주일에 한 번 스스로 들어갑니다. 기다릴 수 없는 윈도우 수정이면 `Windows: yes`를 한 줄로 넣으세요(`Windows: no`는 뺍니다). 워크플로가 노트에서 뺍니다.
+**Windows / 윈도우:** the Windows installer is added by itself when the Windows app changed, at most about once a week (docs/RELEASE-CI.md 11장 "윈도우는 바뀔 때만, 많아야 일주일에 한 번"); every other download ships with every release. For a Windows fix that cannot wait, add the line `Windows: yes` on its own; `Windows: no` leaves Windows out. The workflow removes the line from the notes. / 윈도우 설치 파일은 윈도우 앱이 바뀌었을 때만, 많아야 약 일주일에 한 번 스스로 들어갑니다. 기다릴 수 없는 윈도우 수정이면 `Windows: yes`를 한 줄로 넣으세요(`Windows: no`는 뺍니다). 워크플로가 노트에서 뺍니다.
 
 ## Who benefits / 누구에게 도움이 되나요?
 
