@@ -137,7 +137,9 @@ test('a PDF picked with 📎 goes with the question as a file card; ✕ takes a 
   const side = await openSide(page)
   await expect(side.getByTestId('side-chat-attach')).toHaveAccessibleName('파일 첨부')
   const pick = async (files: { name: string; mimeType: string; buffer: Buffer }[]) => {
-    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), side.getByTestId('side-chat-attach').click()])
+    // the + menu every message box has (composer/AttachMenu.tsx): this computer
+    await side.getByTestId('side-chat-attach').click()
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByTestId('attach-computer').click()])
     expect(chooser.isMultiple()).toBe(true)
     await chooser.setFiles(files)
   }
