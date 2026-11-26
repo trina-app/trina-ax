@@ -32,9 +32,9 @@
 // Return makes a new line on a touch screen, Enter saves with a keyboard, as sending does.
 // Two boxes can write the same place at once (a thread on the room page and beside one of its files in the viewer): the
 // one that stays takes the other's draft when it goes, and a refused send comes back into one of them.
-import { composerInset, composerRadius } from '../chat/composerBox'
+import { composerInset } from '../chat/composerBox'
 import clsx from 'clsx'
-import { ArrowUp, Check, FileText, FolderOpen, Loader2, Paperclip, Pencil, X } from 'lucide-react'
+import { Check, FileText, FolderOpen, Loader2, Pencil, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ROOM_FILE_MAX, ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type FileEntry, type UserRef } from '@mycel/shared/api'
 import { api, API, errorText, roomFileUrl } from '../../lib/api'
@@ -53,31 +53,28 @@ import { isAdmin, useMe, useSession } from '../../store/session'
 import { findMessage, keepRoomDraft, onRoomDraftElsewhere, placeKey, restoreRoomDraft, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
 import { failedEdits, hasRoomBox, registerRoomBox, useRoomEdit } from '../../store/roomEdit'
 import { usePeople } from '../../store/people'
-import { fitHeight, useEndAfterRecording } from '../../lib/autoGrow'
+import { useEndAfterRecording } from '../../lib/autoGrow'
 import { allMentionNames, lineBreaks, MENTION_ALL_CONFIRM, type PickedMention } from '../../lib/rooms'
 import { toast } from '../../store/ui'
-import { TokenTextarea } from '../TokenTextarea'
-import { Button, IconButton, useMediaQuery } from '../ui'
+import { Button, useMediaQuery } from '../ui'
 import { Tooltip } from '../Tooltip'
 import { ChipRemove, chipText, FAILED_REASON, isHeicName, isLocalImage, PictureTile } from '../ChipThumb'
 import { ImageGroup } from '../ImageViewer'
 import { localItem, roomItem } from '../../lib/imageViewer'
-import { VoiceBar, VoiceHeld, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { MENTION_ALL_WORDS, pickedInMessage, useEveryone, useMentionMenu } from './useMentionMenu'
-import { useTextSize } from '../../lib/textSize'
-import { usePanelExpanded } from '../../lib/sidePanel'
 import { useFileDrop } from '../chat/ComposerFiles'
 import { withoutFolders } from '../../lib/fileDrop'
 import { useDropTarget } from '../FileDropZone'
 import { storagePlansUrl } from '../StoragePlansLink'
 import { isStorageFull, RefusalLinks, storageFullText } from './storageRefusal'
-import { AttachSheet } from '../chat/AttachSheet'
-import { ComposerToolbar } from '../chat/ComposerToolbar'
-import TeamFilePicker from '../chat/TeamFilePicker'
+import { AttachMenu } from '../composer/AttachMenu'
+import { ComposerField } from '../composer/ComposerField'
+import { ComposerShell } from '../composer/ComposerShell'
+import { ComposerNotices } from '../composer/ComposerNotices'
+import { enterSends, composing } from '../composer/keys'
 import { sendTyping, TypingSender } from '../../lib/roomTyping'
 import { RoomTypingLine } from './RoomTypingLine'
 import { MessageLinkChoice, useLinkChoice } from './MessageLinkChoice'
-import { MicBlockedNotice } from '../MicBlockedNotice'
 
 type Upload = RoomUpload
 
@@ -110,10 +107,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const files = useRoomUploads((s) => s.byPlace[key] ?? NO_UPLOADS)
   const setFiles = useCallback((next: Upload[] | ((list: Upload[]) => Upload[])) => setPlaceUploads(key, next), [key])
   const input = useRef<HTMLTextAreaElement>(null)
-  const picker = useRef<HTMLInputElement>(null)
-  // below 768px: the attach sheet (and its team-file picker) instead of the clip's file input
+  // below 768px: one line, and a message is edited here
   const phone = useMediaQuery('(max-width: 767.98px)')
-  const [teamPicker, setTeamPicker] = useState(false)
   // editing a message here (a phone): the reply being written waits in `held` and stays the place's draft
   const editingNow = useRef(false)
   const setText = (s: string) => {
@@ -285,16 +280,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing, editMsg?.id])
 
-  // the box grows with its text (an empty box with its placeholder: a transcription job's long label; any other hint
-  // stays on one line, index.css), and is measured
-  // again when the person's text size changes. Behind a big side panel (lib/sidePanel.ts) it is not drawn and measures
-  // 0: it keeps its height, and is measured again when the room shows
-  const textSize = useTextSize()
-  const behindPanel = usePanelExpanded()
+  // (the field grows with its text and its placeholder: composer/ComposerField.tsx)
   const placeholder = voice.transcribing ? voice.transcribingText : threadRootId ? t('rooms.threadPlaceholder') : t('rooms.placeholder')
-  useLayoutEffect(() => {
-    if (input.current) fitHeight(input.current, 200)
-  }, [text, textSize, placeholder, voice.recording, behindPanel, editing])
   // back after a recording: the newest words in sight, as they were while recording
   useEndAfterRecording(input, voice.recording, voice.busy, text)
   // a thread just opened (from "reply in thread"): the box is where the person types next
@@ -474,58 +461,64 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     })
   }
 
-  // the clip: the attach sheet on a phone, the file input on a computer
-  const clip = noFiles ? (
-    // off, with why: a tap says it too (a disabled button would give a finger no tooltip)
-    <IconButton tip={noFiles} compact label={noFiles} aria-disabled onClick={() => toast({ level: 'info', text: noFiles })} className="opacity-40" data-testid="room-attach-off">
-      <Paperclip size={18} />
-    </IconButton>
-  ) : (
-    <>
-      {phone ? (
-        <AttachSheet key={key} onFiles={addFiles} room={ROOM_FILES_MAX - files.length} fileMax={fileMax} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={18} />} testId="room-attach" filesTestId="room-file-input" />
-      ) : (
-        <IconButton tip compact label={t('composer.attach')} onClick={() => picker.current?.click()} data-testid="room-attach">
-          <Paperclip size={18} />
-        </IconButton>
-      )}
-      {!phone && (
-        <input
-          ref={picker}
-          type="file"
-          multiple
-          hidden
-          data-testid="room-file-input"
-          onChange={(e) => {
-            void addFiles(Array.from(e.target.files ?? []))
-            e.target.value = ''
-          }}
-        />
-      )}
-    </>
+  // attach: the + every message box has (composer/AttachMenu.tsx); team files are copied as my upload here, on a
+  // computer too. A project room the person may only read: off, with why
+  const clip = (
+    <AttachMenu
+      key={key}
+      onFiles={(all) => void addFiles(all)}
+      onTeamFiles={addTeamFiles}
+      teamAttached={new Set(files.filter((f) => f.teamPath && f.status !== 'failed').map((f) => f.teamPath!))}
+      room={ROOM_FILES_MAX - files.length}
+      max={ROOM_FILES_MAX}
+      fileMax={fileMax}
+      off={noFiles}
+      testId="room-attach"
+      filesTestId="room-file-input"
+      onPicked={() => input.current?.focus()}
+    />
   )
-  // the text field's limit, and the text's while recording (VoiceHeld grows to it as the field does): a phone's whole box
-  // (the files' row, the text, its buttons and padding) stays within about 35 % of what is in sight, so the messages keep
-  // the rest while the keyboard is up (QA TC-252); at least one line. The other rows: about 5rem, 6rem with the files' row
-  // (measured at 390 × 480)
-  const fieldMax = clsx(
-    'max-h-[200px]',
-    files.length > 0
-      ? 'max-md:max-h-[min(200px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-6rem)))]'
-      : 'max-md:max-h-[min(200px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-5rem)))]',
-  )
+  // the box's own keys before the field's (composer/ComposerField.tsx: voice, then Enter sends): the "@" list, then an
+  // edit (Esc cancels, Enter saves with a keyboard; nothing else of the box's), then the "@전체" question's Esc
+  const keys = (e: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (mention.onKeyDown(e)) return true
+    if (editing) {
+      if (composing(e)) return true
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        cancelEdit()
+      } else if (enterSends(e)) {
+        // a keyboard: Enter saves, as it sends (a touch screen: a new line)
+        e.preventDefault()
+        if (canSave) saveEdit()
+      }
+      return true
+    }
+    // the question about "@전체": Esc puts it away, Enter answers it as 보내기
+    if (ask && e.key === 'Escape' && !composing(e)) {
+      e.preventDefault()
+      e.stopPropagation()
+      setAsking(false)
+      return true
+    }
+    return false
+  }
   const field = (
-    <TokenTextarea
+    <ComposerField
       ref={input}
-      rows={1}
       value={text}
+      tokens={mention.inputProps}
+      keys={keys}
+      voice={editing ? undefined : voice}
+      onSend={() => submit(ask)}
       aria-label={editing ? t('rooms.editLabel') : t('composer.label')}
       placeholder={placeholder}
       // not disabled: the focus stays in the box while the words are on their way
       readOnly={voice.busy}
       aria-busy={voice.transcribing || undefined}
       maxLength={ROOM_MESSAGE_MAX}
-      {...mention.inputProps}
+      grow={[editing, voice.recording]}
       onBlur={() => typing.stop()}
       onPaste={(e) => {
         // an edit takes words only
@@ -566,64 +559,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
           if (taken) toast({ level: 'info', text: t('composer.pastedAsFile', { max }) })
         })
       }}
-      onKeyDown={(e) => {
-        if (mention.onKeyDown(e)) return
-        if (editing) {
-          if (e.nativeEvent.isComposing || e.keyCode === 229) return
-          if (e.key === 'Escape') {
-            e.preventDefault()
-            e.stopPropagation()
-            cancelEdit()
-          } else if (e.key === 'Enter' && !e.shiftKey && !window.matchMedia?.('(pointer: coarse)').matches) {
-            // a keyboard: Enter saves, as it sends (a touch screen: a new line)
-            e.preventDefault()
-            if (canSave) saveEdit()
-          }
-          return
-        }
-        if (voice.onKeyDown(e)) return
-        // the question about "@전체": Esc puts it away, Enter answers it as 보내기
-        if (ask && e.key === 'Escape' && !e.nativeEvent.isComposing && e.keyCode !== 229) {
-          e.preventDefault()
-          e.stopPropagation()
-          setAsking(false)
-          return
-        }
-        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
-          // touch screens: Enter makes a new line (the button sends)
-          if (window.matchMedia?.('(pointer: coarse)').matches) return
-          e.preventDefault()
-          submit(ask)
-        }
-      }}
-      containerClassName={phone ? 'min-w-0 flex-1' : undefined}
-      // a phone: the whole box stays within about 35 % of what is in sight (fieldMax)
-      className={clsx(
-        'resize-none text-reading leading-reading text-ink outline-none placeholder:text-faint',
-        // one line on a phone; on a computer the text alone on top, as in the AI chat's box (its padding)
-        phone ? 'px-1.5 py-2' : 'px-4.5 pt-3 pb-1',
-        fieldMax,
-      )}
       data-testid="room-input"
     />
-  )
-  // the mic right before send, as in ChatGPT's box
-  const sendControls = (
-    <>
-      <VoiceMic voice={voice} mic={mic} tip />
-      <Tooltip label={t('chat.send')}>
-        <button
-          type="button"
-          onClick={() => submit(ask)}
-          disabled={!canSend}
-          aria-label={t('chat.send')}
-          className={clsx('touch-hit flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
-          data-testid="room-send"
-        >
-          <ArrowUp size={18} aria-hidden />
-        </button>
-      </Tooltip>
-    </>
   )
 
   // ✕ and ✓ where send was (round, as send); a press keeps the focus in the box, so the keyboard stays up
@@ -644,17 +581,29 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   )
 
   return (
-    <div ref={root} className={clsx('relative shrink-0 pb-[var(--box-bottom)]', composerInset)} data-bottom-bar>
-      <VoiceLive voice={voice} />
-      {/* who else is writing here; out of the way while the "@" list floats over the messages on a phone */}
-      <RoomTypingLine roomId={roomId} threadRootId={threadRootId} members={members} meId={meId} hidden={!!mention.list && phone} />
-      {above}
-      <div
-        className={clsx('relative mx-auto max-w-[780px]', composerRadius, 'border bg-surface transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border focus-within:border-faint')}
-        {...(editing ? {} : dropProps)}
-        data-testid="room-composer"
-        data-editing={editing ? '' : undefined}
-      >
+    <ComposerShell
+      rootRef={root}
+      rootAttrs={{ 'data-bottom-bar': '' }}
+      className={clsx('relative shrink-0 pb-[var(--box-bottom)]', composerInset)}
+      testId="room-composer"
+      toolsTestId="room-composer-tools"
+      frameClassName="mx-auto max-w-[780px]"
+      frameAttrs={{ 'data-editing': editing ? '' : undefined }}
+      line={phone}
+      drag={drag}
+      dropProps={editing ? undefined : dropProps}
+      above={<>
+        {/* who else is writing here; out of the way while the "@" list floats over the messages on a phone */}
+        <RoomTypingLine roomId={roomId} threadRootId={threadRootId} members={members} meId={meId} hidden={!!mention.list && phone} />
+        {above}
+      </>}
+      files={files.length > 0}
+      text={text}
+      hint={placeholder}
+      heldTestId="room-text-held"
+      voice={voice}
+      mic={mic}
+      top={<>
         {editing && (
           <p className="flex items-center gap-1.5 px-4 pt-2 text-xs font-medium text-muted" data-testid="room-editing-label">
             <Pencil size={12} aria-hidden />
@@ -752,78 +701,24 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
             {t(widening.length > 1 ? 'rooms.teamFileWidenAtLeast' : 'rooms.teamFileWiden', { n: widens })}
           </p>
         )}
-        {voice.recording ? (
-          phone ? (
-            // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where the clip and send were: nothing moves;
-            // once a live recording put words in, the box's text shows above it
-            <>
-              {voice.heard && <VoiceHeld text={text} className={clsx(fieldMax, 'px-4 pt-2.5 text-ink')} testId="room-text-held" />}
-              <VoiceBar voice={voice} className="box-content min-h-composer-line py-1.5 pr-3 pl-2" />
-            </>
-          ) : (
-            // a computer's box: the text on top (it cannot be typed in while recording), growing with a live recording's
-            // words as the field does while typing; the bar in the row's place (as tall as ComposerToolbar), ✕ and ✓ where the clip and send were
-            <>
-              <VoiceHeld text={text || placeholder} className={clsx(fieldMax, 'px-4.5 pt-3 pb-1', text ? 'text-ink' : 'text-faint')} testId="room-text-held" />
-              <VoiceBar voice={voice} className="box-content min-h-9 px-3 pt-1 pb-2.5" />
-            </>
-          )
-        ) : (
-          <>
-            <VoiceProgress voice={voice} text={text} className="px-3 pt-2 max-md:px-4" />
-            {/* A phone: one line, bottom-aligned; each control centred in a slot as tall as one text line's box (index.css
-                --spacing-composer-line): one line, one centre; more lines, the buttons stay on the last; 8 px on the
-                left, so the box keeps its width with the 4 px between the mic and send (VoiceMic). A computer: the text
-                on top and the box's row under it inside the frame (ComposerToolbar, as every message box: QA TC-1400) */}
-            {editing ? (
-              // the text and ✕ ✓ on one line, the buttons on its last line as send is
-              <div className="flex items-end gap-1 py-1.5 pr-3 pl-2.5">
-                {field}
-                <div className="flex h-composer-line shrink-0 items-center gap-1.5">{editControls}</div>
-              </div>
-            ) : phone ? (
-              <div className="flex items-end gap-1 py-1.5 pr-3 pl-2">
-                <div className="flex h-composer-line shrink-0 items-center">{clip}</div>
-                {field}
-                <div className="flex h-composer-line shrink-0 items-center gap-1">{sendControls}</div>
-              </div>
-            ) : (
-              <>
-                {field}
-                <ComposerToolbar testId="room-composer-tools" start={clip} end={sendControls} />
-              </>
-            )}
-          </>
-        )}
-      </div>
-      {voiceError && voice.blockedFor === voiceError && (
-        <div className="mx-auto max-w-[780px] px-1 pt-1.5 max-sm:px-4">
-          <MicBlockedNotice text={voiceError} onOpenSettings={voice.settingsFor === voiceError ? voice.openSettings : undefined} testId="room-voice-error" />
+      </>}
+      field={field}
+      start={editing ? undefined : clip}
+      send={{ can: canSend, onSend: () => submit(ask), testId: 'room-send' }}
+      // an edit: ✕ and ✓ in place of the mic and send
+      replaceEnd={editing ? editControls : undefined}
+      below={<>
+        <div className="mx-auto max-w-[780px] max-sm:px-3">
+          <ComposerNotices prefix="room" voice={voice} voiceError={voiceError} />
         </div>
-      )}
-      {voiceError && voice.blockedFor !== voiceError && (
-        <p role="alert" className="mx-auto max-w-[780px] px-1 pt-1.5 text-xs text-danger max-sm:px-4" data-testid="room-voice-error">{voiceError}</p>
-      )}
-      {phone && (
-        <TeamFilePicker
-          open={teamPicker}
-          onClose={() => setTeamPicker(false)}
-          room={Math.max(0, ROOM_FILES_MAX - files.length)}
-          max={ROOM_FILES_MAX}
-          attached={new Set(files.filter((f) => f.teamPath && f.status !== 'failed').map((f) => f.teamPath!))}
-          onPick={(picked) => {
-            setTeamPicker(false)
-            addTeamFiles(picked)
-          }}
-        />
-      )}
-      {/* a thread's reply may go to the room too: one quiet choice under the box (off again after each send) */}
-      {threadRootId && !editing && (
-        <label className="mx-auto flex max-w-[780px] cursor-pointer items-center gap-2 px-1 pt-1.5 text-xs text-muted select-none max-sm:px-4 max-sm:pt-0.5 max-sm:pb-1" data-testid="room-also-in-room">
-          <input type="checkbox" checked={alsoInRoom} onChange={(e) => setAlsoInRoom(e.target.checked)} className="size-4 accent-[var(--color-accent)]" />
-          {t('rooms.alsoToRoom')}
-        </label>
-      )}
-    </div>
+        {/* a thread's reply may go to the room too: one quiet choice under the box (off again after each send) */}
+        {threadRootId && !editing && (
+          <label className="mx-auto flex max-w-[780px] cursor-pointer items-center gap-2 px-1 pt-1.5 text-xs text-muted select-none max-sm:px-4 max-sm:pt-0.5 max-sm:pb-1" data-testid="room-also-in-room">
+            <input type="checkbox" checked={alsoInRoom} onChange={(e) => setAlsoInRoom(e.target.checked)} className="size-4 accent-[var(--color-accent)]" />
+            {t('rooms.alsoToRoom')}
+          </label>
+        )}
+      </>}
+    />
   )
 }

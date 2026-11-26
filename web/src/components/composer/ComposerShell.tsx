@@ -62,7 +62,7 @@ export interface ShellStop {
 }
 
 export function ComposerShell({
-  rootRef, testId, toolsTestId, className, frameClassName, line = false, drag = false, dropProps,
+  rootRef, rootAttrs, frameAttrs, testId, toolsTestId, className, frameClassName, line = false, drag = false, dropProps,
   above, aiBand = false, secret, top, field, files = false, text, hint, heldTestId, voice, mic, micDisabled = false,
   start, end, send, stop, replaceEnd, footer, footerTestId = 'composer-footer', below, notices, children,
 }: {
@@ -71,6 +71,9 @@ export function ComposerShell({
   /** the frame's test id (composer, side-chat-box, room-composer, chat-thread-box) and its row's */
   testId: string
   toolsTestId?: string
+  /** data attributes of the root and the frame (a room's data-bottom-bar, data-editing) */
+  rootAttrs?: Record<string, string | undefined>
+  frameAttrs?: Record<string, string | undefined>
   className?: string
   frameClassName?: string
   /** a phone's one line: attach · text · mic · send */
@@ -129,7 +132,7 @@ export function ComposerShell({
   )
   return (
     <Ctx.Provider value={{ heldHeight, stop: stopNow, line, files }}>
-      <div ref={rootRef as Ref<HTMLDivElement>} className={className}>
+      <div ref={rootRef as Ref<HTMLDivElement>} className={className} {...rootAttrs}>
         {voice && <VoiceLive voice={voice} />}
         {secret?.held && <SecretWarning onSendAnyway={secret.onSendAnyway} onEdit={secret.onEdit} />}
         {aiBand && <AiAccessBanner />}
@@ -139,6 +142,7 @@ export function ComposerShell({
         <div
           className={clsx('relative', composerRadius, 'border bg-surface shadow-[var(--c-shadow)] transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border focus-within:border-faint', frameClassName)}
           {...dropProps}
+          {...frameAttrs}
           data-testid={testId}
         >
           {top}
