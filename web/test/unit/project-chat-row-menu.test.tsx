@@ -83,10 +83,10 @@ test('a chat of my own: pin, 링크 복사, rename, 프로젝트 변경 and dele
 
 test('shared project chats follow the Trina list\'s rules: never a move; rename for the creator; delete for the creator or a project editor', async () => {
   const onMove = () => {}
-  expect(await items(chat({ shared: { by: 'alex', canDelete: true } }), { onMove })).toEqual([pin, link, rename, mute, del])
-  expect(await items(chat({ shared: { by: 'bob', canDelete: true } }), { onMove })).toEqual([pin, link, mute, del])
+  expect(await items(chat({ shared: { by: 'alex', canDelete: true } }), { onMove })).toEqual([pin, mute, link, rename, del])
+  expect(await items(chat({ shared: { by: 'bob', canDelete: true } }), { onMove })).toEqual([pin, mute, link, del])
   // someone else's shared chat I may not delete: no delete, no rename
-  expect(await items(chat({ shared: { by: 'bob', canDelete: false }, pinnedAt: '2026-11-02T00:00:00.000Z' }), { onMove })).toEqual([['project-chat-unpin', ko('chat.unpin')], link, mute])
+  expect(await items(chat({ shared: { by: 'bob', canDelete: false }, pinnedAt: '2026-11-02T00:00:00.000Z' }), { onMove })).toEqual([['project-chat-unpin', ko('chat.unpin')], mute, link])
 })
 
 test('상단에 고정 pins it and hands the row back as it is now: pinned at once, then the server\'s copy', async () => {

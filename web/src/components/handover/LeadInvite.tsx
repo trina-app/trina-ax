@@ -89,7 +89,7 @@ export function LeadMessage({ url, leadFor, expiresAt, replaced, onCopied }: { u
           {msg.copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />} {msg.copied ? t('common.copied') : t('teamLink.copyMessage')}
         </Button>
         <Button size="sm" variant="ghost" onClick={() => { void link.copy(url); onCopied?.() }} data-testid="lead-copy-link">
-          {link.copied ? <Check size={14} className="text-ok" aria-hidden /> : <Copy size={14} aria-hidden />} {link.copied ? t('common.copied') : t('teamLink.copyLink')}
+          {link.copied ? <Check size={14} className="text-ok" aria-hidden /> : <Copy size={14} aria-hidden />} {link.copied ? t('common.copied') : t('rooms.menu.copyLink')}
         </Button>
       </div>
       <p className="text-label text-muted" data-testid="lead-facts">{t('handover.facts', { leadFor, date: formatDateTime(expiresAt, locale) })}</p>

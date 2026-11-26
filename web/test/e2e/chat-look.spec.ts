@@ -141,7 +141,7 @@ test("the chat's name opens its link, rename and delete, after the project it is
   await page.getByTestId('chat-delete').click()
   await page.getByTestId('dialog-confirm').click()
   await expect(page).toHaveURL(/\/$/)
-  await expect(page.getByText('기록을 삭제했어요.')).toBeVisible()
+  await expect(page.getByText('채팅을 삭제했어요.')).toBeVisible()
 })
 
 test('the message box is one frame: the text on top, +, the engine, the mic and a quiet send key in a row under it, on every page with the box', async ({ page }) => {

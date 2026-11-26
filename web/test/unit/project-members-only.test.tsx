@@ -99,8 +99,8 @@ describe('the page of a project I manage without being a member', () => {
       await m.settle(30)
       expect(m.find('project-chats')).toBeNull()
       expect(m.html()).not.toContain('My old notes')
-      // the name's menu: Rename and Delete, no Edit
-      expect(await menuItems(m)).toEqual(['project-rename', 'project-delete'])
+      // the name's menu: Copy link, Rename and Delete, no Project settings (docs/decisions/20261126-shared-menus.md)
+      expect(await menuItems(m)).toEqual(['project-copy-link', 'project-rename', 'project-delete'])
     } finally { await m.unmount() }
   })
 
@@ -220,7 +220,7 @@ describe('in the trash', () => {
       await m.until(() => m.find('project-members-only'), 'back, as one I manage', 2000)
       expect(m.find('project-in-trash')).toBeNull()
       // out of the trash: the name's menu again
-      expect(await menuItems(m)).toEqual(['project-rename', 'project-delete'])
+      expect(await menuItems(m)).toEqual(['project-copy-link', 'project-rename', 'project-delete'])
     } finally { await m.unmount() }
   })
 
@@ -276,7 +276,7 @@ describe('in the trash', () => {
       expect(dialogText(m)).toContain("Its files are deleted too. This can't be undone.")
       // its shared chats go to their creators' Deleted history (QA TC-1063)
       expect(m.container.ownerDocument!.body.querySelector('[data-testid="project-delete-shared"]')?.textContent).toBe('Its shared chats go to their creators\' "Deleted history" for 7 days.')
-      expect(translate('ko', 'projects.deleteForGoodShared', { days: 7, trash: translate('ko', 'sidebar.trash') })).toBe('공유 채팅은 만든 사람의 "삭제한 기록"에 7일 동안 있어요.')
+      expect(translate('ko', 'projects.deleteForGoodShared', { days: 7, trash: translate('ko', 'sidebar.trash') })).toBe('공유 채팅은 만든 사람의 "삭제한 채팅"에 7일 동안 있어요.')
       expect(translate('ko', 'projects.deleteForGoodBody')).toBe('파일도 함께 지워지고 되돌릴 수 없어요.')
       expect(translate('ko', 'projects.deleteForGoodTitle', { name: '주간 보고' })).toBe("'주간 보고' 프로젝트를 완전히 삭제할까요?")
       await m.click('dialog-confirm')

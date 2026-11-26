@@ -155,7 +155,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const list = await chatList(page)
       const row = list.getByRole('listitem').filter({ hasText: '경쟁사 메모' })
       await row.hover()
-      await row.getByRole('button', { name: '기록 메뉴', exact: true }).click()
+      await row.getByRole('button', { name: '채팅 메뉴', exact: true }).click()
       await row.getByTestId('chat-row-move').click()
       const dialog = page.getByRole('dialog', { name: '프로젝트로 옮기기' })
       await dialog.getByText('Launch', { exact: true }).click()

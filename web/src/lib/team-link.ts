@@ -118,8 +118,15 @@ export const openInAppShown = (client: 'web' | 'desktop' | 'mobile', href: strin
  * does nothing more (the page stays as it is).
  */
 export function chatOpenInAppHref(o: { scheme: string; origin: string; chatId: string; platform: Platform; client: 'web' | 'desktop' | 'mobile'; phone: boolean }): string | null {
-  if (o.client !== 'web' || o.phone || !/^https:\/\/[^/]+$/.test(o.origin) || !desktopPlatform(o.platform) || !/^[A-Za-z0-9_-]{1,64}$/.test(o.chatId)) return null
-  return openInAppHref({ scheme: o.scheme, origin: o.origin, path: `/c/${o.chatId}`, platform: o.platform, androidPackage: '' })
+  return /^[A-Za-z0-9_-]{1,64}$/.test(o.chatId) ? pageOpenInAppHref({ ...o, path: `/c/${o.chatId}` }) : null
+}
+
+/** The same for a chat's, a room's or a project's page (`/c/<id>`, `/rooms/<id>`, `/projects/<id>`: the pages the desktop
+ * app opens at once on a team it has, desktop common/address.ts desktopPagePath), by the same rules
+ * (docs/decisions/20261126-shared-menus.md: every title menu has it). */
+export function pageOpenInAppHref(o: { scheme: string; origin: string; path: string; platform: Platform; client: 'web' | 'desktop' | 'mobile'; phone: boolean }): string | null {
+  if (o.client !== 'web' || o.phone || !/^https:\/\/[^/]+$/.test(o.origin) || !desktopPlatform(o.platform) || !/^\/(c|rooms|projects)\/[A-Za-z0-9_-]{1,64}$/.test(o.path)) return null
+  return openInAppHref({ scheme: o.scheme, origin: o.origin, path: o.path, platform: o.platform, androidPackage: '' })
 }
 
 /**

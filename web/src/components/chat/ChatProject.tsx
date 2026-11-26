@@ -173,7 +173,7 @@ export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; on
     toast({
       level: 'success',
       text: t('chat.project.moved', { name: p.name }),
-      action: { label: t('chat.project.undo'), run: () => void undoMadeAndMove(r.reply, before, p.id, onMoved) },
+      action: { label: t('common.undo'), run: () => void undoMadeAndMove(r.reply, before, p.id, onMoved) },
     })
   }
   useEffect(() => {

@@ -268,7 +268,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       // 링크 복사, and "Continue in a chat only you see" (a new "Only me" chat of the project with his last question:
       // docs/DECISIONS.md "Team project chats shared by default"); no edit, no "regenerate", no engine
       await b.getByTestId('chat-menu').click()
-      await expect(b.getByRole('menuitem')).toHaveText(['상단에 고정', '링크 복사', '나만 보는 채팅에서 이어 하기'])
+      await expect(b.getByRole('menuitem')).toHaveText(['상단에 고정', '이 채팅 알림 끄기', '링크 복사', '나만 보는 채팅에서 이어 하기'])
       await b.keyboard.press('Escape')
       await expect(b.getByTestId('chat-title')).toHaveText(/출시 일정/)
       await expect(b.getByTestId('edit-message')).toHaveCount(0)
@@ -783,7 +783,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.goto(`/c/${chatId}`)
       await page.getByTestId('chat-menu').click()
       await page.getByTestId('chat-delete').click()
-      await expect(page.getByRole('dialog')).toContainText('7일 동안 "삭제한 기록"에 있다가 완전히 지워져요.')
+      await expect(page.getByRole('dialog')).toContainText('7일 동안 "삭제한 채팅"에 있다가 완전히 지워져요.')
       await page.getByTestId('dialog-confirm').click()
       await expect(page.getByRole('dialog')).toHaveCount(0)
       // her trash has it (once), and so does Bob's
@@ -798,7 +798,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(rows).toHaveCount(0)
       await b.reload()
       // loaded: its rows or the empty line
-      await expect(b.getByText('삭제한 기록이 없어요').or(b.getByTestId('trash-list').getByRole('listitem').first())).toBeVisible()
+      await expect(b.getByText('삭제한 채팅이 없어요').or(b.getByTestId('trash-list').getByRole('listitem').first())).toBeVisible()
       await expect(b.getByTestId('trash-list').getByRole('listitem').filter({ hasText: 'Bob의 회의록 요약' })).toHaveCount(0)
       expect(((await (await b.request.get(`/api/chats/${chatId}`)).json()) as { projectId: string | null }).projectId).toBe(id)
 
@@ -811,7 +811,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page).toHaveURL(/\/projects$/)
       await page.goto('/trash')
       // loaded: its rows or the empty line
-      await expect(page.getByText('삭제한 기록이 없어요').or(page.getByTestId('trash-list').getByRole('listitem').first())).toBeVisible()
+      await expect(page.getByText('삭제한 채팅이 없어요').or(page.getByTestId('trash-list').getByRole('listitem').first())).toBeVisible()
       await expect(page.getByTestId('trash-list').getByRole('listitem').filter({ hasText: 'Bob의 회의록 요약' })).toHaveCount(0)
       await b.goto('/trash')
       const his = b.getByTestId('trash-list').getByRole('listitem').filter({ hasText: 'Bob의 회의록 요약' })
@@ -865,7 +865,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.goto(`/projects/${id}`)
       await page.getByTestId('project-menu').click()
       await page.getByTestId('project-delete').click()
-      await expect(page.getByRole('dialog')).toContainText('프로젝트만 지워지고 폴더와 내 기록은 그대로 남아요. 공유 채팅은 7일 동안 만든 사람의 "삭제한 기록"에 있어요.')
+      await expect(page.getByRole('dialog')).toContainText('프로젝트만 지워지고 폴더와 내 채팅은 그대로 남아요. 공유 채팅은 7일 동안 만든 사람의 "삭제한 채팅"에 있어요.')
       await expect(page.getByTestId('project-delete-shared')).toHaveCount(0)
       await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
       // a project in place keeps its folder (docs/DECISIONS.md "Projects live only in projects/"): no folder to choose;

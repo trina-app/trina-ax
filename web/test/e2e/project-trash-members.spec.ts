@@ -73,7 +73,7 @@ for (const vp of VPS) {
     if (!vp.phone) {
       await row('Bob Notes').hover()
       await row('Bob Notes').getByTestId('project-card-menu').click()
-      await expect(bob.getByTestId('project-card-delete')).toHaveText(t['projects.moveToTrash'])
+      await expect(bob.getByTestId('project-card-delete')).toHaveText(t['files.moveToTrash'])
       await bob.getByTestId('project-card-delete').click()
       await expect(bob.getByRole('dialog')).toContainText(t['projects.trashBody'])
       await bob.getByTestId('dialog-confirm').click()
