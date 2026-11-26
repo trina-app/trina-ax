@@ -7,6 +7,7 @@ import { useId, useState } from 'react'
 import { MEMORY_TEXT_MAX } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { Button, inputCls } from '../ui'
+import { composing } from '../composer/keys'
 
 /** The text as the server keeps it. */
 export const foldMemory = (s: string) => s.replace(/\s+/g, ' ').trim()
@@ -55,7 +56,7 @@ export function MemoryForm({ initial = '', submitLabel, onSubmit, onCancel, test
         onChange={(e) => { setText(e.target.value); setError(null) }}
         onKeyDown={(e) => {
           // one line: Enter saves (not while an IME is composing Korean or Japanese), Esc leaves it as it was
-          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void submit() }
+          if (e.key === 'Enter' && !e.shiftKey && !composing(e)) { e.preventDefault(); void submit() }
           else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onCancel() }
         }}
         // a phone: no resize grip (the sheet grows with the text)

@@ -25,7 +25,6 @@ import clsx from 'clsx'
 import { sharedNote } from '../lib/sharedNote'
 import { composerInset } from '../components/chat/composerBox'
 import { GuestNoAi, useGuestAiOff, useGuestNoAi } from '../components/GuestView'
-import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
 import { ArrowDown, ChevronLeft, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
@@ -899,10 +898,10 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
           {/* one suggestion under the newest answer: the welcome invite on the first result, else schedule or PPT */}
           {/* (not for a guest: no team skills, schedules or welcome invite are theirs, and the server refuses it) */}
           {!guestHere && <ResultSuggestion chatId={chatId} messages={messages} busy={busy} onSend={(text) => void onSend(text, []).catch(fail)} />}
-          {/* the newest answer failed for want of AI: its own line has the button, one is enough */}
-          {!noAiError(messages.at(-1)) && <AiAccessBanner />}
           <Composer
             ref={composer}
+            // "no usable AI" above the box, unless the newest answer failed for want of AI: its own line has the button
+            aiBand={!noAiError(messages.at(-1))}
             draftId={chatId}
             ensureChat={async () => chatId}
             running={runningMine}

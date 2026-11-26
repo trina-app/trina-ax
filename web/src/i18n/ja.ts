@@ -4762,7 +4762,6 @@ export const ja: Record<MessageKey, string> = {
   "sideChat.threadChip": "このスレッドを確認中",
   "sideChat.threadChipOff": "トーク全体について質問する",
   "sideChat.placeholderThread": "このスレッドについて{name}に質問…",
-  "sideChat.disclaimer": "{name}はAIのため、間違えることがあります。",
   "sideChat.starterLabel.catchUp": "キャッチアップ",
   "sideChat.starterLabel.forMe": "自分あての内容は？",
   "sideChat.starterLabel.summarize": "要約",

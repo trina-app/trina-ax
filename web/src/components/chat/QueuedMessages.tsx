@@ -16,6 +16,7 @@ import { fromWire, toWire } from '../../lib/roomRefs'
 import { SharedQueuedLine } from './ComposerFiles'
 import { UserText } from './Messages'
 import { capBlankLines } from '../../lib/blankLines'
+import { enterSends } from '../composer/keys'
 
 /** a shared chat: who sees the files (as the line under the box counts them), and how many other people have messages waiting */
 export interface QueueShared { audience: number; kind?: 'project' | 'people'; othersWaiting: number }
@@ -152,7 +153,7 @@ function QueuedItem({ item, shared, editing, onEdit, onCancelEdit, onSave, onRem
                 e.preventDefault()
                 e.stopPropagation()
                 cancel()
-              } else if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229 && !window.matchMedia?.('(pointer: coarse)').matches) {
+              } else if (enterSends(e)) {
                 e.preventDefault()
                 e.currentTarget.form?.requestSubmit()
               }

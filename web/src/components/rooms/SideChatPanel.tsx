@@ -44,21 +44,22 @@
 import { GuestNoAi, useGuestNoAi } from '../GuestView'
 import { isGuestMe, meGuest } from '../../lib/guests'
 import { textOverLimit } from '../../lib/longPaste'
-import AiAccessBanner from '../chat/AiAccessBanner'
 import { useAiAccess } from '../../store/aiAccess'
 import { QueueFull, useSendQueue } from '../../store/sendQueue'
 import { parseQueue, queueKey } from '../../lib/sendQueue'
 import { sideChatWasOpen } from '../../lib/sideChatOpenKeep'
 import QueuedMessages from '../chat/QueuedMessages'
-import { ArrowUp, ChevronLeft, CirclePause, Clock, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
+import { ChevronLeft, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, SIDE_CHAT_QUICK, SIDE_QUICK_FILE, SIDE_QUICK_MESSAGE, THREAD_LINE, threadRefToken, type Chat, type EngineId } from '@mycel/shared/api'
 import { oneLineName } from '@mycel/shared'
-import { api, API, errorText, isApiError } from '../../lib/api'
+import { api, API, errorText, isApiError, isConnectionError } from '../../lib/api'
+import { waitForUpdate, waitsForUpdate } from '../../lib/serverUpdating'
+import { readDraft, writeDraft } from '../../lib/localData'
 import { answerTooLong, BoxAnswers, composerAnswer, composerQuestion, picksOf } from '../../lib/askAnswer'
-import { SecretWarning, useSecretHold } from '../chat/SecretWarning'
+import { useSecretHold } from '../chat/SecretWarning'
 import { formatDate, formatDateTime } from '../../lib/format'
 import { closeImageViewer, getImageViewer } from '../../lib/imageViewer'
 import { useOverlayEntry } from '../../lib/backCloses'
@@ -70,8 +71,7 @@ import { useConfidentialChat } from '../../lib/confidential'
 import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedHere } from '../../lib/voice'
 import { useStickToBottom } from '../../lib/stickToBottom'
-import { useAutoGrow, useEndAfterRecording } from '../../lib/autoGrow'
-import { useTextSize } from '../../lib/textSize'
+import { useEndAfterRecording } from '../../lib/autoGrow'
 import { useLocale, useT } from '../../i18n'
 import { useChats } from '../../store/chats'
 import { useRooms } from '../../store/rooms'
@@ -82,24 +82,31 @@ import { SEED_KEYS_MAX, sideChatOf, useSideChats, type SideChatState } from '../
 import { emptyThread, runningMessage, type ViewMessage } from '../../store/thread'
 import { toast } from '../../store/ui'
 import { ComposerFileList, useComposerFiles, type Pending } from '../chat/ComposerFiles'
-import { ComposerToolbar } from '../chat/ComposerToolbar'
-import { StopButton } from '../chat/StopButton'
-import { AttachSheet } from '../chat/AttachSheet'
-import TeamFilePicker from '../chat/TeamFilePicker'
+import { AttachMenu } from '../composer/AttachMenu'
+import { ComposerField } from '../composer/ComposerField'
+import { ComposerShell } from '../composer/ComposerShell'
+import { composerHint } from '../composer/hint'
+import type { Unsent } from '../composer/ComposerNotices'
 import { FileDropZone, type DropTarget } from '../FileDropZone'
 import { AssistantMessage, UserMessage } from '../chat/Messages'
 import { ImageGroup, ViewerMeta } from '../ImageViewer'
-import { Tooltip } from '../Tooltip'
-import { IconButton, useAnnounce, useMediaQuery } from '../ui'
-import { VoiceBar, VoiceHeld, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
-import { CalmNotice, LoadError } from '../LoadError'
+import { IconButton, useAnnounce } from '../ui'
+import { LoadError } from '../LoadError'
 import { AiFace, AiMark } from './AiFace'
 import { RoomSideColumn } from './RoomSideColumn'
 import type { SentHere } from './SendHere'
 import { appChip } from '../../lib/roomApps'
-import { MicBlockedNotice } from '../MicBlockedNotice'
-import { DemoLimitNotice } from '../demo/FreeRoam'
 import { useDemoOut } from '../../store/demo'
+
+/** the side chat's kept draft (`side:<room id>`): its text and the chat it was written in (null: a new chat) */
+function parseKept(raw: string): { chatId: string | null; text: string } | null {
+  try {
+    const v = JSON.parse(raw) as { chatId?: unknown; text?: unknown }
+    return typeof v.text === 'string' && (v.chatId === null || typeof v.chatId === 'string') ? { chatId: v.chatId, text: v.text } : null
+  } catch {
+    return null
+  }
+}
 
 /** the newest side chat of mine for this room (not deleted), or null: one asks the server */
 export async function newestSideChat(roomId: string): Promise<Chat | null> {
@@ -116,13 +123,22 @@ function findSideChat(roomId: string): Promise<string | null> {
   if (!p) {
     p = (async () => {
       const c = await newestSideChat(roomId)
-      if (!c || (!markerOf(c) && !queuedIn(c.id))) return null
+      if (!c || (!markerOf(c) && !queuedIn(c.id) && !keptIn(roomId, c.id))) return null
       await useChats.getState().loadThread(c.id)
       return c.id
     })().finally(() => looking.delete(roomId))
     looking.set(roomId, p)
   }
   return p
+}
+
+/** What I typed in this chat's box waits in it, kept by this browser (a reload: the box's kept draft, `side:<room id>`):
+ * as a box with text keeps its chat in this window (sideChatOpening), it opens on that chat */
+function keptIn(roomId: string, chatId: string): boolean {
+  const st = useSession.getState().status
+  if (st.kind !== 'signed-in') return false
+  const kept = parseKept(readDraft(st.me.user.id, `side:${roomId}`))
+  return !!kept && kept.chatId === chatId && !!kept.text.trim()
 }
 
 /** Messages of mine wait in the chat to be sent (store/sendQueue.ts): in this window, or kept by this browser (a reload). */
@@ -428,10 +444,6 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   })
   // files dropped anywhere on the panel (FileDropZone), with the box's own check: no room left for one more refuses the drop
   const dropTarget: DropTarget = { files: (all, folders) => void files.addFiles(all, folders), refusal: () => (files.live.length >= MESSAGE_ATTACHMENTS_MAX ? t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }) : null) }
-  const picker = useRef<HTMLInputElement>(null)
-  // below 768px: the attach sheet and its team-file picker instead of the clip's file input
-  const phone = useMediaQuery('(max-width: 767.98px)')
-  const [teamPicker, setTeamPicker] = useState(false)
   // they were uploaded into one chat: once another shows (New chat, 🕘, the chat deleted meanwhile, the room left and
   // joined again), they go, in every panel of the room
   const clearFiles = useRef(files.clear)
@@ -519,15 +531,36 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     menuOpen: false,
     onError: setVoiceError,
   })
-  // the text box grows with its text (two lines at least), up to its max-height, as the other message boxes do; the
-  // text that stands in its place while recording starts as tall as the box was and grows to the same limit
-  const textSize = useTextSize()
-  useAutoGrow(box, [draft, textSize, voice.recording])
+  // back after a recording: the newest words in sight, as they were while recording
   useEndAfterRecording(box, voice.recording, voice.busy, draft)
-  const heldHeight = useRef<number | undefined>(undefined)
-  useLayoutEffect(() => {
-    if (box.current?.offsetHeight) heldHeight.current = box.current.offsetHeight
-  })
+  // the box's draft kept on this device across reloads (lib/localData, `side:<room id>`), with the chat it was written
+  // in: it comes back only into that chat (or a new chat's into a new chat) once the panel knows which chat it shows. As
+  // a box with text keeps its chat in this window, after a reload the newest side chat with a kept draft is the one
+  // that opens (findSideChat keptIn); an older chat's draft waits until that chat is opened again
+  const keptKey = `side:${roomId}`
+  const keptRead = useRef<string | null>(null)
+  // the first write after another chat shows: an empty box there does not erase the draft kept for another chat (it
+  // waits for that chat); a box emptied by the person (typed away, sent, New chat) does
+  const justOpened = useRef(false)
+  useEffect(() => {
+    if (chatId === undefined || keptRead.current === `${keptKey}|${chatId}`) return
+    keptRead.current = `${keptKey}|${chatId}`
+    justOpened.current = true
+    const kept = parseKept(readDraft(me.user.id, keptKey))
+    if (kept && kept.chatId === chatId && !sideChatOf(useSideChats.getState(), roomId).draft) setDraft(kept.text)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatId, keptKey])
+  useEffect(() => {
+    if (chatId === undefined || keptRead.current !== `${keptKey}|${chatId}`) return
+    const first = justOpened.current
+    justOpened.current = false
+    if (first && !draft.trim()) return
+    writeDraft(me.user.id, keptKey, draft.trim() ? JSON.stringify({ chatId, text: draft }) : '')
+  }, [draft, chatId, keptKey, me.user.id])
+  // a send that did not go for the connection: the calm line under the box, the text kept in it (as the full chat's)
+  const [unsent, setUnsent] = useState<Unsent>(false)
+  const [sendError, setSendError] = useState<string | null>(null)
+  useEffect(() => { if (!draft.trim()) setUnsent(false) }, [draft])
   // the room's apps (docs/DECISIONS.md "Apps posting in rooms"): one chip chosen by the apps that posted here, from the
   // messages on screen (a member cannot list the apps)
   const chip = useRooms((s) => (s.timeline?.roomId === roomId ? appChip(s.timeline.messages) : null))
@@ -537,8 +570,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   const demoOut = useDemoOut()
   const canSend = !demoOut && chatId !== undefined && !voice.busy && (question ? !!draft.trim() : (!busy || queueing) && !files.uploading && (!!draft.trim() || files.ready.length > 0))
   const sendLabel = question ? t('sideChat.answer') : busy && queueing ? t('outbox.sendLater') : t('sideChat.send')
-  // an answer to the AI's question typed here goes to the AI: as under the full chat's box, the "no passwords" line and
-  // a key-looking answer held for "Send anyway" (the question's card leaves typing to this box: AskCard BoxAnswers)
+  // what is typed here goes to the AI: as under the full chat's box, a key-looking text is held for "Send anyway" (every
+  // send from the box; an answer to the AI's question also has the "no passwords" line)
   const secret = useSecretHold(draft)
   const noSecretsId = useId()
   const send = async (asked?: string, anyway = false) => {
@@ -549,25 +582,28 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     if ((!text && !atts.length) || chatId === undefined) return
     // the box's text while it is recorded into or the words are on their way: not sent (a starter or quick ask goes)
     if (asked === undefined && voice.busy) return
+    // the box's own text that looks like a key waits for "Send anyway" (a starter or quick question is ours)
+    if (asked === undefined && !secret.pass(anyway)) return
+    setUnsent(false)
+    setSendError(null)
     // the AI waits for the answer to its question: the text answers it (never a new message while its answer runs)
     if (question && chatId) {
       setLimit(null)
       // longer than an answer can be: said before sending, the text kept (the full chat's box does the same)
       const max = answerTooLong(question.request, text)
-      if (max) return fail(new Error(t('composer.answerTooLong', { n: max.toLocaleString(locale) })))
-      if (!secret.pass(anyway)) return
+      if (max) return setSendError(t('composer.answerTooLong', { n: max.toLocaleString(locale) }))
       stick.current = true
       setDraft('')
       try {
         await useChats.getState().answer(question.request.requestId, { kind: 'ask_user', answer: composerAnswer(question.request, picksOf(question.request.requestId), text) })
       } catch (e) {
         setDraft((d) => d || text)
-        fail(e)
+        failed(e)
       }
       return
     }
     // longer than a message holds (a long paste went in as a file): said, the text kept
-    if (textOverLimit(text)) return fail(new Error(t('composer.textTooLong', { max: MESSAGE_TEXT_MAX.toLocaleString(locale) })))
+    if (textOverLimit(text)) return setSendError(t('composer.textTooLong', { max: MESSAGE_TEXT_MAX.toLocaleString(locale) }))
     if (asked === undefined && queueing && chatId) return void queue(text, atts)
     if (busy || (asked === undefined && files.uploading)) return
     stick.current = true
@@ -591,10 +627,24 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     } catch (e) {
       if (asked === undefined) setDraft((d) => d || text)
       setQuoted((x) => x ?? q)
-      if (isApiError(e, 'budget_exceeded')) setLimit(errorText(e, locale, t('error.network')))
-      else fail(e)
+      failed(e, asked === undefined)
     }
   }
+  /** a send of the box that failed: the limit's calm notice, the connection's calm line with the text kept (it goes
+   * again by itself after an update), else the reason under the box, as under the full chat's box */
+  const failed = (e: unknown, box = true) => {
+    if (isApiError(e, 'budget_exceeded')) setLimit(errorText(e, locale, t('error.network')))
+    else if (box && isConnectionError(e)) setUnsent(waitsForUpdate(e) ? 'updating' : 'connection')
+    else setSendError(errorText(e, locale, t('error.network')))
+  }
+  const sendRef = useRef(send)
+  sendRef.current = send
+  useEffect(() => {
+    if (unsent !== 'updating') return
+    let live = true
+    void waitForUpdate().then(() => { if (live) void sendRef.current() })
+    return () => { live = false }
+  }, [unsent])
   /** The box's message while an answer runs (or earlier ones wait): it waits under the conversation and goes when the
    * answer is done, with what the box showed on top of it now (the quoted message, else the thread's chip), its files
    * too; earlier ones paused by a stopped or failed answer go now, together with it (as in the full chat, pages/Chat.tsx). */
@@ -610,7 +660,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
       if (!busy && waiting?.paused) sq.sendNow(chatId, m)
       else sq.enqueue(me.user.id, chatId, m)
     } catch (e) {
-      return fail(e instanceof QueueFull ? new Error(t('outbox.full')) : e)
+      return failed(e instanceof QueueFull ? new Error(t('outbox.full')) : e, false)
     }
     setDraft('')
     setQuoted(null)
@@ -624,10 +674,14 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     if (busy) return
     // a recording was for the chat shown: it goes with it (its words are not put back into the new chat's box)
     voice.abandon()
+    // the text it leaves goes from this device too (a draft kept for another chat waits for it)
+    if (parseKept(readDraft(me.user.id, keptKey))?.chatId === chatId) writeDraft(me.user.id, keptKey, '')
     setHistory(null)
     setChatId(null)
     setDraft('')
     setLimit(null)
+    setUnsent(false)
+    setSendError(null)
     box.current?.focus()
   }
   // a seed with its question (an app's thread: "Summarise this thread"): sent once the message is quoted and the chat
@@ -693,6 +747,47 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   const name = aiName(t)
   // what the box asks: the answer to the AI's question, or about the file or message quoted, or about the room
   const boxLabel = question ? t('sideChat.answerPlaceholder', { name }) : quoted?.file ? t('sideChat.placeholderQuotedFile', { name }) : quoted ? t('sideChat.placeholderQuoted', { name }) : chipOn ? t('sideChat.placeholderThread', { name }) : t('sideChat.placeholder', { name })
+
+  // a message or file asked about, above the box, with its quick questions
+  const quotedCard = (
+    <>
+        {quoted && (
+          <div className="mb-2 rounded-lg border border-line bg-canvas p-2" data-testid="side-chat-quote">
+            <div className="flex items-start gap-2">
+              <div className="min-w-0 flex-1 border-l-2 border-line-strong pl-2 text-xs">
+                {!quoted.file && <p className="font-medium text-ink">{quoted.author} <span className="font-normal text-faint">{formatDateTime(quoted.at, locale)}</span></p>}
+                {quoted.file ? (
+                  <p className="flex min-w-0 items-center gap-1 text-muted" data-testid="side-chat-quote-file"><Paperclip size={12} aria-hidden className="shrink-0" /><span className="truncate">{quoted.file.name}</span></p>
+                ) : (
+                  // the room message's words as the room shows them: a link is its label, never its address (lib/rooms.ts plainLine)
+                  <p className="line-clamp-3 break-words text-muted" data-testid="side-chat-quote-text">{plainLine(quoted.text)}</p>
+                )}
+              </div>
+              <IconButton label={t('sideChat.quoteRemove')} onClick={() => setQuoted(null)} className="touch-hit -mt-0.5 shrink-0" data-testid="side-chat-quote-remove">
+                <X size={13} aria-hidden />
+              </IconButton>
+            </div>
+            {!question && !guestWaits && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {quoted.app && quoted.thread && (
+                  <button type="button" disabled={busy || chatId === undefined} onClick={() => void send(t('roomApps.askThread'))}
+                    className="rounded-full border border-line px-2.5 py-0.5 text-xs text-muted hover:bg-hover hover:text-ink disabled:opacity-40" data-testid="side-chat-quick-app-thread">
+                    {t('roomApps.chipThread')}
+                  </button>
+                )}
+                {(quoted.file ? (roomUnread ? [] : guest ? QUICK_FILE.filter((k) => k !== 'fileSave') : QUICK_FILE) : QUICK_MESSAGE).map((k) => (
+                  <button key={k} type="button" disabled={busy || chatId === undefined} onClick={() => void send(SIDE_CHAT_QUICK[k].ask[locale])}
+                    className="rounded-full border border-line px-2.5 py-0.5 text-xs text-muted hover:bg-hover hover:text-ink disabled:opacity-40" data-testid={`side-chat-quick-${k}`}>
+                    {SIDE_CHAT_QUICK[k].label[locale]}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+    </>
+  )
+  const hint = composerHint(t, { transcribing: voice.transcribing ? voice.transcribingText : null, waiting: busy && queueing, own: boxLabel })
 
   const body = (
     // files dropped anywhere on the panel go with the next question (the overlay over the panel shows the drop)
@@ -818,162 +913,87 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
       <div className="shrink-0 px-4 pb-[var(--box-bottom)]">
         {/* a guest whose AI is off: one line in place of the box (components/GuestView.tsx) */}
         {guestNoAi ? <GuestNoAi /> : (<>
-        {guestOwn && <AiAccessBanner />}
-        {quoted && (
-          <div className="mb-2 rounded-lg border border-line bg-canvas p-2" data-testid="side-chat-quote">
-            <div className="flex items-start gap-2">
-              <div className="min-w-0 flex-1 border-l-2 border-line-strong pl-2 text-xs">
-                {!quoted.file && <p className="font-medium text-ink">{quoted.author} <span className="font-normal text-faint">{formatDateTime(quoted.at, locale)}</span></p>}
-                {quoted.file ? (
-                  <p className="flex min-w-0 items-center gap-1 text-muted" data-testid="side-chat-quote-file"><Paperclip size={12} aria-hidden className="shrink-0" /><span className="truncate">{quoted.file.name}</span></p>
-                ) : (
-                  // the room message's words as the room shows them: a link is its label, never its address (lib/rooms.ts plainLine)
-                  <p className="line-clamp-3 break-words text-muted" data-testid="side-chat-quote-text">{plainLine(quoted.text)}</p>
-                )}
-              </div>
-              <IconButton label={t('sideChat.quoteRemove')} onClick={() => setQuoted(null)} className="touch-hit -mt-0.5 shrink-0" data-testid="side-chat-quote-remove">
-                <X size={13} aria-hidden />
-              </IconButton>
-            </div>
-            {!question && !guestWaits && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {quoted.app && quoted.thread && (
-                  <button type="button" disabled={busy || chatId === undefined} onClick={() => void send(t('roomApps.askThread'))}
-                    className="rounded-full border border-line px-2.5 py-0.5 text-xs text-muted hover:bg-hover hover:text-ink disabled:opacity-40" data-testid="side-chat-quick-app-thread">
-                    {t('roomApps.chipThread')}
-                  </button>
-                )}
-                {(quoted.file ? (roomUnread ? [] : guest ? QUICK_FILE.filter((k) => k !== 'fileSave') : QUICK_FILE) : QUICK_MESSAGE).map((k) => (
-                  <button key={k} type="button" disabled={busy || chatId === undefined} onClick={() => void send(SIDE_CHAT_QUICK[k].ask[locale])}
-                    className="rounded-full border border-line px-2.5 py-0.5 text-xs text-muted hover:bg-hover hover:text-ink disabled:opacity-40" data-testid={`side-chat-quick-${k}`}>
-                    {SIDE_CHAT_QUICK[k].label[locale]}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        {question && secret.held && (
-          <SecretWarning
-            onSendAnyway={() => void send(undefined, true)}
-            onEdit={() => {
+        <ComposerShell
+          rootRef={boxRoot}
+          testId="side-chat-box"
+          toolsTestId="side-chat-tools"
+          // "no usable AI" with its button, for everyone it concerns (it shows nothing while the AI answers)
+          aiBand
+          above={quotedCard}
+          secret={{
+            held: secret.held,
+            onSendAnyway: () => void send(undefined, true),
+            onEdit: () => {
               secret.release()
               box.current?.focus()
-            }}
-          />
-        )}
-        <VoiceLive voice={voice} />
-        <div ref={boxRoot} className="rounded-xl border border-line bg-canvas transition focus-within:border-line-strong" data-testid="side-chat-box">
-          {question && (
-            <p id={noSecretsId} className="px-3 pt-2 text-xs text-faint" data-testid="side-chat-no-secrets">
-              {t('ask.noSecrets')}
-            </p>
-          )}
-          {/* the thread open beside this chat: the next question is about it, until ✕ */}
-          {chipOn && (
-            <div className="flex px-3 pt-2.5">
-              <span className="inline-flex max-w-full items-center gap-1.5 rounded-xl border border-line bg-subtle py-0.5 pr-0.5 pl-2.5 text-xs text-muted" data-testid="side-chat-thread-chip">
-                <Eye size={12} aria-hidden className="shrink-0" />
-                <span className="truncate">{t('sideChat.threadChip')}</span>
-                <IconButton compact label={t('sideChat.threadChipOff')} onClick={() => { patch({ chipOff: looking!.rootId }); box.current?.focus() }} data-testid="side-chat-thread-chip-off">
-                  <X size={13} aria-hidden />
-                </IconButton>
-              </span>
-            </div>
-          )}
-          <ComposerFileList files={files.files} onRemove={files.removeFile} className="px-3 pt-2.5" />
-          {voice.recording ? (
-            // the text on top, at least as tall as the text box was (it cannot be typed in while recording); it grows with a
-            // live recording's words as the box does while typing (to the box's max-h-40), the bar in the row's place (ComposerToolbar's
-            // own padding; ✓ is as large as send at every width), ✕ and ✓ where the clip and send were
-            <>
-              <VoiceHeld text={draft || boxLabel} textClass="text-sm" style={{ minHeight: heldHeight.current }} className={clsx('max-h-40 px-4.5 pt-2.5', draft ? 'text-ink' : 'text-faint')} testId="side-chat-text-held" />
-              <VoiceBar voice={voice} className="box-content min-h-9 px-3 pt-1 pb-2.5" />
-            </>
-          ) : (
-            <>
-              <VoiceProgress voice={voice} text={draft} className="px-4.5 pt-2.5" />
-              <textarea
-                ref={box}
-                value={draft}
-                onChange={(e) => { setDraft(e.target.value); setLimit(null) }}
-                onPaste={files.onPaste}
-                onKeyDown={(e) => {
-                  if (voice.onKeyDown(e)) return
-                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                    e.preventDefault()
-                    void send()
-                  }
-                }}
-                rows={2}
-                placeholder={voice.transcribing ? voice.transcribingText : busy && queueing ? t('outbox.placeholder') : boxLabel}
-                // not disabled: the focus stays in the box while the words are on their way
-                readOnly={voice.busy || demoOut}
-                aria-disabled={demoOut || undefined}
-                aria-busy={voice.transcribing || undefined}
-                aria-label={boxLabel}
-                aria-describedby={question ? noSecretsId : undefined}
-                className={clsx('block max-h-40 w-full resize-none bg-transparent px-4.5 pt-2.5 text-sm outline-none placeholder:text-faint', demoOut ? 'cursor-not-allowed text-muted' : 'text-ink')}
-                data-testid="side-chat-input"
-              />
-              {/* the box's row, as every message box has it (chat/ComposerToolbar.tsx): the clip on the left; on the right
-                  the mic and the room box's send button (RoomComposer): ↑ on a round button, its name (보내기, or 답하기 while the AI
-                  waits for an answer to its question) in the tooltip */}
-              <ComposerToolbar
-                testId="side-chat-tools"
-                start={phone ? (
-                  <AttachSheet key={filesDraft(roomId)} onFiles={(all) => void files.addFiles(all)} room={MESSAGE_ATTACHMENTS_MAX - files.live.length} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={18} aria-hidden />} testId="side-chat-attach" filesTestId="side-chat-file-input" />
-                ) : (
-                  <>
-                    <IconButton tip compact label={t('composer.attach')} onClick={() => picker.current?.click()} data-testid="side-chat-attach">
-                      <Paperclip size={18} aria-hidden />
-                    </IconButton>
-                    <input ref={picker} type="file" multiple hidden onChange={files.onPicked} data-testid="side-chat-file-input" />
-                  </>
-                )}
-                end={<>
-                  <VoiceMic voice={voice} mic={mic} tip />
-                  {/* while my answer is on its way, as in the full chat's box: the send button only when there is
-                      something to send (the clock: it waits for the answer), and Stop next to it */}
-                  {(!busy || canSend) && <Tooltip label={sendLabel}>
-                    <button
-                      type="button"
-                      onClick={() => void send()}
-                      disabled={!canSend}
-                      aria-label={sendLabel}
-                      className={clsx('touch-hit flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
-                      data-testid="side-chat-send"
-                    >
-                      {busy && queueing ? <Clock size={17} aria-hidden /> : <ArrowUp size={18} aria-hidden />}
-                    </button>
-                  </Tooltip>}
-                  {busy && chatId && <StopButton onStop={() => useChats.getState().stop(chatId)} onError={fail} className="size-9 max-sm:size-10" testId="side-chat-stop" />}
-                </>}
-              />
-            </>
-          )}
-        </div>
-        {demoOut && <DemoLimitNotice className="mt-2" testId="side-chat-demo-out" />}
-        {limit && !demoOut && <CalmNotice className="mt-2" testId="side-chat-limit" icon={<CirclePause size={16} />} title={limit} />}
-        {fileError && <p role="alert" className="pt-1.5 text-xs text-danger" data-testid="side-chat-file-error">{fileError}</p>}
-        {voiceError && voice.blockedFor === voiceError && (
-          <MicBlockedNotice className="mt-2" text={voiceError} onOpenSettings={voice.settingsFor === voiceError ? voice.openSettings : undefined} testId="side-chat-voice-error" />
-        )}
-        {voiceError && voice.blockedFor !== voiceError && <p role="alert" className="pt-1.5 text-xs text-danger" data-testid="side-chat-voice-error">{voiceError}</p>}
-        {phone && (
-          <TeamFilePicker
-            open={teamPicker}
-            onClose={() => setTeamPicker(false)}
-            room={Math.max(0, MESSAGE_ATTACHMENTS_MAX - files.live.length)}
-            max={MESSAGE_ATTACHMENTS_MAX}
-            attached={new Set(files.live.filter((f) => f.source === 'team').map((f) => f.attachment?.path ?? f.path!))}
-            onPick={(picked) => {
-              setTeamPicker(false)
-              void files.addTeamFiles(picked.map((f) => ({ path: f.path, name: f.name, size: f.size })))
-            }}
-          />
-        )}
-        <p className="pt-1.5 text-center text-micro text-faint in-[.keyboard-open]:hidden" data-testid="side-chat-disclaimer">{t('sideChat.disclaimer', { name })}</p>
+            },
+          }}
+          files={files.files.length > 0}
+          text={draft}
+          hint={hint}
+          heldTestId="side-chat-text-held"
+          voice={voice}
+          mic={mic}
+          top={<>
+            {question && (
+              <p id={noSecretsId} className="px-4.5 pt-2.5 text-xs text-faint" data-testid="side-chat-no-secrets">
+                {t('ask.noSecrets')}
+              </p>
+            )}
+            {/* the thread open beside this chat: the next question is about it, until ✕ */}
+            {chipOn && !voice.recording && (
+              <div className="flex px-3 pt-2.5">
+                <span className="inline-flex max-w-full items-center gap-1.5 rounded-xl border border-line bg-subtle py-0.5 pr-0.5 pl-2.5 text-xs text-muted" data-testid="side-chat-thread-chip">
+                  <Eye size={12} aria-hidden className="shrink-0" />
+                  <span className="truncate">{t('sideChat.threadChip')}</span>
+                  <IconButton compact label={t('sideChat.threadChipOff')} onClick={() => { patch({ chipOff: looking!.rootId }); box.current?.focus() }} data-testid="side-chat-thread-chip-off">
+                    <X size={13} aria-hidden />
+                  </IconButton>
+                </span>
+              </div>
+            )}
+            <ComposerFileList files={files.files} onRemove={files.removeFile} className="px-3 pt-2.5" />
+          </>}
+          field={
+            <ComposerField
+              ref={box}
+              value={draft}
+              onText={(v) => { setDraft(v); setLimit(null) }}
+              voice={voice}
+              onSend={() => void send()}
+              onPaste={files.onPaste}
+              placeholder={hint}
+              // not disabled: the focus stays in the box while the words are on their way
+              readOnly={voice.busy || demoOut}
+              aria-disabled={demoOut || undefined}
+              aria-busy={voice.transcribing || undefined}
+              aria-label={boxLabel}
+              aria-describedby={question ? noSecretsId : undefined}
+              className={demoOut ? 'cursor-not-allowed text-muted' : undefined}
+              data-testid="side-chat-input"
+            />
+          }
+          start={
+            <AttachMenu
+              key={filesDraft(roomId)}
+              onFiles={(all) => void files.addFiles(all)}
+              onTeamFiles={(picked) => void files.addTeamFiles(picked.map((f) => ({ path: f.path, name: f.name, size: f.size })))}
+              teamAttached={new Set(files.live.filter((f) => f.source === 'team').map((f) => f.attachment?.path ?? f.path!))}
+              room={MESSAGE_ATTACHMENTS_MAX - files.live.length}
+              max={MESSAGE_ATTACHMENTS_MAX}
+              testId="side-chat-attach"
+              filesTestId="side-chat-file-input"
+              onPicked={() => box.current?.focus()}
+            />
+          }
+          send={{ kind: question ? 'answer' : busy && queueing ? 'later' : 'send', can: canSend, onSend: () => void send(), label: sendLabel, testId: 'side-chat-send' }}
+          // while my answer is on its way (running, queued or still sending), as in the full chat's box
+          stop={busy && chatId ? { onStop: () => useChats.getState().stop(chatId), onError: fail, testId: 'side-chat-stop' } : null}
+          footer={t('chat.footerAi')}
+          footerTestId="side-chat-disclaimer"
+          below={fileError && <p role="alert" className="pt-1.5 text-xs text-danger" data-testid="side-chat-file-error">{fileError}</p>}
+          notices={{ prefix: 'side-chat', demoOut, limit: demoOut ? null : limit, error: sendError, unsent, onRetry: () => void send(), canRetry: canSend, voiceError }}
+        />
         </>)}
       </div>
     </FileDropZone>

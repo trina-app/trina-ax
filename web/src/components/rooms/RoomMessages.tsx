@@ -87,6 +87,7 @@ import { folderOfPath } from '../../lib/roomSave'
 import { useFolderWords } from '../../lib/folderLabels'
 import { useRoomSaves } from '../../store/roomSaves'
 import { capBlankLines } from '../../lib/blankLines'
+import { enterSends } from '../composer/keys'
 
 export const messageDomId = (id: string) => `room-msg-${id}`
 /** A message's words: the one part of its row that can be selected (not on touch screens, where a long press opens its
@@ -980,7 +981,7 @@ function EditForm({ roomId, m, initial, members, meId, onDone, onAgain }: { room
           if (e.key === 'Escape') {
             e.preventDefault()
             onDone()
-          } else if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229 && !window.matchMedia?.('(pointer: coarse)').matches) {
+          } else if (enterSends(e)) {
             e.preventDefault()
             save()
           }
