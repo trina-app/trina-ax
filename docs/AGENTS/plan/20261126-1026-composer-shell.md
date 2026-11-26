@@ -128,7 +128,7 @@ After this, every box looks and behaves the same, and a surface turns features o
    with the keyboard up. Specs that click `side-chat-attach` / `room-attach` expecting a file dialog are updated to the
    menu. Run the related specs: composer-*, side-chat*, chat-threads, rooms, phone-composer-
    keyboard, phone-attach-sheet, voice.
-7. Decision file `docs/decisions/20261126-one-composer.md`; `changes/composer-shell.md`.
+7. Decision file `docs/decisions/20261126-composer-shell.md`; `changes/composer-shell.md`.
 
 ## Review (2026-11-26, independent reviewer)
 

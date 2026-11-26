@@ -1,4 +1,4 @@
-// THE message box (docs/decisions/20261126-one-composer.md): every box people type a message in is drawn here — the
+// THE message box (docs/decisions/20261126-composer-shell.md): every box people type a message in is drawn here — the
 // AI chat's (chat/Composer.tsx: private, shared and project chats, Home), the ✦ side chat's (rooms/SideChatPanel.tsx),
 // a room's, a DM's and a room thread's (rooms/RoomComposer.tsx) and an AI answer's thread (chat/ChatThreadPanel.tsx).
 // A box says what it allows with props; how a box looks and acts lives here and in its parts, so no box drifts again

@@ -1,4 +1,4 @@
-// One message box, managed in one place (docs/decisions/20261126-one-composer.md): every box people type a message in
+// One message box, managed in one place (docs/decisions/20261126-composer-shell.md): every box people type a message in
 // is drawn by components/composer/ComposerShell.tsx. This fails when a box of its own appears: a new text field outside
 // the known places, the box's parts (voice input, the mic, the box's row, the attach sheet, send and Stop) used
 // outside the shell and the four boxes built on it, or an Enter handler in a text field that is not IME-safe.
