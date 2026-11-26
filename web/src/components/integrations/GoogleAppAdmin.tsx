@@ -9,7 +9,7 @@ import { api } from '../../lib/api'
 import { builtInName } from '../../lib/googleApps'
 import { useT } from '../../i18n'
 import { Button, Modal } from '../ui'
-import { clientBody, clientErrorKey, clientReady, emptyClient, GoogleClientFields, type ClientInput } from './DriveConnector'
+import { clientBody, clientErrorKey, clientReady, emptyClient, GoogleClientFields, ReturnAddress, type ClientInput } from './DriveConnector'
 
 /** Members can connect it now: set up, and the team switch on. */
 export const googleAppAdminOn = (s: GoogleAppAdminStatus) => s.configured
@@ -77,6 +77,8 @@ export function GoogleAppSetupDialog({ status, onClose, onSaved }: { status: Goo
             </span>
           </label>
         )}
+        {/* Drive's client must list this card's return address too (Google refuses the sign-in otherwise) */}
+        {same && status.redirectUri && <ReturnAddress label={t('gapps.admin.sameAsDriveRedirect')} value={status.redirectUri} testId="gapp-setup-same-redirect" />}
         {!same && <GoogleClientFields redirectUri={status.redirectUri} value={client} onChange={setClient} onError={setError} />}
         {status.apis.length > 0 && <ApiList apis={status.apis} />}
         {status.configured && <p className="text-xs text-muted">{t('driveSetup.replaceNote')}</p>}

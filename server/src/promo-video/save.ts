@@ -18,7 +18,7 @@ import type { ToolCtx } from '../files/service'
 import { HttpError } from '../http/errors'
 import { badSegment } from '../policy/names'
 import { Denied, ToolError } from '../policy/errors'
-import { inSkills } from '../skills/guard'
+import { inAnySkills } from '../skills/guard'
 import { componentC } from '../team-files/component'
 import { confirmSources, placeProduced } from '../tools/make-file'
 import type { ToolRegistry } from '../tools/registry'
@@ -74,7 +74,7 @@ export async function savePromoVideo(ctx: AppContext, a: z.output<typeof SavePro
   const target = (named === undefined ? `users/${t.user.id}/videos/${fileTitle(spec.title)}` : named.endsWith('/') ? `${named}${fileTitle(spec.title)}` : named.replace(/\.mp4$/i, '')) + '.mp4'
   const segs = target.split('/').filter(Boolean)
   if (segs.some((s) => badSegment(s))) throw new ToolError(`'${target}' is not a valid file name`)
-  if (inSkills(segs.join('/'))) throw new ToolError('videos cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
+  if (inAnySkills(segs.join('/'))) throw new ToolError('videos cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
   // the render (or the finished one), waited for within this answer
   // the person whose chat it is, or someone it is shared with who may open every picture in it (render.ts rowFor):
   // anyone else gets plain words

@@ -36,7 +36,8 @@ function cell(s: string): { col: number; row: number } | null {
   return col >= 1 && col <= MAX_COL && row >= 1 && row <= MAX_ROW ? { col, row } : null
 }
 
-const esc = (s: string) => s.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]!)
+/** XML text and attribute values: escaped, and characters XML 1.0 cannot hold (control characters, lone surrogates) dropped */
+export const esc = (s: string) => s.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]!)
   // eslint-disable-next-line no-control-regex
   .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
 

@@ -62,6 +62,7 @@ You never need all of these. Find the app you are connecting; the rest of the ro
 | Slack (your own Slack app) | **Bot User OAuth Token** (`xoxb-`), **App-Level Token** (`xapp-`), **Client ID**, **Client Secret** | api.slack.com › your app |
 | Notion, Linear, Atlassian, Figma, Canva and the other apps in Discover | Nothing: you sign in on the app's own page | Your account at that app |
 | GitHub | Nothing: you sign in at GitHub | Your GitHub account |
+| Asana, HubSpot, Box | An admin, once: the **Client ID** and **Client secret** of an app the team makes there (the dialog links each app's guide). Then nothing: you sign in at the app | Asana: My apps › **MCP app**. HubSpot: Development › **MCP Connectors**. Box: Admin Console › Integrations › **Box MCP server** |
 | Any other app that gives a key | **Address** and **Key** (sometimes **Header name**) | The app's help pages ("MCP server", "API keys") |
 | Your company's API | **Address**, **Key**, **Usage notes** | Whoever runs that system |
 | NAVER WORKS and other apps that sign in with your own app | **Client ID**, **Client secret**, **Sign-in address**, **Token address**, **Scopes** | The app's developer console |

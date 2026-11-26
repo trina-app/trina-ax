@@ -161,7 +161,8 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         (r.linksRemoved?.length ? `\n${r.linksRemoved.length === 1 ? 'One link was' : `${r.linksRemoved.length} links were`} kept as plain text, because a link may only go to a web page (http, https), a mail address (mailto) or a heading in the document: ${r.linksRemoved.slice(0, 10).map((t) => JSON.stringify(t)).join(', ')}${r.linksRemoved.length > 10 ? ', ...' : ''}. Tell the user.` : '') +
         (a.format === 'png' ? `\nTo put the picture into a Word or PowerPoint file, refer to it in the Markdown: ![](${r.path}){width=15cm}.` : '')
       const sheetLine = r.csvSheet ? `\nThe CSV's sheet is named '${r.csvSheet}', not after the whole file name (Excel allows 31 characters and no \\ / ? * [ ] :): use that name in formulas and tell the user if they named it.` : ''
-      const chartLine = r.charts ? `\nThe file has ${r.charts === 1 ? 'a native Excel chart' : `${r.charts} native Excel charts`} that follow${r.charts === 1 ? 's' : ''} the cells.` : ''
+      const chartLine = !r.charts ? '' : a.format === 'xlsx' ? `\nThe file has ${r.charts === 1 ? 'a native Excel chart' : `${r.charts} native Excel charts`} that follow${r.charts === 1 ? 's' : ''} the cells.`
+        : `\nThe file has ${r.charts === 1 ? 'a native chart' : `${r.charts} native charts`} with ${r.charts === 1 ? 'its' : 'their'} data sheet: right-click > Edit Data in ${a.format === 'pptx' ? 'PowerPoint, Keynote or Google Slides' : 'Word'} opens the numbers.`
       const text = (r.deck ? `${saved}\nThe file has ${deckSummary(r.deck)}.`
         : r.formulas ? `${saved}\nThe file has ${r.formulas} formula cells; ${r.stored === r.formulas ? 'all of them are saved with their computed result, so the file and its preview show the numbers' : r.stored ? `${r.stored} of them are saved with their computed result (the file and its preview show those numbers) and the other ${r.formulas! - r.stored!} are calculated by the spreadsheet app when the file opens` : 'none could be saved with a computed result, so the spreadsheet app calculates them when the file opens'}. The formulas stay editable.`
         : r.html ? `${saved}\n${htmlPdfResultText(r.html)}`
@@ -410,7 +411,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         await egressSettled(ctx)
         const egressKnown = egressOf(ctx).known
         if (egressKnown) why = 'not_linked'
-        const how = await gateUrl(ctx.db, chatId, a.url, t.person ?? null, { egressKnown, turnId: t.turnId, userId: t.user.id })
+        const how = await gateUrl(ctx.db, chatId, a.url, t.person ?? null, { egressKnown, turnId: t.turnId, userId: t.user.id, docs: true })
         why = 'unreachable'
         // a redirect to an address that echoes what the AI sent in this chat asks first, as in save_url
         const redirects = redirectGuard(ctx.db, chatId, a.url, t.person ?? null, {
@@ -437,7 +438,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         // within the link budget, unless one carries what the AI sent before (an echo: always a card)
         if (chatId) rememberUrls(ctx.db, chatId, [r.url, ...extractUrls(r.text)], 'fetched', webEcho(ctx.db, chatId, [a.url, r.url]))
         page?.ok({ url: r.url, ...(r.title ? { title: r.title } : {}), chars: r.text.trim().length, text: r.text, ...(r.html !== undefined ? { html: r.html } : {}), fetch: { ...o.fetch, blockedIps } })
-        return { text: wrapExternal(r), summary: `web_fetch ${a.url}${r.offset ? ` from ${r.offset}` : ''} -> ${r.text.length} chars${r.truncated ? ` (of ${r.total ?? '?'}${r.sizeCut ? ', page over the size limit' : ''})` : ''}${how === 'confirmed' ? ' (confirmed by the user)' : how === 'site' ? ' (site allowed in this chat)' : how === 'all' ? ' (all websites allowed)' : ''}${redirects.confirmed() ? ' (redirect confirmed by the user)' : ''}`.slice(0, 1000), structured: { url: r.url, ...(r.title ? { title: r.title } : {}), text: r.text, truncated: r.truncated, offset: r.offset ?? 0, total: r.total ?? r.text.length } }
+        return { text: wrapExternal(r), summary: `web_fetch ${a.url}${r.offset ? ` from ${r.offset}` : ''} -> ${r.text.length} chars${r.truncated ? ` (of ${r.total ?? '?'}${r.sizeCut ? ', page over the size limit' : ''})` : ''}${how === 'confirmed' ? ' (confirmed by the user)' : how === 'site' ? ' (site allowed in this chat)' : how === 'all' ? ' (all websites allowed)' : how === 'docs' ? ' (the app\'s own docs)' : ''}${redirects.confirmed() ? ' (redirect confirmed by the user)' : ''}`.slice(0, 1000), structured: { url: r.url, ...(r.title ? { title: r.title } : {}), text: r.text, truncated: r.truncated, offset: r.offset ?? 0, total: r.total ?? r.text.length } }
       } catch (e) {
         page?.failed(why, hop)
         // the site would not give the page: the next step is a connected tool that reads pages, not a question (a turn

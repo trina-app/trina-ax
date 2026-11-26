@@ -33,7 +33,7 @@ import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment } from '../policy/names'
 import { cardNext, cardReason, readOnlyNote, refusal, SCREEN } from '../policy/refusal'
-import { inSkills, SKILL_FILES_REFUSAL } from '../skills/guard'
+import { inAnySkills, SKILL_FILES_REFUSAL } from '../skills/guard'
 import { componentC } from '../team-files/component'
 import { FileError } from '../team-files/errors'
 import type { ToolRegistry } from './registry'
@@ -206,14 +206,14 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     const tool = mode === 'move' ? 'move_files' : 'copy_files'
     const verb = mode === 'move' ? 'moved' : 'copied'
     const folder = clean(a.to_folder)
-    if (inSkills(folder)) throw new ToolError(SKILLS)
+    if (inAnySkills(folder)) throw new ToolError(SKILLS)
     // each path on its own first: one the person may not use fails alone, the rest go on
     const ok: string[] = []
     const audiences = new Map<string, string>()
     const failed: { path: string; error: string }[] = []
     for (const p of [...new Set(a.paths.map(clean))]) {
       // nor into one: a folder named "skills" moved into groups/<g>/ would become that group's skills folder
-      if (inSkills(p) || inSkills(join(folder, nameOf(p)))) { failed.push({ path: p, error: SKILLS }); continue }
+      if (inAnySkills(p) || inAnySkills(join(folder, nameOf(p)))) { failed.push({ path: p, error: SKILLS }); continue }
       try { audiences.set(p, svc.audienceChange(tc.user.id, [p], folder, mode).fingerprint); ok.push(p) } catch (e) { failed.push({ path: p, error: why(e, tc) }) }
     }
     const lines = (rows: { path: string; error: string }[]) => rows.map((f) => `- ${f.path}: ${f.error}`).join('\n')
@@ -375,7 +375,7 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     const bad = badSegment(name)
     if (bad) throw new ToolError(`invalid name: ${bad}`)
     // the new name counts too: groups/<g>/drafts renamed "skills" would become that group's skills folder
-    if (inSkills(p) || inSkills(join(parentOf(p), name))) throw new ToolError(SKILLS)
+    if (inAnySkills(p) || inAnySkills(join(parentOf(p), name))) throw new ToolError(SKILLS)
     // a rename that changes how the file opens (files/office-exit.ts): the one check of the AI's files
     const risk = renameProblem(nameOf(p), name, path.join(ctx.files.fx.root, ...p.split('/')))
     if (risk) throw new ToolError(`'${nameOf(p)}' is not renamed to '${name}': ${risk}`, 'office_unsafe')

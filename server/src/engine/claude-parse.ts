@@ -164,7 +164,13 @@ export class ClaudeStreamParser {
           if (isAgentTool(b.name)) this.agentCalls.add(b.id)
           out.push({ type: 'tool_start', id: b.id, name: b.name, summary: JSON.stringify(b.input ?? {}).slice(0, 300), input: b.input ?? {} })
         }
-        else if (b.type === 'text' && !this.sawDeltas && b.text && !apiError) { this.text += (this.text ? '\n\n' : '') + b.text; out.push({ type: 'text', delta: b.text }) }
+        else if (b.type === 'text' && !this.sawDeltas && b.text && !apiError) {
+          // the separator goes out too, as on the delta path: the answer's pieces stay blocks of their own, so a step
+          // between them is placed between them (Step.textAt, web lib/answerFlow.ts)
+          const sep = this.text && !this.text.endsWith('\n\n') ? '\n\n' : ''
+          this.text += sep + b.text
+          out.push({ type: 'text', delta: sep + b.text })
+        }
       }
       if (apiError) out.push(this.limited({ type: 'error', code: classifyError(String(ev.error) + ' ' + JSON.stringify(msg.content ?? '')), message: String(msg.content?.[0]?.text ?? ev.error) }))
       if (ev.error === 'refusal') this.refused = true

@@ -13,7 +13,7 @@ import { CANDIDATES_MAX, conceptsOf, FILES_PER_FOLDER, FILES_SCORED, folderOf, n
 
 let A: CApp
 const write = (rel: string, s = 'x') => { const p = path.join(A.team, ...rel.split('/')); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, s) }
-const suggest = async (as: string, paths: string[]) => A.json('/api/files/move-suggestions', { as: as as 'alice', ...jsonBody({ paths }) })
+const suggest = async (as: string, paths: string[], widen?: boolean) => A.json('/api/files/move-suggestions', { as: as as 'alice', ...jsonBody({ paths, ...(widen ? { widen } : {}) }) })
 const folders = (b: { suggested: { path: string }[] }) => b.suggested.map((s) => s.path)
 
 /** A file-list line for a file as the nightly run would keep it (the sidecar row with its unit's chain). */
@@ -239,6 +239,19 @@ describe('the endpoint', () => {
     A.ctx.db.query("INSERT INTO file_events (turn_id, user_id, path, action) VALUES (NULL, 'alice', ?, 'create')").run(`shared/${hidden}/inner/b.txt`)
     const r = await suggest('alice', ['shared/note-b.txt'])
     expect(r.body.recent.map((x: { path: string }) => x.path).some((p: string) => p.includes(hidden))).toBe(false)
+  })
+
+  test('widen (the move is to share): never a folder under users/, suggested or recent; other moves unchanged', async () => {
+    for (const n of ['견적서_A_2024.xlsx', '견적서_B_2024.xlsx', '견적서_C_2025.xlsx']) write(`users/alice/견적서/${n}`)
+    write('users/alice/견적서_삼성_2025.xlsx')
+    A.ctx.db.query("INSERT INTO file_events (turn_id, user_id, path, action) VALUES (NULL, 'alice', ?, 'create')").run('users/alice/견적서/견적서_D.xlsx')
+    const all = (b: { suggested: { path: string }[]; recent: { path: string }[] }) => [...folders(b), ...b.recent.map((x) => x.path)]
+    const plain = await suggest('alice', ['users/alice/견적서_삼성_2025.xlsx'])
+    expect(all(plain.body).some((p) => p.startsWith('users/'))).toBe(true)
+    const wide = await suggest('alice', ['users/alice/견적서_삼성_2025.xlsx'], true)
+    expect(wide.status).toBe(200)
+    expect(all(wide.body).some((p) => p === 'users' || p.startsWith('users/'))).toBe(false)
+    expect(folders(wide.body)).toContain('shared/견적서')
   })
 
   test('✕ only for a folder the caller can write', async () => {

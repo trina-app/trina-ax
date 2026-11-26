@@ -2720,6 +2720,8 @@ export class MockServer {
         const reason = fixture[2] as ChatErrorReason
         const text = CHAT_ERROR_MESSAGES[reason]
         assistant.error = { code: text.code, message: text.ko, ...(fixture[1] ? {} : { params: { reason } }) }
+        // the team's AI account at its provider's limit until a known time (server/src/chat/turn.ts limitError): 2 days on
+        if (reason === 'usage_used_up' && /\buntil\b/.test(prompt) && assistant.error.params) assistant.error.params.until = new Date(Date.now() + 2 * 86_400_000).toISOString()
       } else if (fixture?.[2] === 'unknown') assistant.error.message = 'Unknown upstream failure'
       else if (fixture?.[2] === 'future') assistant.error.params = { reason: 'future_failure' }
       // the monthly limit used up (server/src/admin/budgets.ts budgetBlock): when it resets, 00:00 KST on Dec 1

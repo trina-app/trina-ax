@@ -603,12 +603,33 @@ export const Step = z.object({
     /** the first memory the AI kept on its own for this person: the step shows the one-time line under it */
     first: z.literal(true).optional(),
   }).optional(),
+  /** a write, edit or delete_files step that saved, fixed or deleted one of the person's own skills
+   * (server/src/chat/personal-skills.ts): what its 되돌리기 needs, through the file routes (a new skill: remove its folder;
+   * a fix: restore `versionId`; a delete: restore `trashIds` from the trash). Only for the person whose turn it was
+   * (stripped for every other viewer, as `memory` is) */
+  skill: z.object({
+    name: z.string().max(200),
+    path: RelPath,
+    change: z.enum(['saved', 'fixed', 'deleted']),
+    versionId: z.string().max(64).optional(),
+    /** a delete: every skill this call put in the trash (the step undoes them all) */
+    trashIds: z.array(z.string().max(64)).max(50).optional(),
+    /** the first skill the AI kept on its own for this person: the step shows the one-time line under it */
+    first: z.literal(true).optional(),
+  }).optional(),
+  /** a call whose card waits after the answer ended (server chat/turn.ts markCallWaiting): shown as waiting, not as
+   * done, until the person answers; then the step loses it (and says "Declined" for a no) */
+  waiting: z.literal(true).optional(),
   /** a sub-task step (tool 'agent'): the sub-agent's tool calls and working time so far, and how many of its earliest
    * steps were not kept with the answer (`hidden`; the most recent ones are) */
   subtask: z.object({ toolUses: z.number().int().min(0).optional(), ms: z.number().int().min(0).optional(), hidden: z.number().int().min(0).optional() }).optional(),
   /** how much of the answer text (characters of Message.content) was written when the step started: an artifact's
    * card shows at that point of the answer. Absent on steps from before this field */
   textAt: z.number().int().min(0).optional(),
+  /** a thinking step whose `detail` is text the AI wrote to the person between two tool calls (chat/turn.ts endPiece,
+   * docs/decisions/20261125-interim-text-inline.md): the chat shows it as text at the step's place, not folded. Absent
+   * on every other step (a thinking block, a working note in another script) */
+  interim: z.literal(true).optional(),
   /** box_shell on the srt runner (docs/DECISIONS.md "Dev environment: one queue"): the command or job waits in the team
    * queue. id: the queued run (POST /api/dev-env/runs/:id/stop cancels it); position: its place in line when the step
    * was written (the app reads the live place from GET /api/dev-env/runs); state: waiting, started, expired (the

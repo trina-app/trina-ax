@@ -53,7 +53,7 @@ beforeAll(async () => {
 })
 afterAll(async () => { await A?.close(); lib?.stop(); delete process.env.MYCEL_GOOGLE_APPS_LIBRARY_URL })
 
-interface Person2 { asked: string[]; choices: string[][]; notes?: string[]; answer: string; confirm?: boolean }
+interface Person2 { asked: string[]; choices: string[][]; notes?: string[]; details?: unknown[]; answer: string; confirm?: boolean }
 const person = (answer: string): Person2 => ({ asked: [], choices: [], answer })
 
 function turn(user: Person, o: { person?: Person2; scheduled?: boolean; roomsSeen?: boolean; chat?: string } = {}) {
@@ -67,7 +67,7 @@ function turn(user: Person, o: { person?: Person2; scheduled?: boolean; roomsSee
       locale: 'en',
       async confirm(q) { p.asked.push(q); return p.answer === 'yes' },
       // the card's values are the yes / no card's ('allow', 'deny') plus 'always'
-      async choose(q, options, opts) { p.asked.push(q); p.notes?.push(String((opts as { note?: string } | undefined)?.note ?? '')); p.choices.push(options.map((x) => x.label)); const want = p.answer === 'yes' ? 'allow' : p.answer === 'no' ? 'deny' : p.answer; return options.some((x) => x.value === want) ? want : null },
+      async choose(q, options, opts) { p.asked.push(q); p.notes?.push(String((opts as { note?: string } | undefined)?.note ?? '')); p.details?.push(...((opts as { details?: unknown[] } | undefined)?.details ?? [])); p.choices.push(options.map((x) => x.label)); const want = p.answer === 'yes' ? 'allow' : p.answer === 'no' ? 'deny' : p.answer; return options.some((x) => x.value === want) ? want : null },
       *turnUrls() {},
       // a turn the person watches from their own app (Always allow on the connector card needs one)
       allSitesHere: () => !o.scheduled,
@@ -134,6 +134,62 @@ describe('calls', () => {
     expect(quiet.asked).toEqual([])
     expect(lib.calls.filter((c) => c.name === 'send_gmail_message')).toHaveLength(3)
     expect(A.ctx.db.query("SELECT detail FROM audit_log WHERE action='google_app.write_policy'").get()).toMatchObject({ detail: JSON.stringify({ app: 'gmail', writePolicy: 'allow', via: 'card' }) })
+  })
+
+  // docs/decisions/20261125-change-card-action-verb.md (QA 11-25: a draft and an event asked "Send it? Send once")
+  test('the card says what the call does: a draft is saved, an event added, never "send"', async () => {
+    setPolicy('ask')
+    setPolicyOf('calendar', 'ask')
+    lib.calls = []
+    const draft = person('no')
+    expect((await turn('alice', { person: draft }).call('my_gmail__draft_gmail_message', { to: 'bob@acme.example', subject: 'Re: late order', body: 'Thanks' })).isError).toBe(true)
+    expect(draft.asked[0]).toStartWith('The AI wants to save this in Gmail: ')
+    expect(draft.asked[0]).toEndWith('Save it?')
+    expect(draft.choices).toEqual([['Save once', 'Always allow', 'Don’t save']])
+    const event = person('no')
+    expect((await turn('carol', { person: event }).call('my_gcal__manage_event', { action: 'create', summary: 'Q4 review', start_time: '2026-11-26T14:00:00', end_time: '2026-11-26T15:00:00' })).isError).toBe(true)
+    expect(event.asked[0]).toStartWith('The AI wants to add this to Google Calendar: ')
+    expect(event.asked[0]).toEndWith('Add it?')
+    expect(event.choices).toEqual([['Add once', 'Always allow', 'Don’t add']])
+    const del = person('no')
+    expect((await turn('carol', { person: del }).call('my_gcal__manage_event', { action: 'delete', event_id: 'e1' })).isError).toBe(true)
+    expect(del.choices).toEqual([['Delete once', 'Always allow', 'Don’t delete']])
+    // nothing changed: only the read that names the event on its card
+    expect(lib.calls.map((c) => c.name)).toEqual(['get_events'])
+  })
+
+  // QA 11-25 on qa.trina.app: a Calendar delete card showed only the event's id
+  test('a card for a thing that is there already names it first; the id stays; nothing known: the id only', async () => {
+    setPolicyOf('calendar', 'ask')
+    lib.calls = []
+    const del: Person2 = { ...person('no'), details: [] }
+    expect((await turn('carol', { person: del }).call('my_gcal__manage_event', { action: 'delete', event_id: 'e1' })).isError).toBe(true)
+    const fields = (del.details![0] as { fields: { name: string; value: string }[] }).fields
+    expect(fields).toEqual([{ name: 'Event', value: 'Weekly sync' }, { name: 'Action', value: 'Delete' }, { name: 'Event ID', value: 'e1' }])
+    expect(lib.calls.map((c) => [c.name, c.args.event_id, c.who])).toEqual([['get_events', 'e1', 'carol']])
+    // an id the calendar does not have: the card as before, the id only
+    lib.calls = []
+    const gone: Person2 = { ...person('no'), details: [] }
+    expect((await turn('carol', { person: gone }).call('my_gcal__manage_event', { action: 'update', event_id: 'nope', summary: 'x' })).isError).toBe(true)
+    expect((gone.details![0] as { fields: { name: string }[] }).fields.map((f) => f.name)).toEqual(['Action', 'Event ID', 'Title'])
+    // a new event names nothing: no read
+    lib.calls = []
+    expect((await turn('carol', { person: person('no') }).call('my_gcal__manage_event', { action: 'create', summary: 'x', event_id: 'e1' })).isError).toBe(true)
+    expect(lib.calls).toEqual([])
+    // the read tool turned off for the connection: no read, the id only
+    A.ctx.db.query(`UPDATE integrations SET disabled_tools='["get_events"]', version=version+1 WHERE owner_user_id='carol' AND google_app='calendar'`).run()
+    const off: Person2 = { ...person('no'), details: [] }
+    expect((await turn('carol', { person: off }).call('my_gcal__manage_event', { action: 'delete', event_id: 'e1' })).isError).toBe(true)
+    expect(lib.calls).toEqual([])
+    expect((off.details![0] as { fields: { name: string }[] }).fields.map((f) => f.name)).toEqual(['Action', 'Event ID'])
+    A.ctx.db.query(`UPDATE integrations SET disabled_tools='[]', version=version+1 WHERE owner_user_id='carol' AND google_app='calendar'`).run()
+    // a Gmail message whose labels change: its subject, read as the person's own account
+    setPolicy('ask')
+    lib.calls = []
+    const label: Person2 = { ...person('no'), details: [] }
+    expect((await turn('alice', { person: label }).call('my_gmail__modify_gmail_message_labels', { message_id: 'm1', add_label_ids: ['STARRED'] })).isError).toBe(true)
+    expect((label.details![0] as { fields: { name: string; value: string }[] }).fields[0]).toEqual({ name: 'Message', value: 'Lunch on Friday' })
+    expect(lib.calls.map((c) => [c.name, c.who])).toEqual([['get_gmail_message_content', 'alice']])
   })
 
   // docs/DECISIONS.md "Always allow on every card" (the owner, 2026-11-13): Always allow holds after a room read too

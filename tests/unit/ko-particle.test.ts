@@ -76,8 +76,9 @@ describe('koParticle after service names', () => {
     for (const s of SERVICE_CATALOG) {
       const ko = ('aliases' in s ? s.aliases : []).find((a: string) => /^[가-힣]+$/.test(a) && a.length > 1)
       // Monday's Korean alias is the site's name (먼데이닷컴), WordPress.com's the product's (워드프레스); GitHub's is the
-      // written-out 깃허브 people search by, while the name is read 깃헙 (GitHub을, the list above)
-      if (!ko || s.id === 'monday' || s.id === 'wordpress' || s.id === 'github') continue
+      // written-out 깃허브 people search by, while the name is read 깃헙 (GitHub을, the list above); Microsoft 365's are
+      // its products' names (아웃룩, 원드라이브), while the name ends in 오 (Microsoft 365를)
+      if (!ko || s.id === 'monday' || s.id === 'wordpress' || s.id === 'github' || s.id === 'microsoft365') continue
       expect({ name: s.name, end: koEnding(s.name) }).toEqual({ name: s.name, end: HANGUL_END(ko) })
     }
   })

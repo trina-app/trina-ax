@@ -6,6 +6,7 @@
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {
+    "tldts": "7.0.30",
     "zod": "4.6.7"
   },
   "exports": {
@@ -35,6 +36,7 @@
     "./sentry-report": "./src/sentry-report.ts",
     "./speech-pieces": "./src/speech-pieces.ts",
     "./places": "./src/places.ts",
-    "./page-keys": "./src/page-keys.ts"
+    "./page-keys": "./src/page-keys.ts",
+    "./web-site": "./src/web-site.ts"
   }
 }

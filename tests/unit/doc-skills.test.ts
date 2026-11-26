@@ -6,14 +6,14 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { makeFileRule } from '../../server/src/chat/prompt'
-import { HWPX_GUIDE } from '../../server/src/chat/hwpx-guide'
+import { HWP_PLUGIN_HINT, HWPX_GUIDE } from '../../server/src/chat/hwpx-guide'
 import { docSkillsReady, writeDocSkills } from '../../server/src/devenv/doc-skills'
 import { officeViewLine } from '../../server/src/files/office-view'
 import { docSkillBundleFiles } from '../../scripts/build-bundle'
 
 const REPO = path.resolve(import.meta.dir, '../..')
 const DIR = path.join(REPO, 'resources/doc-skills')
-const source = JSON.parse(fs.readFileSync(path.join(DIR, 'SOURCE.json'), 'utf8')) as { commit: string; licence: string; files: Record<string, string>; changed: string[] }
+const source = JSON.parse(fs.readFileSync(path.join(DIR, 'SOURCE.json'), 'utf8')) as { commit: string; licence: string; files: Record<string, string>; changed: string[]; added: string[] }
 const walk = (d: string): string[] => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)])
 
 describe('what ships', () => {
@@ -29,6 +29,13 @@ describe('what ships', () => {
     expect(Object.keys(source.files).filter((f) => f.endsWith('.xsd') || f.includes('/schemas/'))).toEqual([])
     expect(source.changed.length).toBe(3)
     for (const f of source.changed) expect(fs.readFileSync(path.join(DIR, f), 'utf8').startsWith('# Changed by Trina AX')).toBe(true)
+    // our own files next to the skills (docx/scripts/word_chart.py: native Word charts) say so in their first line
+    expect(source.added).toEqual(['docx/scripts/word_chart.py'])
+    for (const f of source.added) {
+      expect(source.files[f]).toBeDefined()
+      expect(fs.readFileSync(path.join(DIR, f), 'utf8').startsWith('# Added by Trina AX')).toBe(true)
+    }
+    expect(fs.readFileSync(path.join(DIR, 'README.md'), 'utf8')).toContain('docx/scripts/word_chart.py')
     expect(fs.readFileSync(path.join(REPO, 'NOTICE'), 'utf8')).toContain('resources/doc-skills/')
   })
   test('the Linux bundle carries them', () => {
@@ -92,8 +99,17 @@ describe('the prompt', () => {
       expect(on).toContain(HWPX_GUIDE)
       expect(on).toContain('look at every page with hwp_render')
       expect(makeFileRule(true, true, skills, true, false)).toContain('You cannot see Hangul pages here')
+      expect(makeFileRule(true, true, skills, true, true, true)).not.toContain(HWP_PLUGIN_HINT)
+      // off: no guide and no .hwpx format, only where to get it (docs/decisions/20261125-hwp-plugin-hint.md)
+      const off = makeFileRule(false, true, skills, true, true, true)
       expect(makeFileRule(false, true, skills, true, true)).not.toContain('Hangul')
+      expect(off).not.toContain(HWPX_GUIDE)
+      expect(off).not.toContain('Hangul (.hwpx)')
+      expect(off).toContain(HWP_PLUGIN_HINT)
     }
+    expect(HWP_PLUGIN_HINT).toContain('Admin › Plugins')
+    expect(HWP_PLUGIN_HINT).toContain('HWP Preview')
+    expect(HWP_PLUGIN_HINT).toContain('.docx')
     expect(HWPX_GUIDE).toContain('::: {.noborder}')
     expect(HWPX_GUIDE).toContain('Never leave an item or a section as a placeholder')
   })

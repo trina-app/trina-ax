@@ -21,7 +21,7 @@ import clsx from 'clsx'
 import { AlertTriangle, BookmarkPlus, Check, ChevronDown, ChevronLeft, ChevronRight, CirclePause, Copy, History, Info, Loader2, MessageSquareReply, MessageSquareShare, MessagesSquare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, answerEndsInFailure, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, sideQuoteOf, skillLabel, type Attachment, type EngineId, type SideQuote, type Step, type UserRef } from '@mycel/shared/api'
+import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, answerEndsInFailure, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, sideQuoteOf, skillLabel, type Attachment, type EngineId, type SideQuote, type UserRef } from '@mycel/shared/api'
 import { chatFileUrl, fileUrl, startDownload, thumbnailUrl } from '../../lib/api'
 import { answerHtml } from '../LazyMarkdown'
 import { formAnswers } from '../../lib/skillForm'
@@ -50,7 +50,7 @@ import { Markdown } from '../LazyMarkdown'
 import AiAccessButton from './AiAccessButton'
 import NotReadyButton from './NotReadyButton'
 import { isNoAiReason } from '../../lib/aiAccess'
-import { adminPath, chatErrorText } from '../../lib/chatErrors'
+import { adminPath, chatErrorText, usageLimitOf, usageLimitText } from '../../lib/chatErrors'
 import { Button, CopyButton, IconButton, inputCls, useCopy, useMediaQuery } from '../ui'
 import AskCard, { BatchCard } from './AskCard'
 import { gathers, groupCards, groupKey, showsAsBatch } from '../../lib/cardBatch'
@@ -70,7 +70,8 @@ import { keepThreadRef, shownQuestion, type SendTarget } from '../../lib/sideCha
 import FileSummary from './FileSummary'
 import SourcesList from './SourcesList'
 import { StepFixes } from './StepFix'
-import Steps, { StepMemoryOwn, StepPostView } from './Steps'
+import Steps, { StepMemoryOwn, StepPostView, stepsGotPast } from './Steps'
+import { answerFlow, type FlowItem } from '../../lib/answerFlow'
 import DeckProgress from './DeckProgress'
 import { SkillChip } from './SkillChip'
 import { copyRoomIds, WithRoomNames } from '../RoomNames'
@@ -620,71 +621,46 @@ function ArtifactCards({ chatId, messageId, className = 'mt-3' }: { chatId: stri
   )
 }
 
-/** Where the answer's artifact cards go: at the point of the text where the AI made the first one (Step.textAt), so
- * "caption → preview → options" reads in that order; null (after the text, as before) for steps from before that field
- * or when the cut would fall inside a code block. The cut never splits a block: a point inside a paragraph, list or
- * quote moves back to the blank line before that block (or stays when the block ends right there); with no blank line
- * before it, the cards go after the text. */
-export function artifactSplit(content: string, steps: readonly Step[]): number | null {
-  const at = steps.filter((s) => s.kind === 'artifact' && !s.parentId && s.textAt !== undefined).reduce<number | null>((min, s) => (min === null ? s.textAt! : Math.min(min, s.textAt!)), null)
-  if (at === null) return null
-  const raw = Math.min(at, content.length)
-  if (raw >= content.length) return null
-  // made before any text: the cards first
-  if (raw === 0) return 0
-  const before = content.slice(0, raw)
-  // already between blocks: a blank line right before the point, or the block ends at it (a blank line follows)
-  let cut: number | null = /\n[ \t]*\n[ \t]*$/.test(before) || /^[ \t]*\n[ \t]*\n/.test(content.slice(raw)) ? raw : null
-  if (cut === null) {
-    const blank = [...before.matchAll(/\n[ \t]*\n/g)].pop()
-    cut = blank ? blank.index! + blank[0].length : null
-  }
-  if (cut === null) return null
-  // a heading stays with the block under it ("### 1안" above its quote): go back before a heading right above the cut
-  for (;;) {
-    const head = /(^|\n[ \t]*\n)(#{1,6} [^\n]*\n[ \t]*\n)$/.exec(content.slice(0, cut))
-    if (!head) break
-    cut -= head[2]!.length
-  }
-  if (cut === 0) return 0
-  // an odd number of ``` fences before the cut: it is inside a code block
-  if ((content.slice(0, cut).match(/```/g)?.length ?? 0) % 2 === 1) return null
-  return cut
-}
-
-/** The text before and after the cards (null: none there). While the answer streams, the part still being written is
- * the last one with text: after the cards, or before them while nothing follows yet. */
-export function answerParts(content: string, cut: number, streaming: boolean) {
-  const before = content.slice(0, cut), after = content.slice(cut)
-  const tail = !!after.trim()
-  return {
-    before: before.trim() ? { text: before, streaming: streaming && !tail } : null,
-    after: tail ? { text: after, streaming } : null,
-  }
-}
-
 /** The answer's text leaves out a picture its steps show already (lib/stepImages.ts) */
 export function AnswerImagesShown({ steps, children }: { steps: ViewMessage['steps']; children: ReactNode }) {
   const paths = useMemo(() => new Set(stepImages(steps).map((im) => im.path)), [steps])
   return <StepShownImages.Provider value={paths}>{children}</StepShownImages.Provider>
 }
 
-/** The answer's text and its artifact cards, the cards where the AI made them. Top-level quotes copy on their own. */
-function AnswerBody({ m, chatId, streaming }: { m: ViewMessage; chatId: string; streaming: boolean }) {
-  const cut = artifactSplit(m.content, m.steps)
-  if (cut === null)
-    return (
-      <>
-        {m.content && <Markdown text={m.content} streaming={streaming} copyQuotes />}
-        <ArtifactCards chatId={chatId} messageId={m.id} />
-      </>
-    )
-  const p = answerParts(m.content, cut, streaming)
+/** The answer in the order of the work (lib/answerFlow.ts, docs/decisions/20261125-interim-text-inline.md): each group
+ * of steps, the text written after it (also text between calls that left the answer: Step.interim), the artifact cards
+ * after the step that made them, the final answer. `between`: what goes after the work and before the final text (the
+ * to-do card, "thinking…"). Top-level quotes copy on their own. */
+function AnswerFlow({ m, chatId, streaming, receipt, between, hideSteps = false }: { m: ViewMessage; chatId: string; streaming: boolean; receipt: ViewMessage['receipt']; between: ReactNode; /** an intro deck's answer: its progress block stands for the steps */ hideSteps?: boolean }) {
+  const items = useMemo(() => answerFlow(m.content, m.steps, streaming), [m.content, m.steps, streaming])
+  // a failed step the AI got past in a later group is not red: decided over the whole answer, once
+  const gotPast = useMemo(() => stepsGotPast(m.steps), [m.steps])
+  // the final text (and the cards right after it) come after `between`
+  let tail = items.length
+  while (tail > 0 && items[tail - 1]!.kind === 'cards') tail--
+  if (tail > 0 && items[tail - 1]!.kind === 'text') tail--
+  else tail = items.length
+  const at = (i: number) => items[i]?.kind
+  const render = (it: FlowItem, i: number) => {
+    // a gap above anything that follows text (a step group keeps its own gap below)
+    const after = at(i - 1) === 'text' || at(i - 1) === 'note'
+    switch (it.kind) {
+      case 'steps':
+        if (hideSteps) return null
+        return <div key={it.key} className={clsx(after && 'mt-3')}><Steps steps={it.steps} streaming={it.live} failed={m.status === 'error'} receipt={it.first ? receipt : undefined} gotPast={gotPast} /></div>
+      case 'note':
+        return <div key={it.key} className={clsx(at(i + 1) !== 'steps' && i + 1 < items.length && 'mb-3', after && 'mt-3')} data-testid="answer-interim"><Markdown text={it.text} streaming={false} /></div>
+      case 'text':
+        return <Markdown key={it.key} text={it.text} streaming={it.streaming} copyQuotes />
+      case 'cards':
+        return <ArtifactCards key={it.key} chatId={chatId} messageId={m.id} className={clsx(i > 0 && at(i - 1) !== 'steps' && 'mt-3', i + 1 < items.length && 'mb-3')} />
+    }
+  }
   return (
     <>
-      {p.before && <Markdown text={p.before.text} streaming={p.before.streaming} copyQuotes />}
-      <ArtifactCards chatId={chatId} messageId={m.id} className={clsx(p.before && 'mt-3', p.after && 'mb-3')} />
-      {p.after && <Markdown text={p.after.text} streaming={p.after.streaming} copyQuotes />}
+      {items.slice(0, tail).map((it, i) => render(it, i))}
+      {between}
+      {items.slice(tail).map((it, i) => render(it, tail + i))}
     </>
   )
 }
@@ -790,9 +766,11 @@ export function AssistantMessage({
   // at the limit: when it resets (the server's date, params.resetsAt, in the team's time zone: QA TC-2201)
   const resetsAt = m.error?.code === 'budget_exceeded' && typeof m.error.params?.resetsAt === 'string' ? m.error.params.resetsAt : null
   const guestKey = !guest || !m.error ? null : m.error.code === 'budget_exceeded' ? (resetsAt ? 'guest.aiLimitUntil' as const : 'guest.aiLimit' as const) : reason && GUEST_ASKS.has(reason) ? (guestOwn && isNoAiReason(reason) ? 'aiAccess.banner.connectOwn' as const : 'guest.noAi' as const) : null
-  // the AI usage ran out until a known time (params.until, server/src/chat/turn.ts limitError): the words say when
-  const usageUntil = reason === 'usage_used_up' && typeof m.error?.params?.until === 'string' && Number.isFinite(Date.parse(m.error.params.until)) ? m.error.params.until : null
-  const said = guestKey ? { key: guestKey, where: null } : reason ? chatErrorText(reason, role, noAi, !!usageUntil) : null
+  // the AI usage used up, and why (lib/chatErrors.ts usageLimitOf: a limit an admin set, or the AI account at its
+  // provider's limit): the provider's words say when it comes back (params.until) and what each reader can do
+  const usage = m.error ? usageLimitOf(m.error) : null
+  const usageUntil = usage?.cause === 'provider' ? usage.until : null
+  const said = guestKey ? { key: guestKey, where: null } : usage?.cause === 'provider' ? usageLimitText(usage, guest ? 'guest' : role) : reason ? chatErrorText(reason, role, noAi) : null
   // a free-roam demo's stop or failure (lib/freeRoam.ts): its own plain line, never an AI account's words
   const demoKey = m.error ? demoAnswerKey(m.error) : null
   const errText = m.error
@@ -842,6 +820,24 @@ export function AssistantMessage({
     ...(canSuggest && !guest && finished ? [{ label: t('suggest.button'), icon: <BookmarkPlus size={14} aria-hidden />, onSelect: () => setSuggesting(true), testId: 'side-answer-suggest' }] : []),
   ] : []
 
+  // after the work and before the final answer: the to-do card, "the provider is busy", "thinking…"
+  const between = (
+    <>
+      {todoStep?.todos && <TodoCard todos={todoStep.todos} streaming={streaming} />}
+      {providerBusy && !waitingForYou && (queuePos === undefined || queuePos === 0) && (
+        <p className="mb-2 text-sm text-muted" role="status" data-testid="provider-busy">{t('chat.providerBusy')}</p>
+      )}
+      {thinking && (queuePos === undefined || queuePos === 0) && (
+        <div className="flex h-7 items-center gap-1" aria-label={t('chat.thinking')} role="status">
+          <span className="dot h-1.5 w-1.5 rounded-full bg-faint" />
+          <span className="dot h-1.5 w-1.5 rounded-full bg-faint" />
+          <span className="dot h-1.5 w-1.5 rounded-full bg-faint" />
+          {!m.steps.length && <span className="ml-2 text-sm text-faint">{t('chat.thinking')}</span>}
+        </div>
+      )}
+    </>
+  )
+
   if (m.withheld) {
     return (
       <div className="group" data-testid="assistant-message" data-message-id={m.id} data-status={m.status} data-withheld="">
@@ -876,23 +872,12 @@ export function AssistantMessage({
           // a side chat: a post's 보기 goes the way its sent line's does (the panel's onView)
           <StepPostView.Provider value={sendHere ? (p) => sendHere.onView({ to: p.threadRootId ? 'thread' : 'room', roomId: p.roomId, rootId: p.threadRootId ?? null, messageId: p.messageId, cut: false }) : null}>
             <StepMemoryOwn.Provider value={ownAnswer}>
-              <Steps steps={m.steps} streaming={streaming} failed={m.status === 'error'} receipt={m.receipt} />
+              <AnswerImagesShown steps={m.steps}><AnswerFlow m={m} chatId={chatId} streaming={streaming} receipt={m.receipt} between={between} /></AnswerImagesShown>
             </StepMemoryOwn.Provider>
           </StepPostView.Provider>
         )}
-        {todoStep?.todos && <TodoCard todos={todoStep.todos} streaming={streaming} />}
-        {providerBusy && !waitingForYou && (queuePos === undefined || queuePos === 0) && (
-          <p className="mb-2 text-sm text-muted" role="status" data-testid="provider-busy">{t('chat.providerBusy')}</p>
-        )}
-        {thinking && (queuePos === undefined || queuePos === 0) && (
-          <div className="flex h-7 items-center gap-1" aria-label={t('chat.thinking')} role="status">
-            <span className="dot h-1.5 w-1.5 rounded-full bg-faint" />
-            <span className="dot h-1.5 w-1.5 rounded-full bg-faint" />
-            <span className="dot h-1.5 w-1.5 rounded-full bg-faint" />
-            {!m.steps.length && <span className="ml-2 text-sm text-faint">{t('chat.thinking')}</span>}
-          </div>
-        )}
-        <AnswerImagesShown steps={m.steps}><AnswerBody m={m} chatId={chatId} streaming={streaming} /></AnswerImagesShown>
+        {deck && between}
+        {deck && <AnswerImagesShown steps={m.steps}><AnswerFlow m={m} chatId={chatId} streaming={streaming} receipt={undefined} between={null} hideSteps /></AnswerImagesShown>}
         {/* a card appeared: said to screen readers only (the card itself is the one place on screen, QA TC-ask1-18) */}
         {waitingForYou && (
           <p className="sr-only" role="status" data-testid="waiting-for-you">
@@ -947,7 +932,7 @@ export function AssistantMessage({
                 {reason === 'engine_missing' && <NotReadyButton role={role} />}
                 {/* used up until a later time (or for a week, the time not told): the same AI is refused until then, so
                     only "another model" (when there is one), never "Try again" (QA TC-f3-01) */}
-                {!(reason === 'usage_used_up' && (!usageUntil || Date.parse(usageUntil) > Date.now())) && (
+                {!(usage?.cause === 'provider' && (!usageUntil || Date.parse(usageUntil) > Date.now())) && (
                   <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
                     <RotateCcw size={13} aria-hidden /> {t('common.retry')}
                   </Button>

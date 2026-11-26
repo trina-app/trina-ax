@@ -22,6 +22,7 @@ import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupSite, rem
 import { googleResultOf, keepGoogleSignUp, pendingGoogleSignUp } from '../lib/googleSignUp'
 import { setAfterSetup } from '../lib/welcome'
 import { afterSetupPath, pageOrigin } from '../lib/open-app'
+import { appFirst, appFirstLine, autoTries, browserChosen, canAutoTry, desktopDownloadHref, LAUNCH_FRAME_MS, launchWay, rememberBrowser, takeAutoTry } from '../lib/join-open-app'
 import { landingPath } from '../lib/tabs'
 import { forgetJoinToken, getAppHref, openInAppHref, openInAppShown, setAfterJoin, tabJoinToken } from '../lib/team-link'
 import { safeNext } from '../lib/nav'
@@ -29,7 +30,7 @@ import { platform } from '../lib/pwa'
 import { copyInTap } from '../lib/copy-in-tap'
 import { APP_LINKS } from '@mycel/shared/app-links'
 import { SourceCodeLink } from '../components/SourceCodeLink'
-import { Button, Field, IconButton, inputCls, TextAction } from '../components/ui'
+import { Button, buttonClass, Field, IconButton, inputCls, TextAction } from '../components/ui'
 import { LanguageSelect } from '../components/LanguageSelect'
 import { isSignInPath } from '@mycel/shared/team-link'
 import { teamAddressHost } from '../lib/team-address'
@@ -893,7 +894,8 @@ function OpenInApp({ path }: { path: string }) {
  * link and goes to the App Store (or Android's download page), and says to paste the link on the app's first screen
  * (its one box takes an invite link, a team link or an address). The copy happens only on that tap, never on load, and
  * nothing else carries the token into the new app (no fingerprint; the app never reads the clipboard by itself). The
- * form stays behind "Continue in the browser". Computers and our own apps get the form as before.
+ * form stays behind "Continue in the browser". A computer's web browser leads with the desktop app for a member
+ * (AppFirst; docs/decisions/20261125-invite-open-app-first.md); a guest there, and our own apps, get the form as before.
  */
 function JoinChoices({ path, children, lean = false, browser = false }: { path: string; children: ReactNode
   /** a guest invite: no "Already joined? Sign in" and no "Open in the app" under the form (someone from outside the team
@@ -903,10 +905,18 @@ function JoinChoices({ path, children, lean = false, browser = false }: { path: 
   browser?: boolean }) {
   const t = useT()
   const [web, setWeb] = useState(browser)
+  // a computer's web browser leads with the desktop app (docs/decisions/20261125-invite-open-app-first.md), the same
+  // link as "앱에서 열기"; decided once per page, so the page never flips while it is open
+  const [app] = useState(() => {
+    const href = openInAppHref({ scheme: PRODUCT.linkScheme, origin: pageOrigin(), path, platform: platform(), androidPackage: APP_LINKS.androidPackage })
+    const on = appFirst({ platform: platform(), client: clientKind(), origin: pageOrigin(), guest: lean, browserChosen: browserChosen(localStore()), googleBack: browser, href })
+    return on ? href : null
+  })
   // after a tap whose copy was not certain at once: the page stays ('checking'), then says it copied, or shows the
   // link to copy by hand ('failed'); both offer the store as a plain link
   const [manual, setManual] = useState<null | 'checking' | 'copied' | 'failed'>(null)
   const store = getAppHref(platform(), clientKind(), APP_DOWNLOADS)
+  if (app && !web) return <AppFirst href={app} onBrowser={() => { rememberBrowser(localStore()); setWeb(true) }} />
   if (!store || web)
     return (
       <>
@@ -987,6 +997,63 @@ function JoinChoices({ path, children, lean = false, browser = false }: { path: 
       <OpenInApp path={path} />
       {!lean && <p className="mt-4 text-center text-sm">{browserButton}</p>}
       {!lean && <HaveAccount />}
+    </div>
+  )
+}
+
+/** this browser's localStorage, or null where it is blocked */
+const localStore = (): Storage | null => {
+  try { return window.localStorage } catch { return null }
+}
+
+/**
+ * The join page on a computer, app first (lib/join-open-app.ts): Open the app leads, Download the app is the second
+ * choice, Continue in the browser and Sign in are quiet links. Where the browser allows, one try by itself once the tab
+ * is seen (once per page load); Open the app tries again in the press itself (browsers let a pressed link open an app).
+ * The page never says the app opened: after a try it says only that this tab can be closed if it did.
+ */
+function AppFirst({ href, onBrowser }: { href: string; onBrowser: () => void }) {
+  const t = useT()
+  const [way] = useState(() => launchWay(navigator.userAgent))
+  const [tried, setTried] = useState(false)
+  const download = desktopDownloadHref(platform(), APP_DOWNLOADS)
+  const tryNow = () => {
+    setTried(true)
+    if (way !== 'frame') {
+      window.location.href = href
+      return
+    }
+    const f = document.createElement('iframe')
+    f.style.display = 'none'
+    f.setAttribute('aria-hidden', 'true')
+    f.src = href
+    document.body.appendChild(f)
+    const gone = () => { f.remove(); window.removeEventListener('pagehide', gone) }
+    window.addEventListener('pagehide', gone)
+    setTimeout(gone, LAUNCH_FRAME_MS)
+  }
+  useEffect(() => {
+    // once per page load, and only once the tab is seen (a link opened in a background tab tries when first shown)
+    const auto = () => { if (autoTries(way) && canAutoTry(document.visibilityState) && takeAutoTry()) tryNow() }
+    document.addEventListener('visibilitychange', auto)
+    auto()
+    return () => document.removeEventListener('visibilitychange', auto)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  return (
+    <div data-testid="app-first" data-tried={tried || undefined}>
+      <p role="status" className="mb-4 text-sm leading-6 text-ink break-keep" data-testid="app-first-status">{t(appFirstLine(tried))}</p>
+      <Button variant="primary" className="w-full" onClick={tryNow} data-testid="app-first-open">{t('auth.openApp')}</Button>
+      {download && (
+        <a href={download} target="_blank" rel="noopener noreferrer" className={buttonClass({ variant: 'secondary', className: 'mt-2 w-full' })} data-testid="app-first-download">
+          {t('openApp.download')}
+        </a>
+      )}
+      <p className="mt-4 text-center text-sm">
+        <button type="button" className="text-muted underline decoration-line-strong underline-offset-4 hover:text-ink max-md:inline-flex max-md:min-h-11 max-md:items-center" onClick={onBrowser} data-testid="app-first-browser">{t('auth.continueInBrowser')}</button>
+      </p>
+      {/* already a member (the link opened again): sign in, without remembering the browser for invites */}
+      <HaveAccount />
     </div>
   )
 }

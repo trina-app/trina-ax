@@ -271,7 +271,12 @@ export type FileList = z.infer<typeof FileList>
  * files being moved (at most MOVE_SUGGEST_FILES are looked at). No AI call: the files' names (and their file-list lines)
  * against each folder the caller can write. */
 export const MOVE_SUGGEST_FILES = 50
-export const MoveSuggestBody = z.object({ paths: z.array(RelPath.refine((p) => p !== '', 'a file')).min(1).max(MOVE_SUGGEST_FILES) })
+export const MoveSuggestBody = z.object({
+  paths: z.array(RelPath.refine((p) => p !== '', 'a file')).min(1).max(MOVE_SUGGEST_FILES),
+  /** the move is meant to share: only folders that widen who can see the file (team, department and project folders),
+   * never a folder under `users/` (a person's own 내 파일) */
+  widen: z.boolean().optional(),
+})
 export const MoveSuggestion = z.object({
   /** a folder the caller can write */
   path: RelPath,

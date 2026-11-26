@@ -49,6 +49,11 @@ export const TEXT = {
   valueYes: t('예', 'Yes', 'Ya', "はい", "Sí", "是"),
   valueNo: t('아니요', 'No', 'Tidak', "いいえ", "No", "否"),
   valueNone: t('(없음)', '(none)', '(tidak ada)', "（なし）", "(ninguno)", "（无）"),
+  // the first line of a change card for a thing that is there already: its name as the service has it, read before the
+  // card (google-apps/names.ts), under what kind of thing it is
+  targetEvent: t('일정', 'Event', 'Acara', "予定", "Evento", "日程"),
+  targetMessage: t('메일', 'Message', 'Email', "メール", "Mensaje", "邮件"),
+  targetSpreadsheet: t('스프레드시트', 'Spreadsheet', 'Spreadsheet', "スプレッドシート", "Hoja de cálculo", "电子表格"),
   // an HTTP API call on the card and in its step: the address it calls, and what its method does
   fieldAddress: t('보내는 곳', 'Sends to', 'Dikirim ke', "送信先", "Se envía a", "发送到"),
   methodGET: t('가져오기', 'Get', 'Ambil', "取得", "Obtener", "获取"),
@@ -71,6 +76,35 @@ export const TEXT = {
   no: t('보내지 않기', 'Don’t send', 'Jangan kirim', "送信しない", "No enviar", "不发送"),
   // the card's three answers (TC-130): this once, from now on (the person's own choice for this connection), no
   once: t('이번만 보내기', 'Send once', 'Kirim sekali ini', "今回だけ送信", "Enviar esta vez", "发送一次"),
+  // the write card of a change that sends nothing to people (tools.ts gate, card-lines.ts changeAction; docs/decisions/
+  // 20261125-change-card-action-verb.md): its sentence, question, buttons and details label say what the call does
+  // (save a draft, add an event, delete, change), so only a send reads "Send it?" (QA 11-25: a Gmail draft and a Calendar
+  // event asked "Send once / Don't send")
+  confirmSave: t('AI가 {name}에 이 내용을 저장하려고 해요: {what}', 'The AI wants to save this in {name}: {what}', 'AI ingin menyimpan ini di {name}: {what}', "AIが{name}に次の内容を保存しようとしています：{what}", "La IA quiere guardar esto en {name}: {what}", "AI 想在{name}中保存这个：{what}"),
+  askSave: t('저장할까요?', 'Save it?', 'Simpan?', "保存しますか？", "¿Guardarlo?", "要保存吗？"),
+  onceSave: t('이번만 저장하기', 'Save once', 'Simpan sekali ini', "今回だけ保存", "Guardar esta vez", "保存一次"),
+  yesSave: t('저장하기', 'Save', 'Simpan', "保存", "Guardar", "保存"),
+  noSave: t('저장하지 않기', 'Don’t save', 'Jangan simpan', "保存しない", "No guardar", "不保存"),
+  labelSave: t('저장할 내용', 'What it saves', 'Yang disimpan', "保存する内容", "Lo que guarda", "保存的内容"),
+  confirmAdd: t('AI가 {name}에 이 내용을 추가하려고 해요: {what}', 'The AI wants to add this to {name}: {what}', 'AI ingin menambahkan ini ke {name}: {what}', "AIが{name}に次の内容を追加しようとしています：{what}", "La IA quiere añadir esto a {name}: {what}", "AI 想把这个添加到{name}：{what}"),
+  askAdd: t('추가할까요?', 'Add it?', 'Tambahkan?', "追加しますか？", "¿Añadirlo?", "要添加吗？"),
+  onceAdd: t('이번만 추가하기', 'Add once', 'Tambahkan sekali ini', "今回だけ追加", "Añadir esta vez", "添加一次"),
+  yesAdd: t('추가하기', 'Add', 'Tambahkan', "追加", "Añadir", "添加"),
+  noAdd: t('추가하지 않기', 'Don’t add', 'Jangan tambahkan', "追加しない", "No añadir", "不添加"),
+  labelAdd: t('추가할 내용', 'What it adds', 'Yang ditambahkan', "追加する内容", "Lo que añade", "添加的内容"),
+  confirmDelete: t('AI가 {name}에서 이것을 지우려고 해요: {what}', 'The AI wants to delete this in {name}: {what}', 'AI ingin menghapus ini di {name}: {what}', "AIが{name}で次のものを削除しようとしています：{what}", "La IA quiere eliminar esto en {name}: {what}", "AI 想在{name}中删除这个：{what}"),
+  askDelete: t('지울까요?', 'Delete it?', 'Hapus?', "削除しますか？", "¿Eliminarlo?", "要删除吗？"),
+  onceDelete: t('이번만 지우기', 'Delete once', 'Hapus sekali ini', "今回だけ削除", "Eliminar esta vez", "删除一次"),
+  yesDelete: t('지우기', 'Delete', 'Hapus', "削除", "Eliminar", "删除"),
+  noDelete: t('지우지 않기', 'Don’t delete', 'Jangan hapus', "削除しない", "No eliminar", "不删除"),
+  labelDelete: t('지울 대상', 'What it deletes', 'Yang dihapus', "削除するもの", "Lo que elimina", "删除的对象"),
+  confirmChange: t('AI가 {name}에서 이 내용을 바꾸려고 해요: {what}', 'The AI wants to change this in {name}: {what}', 'AI ingin mengubah ini di {name}: {what}', "AIが{name}で次の内容を変更しようとしています：{what}", "La IA quiere cambiar esto en {name}: {what}", "AI 想在{name}中更改这个：{what}"),
+  askChange: t('바꿀까요?', 'Change it?', 'Ubah?', "変更しますか？", "¿Cambiarlo?", "要更改吗？"),
+  onceChange: t('이번만 바꾸기', 'Change once', 'Ubah sekali ini', "今回だけ変更", "Cambiar esta vez", "更改一次"),
+  yesChange: t('바꾸기', 'Change', 'Ubah', "変更", "Cambiar", "更改"),
+  noChange: t('바꾸지 않기', 'Don’t change', 'Jangan ubah', "変更しない", "No cambiar", "不更改"),
+  labelChange: t('바꿀 내용', 'What it changes', 'Yang diubah', "変更する内容", "Lo que cambia", "更改的内容"),
+  checkBelowChange: t('바뀌는 내용 전체를 아래에서 확인해 주세요.', 'Check everything it would do, below.', 'Periksa semua yang akan dilakukan di bawah.', "行われる内容全体を下で確認してください。", "Revise abajo todo lo que hará.", "请在下方查看将要执行的全部内容。"),
   alwaysAllow: t('항상 허용', 'Always allow', 'Selalu izinkan', "常に許可", "Permitir siempre", "始终允许"),
   // the line under the three buttons: what Always allow covers, and where it is turned off
   alwaysNote: t('항상 허용: 이 내용만이 아니라 {name}의 모든 변경(보내기, 고치기, 지우기)을 앞으로 모든 대화에서 AI가 묻지 않고 해요. 웹페이지나 파일을 읽은 대화에서도 다시 묻지 않아요. 설정 › 커넥터에서 끌 수 있어요.',
@@ -107,6 +141,11 @@ export const TEXT = {
   badHeader: t('이 헤더 이름은 쓸 수 없어요.', 'This header name cannot be used.', 'Nama header ini tidak bisa dipakai.', "このヘッダー名は使用できません。", "No se puede usar este nombre de encabezado.", "不能使用这个标头名称。"),
   oauthMcpOnly: t('로그인 방식은 MCP 서버 연결에서만 쓸 수 있어요.', 'Sign-in is for MCP server connections only.', 'Login hanya untuk koneksi server MCP.', "ログインはMCPサーバー接続専用です。", "El inicio de sesión es solo para conexiones a servidores MCP.", "登录仅适用于 MCP 服务器连接。"),
   // your own app at the service (oauthClient, docs/INTEGRATIONS.md "Your own app")
+  // Microsoft 365 with a company's own Entra app that gave only one of its sign-in and token addresses
+  microsoftOwnAppAddresses: t('Microsoft 365에 회사 앱으로 로그인하려면 로그인 주소와 토큰 주소를 둘 다 넣거나(단일 테넌트 앱: https://login.microsoftonline.com/<테넌트 ID>/oauth2/v2.0/authorize 와 …/token), 둘 다 비워 두세요.', 'To sign in to Microsoft 365 with your company\'s own app, enter both its sign-in and token addresses (a single-tenant app: https://login.microsoftonline.com/<tenant ID>/oauth2/v2.0/authorize and …/token), or leave both empty.', 'Untuk login ke Microsoft 365 dengan aplikasi perusahaan Anda sendiri, isi alamat login dan alamat token sekaligus (aplikasi satu tenant: https://login.microsoftonline.com/<ID tenant>/oauth2/v2.0/authorize dan …/token), atau kosongkan keduanya.', "会社のアプリでMicrosoft 365にログインするには、ログインアドレスとトークンアドレスの両方を入力するか（シングルテナントのアプリ：https://login.microsoftonline.com/<テナントID>/oauth2/v2.0/authorize と …/token）、両方とも空欄にしてください。", "Para iniciar sesión en Microsoft 365 con la aplicación propia de su empresa, introduzca tanto su dirección de inicio de sesión como su dirección de token (una aplicación de un solo inquilino: https://login.microsoftonline.com/<ID de inquilino>/oauth2/v2.0/authorize y …/token), o deje ambas vacías.", "要用你公司自己的应用登录 Microsoft 365，请同时填写登录地址和令牌地址（单租户应用：https://login.microsoftonline.com/<租户 ID>/oauth2/v2.0/authorize 和 …/token），或两者都留空。"),
+  // Microsoft 365 (shared/src/service-catalog.ts serverApp 'microsoft') on a server that holds no Microsoft app
+  // (integrations/microsoft/app.ts) and a connection without an own app: nothing to sign in with
+  microsoftNotSetUp: t('이 서버에는 아직 Microsoft 365 로그인이 설정되지 않았어요. 서버를 운영하는 분께 Microsoft 앱 설정을 요청하거나, "내 앱으로 로그인"에 회사의 Microsoft Entra 앱을 넣어 주세요.', 'Microsoft 365 sign-in is not set up on this server yet. Ask whoever runs this server to add its Microsoft app, or enter your company\'s own Microsoft Entra app under "Sign in with my own app".', 'Login Microsoft 365 belum disiapkan di server ini. Minta pengelola server ini menambahkan aplikasi Microsoft-nya, atau masukkan aplikasi Microsoft Entra perusahaan Anda di "Login dengan aplikasi saya".', "このサーバーではMicrosoft 365のログインがまだ設定されていません。サーバーの管理者にMicrosoftアプリの設定を依頼するか、「自分のアプリでログイン」に会社のMicrosoft Entraアプリを入力してください。", "El inicio de sesión de Microsoft 365 aún no está configurado en este servidor. Pida a quien administra este servidor que añada su aplicación de Microsoft, o introduzca la aplicación de Microsoft Entra de su empresa en «Iniciar sesión con mi propia aplicación».", "此服务器尚未设置 Microsoft 365 登录。请让管理此服务器的人添加其 Microsoft 应用，或在“用我自己的应用登录”中填入你公司的 Microsoft Entra 应用。"),
   oauthHttpNeedsApp: t('API에 로그인하려면 서비스에서 만든 앱의 Client ID와 로그인 주소, 토큰 주소가 필요해요.', 'Signing in at an API needs your own app at the service: its client ID, sign-in address and token address.', 'Login di API memerlukan aplikasi Anda sendiri di layanan itu: client ID, alamat login, dan alamat token.', "APIにログインするには、サービスで作成したアプリのクライアントID、ログインアドレス、トークンアドレスが必要です。", "Para iniciar sesión en una API se necesita su propia aplicación en el servicio: su ID de cliente, su dirección de inicio de sesión y su dirección de token.", "在 API 登录需要你在该服务上有自己的应用：它的客户端 ID、登录地址和令牌地址。"),
   appNeedsOauth: t('앱(Client ID)은 로그인 방식에서만 넣을 수 있어요.', 'An app (client ID) can only be set for sign-in.', 'Aplikasi (client ID) hanya bisa diisi untuk login.', "アプリ（クライアントID）を設定できるのはログイン方式のみです。", "Una aplicación (ID de cliente) solo se puede configurar para el inicio de sesión.", "只有登录方式才能设置应用（客户端 ID）。"),
   appTokenMoved: t('서비스가 알려 준 토큰 주소({host})가 처음 로그인할 때와 달라요. 그 주소로는 Client Secret을 보내지 않아요. 맞는 주소라면 Client Secret을 다시 넣어 저장해 주세요.', 'The token address the service names ({host}) is not the one found at the first sign-in, so the client secret is not sent there. If it is right, enter the client secret again and save.', 'Alamat token yang disebut layanan ({host}) berbeda dari yang ditemukan saat login pertama, jadi client secret tidak dikirim ke sana. Bila benar, masukkan client secret lagi lalu simpan.', "サービスが示すトークンアドレス（{host}）が最初のログイン時と異なるため、クライアントシークレットは送信しません。正しい場合は、クライアントシークレットを入力し直して保存してください。", "La dirección de token que indica el servicio ({host}) no es la que se encontró en el primer inicio de sesión, así que el secreto de cliente no se envía allí. Si es correcta, introduzca el secreto de cliente de nuevo y guarde.", "服务给出的令牌地址（{host}）与第一次登录时找到的不同，所以没有把客户端密钥发送过去。如果它是正确的，请重新输入客户端密钥并保存。"),
@@ -210,6 +249,10 @@ export const TEXT = {
   // a sign-in server without dynamic client registration (oauth.ts register): an own app is needed
   oauth_no_registration: t('이 서비스는 앱을 스스로 등록하게 해 주지 않아요. 서비스에서 앱을 만들어 "내 앱으로 로그인"에 Client ID를 넣거나, API 키로 연결해 보세요.', 'This service does not let apps register themselves. Make an app at the service and enter its client ID under "Sign in with my own app", or try an API key instead.', 'Layanan ini tidak mengizinkan aplikasi mendaftar sendiri. Buat aplikasi di layanan itu dan masukkan client ID-nya di "Login dengan aplikasi saya", atau coba pakai kunci API.', "このサービスはアプリの自動登録を受け付けていません。サービスでアプリを作成して「自分のアプリでログイン」にクライアントIDを入力するか、APIキーをお試しください。", "Este servicio no permite que las aplicaciones se registren solas. Cree una aplicación en el servicio e introduzca su ID de cliente en «Iniciar sesión con mi propia aplicación», o pruebe con una clave de API.", "这个服务不允许应用自行注册。请在该服务上创建一个应用，并在“用我自己的应用登录”中输入它的客户端 ID，或改用 API 密钥试试。"),
   oauth_no_registration_member: t('이 서비스는 팀이 서비스에 만든 앱으로만 로그인할 수 있어요. 관리자에게 알려 주세요.', 'This service signs in only through an app your team made there. Tell your admin.', 'Layanan ini hanya bisa login melalui aplikasi yang dibuat tim Anda di sana. Beri tahu admin Anda.', "このサービスには、チームがそこで作成したアプリでのみログインできます。管理者に知らせてください。", "Este servicio solo permite iniciar sesión con una aplicación que su equipo creó allí. Avise a su administrador.", "这个服务只能通过你的团队在那里创建的应用登录。请告诉你的管理员。"),
+  // a listed service that signs in only through the team's own app (shared/src/service-catalog.ts teamApp: Asana,
+  // HubSpot, Box), connected by its address without one: nothing is registered or opened; an admin sets it up as a
+  // template in Admin (docs/INTEGRATIONS.md "Services that need the team's own app")
+  oauth_needs_team_app: t('{name}은(는) 팀에서 만든 앱으로만 로그인할 수 있어요. 관리자가 관리자 › 연결한 서비스에서 한 번 설정하면 각자 자기 계정으로 로그인할 수 있어요.', "{name} signs in only through an app your team makes there. An admin sets it up once in Admin › Connected apps, then everyone signs in with their own account.", '{name} hanya bisa login melalui aplikasi yang dibuat tim Anda di sana. Admin menyiapkannya sekali di Admin › Aplikasi terhubung, lalu setiap orang login dengan akunnya sendiri.', "{name} には、チームがそこで作成したアプリでのみログインできます。管理者が 管理 › 連携サービス で一度設定すると、各自が自分のアカウントでログインできます。", "{name} solo permite iniciar sesión con una aplicación que su equipo crea allí. Un administrador la configura una vez en Administración › Apps conectadas y luego cada persona inicia sesión con su propia cuenta.", "{name} 只能通过你的团队在那里创建的应用登录。管理员在 管理 › 已连接的应用 中设置一次后，每个人都用自己的账号登录。"),
   // the service refused the app this server registered for itself, or its sign-in page refused it, and no client
   // metadata document helped (oauth.ts register, preflight): it lets only apps it approved sign in (Figma, Canva).
   // Nothing on this team can fix it, and no API key is asked for (those services take none)
@@ -276,6 +319,8 @@ export type TextKey = keyof typeof TEXT
  * "emailAddress" and "Email-Address" are one). A name not here is said as its own words ("page_id" -> "Page id"). */
 const RECIPIENT_WORD = t('받는 사람', 'Recipient', 'Penerima', "宛先", "Destinatario", "收件人")
 const CONTENT_WORD = t('내용', 'Content', 'Isi', "内容", "Contenido", "内容")
+const START_WORD = t('시작 시간', 'Start time', 'Waktu mulai', "開始時刻", "Hora de inicio", "开始时间")
+const END_WORD = t('종료 시간', 'End time', 'Waktu selesai', "終了時刻", "Hora de fin", "结束时间")
 export const FIELD_WORDS: Record<string, T> = {
   to: RECIPIENT_WORD, recipient: RECIPIENT_WORD, recipients: RECIPIENT_WORD, email: RECIPIENT_WORD, emails: RECIPIENT_WORD, emailaddress: RECIPIENT_WORD, emailaddresses: RECIPIENT_WORD,
   cc: t('참조', 'Cc', 'Cc', "CC", "CC", "抄送"),
@@ -298,6 +343,17 @@ export const FIELD_WORDS: Record<string, T> = {
   project: t('프로젝트', 'Project', 'Proyek', "プロジェクト", "Proyecto", "项目"),
   parent: t('넣을 곳', 'Where it goes', 'Tempat tujuan', "追加先", "Dónde va", "放到哪里"),
   folder: t('폴더', 'Folder', 'Folder', "フォルダー", "Carpeta", "文件夹"),
+  action: t('작업', 'Action', 'Tindakan', "操作", "Acción", "操作"),
+  start: START_WORD, starttime: START_WORD, startdate: t('시작일', 'Start date', 'Tanggal mulai', "開始日", "Fecha de inicio", "开始日期"),
+  end: END_WORD, endtime: END_WORD, enddate: t('종료일', 'End date', 'Tanggal selesai', "終了日", "Fecha de fin", "结束日期"),
+  timezone: t('시간대', 'Time zone', 'Zona waktu', "タイムゾーン", "Zona horaria", "时区"), tz: t('시간대', 'Time zone', 'Zona waktu', "タイムゾーン", "Zona horaria", "时区"),
+  location: t('장소', 'Location', 'Lokasi', "場所", "Ubicación", "地点"),
+  attendees: t('참석자', 'Guests', 'Tamu', "参加者", "Invitados", "参与者"),
+  recurrence: t('반복', 'Repeat', 'Pengulangan', "繰り返し", "Repetición", "重复"),
+  reminders: t('알림', 'Reminders', 'Pengingat', "通知", "Recordatorios", "提醒"),
+  visibility: t('공개 범위', 'Visibility', 'Visibilitas', "公開範囲", "Visibilidad", "可见范围"),
+  attachments: t('첨부 파일', 'Attachments', 'Lampiran', "添付ファイル", "Adjuntos", "附件"),
+  id: t('ID', 'ID', 'ID', "ID", "ID", "ID"),
 }
 /** A mail call's argument names in words, only on a Google Workspace library connection's card (card-lines.ts fieldWord
  * `extra`): another service's `thread_id` (a chat thread) or `references` keeps its own words. */
@@ -306,10 +362,80 @@ export const MAIL_FIELD_WORDS: Record<string, T> = {
   inreplyto: t('답장할 메일', 'Reply to', 'Balasan untuk', "返信先のメール", "En respuesta a", "回复的邮件"),
   references: t('이전 메일', 'Earlier mail', 'Email sebelumnya', "以前のメール", "Correos anteriores", "之前的邮件"),
 }
+/** The Google Workspace library's argument names in words, only on a library connection's card (with MAIL_FIELD_WORDS;
+ * tools.ts fieldWordsOf): an event's `summary` is its title there, not a summary. Names not here: FIELD_WORDS, then
+ * the name's own words. tests/unit/google-tool-titles.test.ts: every entry in every language. */
+export const GOOGLE_FIELD_WORDS: Record<string, T> = {
+  summary: t('제목', 'Title', 'Judul', "タイトル", "Título", "标题"),
+  eventid: t('일정 ID', 'Event ID', 'ID acara', "予定ID", "ID del evento", "日程 ID"),
+  calendarid: t('캘린더', 'Calendar', 'Kalender', "カレンダー", "Calendario", "日历"),
+  starttimezone: t('시작 시간대', 'Start time zone', 'Zona waktu mulai', "開始のタイムゾーン", "Zona horaria de inicio", "开始时区"),
+  endtimezone: t('종료 시간대', 'End time zone', 'Zona waktu selesai', "終了のタイムゾーン", "Zona horaria de fin", "结束时区"),
+  addgooglemeet: t('Google Meet 추가', 'Add Google Meet', 'Tambahkan Google Meet', "Google Meetを追加", "Añadir Google Meet", "添加 Google Meet"),
+  usedefaultreminders: t('기본 알림 사용', 'Use default reminders', 'Gunakan pengingat bawaan', "デフォルトの通知を使う", "Usar recordatorios predeterminados", "使用默认提醒"),
+  transparency: t('표시 방법', 'Show as', 'Tampilkan sebagai', "表示方法", "Mostrar como", "显示为"),
+  colorid: t('색', 'Color', 'Warna', "色", "Color", "颜色"),
+  guestscanmodify: t('참석자가 수정 가능', 'Guests can edit', 'Tamu bisa mengedit', "ゲストによる編集", "Los invitados pueden editar", "访客可编辑"),
+  guestscaninviteothers: t('참석자가 다른 사람 초대 가능', 'Guests can invite others', 'Tamu bisa mengundang orang lain', "ゲストによる招待", "Los invitados pueden invitar a otros", "访客可邀请他人"),
+  guestscanseeotherguests: t('참석자 목록 공개', 'Guests can see the guest list', 'Tamu bisa melihat daftar tamu', "ゲストリストの表示", "Los invitados pueden ver la lista", "访客可查看访客名单"),
+  response: t('참석 응답', 'RSVP', 'Tanggapan', "出欠の返事", "Respuesta", "回复"),
+  rsvpcomment: t('응답 메모', 'RSVP note', 'Catatan tanggapan', "返事のメモ", "Nota de respuesta", "回复备注"),
+  sendupdates: t('참석자에게 알림', 'Notify guests', 'Beri tahu tamu', "ゲストへの通知", "Avisar a los invitados", "通知访客"),
+  thisandfollowing: t('이후 일정도 함께', 'This and following events', 'Acara ini dan berikutnya', "これ以降の予定も", "Este y los siguientes", "此日程及后续日程"),
+  autodeclinemode: t('자동 거절', 'Auto-decline', 'Tolak otomatis', "自動で辞退", "Rechazo automático", "自动拒绝"),
+  declinemessage: t('거절 메시지', 'Decline message', 'Pesan penolakan', "辞退メッセージ", "Mensaje de rechazo", "拒绝消息"),
+  messageid: t('메일 ID', 'Message ID', 'ID email', "メールID", "ID del mensaje", "邮件 ID"),
+  messageids: t('메일 ID', 'Message ID', 'ID email', "メールID", "ID del mensaje", "邮件 ID"),
+  labelid: t('라벨 ID', 'Label ID', 'ID label', "ラベルID", "ID de la etiqueta", "标签 ID"),
+  addlabelids: t('붙일 라벨', 'Labels to add', 'Label yang ditambahkan', "付けるラベル", "Etiquetas que se añaden", "要添加的标签"),
+  removelabelids: t('뗄 라벨', 'Labels to remove', 'Label yang dilepas', "外すラベル", "Etiquetas que se quitan", "要移除的标签"),
+  criteria: t('조건', 'Criteria', 'Kriteria', "条件", "Criterios", "条件"),
+  documentid: t('문서 ID', 'Document ID', 'ID dokumen', "ドキュメントID", "ID del documento", "文档 ID"),
+  spreadsheetid: t('스프레드시트 ID', 'Spreadsheet ID', 'ID spreadsheet', "スプレッドシートID", "ID de la hoja de cálculo", "电子表格 ID"),
+  folderid: t('폴더 ID', 'Folder ID', 'ID folder', "フォルダーID", "ID de la carpeta", "文件夹 ID"),
+  tabid: t('탭 ID', 'Tab ID', 'ID tab', "タブID", "ID de la pestaña", "标签页 ID"),
+  rangename: t('범위', 'Range', 'Rentang', "範囲", "Rango", "范围"),
+  values: t('값', 'Values', 'Nilai', "値", "Valores", "值"),
+  sheetname: t('시트', 'Sheet', 'Sheet', "シート", "Hoja", "工作表"),
+  newname: t('새 이름', 'New name', 'Nama baru', "新しい名前", "Nombre nuevo", "新名称"),
+  findtext: t('찾을 글', 'Find', 'Cari', "検索する文字", "Buscar", "查找内容"),
+  replacetext: t('바꿀 글', 'Replace with', 'Ganti dengan', "置換後の文字", "Reemplazar por", "替换为"),
+  index: t('위치', 'Position', 'Posisi', "位置", "Posición", "位置"),
+}
+/** Known values of the library's choice arguments in words, by argument name and value (both by their letters alone),
+ * only on a library connection's card (card-lines.ts cardLines `values`); any other value as it is sent. The exact
+ * call stays one click away on the card. */
+export const GOOGLE_VALUE_WORDS: Record<string, Record<string, T>> = {
+  action: {
+    create: t('만들기', 'Create', 'Buat', "作成", "Crear", "创建"),
+    add: t('추가', 'Add', 'Tambah', "追加", "Añadir", "添加"),
+    update: t('수정', 'Update', 'Perbarui', "更新", "Actualizar", "更新"),
+    delete: t('삭제', 'Delete', 'Hapus', "削除", "Eliminar", "删除"),
+    remove: t('제거', 'Remove', 'Lepas', "外す", "Quitar", "移除"),
+    rsvp: t('참석 응답', 'RSVP', 'Tanggapi undangan', "出欠を返事", "Responder", "回复邀请"),
+    rename: t('이름 바꾸기', 'Rename', 'Ganti nama', "名前を変更", "Cambiar nombre", "重命名"),
+    list: t('목록 보기', 'List', 'Lihat daftar', "一覧を見る", "Ver lista", "查看列表"),
+    get: t('보기', 'Get', 'Lihat', "見る", "Ver", "查看"),
+    hide: t('숨기기', 'Hide', 'Sembunyikan', "非表示にする", "Ocultar", "隐藏"),
+    unhide: t('다시 보이기', 'Unhide', 'Tampilkan lagi', "再表示する", "Mostrar", "取消隐藏"),
+    reorder: t('순서 바꾸기', 'Reorder', 'Ubah urutan', "並べ替え", "Reordenar", "重新排序"),
+    style: t('모양 바꾸기', 'Style', 'Ubah gaya', "スタイルを変更", "Cambiar estilo", "更改样式"),
+    populatefrommarkdown: t('Markdown으로 채우기', 'Fill from Markdown', 'Isi dari Markdown', "Markdownで入力", "Rellenar desde Markdown", "从 Markdown 填充"),
+  },
+  response: {
+    accepted: t('참석', 'Yes', 'Hadir', "出席", "Sí", "接受"),
+    declined: t('불참', 'No', 'Tidak hadir', "欠席", "No", "拒绝"),
+    tentative: t('미정', 'Maybe', 'Mungkin', "未定", "Quizás", "待定"),
+  },
+  sendupdates: {
+    all: t('모두에게', 'Everyone', 'Semua orang', "全員", "Todos", "所有人"),
+    externalonly: t('외부 참석자에게만', 'Only guests outside the team', 'Hanya tamu dari luar', "外部のゲストのみ", "Solo invitados externos", "仅外部访客"),
+    none: t('보내지 않음', 'Nobody', 'Tidak ada', "送らない", "Nadie", "不通知"),
+  },
+}
 /** What the step under an answer and the card before a change call a Google Workspace library tool, in the person's
- * language (card-lines.ts toolTitle), in place of the library's English title ("Search Gmail Messages"). Gmail only for
- * now: Calendar, Docs and Sheets keep the library's title. tests/unit/google-tool-titles.test.ts: every Gmail tool of
- * google-apps/catalog.ts in every language. */
+ * language (card-lines.ts toolTitle), in place of the library's English title ("Search Gmail Messages", "Manage Event").
+ * tests/unit/google-tool-titles.test.ts: every tool of google-apps/catalog.ts in every language. */
 export const GOOGLE_TOOL_WORDS: Record<string, T> = {
   search_gmail_messages: t('메일 찾기', 'Search mail', 'Cari email', 'メールを検索', 'Buscar correo', '搜索邮件'),
   get_gmail_message_content: t('메일 읽기', 'Read a message', 'Baca email', 'メールを読む', 'Leer un mensaje', '阅读邮件'),
@@ -325,6 +451,46 @@ export const GOOGLE_TOOL_WORDS: Record<string, T> = {
   batch_modify_gmail_message_labels: t('여러 메일 라벨 바꾸기', 'Change labels on several messages', 'Ubah label beberapa email', '複数のメールのラベルを変更', 'Cambiar etiquetas de varios mensajes', '更改多封邮件的标签'),
   manage_gmail_label: t('라벨 관리', 'Manage a label', 'Kelola label', 'ラベルを管理', 'Gestionar una etiqueta', '管理标签'),
   manage_gmail_filter: t('필터 관리', 'Manage a filter', 'Kelola filter', 'フィルタを管理', 'Gestionar un filtro', '管理过滤器'),
+  list_calendars: t('캘린더 보기', 'List calendars', 'Lihat kalender', 'カレンダーを見る', 'Ver calendarios', '查看日历'),
+  get_events: t('일정 보기', 'Get events', 'Lihat acara', '予定を見る', 'Ver eventos', '查看日程'),
+  query_freebusy: t('빈 시간 확인', 'Check free time', 'Cek waktu luang', '空き時間を確認', 'Ver disponibilidad', '查看空闲时间'),
+  manage_event: t('일정 관리', 'Manage an event', 'Kelola acara', '予定を管理', 'Gestionar un evento', '管理日程'),
+  manage_calendar: t('캘린더 관리', 'Manage a calendar', 'Kelola kalender', 'カレンダーを管理', 'Gestionar un calendario', '管理日历'),
+  manage_out_of_office: t('부재 일정 관리', 'Manage out of office', 'Kelola waktu di luar kantor', '不在の予定を管理', 'Gestionar ausencias', '管理外出时间'),
+  manage_focus_time: t('집중 시간 관리', 'Manage focus time', 'Kelola waktu fokus', '集中時間を管理', 'Gestionar tiempo de concentración', '管理专注时间'),
+  search_docs: t('문서 찾기', 'Search documents', 'Cari dokumen', 'ドキュメントを検索', 'Buscar documentos', '搜索文档'),
+  list_docs_in_folder: t('폴더의 문서 보기', 'List documents in a folder', 'Lihat dokumen di folder', 'フォルダー内のドキュメントを見る', 'Ver documentos de una carpeta', '查看文件夹中的文档'),
+  get_doc_content: t('문서 읽기', 'Read a document', 'Baca dokumen', 'ドキュメントを読む', 'Leer un documento', '阅读文档'),
+  get_doc_as_markdown: t('문서를 제목과 함께 읽기', 'Read a document with its headings', 'Baca dokumen beserta judulnya', '見出し付きでドキュメントを読む', 'Leer un documento con sus títulos', '带标题阅读文档'),
+  inspect_doc_structure: t('문서 구조 보기', 'See a document’s structure', 'Lihat struktur dokumen', 'ドキュメントの構成を見る', 'Ver la estructura de un documento', '查看文档结构'),
+  debug_table_structure: t('표 구조 보기', 'See a table’s structure', 'Lihat struktur tabel', '表の構成を見る', 'Ver la estructura de una tabla', '查看表格结构'),
+  list_document_comments: t('문서 댓글 보기', 'Read document comments', 'Baca komentar dokumen', 'ドキュメントのコメントを見る', 'Leer los comentarios del documento', '查看文档评论'),
+  create_doc: t('문서 만들기', 'Create a document', 'Buat dokumen', 'ドキュメントを作成', 'Crear un documento', '创建文档'),
+  modify_doc_text: t('문서 글 고치기', 'Edit document text', 'Ubah teks dokumen', 'ドキュメントの文字を編集', 'Editar el texto del documento', '编辑文档文字'),
+  find_and_replace_doc: t('문서에서 찾아 바꾸기', 'Find and replace in a document', 'Cari dan ganti di dokumen', 'ドキュメント内で検索と置換', 'Buscar y reemplazar en un documento', '在文档中查找替换'),
+  insert_doc_elements: t('문서에 표·목록 넣기', 'Add tables or lists to a document', 'Tambahkan tabel atau daftar ke dokumen', 'ドキュメントに表やリストを追加', 'Añadir tablas o listas a un documento', '向文档添加表格或列表'),
+  insert_doc_image: t('문서에 그림 넣기', 'Add a picture to a document', 'Tambahkan gambar ke dokumen', 'ドキュメントに画像を追加', 'Añadir una imagen a un documento', '向文档添加图片'),
+  update_paragraph_style: t('문단 모양 바꾸기', 'Change paragraph style', 'Ubah gaya paragraf', '段落のスタイルを変更', 'Cambiar el estilo de párrafo', '更改段落样式'),
+  update_doc_headers_footers: t('머리글·바닥글 바꾸기', 'Change headers and footers', 'Ubah header dan footer', 'ヘッダーとフッターを変更', 'Cambiar encabezados y pies de página', '更改页眉页脚'),
+  create_table_with_data: t('내용 있는 표 넣기', 'Add a filled-in table', 'Tambahkan tabel berisi data', 'データ入りの表を追加', 'Añadir una tabla con datos', '添加带数据的表格'),
+  batch_update_doc: t('문서 여러 곳 고치기', 'Make several changes to a document', 'Buat beberapa perubahan pada dokumen', 'ドキュメントをまとめて編集', 'Hacer varios cambios en un documento', '批量修改文档'),
+  manage_doc_tab: t('문서 탭 관리', 'Manage a document tab', 'Kelola tab dokumen', 'ドキュメントのタブを管理', 'Gestionar una pestaña del documento', '管理文档标签页'),
+  export_doc_to_pdf: t('PDF로 저장', 'Save as PDF', 'Simpan sebagai PDF', 'PDFで保存', 'Guardar como PDF', '另存为 PDF'),
+  list_spreadsheets: t('스프레드시트 찾기', 'Find spreadsheets', 'Cari spreadsheet', 'スプレッドシートを探す', 'Buscar hojas de cálculo', '查找电子表格'),
+  get_spreadsheet_info: t('스프레드시트 정보 보기', 'See spreadsheet info', 'Lihat info spreadsheet', 'スプレッドシートの情報を見る', 'Ver información de la hoja de cálculo', '查看电子表格信息'),
+  read_sheet_values: t('셀 읽기', 'Read cells', 'Baca sel', 'セルを読む', 'Leer celdas', '读取单元格'),
+  list_sheet_tables: t('시트의 표 보기', 'List tables in a sheet', 'Lihat tabel di sheet', 'シートの表を見る', 'Ver las tablas de una hoja', '查看工作表中的表格'),
+  list_spreadsheet_comments: t('스프레드시트 댓글 보기', 'Read spreadsheet comments', 'Baca komentar spreadsheet', 'スプレッドシートのコメントを見る', 'Leer los comentarios de la hoja de cálculo', '查看电子表格评论'),
+  create_spreadsheet: t('스프레드시트 만들기', 'Create a spreadsheet', 'Buat spreadsheet', 'スプレッドシートを作成', 'Crear una hoja de cálculo', '创建电子表格'),
+  create_sheet: t('시트 추가', 'Add a sheet', 'Tambahkan sheet', 'シートを追加', 'Añadir una hoja', '添加工作表'),
+  modify_sheet_values: t('셀 쓰기', 'Write cells', 'Tulis sel', 'セルに書き込む', 'Escribir celdas', '写入单元格'),
+  append_table_rows: t('표에 행 추가', 'Add rows to a table', 'Tambahkan baris ke tabel', '表に行を追加', 'Añadir filas a una tabla', '向表格添加行'),
+  format_sheet_range: t('셀 모양 바꾸기', 'Format cells', 'Format sel', 'セルの書式を変更', 'Dar formato a celdas', '设置单元格格式'),
+  manage_conditional_formatting: t('조건부 서식 관리', 'Manage conditional formatting', 'Kelola format bersyarat', '条件付き書式を管理', 'Gestionar el formato condicional', '管理条件格式'),
+  manage_sheet_tab: t('시트 탭 관리', 'Manage a sheet tab', 'Kelola tab sheet', 'シートのタブを管理', 'Gestionar una pestaña de hoja', '管理工作表标签'),
+  resize_sheet_dimensions: t('행·열 크기 바꾸기', 'Resize rows and columns', 'Ubah ukuran baris dan kolom', '行と列のサイズを変更', 'Cambiar el tamaño de filas y columnas', '调整行列大小'),
+  move_sheet_rows: t('행 옮기기', 'Move rows', 'Pindahkan baris', '行を移動', 'Mover filas', '移动行'),
+  manage_named_range: t('이름 있는 범위 관리', 'Manage named ranges', 'Kelola rentang bernama', '名前付き範囲を管理', 'Gestionar rangos con nombre', '管理命名范围'),
 }
 /** a library tool's own words in `L` (GOOGLE_TOOL_WORDS), or null for a tool not listed there */
 export const googleToolWord = (name: string, L: Locale): string | null =>
@@ -346,7 +512,7 @@ export const demoHiggsfieldToolWord = (name: string, L: Locale): string | null =
 /** a reason a connection check failed (integrations.last_error holds "<reason>", "<reason>:<status>" or, for no_access,
  * "no_access:<status>:<the service's words>": refusal.ts codeParts) */
 export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'call_idle' | 'call_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'scope' | 'no_access' | 'no_secret' | 'sign_in' | 'redirect'
-  | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_approved_apps_only' | 'oauth_desktop_only' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe' | 'local_offline' | 'local_declined' | 'local_confirm' | 'local_failed' | 'local_missing' | 'local_share' | 'local_unsupported' | 'local_unsafe'
+  | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_needs_team_app' | 'oauth_approved_apps_only' | 'oauth_desktop_only' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe' | 'local_offline' | 'local_declined' | 'local_confirm' | 'local_failed' | 'local_missing' | 'local_share' | 'local_unsupported' | 'local_unsafe'
 
 /** a placeholder and a Korean particle mark right after it ("{name}은(는)"), as the web app's i18n format reads them */
 const PARTICLE_AFTER = new RegExp(`\\{(\\w+)\\}(${KO_PARTICLE_PATTERN})?`, 'g')
@@ -363,7 +529,7 @@ export const say = (key: TextKey, locale: Locale, vars: Record<string, string | 
 /** Reasons whose fix is the connection's address (or that read as such: a reason this server does not know). */
 const ADDRESS_REASONS: ReadonlySet<string> = new Set<Reason>(['unreachable', 'private_address', 'blocked_port', 'redirect', 'not_mcp'])
 /** Reasons whose fix is the connection's key or sign-in. */
-const KEY_REASONS: ReadonlySet<string> = new Set<Reason>(['refused', 'scope', 'no_secret', 'sign_in', 'oauth_unsupported', 'oauth_no_registration', 'oauth_approved_apps_only', 'oauth_desktop_only', 'oauth_failed'])
+const KEY_REASONS: ReadonlySet<string> = new Set<Reason>(['refused', 'scope', 'no_secret', 'sign_in', 'oauth_unsupported', 'oauth_no_registration', 'oauth_needs_team_app', 'oauth_approved_apps_only', 'oauth_desktop_only', 'oauth_failed'])
 
 /**
  * The stored code in words ("refused:401" -> "The service did not accept the key ... (HTTP 401)"), for a reader who can

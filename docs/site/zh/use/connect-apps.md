@@ -56,6 +56,7 @@ Trina AX 可以连接两类东西：
 | Slack（你自己的 Slack 应用） | **Bot User OAuth Token**（`xoxb-`）、**App-Level Token**（`xapp-`）、**Client ID**、**Client Secret** | api.slack.com › 你的应用 |
 | Notion、Linear、Atlassian、Figma、Canva 以及“发现”中的其他应用 | 不用填：在应用自己的页面上登录 | 你在那个应用中的账号 |
 | GitHub | 无：在 GitHub 登录 | 你自己的 GitHub 账号 |
+| Asana、HubSpot、Box | 管理员只需一次：团队在该服务创建的应用的 **客户端 ID** 和 **客户端密钥**（对话框里有各服务指南的链接）。之后无需：在该服务登录即可 | Asana：My apps › **MCP app**。HubSpot：Development › **MCP Connectors**。Box：Admin Console › Integrations › **Box MCP server** |
 | 其他提供密钥的应用 | **地址**和**密钥**（有时还有**请求头名称**） | 应用的帮助页面（“MCP server”“API keys”） |
 | 公司自己的 API | **地址**、**密钥**、**使用说明** | 负责那个系统的人 |
 | NAVER WORKS 等需要用你自己的应用登录的服务 | **Client ID**、**Client secret**、**登录地址**、**Token地址**、**权限范围** | 那个应用的开发者控制台 |

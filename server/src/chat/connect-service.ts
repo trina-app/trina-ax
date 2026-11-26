@@ -20,7 +20,7 @@
 // account. A member's google_app card has no `teamOffer`: only their own Connect, on the app's page (QA TC-8034). A team
 // connection the person may use is "connected", no card.
 import { z } from 'zod'
-import { addressHasSecret, CATALOG_AUTH, CATALOG_KIND, officialService, posesAsListed, sameListedService, ConnectServiceInput, hasSecret, stepLabel, trustedServiceName, uuidv7, type CatalogService } from '@mycel/shared'
+import { addressHasSecret, CATALOG_AUTH, CATALOG_KIND, officialService, posesAsListed, teamAppOf, sameListedService, ConnectServiceInput, hasSecret, stepLabel, trustedServiceName, uuidv7, type CatalogService } from '@mycel/shared'
 import { GoogleAppId, IntegrationInput, type Integration, type IntegrationAccess, type IntegrationPatch, type Locale, type TurnConnectBody, type TurnConnectResult, type TurnRequest } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { AuthInfo } from '../services'
@@ -344,6 +344,13 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
         // not a new connection of their own: no team / personal-connections / limit / same-address checks for it
         card = { ...templateCard(tpl, why, expiresAt()), ...(mine ? { reconnect: true } : {}) }
       } else {
+        // a listed service that signs in only through the team's own app (Asana, HubSpot, Box): a card would only end
+        // at the service's refusal. An admin sets it up once (Admin, as a template); a member asks an admin for it
+        if (listed && teamAppOf(listed)) {
+          return early(isAdmin(viewer.role)
+            ? `${listed.name} signs in only through an app the team makes at ${listed.name}. No card was shown. This person is an admin: tell them to set it up once in ${SCREEN.adminMcp(L)} (open ${listed.name}, make the app as its guide says, paste its client ID and secret, as a template), after which everyone it is for signs in with their own account.`
+            : refusal({ done: 'No card was shown.', why: { kind: 'permission', what: `${listed.name} signs in only through an app the team sets up`, grant: ['an admin'], how: SCREEN.adminMcp(L) }, next: `tell the person to ask an admin to set up ${listed.name}: "Ask admin to add it" on its page in ${SCREEN.connectors(L, listed.name)}` }), 'needs the team app')
+        }
         if (scope === 'personal' && !getTeamSettings(db).personalIntegrations) {
           return early(`This team does not allow personal connections now (an admin turned them off). ${isAdmin(viewer.role) ? 'This person is an admin and can add it for the team instead (scope team).' : refusal({ done: 'No card was shown.', why: { kind: 'permission', what: 'personal connections are off for the team', grant: ['an admin'], how: `in ${SCREEN.adminSettings(L)}` }, next: 'tell the person to ask an admin, or to ask for a team connection' })}`, 'personal connections off')
         }

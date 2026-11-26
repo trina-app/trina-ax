@@ -25,7 +25,7 @@
 // Step.outcome), never only an icon. Three or more calls in a row of the same tool fold into one row ("Bright Data ·
 // Search Engine · 12 calls") that opens to each call's input (docs/decisions/20261124-step-key-input.md).
 import clsx from 'clsx'
-import { AudioLines, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CircleDashed, CircleMinus, CirclePause, CircleStop, Clock, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Presentation, Shapes, Workflow, Wrench } from 'lucide-react'
+import { AudioLines, Brain, Check, Lightbulb, ChevronDown, ChevronRight, CircleAlert, CircleDashed, CircleMinus, CirclePause, CircleStop, Clock, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Presentation, Shapes, Workflow, Wrench } from 'lucide-react'
 import { createContext, useContext, useState } from 'react'
 import { api, API, ApiError, errorText } from '../../lib/api'
 import { refreshQueue, useQueuePlace } from '../../lib/devEnvQueue'
@@ -37,6 +37,7 @@ import { useLocale, useT } from '../../i18n'
 import { openExternal, safeHref } from '../../lib/safeLinks'
 import { aiName } from '../../lib/tabs'
 import { navigateTo } from '../../lib/nav'
+import { openTeamFile } from '../../lib/sidePanel'
 import { TeamImage } from '../LazyMarkdown'
 import { stepImages } from '../../lib/stepImages'
 import { usePlaceViewer } from '../../lib/teamPlace'
@@ -107,12 +108,14 @@ export interface MarkContext { live: boolean; answerFailed: boolean; gotPast: Re
  * cancelled is theirs, no failure. A step the time limit or Stop cut off says so (paused, stopped); an attached
  * file's note is neither. A card that ran out without an answer (a question, remember's "may I keep this?") is no
  * success either: a quiet mark with "답하지 않음" beside the line (unanswered). */
-export type StepMark = 'running' | 'note' | 'paused' | 'stopped' | 'cancelled' | 'failed' | 'retried' | 'unanswered' | 'done'
+export type StepMark = 'running' | 'note' | 'paused' | 'stopped' | 'cancelled' | 'failed' | 'retried' | 'unanswered' | 'waiting' | 'done'
 export function stepMark(step: Step, o: MarkContext): StepMark {
   if (step.status === 'running' && o.live) return 'running'
   if (step.tool === 'attachment') return 'note'
   if (step.paused) return 'paused'
   if (step.stopped) return 'stopped'
+  // a card that waits after the answer ended: not done until the person answers (QA of #594)
+  if (step.waiting && step.status !== 'error') return 'waiting'
   if (step.status !== 'error') return unansweredStep(step) ? 'unanswered' : 'done'
   if (step.devEnvRun?.state === 'expired') return 'failed'
   if (step.devEnvRun?.state === 'cancelled') return 'cancelled'
@@ -243,6 +246,44 @@ function MemoryUndo({ memory }: { memory: NonNullable<Step['memory']> }) {
   )
 }
 
+/** 되돌리기 on a personal skill step (docs/decisions/20261125-auto-personal-skills.md), through the file routes people
+ * have on the Files screen: a new skill's folder goes to the trash, a fix restores the version before it, a delete
+ * brings the skill back from the trash. */
+function SkillUndo({ skill }: { skill: NonNullable<Step['skill']> }) {
+  const t = useT()
+  const locale = useLocale()
+  const [state, setState] = useState<'idle' | 'busy' | 'done'>('idle')
+  // nothing the step can put back (an older step without the version or the trash item): said, not offered
+  const none = (skill.change === 'fixed' && !skill.versionId) || (skill.change === 'deleted' && !skill.trashIds?.length)
+  if (none) return <span className="shrink-0 text-xs text-faint" data-testid="step-skill-undo-none">{t('skill.undoGone')}</span>
+  if (state === 'done') return <span className="shrink-0 text-xs text-faint" data-testid="step-skill-undone">{t('steps.memoryUndone')}</span>
+  const undo = async () => {
+    setState('busy')
+    try {
+      if (skill.change === 'saved') {
+        // the SKILL.md only; its folder too when nothing else is in it now
+        await api.call(API.remove, { query: { path: skill.path } })
+        const folder = skill.path.replace(/\/SKILL\.md$/, '')
+        const left = await api.call(API.tree, { query: { path: folder, limit: 1 } }).then((r) => r.entries.length, () => 1)
+        if (!left) await api.call(API.remove, { query: { path: folder } }).catch(() => undefined)
+      } else if (skill.change === 'fixed') await api.call(API.restoreVersion, { body: { path: skill.path, versionId: skill.versionId! } })
+      // each skill back from the trash; one already back (404: restored on the Files screen or a second press) is done
+      else for (const id of skill.trashIds ?? []) await api.call(API.restoreTrash, { params: { id } }).catch((e: unknown) => { if (!(e instanceof ApiError && e.status === 404)) throw e })
+      setState('done')
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) { toast({ level: 'info', text: t('skill.undoGone') }); setState('done'); return }
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+      setState('idle')
+    }
+  }
+  return (
+    <button type="button" disabled={state === 'busy'} onClick={() => void undo()}
+      className="touch-hit shrink-0 rounded-sm text-xs font-medium text-ink underline-offset-2 hover:underline disabled:opacity-50" data-testid="step-skill-undo">
+      {t('steps.memoryUndo')}
+    </button>
+  )
+}
+
 /** The words beside a step's line for what it came back with (Step.outcome), or for a mark that is no success. */
 export function outcomeWords(step: Step, mark: StepMark, t: TFunction): string {
   const end = step.outcome?.end
@@ -282,14 +323,14 @@ function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: S
   // a read of a video or an audio file ("Watch video · …") shows a film / sound icon
   const media = step.kind === 'tool' ? mediaStepKind(step) : null
   // a look at a deck's slides ("View slides 3–5 · …") a slide icon
-  const Icon = step.memory ? Brain : subtask ? Workflow : media === 'video' ? Film : media === 'audio' ? AudioLines : step.kind === 'tool' && slidesStep(step) ? Presentation : step.kind === 'tool' && step.tool && FILE_TOOLS.has(step.tool) ? FileSearch : ICON[step.kind] ?? Wrench
+  const Icon = step.memory ? Brain : step.skill ? Lightbulb : subtask ? Workflow : media === 'video' ? Film : media === 'audio' ? AudioLines : step.kind === 'tool' && slidesStep(step) ? Presentation : step.kind === 'tool' && step.tool && FILE_TOOLS.has(step.tool) ? FileSearch : ICON[step.kind] ?? Wrench
   const hidden = step.subtask?.hidden ?? 0
   const mark = stepMark(step, { live, ...marks })
   // a card that ran out: "답하지 않음" is said beside the line, so the row does not open just to say it again
   const unanswered = mark === 'unanswered'
   // a memory step's detail is the memory's id (the server's record), never words to show; a tool's error text names a
   // chat file by its inner path: in words, never its file id (QA TC-7048)
-  const detail = unanswered || step.memory || !words.detail || words.detail.startsWith('memory:') ? undefined : thinking ? words.detail : chatPlaceWords(words.detail, locale)
+  const detail = unanswered || step.memory || step.skill || !words.detail || words.detail.startsWith('memory:') ? undefined : thinking ? words.detail : chatPlaceWords(words.detail, locale)
   const expandable = !!(detail || step.sources?.length || step.images?.length || (subtask && (kids.length || hidden)))
   const running = mark === 'running'
   // a failure the AI went on past: "안 됐지만 트리나가 다른 방법으로 이어 갔어요" ("…찾고 있어요" while it answers and
@@ -299,7 +340,7 @@ function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: S
   const markWords = mark === 'retried' ? retried : mark === 'failed' ? t('steps.failed') : ''
   const stats = subtask ? subtaskStats(step.subtask, t) : ''
   // cut off by the time limit or by Stop: said in words, not only by the icon
-  const cut = running || step.tool === 'attachment' ? '' : step.paused ? t('steps.paused') : step.stopped ? t('steps.stopped') : unanswered ? words.detail ?? '' : ''
+  const cut = running || step.tool === 'attachment' ? '' : step.paused ? t('steps.paused') : step.stopped ? t('steps.stopped') : unanswered ? words.detail ?? '' : mark === 'waiting' ? t('steps.cardWaiting') : ''
   // what came back, in words beside the line ("10 results", "Declined", "Didn't work"): never only an icon. A sub-task
   // says its mark in its own name; a web search counts its results below
   const came = cut || running || subtask || step.sources?.length ? '' : outcomeWords(step, mark, t)
@@ -323,6 +364,9 @@ function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: S
         <CirclePause size={13} className="shrink-0 text-muted" aria-hidden data-testid="step-paused" />
       ) : mark === 'stopped' ? (
         <CircleStop size={13} className="shrink-0 text-muted" aria-hidden data-testid="step-stopped" />
+      ) : mark === 'waiting' ? (
+        // its card is still open: the words beside the line say so
+        <Clock size={13} className="shrink-0 text-muted" aria-label={t('steps.cardWaiting')} data-testid="step-waiting" />
       ) : unanswered ? (
         // a card nobody answered: neither a success nor a failure (the words beside the line say it)
         <CircleDashed size={13} className="shrink-0 text-muted" aria-hidden data-testid="step-unanswered" />
@@ -357,6 +401,17 @@ function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: S
         </button>
       ) : null}
       {step.memory && !expandable && !running && ownMemory ? <MemoryUndo memory={step.memory} /> : null}
+      {step.skill && !expandable && !running && ownMemory ? (
+        <>
+          {step.skill.change !== 'deleted' && (
+            <button type="button" onClick={() => openTeamFile(step.skill!.path)}
+              className="touch-hit shrink-0 rounded-sm text-xs font-medium text-ink underline-offset-2 hover:underline" data-testid="step-skill-view">
+              {t('skill.view')}
+            </button>
+          )}
+          <SkillUndo skill={step.skill} />
+        </>
+      ) : null}
       {expandable && (open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />)}
     </>
   )
@@ -377,6 +432,12 @@ function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: S
         <p className="ml-6 px-1 text-xs text-muted" data-testid="memory-first-line">
           {t('memory.firstLine', { ai: aiName(t) })}{' '}
           <button type="button" onClick={() => navigateTo('/settings/memory')} className="touch-hit text-accent-text hover:underline" data-testid="memory-first-open">{t('memory.firstOpen')}</button>
+        </p>
+      )}
+      {step.skill?.first && ownMemory && (
+        <p className="ml-6 px-1 text-xs text-muted" data-testid="skill-first-line">
+          {t('skill.firstLine', { ai: aiName(t) })}{' '}
+          <button type="button" onClick={() => navigateTo('/settings/memory')} className="touch-hit text-accent-text hover:underline" data-testid="skill-first-open">{t('memory.firstOpen')}</button>
         </p>
       )}
       {latest && (
@@ -463,7 +524,7 @@ export function groupSteps(steps: Step[]): { top: Step[]; kids: Map<string, Step
  * to show (a sub-task, a memory, a post, pictures, a dev environment run, a card's record) stays a row. */
 const RUN_MIN = 3
 const runKey = (s: Step): string | null => {
-  if (s.kind !== 'tool' || s.tool === 'agent' || s.tool === 'attachment' || s.memory || s.posted || s.images?.length || s.devEnvRun || s.shared || s.scheduled || s.folders || s.fixes?.length || s.todos) return null
+  if (s.kind !== 'tool' || s.tool === 'agent' || s.tool === 'attachment' || s.memory || s.skill || s.posted || s.images?.length || s.devEnvRun || s.shared || s.scheduled || s.folders || s.fixes?.length || s.todos) return null
   return s.tool ? `tool:${s.tool}` : `label:${s.label}`
 }
 export type StepItem = { step: Step } | { run: Step[] }
@@ -533,7 +594,9 @@ function RunRow({ run, live, marks }: { run: Step[]; live: boolean; marks: Omit<
 export const DEMO_REPLAY_STEP = 'demo_replay'
 
 /** `failed`: the answer itself failed (Message.status 'error'; stepMark). */
-export default function Steps({ steps: all, streaming, failed = false, receipt }: { steps: Step[]; streaming: boolean; failed?: boolean; receipt?: Message['receipt'] }) {
+/** `gotPast`: the failed steps the AI went on past, over the whole answer (stepsGotPast) when this list is one group of
+ * its steps (lib/answerFlow.ts): a retry in a later group still counts. Default: from these steps. */
+export default function Steps({ steps: all, streaming, failed = false, receipt, gotPast }: { steps: Step[]; streaming: boolean; failed?: boolean; receipt?: Message['receipt']; gotPast?: ReadonlySet<string> }) {
   const t = useT()
   const locale = useLocale()
   const [open, setOpen] = useState(false)
@@ -548,7 +611,7 @@ export default function Steps({ steps: all, streaming, failed = false, receipt }
   const receiptText = rec ? (rec.skill.by ? t('steps.receiptBy', { by: rec.skill.by, skill, n: rec.teamFiles }) : t('steps.receipt', { skill, n: rec.teamFiles })) : null
   if (!steps.length) return receiptText ? <p className="mb-3 px-1 text-label text-faint" data-testid="steps-receipt">{receiptText}</p> : null
   const { top, kids } = groupSteps(steps)
-  const marks = { answerFailed: failed, gotPast: stepsGotPast(steps) }
+  const marks = { answerFailed: failed, gotPast: gotPast ?? stepsGotPast(steps) }
   // pictures the steps show (shared browser screenshots, a tool's saved pictures: change_banner_text's sizes) stay
   // visible even when the list is folded, each once
   const shown = stepImages(steps)
@@ -580,9 +643,11 @@ export default function Steps({ steps: all, streaming, failed = false, receipt }
       )}
       {/* what the AI kept, changed or forgot about the person stays in view, with its 되돌리기, while the list is folded
           (docs/decisions/20261122-auto-memory.md) */}
-      {!open && top.some((s) => s.memory) && (
+      {/* (a personal skill saved, fixed or deleted too: docs/decisions/20261125-auto-personal-skills.md; and a call whose
+          card still waits for the person) */}
+      {!open && top.some((s) => s.memory || s.skill || s.waiting) && (
         <ul className="mt-0.5 space-y-0.5" data-testid="steps-memory">
-          {top.filter((s) => s.memory).map((s) => <StepRow key={s.id} step={s} live={false} marks={marks} />)}
+          {top.filter((s) => s.memory || s.skill || s.waiting).map((s) => <StepRow key={s.id} step={s} live={false} marks={marks} />)}
         </ul>
       )}
       {/* a queued job outlives the answer: its place in line stays in view while the list is folded */}

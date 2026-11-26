@@ -63,6 +63,7 @@ Nunca necesita todos. Busque la app que está conectando; el resto de la fila le
 | Slack (su propia app de Slack) | **Bot User OAuth Token** (`xoxb-`), **App-Level Token** (`xapp-`), **Client ID**, **Client Secret** | api.slack.com › su app |
 | Notion, Linear, Atlassian, Figma, Canva y las demás apps de Descubrir | Nada: usted inicia sesión en la página de la propia app | Su cuenta en esa app |
 | GitHub | Nada: inicia sesión en GitHub | Su cuenta de GitHub |
+| Asana, HubSpot, Box | Un administrador, una vez: el **ID de cliente** y el **secreto de cliente** de una app que el equipo crea allí (el diálogo enlaza la guía de cada servicio). Después, nada: inicia sesión en el servicio | Asana: My apps › **MCP app**. HubSpot: Development › **MCP Connectors**. Box: Admin Console › Integrations › **Box MCP server** |
 | Cualquier otra app que da una clave | **Dirección** y **Clave** (a veces **Nombre del encabezado**) | Las páginas de ayuda de la app ("MCP server", "API keys") |
 | La API de su empresa | **Dirección**, **Clave**, **Notas de uso** | Quien administra ese sistema |
 | NAVER WORKS y otras apps que inician sesión con su propia app | **ID de cliente**, **Secreto de cliente**, **Dirección de inicio de sesión**, **Dirección de token**, **Permisos (scope)** | La consola para desarrolladores de la app |

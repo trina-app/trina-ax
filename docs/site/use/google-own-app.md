@@ -85,19 +85,11 @@ https://www.googleapis.com/auth/userinfo.email
 https://www.googleapis.com/auth/userinfo.profile
 https://www.googleapis.com/auth/drive.readonly
 https://www.googleapis.com/auth/drive.file
-https://www.googleapis.com/auth/gmail.readonly
-https://www.googleapis.com/auth/gmail.send
-https://www.googleapis.com/auth/gmail.compose
 https://www.googleapis.com/auth/gmail.modify
-https://www.googleapis.com/auth/gmail.labels
 https://www.googleapis.com/auth/gmail.settings.basic
 https://www.googleapis.com/auth/calendar
-https://www.googleapis.com/auth/calendar.readonly
-https://www.googleapis.com/auth/calendar.events
 https://www.googleapis.com/auth/documents
-https://www.googleapis.com/auth/documents.readonly
 https://www.googleapis.com/auth/spreadsheets
-https://www.googleapis.com/auth/spreadsheets.readonly
 ```
 
 These are exactly the permissions Trina AX asks for, for all five apps together. Leave none out: a sign-in without one

@@ -2,10 +2,15 @@
 // /files?view=recent, from the list beside the rail: components/panels/FilesPanel.tsx): the files I can read that changed
 // last, newest first (GET /api/files/recent, the attach picker's list), each with the folder it is in and when it
 // changed. A row opens the file as a file link does (/files/view: its folder with the preview beside it). On a phone
-// (a row of the 파일 tab's places) the phone's bar, ‹ back to 파일.
-import { File as FileIcon } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+// (a row of the 파일 tab's places) the phone's bar, ‹ back to 파일. Its one Upload button sends the files to 내 파일 without
+// asking where, and opens 내 파일, which uploads them (docs/decisions/20261125-upload-destination.md).
+import { File as FileIcon, Upload } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { handUploads } from '../lib/fileUploads'
+import { PhonePickButton, useDevicePick } from '../components/DevicePick'
+import { myFilesPath } from '../lib/rail'
+import { useMeStrict } from '../store/session'
 import { useLocale, useT } from '../i18n'
 import { errorText } from '../lib/api'
 import { useFolderWords } from '../lib/folderLabels'
@@ -16,7 +21,7 @@ import { PhonePageBar } from '../components/phone/PhonePageBar'
 import { parentPath } from '../lib/paths'
 import { readRecentFiles, useFileLists } from '../store/fileLists'
 import { accessChanged, filesChanged, reloadAsked } from '../store/live'
-import { ErrorNote, Skeleton, useMediaQuery } from '../components/ui'
+import { Button, ErrorNote, Skeleton, useMediaQuery } from '../components/ui'
 
 export default function RecentFiles() {
   const t = useT(), locale = useLocale()
@@ -27,6 +32,19 @@ export default function RecentFiles() {
   const [error, setError] = useState<string | null>(null)
   const phone = useMediaQuery('(max-width: 767.98px)')
   const back = useGoBack('/files')
+  const me = useMeStrict()
+  const navigate = useNavigate()
+  const input = useRef<HTMLInputElement>(null)
+  const pick = () => input.current?.click()
+  const picked = (files: File[]) => {
+    if (input.current) input.current.value = ''
+    if (!files.length) return
+    handUploads(files, `users/${me.user.id}`)
+    navigate(myFilesPath(me.user.id))
+  }
+  // a phone: our sheet's device rows (사진 보관함, 사진 찍기, 파일), never iOS's raw menu of a file input
+  // (docs/decisions/20261118-our-file-picker-everywhere.md); a computer: the file window at once
+  const device = useDevicePick({ onFiles: picked, testIds: 'recent-add', filesTestId: 'recent-upload-input' })
   const backLabel = useBackLabel('/files', () => null)
   const load = useCallback(async (fresh = false) => {
     try {
@@ -46,12 +64,28 @@ export default function RecentFiles() {
   return (
     <div className="flex h-full flex-col" data-testid="recent-files">
       {phone ? (
-        <PhonePageBar onBack={back} backLabel={backLabel} title={t('filesPanel.recent')} heading backTestId="files-back" titleTestId="files-title" />
+        <PhonePageBar
+          onBack={back}
+          backLabel={backLabel}
+          title={t('filesPanel.recent')}
+          heading
+          backTestId="files-back"
+          titleTestId="files-title"
+          action={
+            <PhonePickButton pick={device} label={t('files.uploadToMine')} className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg hover:bg-hover" testId="recent-upload">
+              <Upload size={20} aria-hidden />
+            </PhonePickButton>
+          }
+        />
       ) : (
         <div className="flex items-center gap-2 border-b border-line px-4 py-3 sm:px-6">
-          <h1 className="text-title font-semibold">{t('filesPanel.recent')}</h1>
+          <h1 className="min-w-0 flex-1 text-title font-semibold">{t('filesPanel.recent')}</h1>
+          <Button size="sm" variant="primary" onClick={pick} title={t('files.uploadToMine')} data-testid="recent-upload">
+            <Upload size={15} aria-hidden /> {t('files.upload')}
+          </Button>
         </div>
       )}
+      {!phone && <input ref={input} type="file" multiple hidden onChange={(e) => picked(Array.from(e.target.files ?? []))} data-testid="recent-upload-input" />}
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 sm:px-4">
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={5} className="px-2" />}

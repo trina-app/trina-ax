@@ -4,7 +4,7 @@
 // calls still open when a window reconnects are sent again; a window that stays away 60 s fails the call.
 // Ported from Saram server/src/browser.ts (long-poll only there). The common part is call-relay.ts (shared with the
 // apps on the person's computer, local-relay.ts).
-import { BrowserResult, type BrowserCall, type BrowserToolName } from '@mycel/shared/api'
+import { BROWSER_CALL_SITES_MAX, BrowserResult, BrowserSiteKey, type BrowserCall, type BrowserToolName } from '@mycel/shared/api'
 import { uuidv7 } from '@mycel/shared'
 import type { Hub } from './hub'
 import type { Logger } from '../log'
@@ -34,9 +34,16 @@ export class BrowserRelay extends CallRelay<BrowserCall, BrowserResult> {
   }
 
   /** Run one browser tool on the window's pane. Never throws: failures come back as ok:false results. */
-  async call(o: { userId: string; windowId: string; turnId: string; chatId: string; tool: BrowserToolName; args: Record<string, unknown>; signal?: AbortSignal }): Promise<BrowserResult> {
+  async call(o: { userId: string; windowId: string; turnId: string; chatId: string; tool: BrowserToolName; args: Record<string, unknown>; signal?: AbortSignal; sites?: string[]; office?: string[] }): Promise<BrowserResult> {
     const callId = uuidv7()
-    const call: BrowserCall = { callId, turnId: o.turnId, chatId: o.chatId, tool: o.tool, args: o.args, deadline: Date.now() + this.o.callTimeoutMs }
+    // only keys the desktop app reads (a call it cannot parse would fail as a whole)
+    const keys = (l?: string[]) => [...new Set(l ?? [])].filter((k) => BrowserSiteKey.safeParse(k).success).slice(0, BROWSER_CALL_SITES_MAX)
+    const sites = keys(o.sites), office = keys(o.office)
+    const call: BrowserCall = {
+      callId, turnId: o.turnId, chatId: o.chatId, tool: o.tool, args: o.args, deadline: Date.now() + this.o.callTimeoutMs,
+      // what the person already allowed (chat/tools.ts browserTool): sent only when there is something to say
+      ...(sites.length ? { sites } : {}), ...(office.length ? { office } : {}),
+    }
     const r = await this.open({ userId: o.userId, windowId: o.windowId, call, timeoutError: `browser tool ${o.tool} timed out`, signal: o.signal })
     return { ...r, callId }
   }

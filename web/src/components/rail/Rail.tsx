@@ -11,6 +11,7 @@ import { Bell, FolderOpen, MessageCircle, PanelLeftOpen, SquareKanban } from 'lu
 import { useEffect, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useT } from '../../i18n'
+import { useMe } from '../../store/session'
 import { RAIL_ITEMS, railLinkState, railTarget, useRailHere, useRailMemory, type RailItem } from '../../lib/rail'
 import { aiName } from '../../lib/tabs'
 import { useActivityUnread, useRoomNoticeUnread } from '../../store/inbox'
@@ -55,6 +56,8 @@ export function Rail({ showList }: { showList: boolean }) {
   const icon = (item: RailItem, lit: boolean): ReactNode =>
     item === 'ai' ? <AiTabIcon active={lit} /> : item === 'chats' ? <MessageCircle size={22} aria-hidden /> : item === 'projects' ? <SquareKanban size={22} aria-hidden /> : item === 'files' ? <FolderOpen size={22} aria-hidden /> : <Bell size={22} aria-hidden />
   // Up/Down/Home/End between the rail's stops, as an extra to Tab (no roving tabindex)
+  // 파일 opens the person's own folder (lib/rail.ts railRoot)
+  const meId = useMe()?.user.id ?? null
   const onKey = (e: KeyboardEvent<HTMLElement>) => {
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return
     const stops = [...e.currentTarget.querySelectorAll<HTMLElement>('[data-rail-stop]')]
@@ -70,7 +73,7 @@ export function Rail({ showList }: { showList: boolean }) {
       <ul className="mt-2 flex flex-col gap-1 px-1.5">
         {RAIL_ITEMS.filter((item) => !guestHidden.has(item)).map((item) => {
           const lit = item === current
-          const to = item === 'ai' && firstWaiting ? `/c/${firstWaiting.id}` : railTarget(item, current, last)
+          const to = item === 'ai' && firstWaiting ? `/c/${firstWaiting.id}` : railTarget(item, current, last, meId)
           return (
             <li key={item}>
               <Tooltip label={label[item]}>

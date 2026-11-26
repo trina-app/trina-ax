@@ -97,7 +97,7 @@ export function pickCard(opts: { label: string; value: string }[], mode: CardMod
   return goAhead(opts.filter((o) => !isAlways(o))) ?? goAhead(opts)
 }
 
-const GO_ON = { ko: '네, 그렇게 해주세요. 알아서 정해서 진행해 주세요.', en: 'Yes, please go ahead and use your best judgement.' }
+const GO_ON = { ko: '네, 그렇게 해주세요. 알아서 정해서 진행해 주세요.', en: 'Yes, please go ahead and use your best judgement.', ja: 'はい、お任せします。そのまま進めてください。' }
 
 export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string, prompt: string, seenLines: number): Promise<{ rec: TurnRecord; lines: number }> {
   const started = Date.now()

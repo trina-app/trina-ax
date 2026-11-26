@@ -16,7 +16,7 @@ import { privateToMe } from '../files/share-readers'
 import { cardNext, cardReason, refusal } from '../policy/refusal'
 import { componentC } from '../team-files/component'
 import { placeProduced } from './make-file'
-import { inSkills } from '../skills/guard'
+import { inAnySkills } from '../skills/guard'
 import type { ToolRegistry } from './registry'
 import { downloadToFile, type DownloadOptions } from './download'
 import { egressOf } from './egress'
@@ -121,7 +121,7 @@ export function registerHiggsfield(ctx: AppContext, reg: ToolRegistry): boolean 
       // (the person's own Always for videos holds there: Rule A; the daily limit below still counts)
       if (t.person.unattended && !t.person.alwaysOn?.('video')) throw new ToolError(refusal({ done: 'No video was made and no credits were spent.', why: cardReason('unattended'), next: 'the user can ask for the video in a chat, where they confirm it' }))
       // skills/ is for team skills and rules (skills/guard.ts): refused before any credits are spent
-      if (a.save_as && inSkills(a.save_as.replace(/^\/+/, ''))) throw new ToolError('videos cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
+      if (a.save_as && inAnySkills(a.save_as.replace(/^\/+/, ''))) throw new ToolError('videos cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
       const used = (ctx.db.query("SELECT count(*) AS n FROM tool_events WHERE user_id = ? AND tool = 'generate_video' AND ok = 1 AND at >= ?")
         .get(t.user.id, new Date(Date.now() - 24 * 3600_000).toISOString()) as { n: number }).n
       if (used >= daily) {

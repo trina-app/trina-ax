@@ -146,7 +146,11 @@ describe('a replayed answer in a real chat turn', () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     const r = await ask(h, sock, 'alice', chat.id, '카드뉴스 만들어 줘')
     expect(r.done.status).toBe('done')
-    expect(r.done.content).toBe('캠페인 기획을 읽고 users/alice/카드뉴스.md로 저장할게요.\n\n저장했어요: users/alice/카드뉴스.md')
+    // the Korean piece before the calls is interim (docs/decisions/20261122-interim-text-not-answer.md), as in a Korean
+    // app: alice's app is English but her message is Korean (docs/decisions/20261125-answer-script-from-message.md); it
+    // shows at its place among the steps, nothing is lost
+    expect(r.done.content).toBe('저장했어요: users/alice/카드뉴스.md')
+    expect(r.done.steps.filter((s) => s.kind === 'thinking').map((s) => [s.detail, !!s.interim])).toEqual([['캠페인 기획을 읽고 users/alice/카드뉴스.md로 저장할게요.', true]])
     expect(r.done.steps[0]).toMatchObject({ tool: 'demo_replay', label: 'Prepared in advance for the demo', status: 'ok' })
     expect(r.done.steps.filter((s) => s.tool === 'read' || s.tool === 'write').map((s) => s.status)).toEqual(['ok', 'ok'])
     expect(fs.readFileSync(path.join(h.team, 'users', 'alice', '카드뉴스.md'), 'utf8')).toBe('# 1장')

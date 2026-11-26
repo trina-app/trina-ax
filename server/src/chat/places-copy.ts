@@ -29,17 +29,19 @@ import type { McpContent } from '../turns'
 import type { ToolCtx, TurnFiles } from '../files/service'
 import { mayAttachChatFile, PLACE_WORDS, resolvePlace, type ResolveCtx } from '../files/places'
 import { openToRead } from '../files/store'
-import { contentKind, fdReader, type ContentKind } from '../files/office-exit'
+import { contentKind, fdReader, readVouchers, type ContentKind } from '../files/office-exit'
 import { officeRecalc, officeViewer } from '../files/office-view'
 import { OFFICE_WRITE_MAX, officeWorkerWrite } from '../files/extract'
 import { DOCX_REVIEW_MODE, docxReviewLine, type DocxReview } from '../files/docx-review'
+import { CHART_DATA_MODE, chartDataLine, newPictures, pictureChartLine, type ChartDataReview } from '../files/chart-data'
+import { CHART_PART } from '../files/office-xml'
 import { turnWriteLimits } from '../files/turn-write-limits'
 import { authorize } from '../policy/authorize'
 import { atLeast } from '../policy/access'
 import { Denied, ToolError } from '../policy/errors'
 import { hiddenEntry } from '../policy/names'
 import { cardEndShort, cardNext, cardReason, endOfText, refusal } from '../policy/refusal'
-import { inSkills, SKILL_FILES_REFUSAL } from '../skills/guard'
+import { inAnySkills, inSkills, SKILL_FILES_REFUSAL } from '../skills/guard'
 import { componentC } from '../team-files/component'
 import { placeProduced } from '../tools/make-file'
 import { TEXT as MOVE_TEXT } from '../tools/file-moves'
@@ -167,12 +169,14 @@ function noteWorkRead(exec: TurnExec): boolean {
 
 /** A workbook leaving the work folder gets every formula's result stored (files/xlsx-values.ts), so a preview shows
  * numbers. A Word file is read back (files/docx-review.ts): the result says how many tracked changes and comments the
- * saved bytes hold, so the answer does not claim what the file lacks (QA A-43-L). The safety check itself is where the
+ * saved bytes hold, so the answer does not claim what the file lacks (QA A-43-L). The charts of a deck or Word file are
+ * read back too (files/chart-data.ts): each keeps its data sheet, so Edit Data works (QA A-03-L). The safety check itself is where the
  * file lands (placeProduced, chat files: files/office-exit.ts). */
 async function officeOut(exec: TurnExec, _files: TurnFiles, tmp: string, got: { name: string; size: number; sha256: string }, _also: string[] = [], _given: Uint8Array[] = []): Promise<{ name: string; size: number; sha256: string; note?: string }> {
   const fd = fs.openSync(tmp, 'r'); let k: ContentKind
   try { k = contentKind(got.name, fs.fstatSync(fd).size, fdReader(fd)) } finally { fs.closeSync(fd) }
-  if (k && 'office' in k && k.office === 'docx') return { ...got, note: await docxReadBack(exec, tmp, got.size) }
+  if (k && 'office' in k && k.office === 'docx') return { ...got, note: await docxReadBack(exec, tmp, got.size) + await chartReadBack(exec, _files, tmp, got.size, k.names, 'docx') }
+  if (k && 'office' in k && k.office === 'pptx') return { ...got, note: await chartReadBack(exec, _files, tmp, got.size, k.names, 'pptx') }
   if (!k || !('office' in k) || !k.names.some((n) => n.toLowerCase() === 'xl/workbook.xml')) return got
   if (!officeViewer()) return { ...got, note: ' This server cannot calculate the formulas, so a preview may show empty formula cells until the file is opened in Excel: say so.' }
   const bytes = new Uint8Array(fs.readFileSync(tmp))
@@ -195,6 +199,23 @@ async function docxReadBack(exec: TurnExec, tmp: string, size: number): Promise<
   } catch {
     exec.abort.signal.throwIfAborted()
     return ' Its tracked changes and comments could not be read back this time (the file itself is saved): describe them only as read shows them.'
+  }
+}
+
+/** The chart read-back of a deck or Word file about to be saved (files/chart-data.ts, in the office worker); with no
+ * chart part, a line when its slides or body hold pictures that are new (not those of a template or file this answer
+ * read): one may be a chart drawn as a picture (live QA 2026-11-25). '' when there is nothing to say. */
+async function chartReadBack(exec: TurnExec, files: TurnFiles, tmp: string, size: number, names: string[], kind: 'docx' | 'pptx'): Promise<string> {
+  const charts = names.some((n) => CHART_PART.test(n) && !n.startsWith('xl/'))
+  if (!charts && !names.some((n) => /^(word|ppt)\/media\//i.test(n))) return ''
+  if (size > OFFICE_WRITE_MAX) return charts ? ' It is too large for its charts to be read back here (the file itself is saved): do not say its charts can be edited unless you checked.' : ''
+  try {
+    const r = JSON.parse((await officeWorkerWrite(CHART_DATA_MODE, new Uint8Array(fs.readFileSync(tmp)), exec.abort.signal, 256 * 1024)).toString('utf8')) as ChartDataReview
+    if (charts) return chartDataLine(r)
+    return pictureChartLine(kind, newPictures(r, readVouchers(exec.rt.ctx.files.fx.root, files.readHashes)))
+  } catch {
+    exec.abort.signal.throwIfAborted()
+    return charts ? ' Its charts could not be read back this time (the file itself is saved): do not say its charts can be edited unless you checked.' : ''
   }
 }
 
@@ -640,7 +661,7 @@ function teamSource(exec: TurnExec, p: string): { source: WorkSource; sources: R
 /** Why a copy will not be placed at the team path `target` whatever the person says, or null. */
 export function teamTargetRefusal(exec: TurnExec, target: string): string | null {
   const rt = exec.rt
-  if (inSkills(target)) return 'a file is not copied into a skills folder (team, group or project skills and rules) this way; pick another folder.'
+  if (inAnySkills(target)) return 'a file is not copied into a skills folder (team, group or project skills and rules) this way; pick another folder.'
   if (instructionLike(target)) return `'${target}' is named like an instruction file the AI follows (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md); pick another name.`
   try { authorize(rt.files.fx, rt.files.rules(), exec.livePrincipal(), target, 'write', { createDirs: true }) } catch (e) {
     if (e instanceof Denied || e instanceof ToolError) return e.message

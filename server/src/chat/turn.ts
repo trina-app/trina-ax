@@ -291,6 +291,8 @@ export function answerStepCap(team: number, o: { guest: boolean; unattended: boo
 const HIDDEN_STEP_TOOLS = new Set(['set_title', 'todo_write'])
 /** calls after which the text before them stays the answer (chat/turn.ts endPiece): bookkeeping that ends an answer */
 const INTERIM_KEEPS = new Set(['remember', 'forget', 'TodoWrite'])
+/** the longest text piece that leaves the answer as an interim step: a step's detail holds 4000 characters (Step.detail) */
+export const INTERIM_MAX = 4000
 /** Calls whose arguments are a command or a sub-agent's brief and the step's own label (`description`: "Install
  * python-docx in a venv", shown in the step list instead of the command): a dev-environment command (devenv/tool.ts),
  * Claude Code's Bash and its Agent calls. A text piece before one that repeats its label, or shares most words with its
@@ -676,6 +678,7 @@ export class TurnExec {
    * empty), and how many pieces left the answer. A piece a tool call follows is the AI's narration, never the answer. */
   private pieceStart: number | null = null
   private lastInterim = ''
+  private lastInterimStep = ''
   private interimDropped = 0
   /** The final answer's English lead (docs/decisions/20261122-final-answer-english-lead.md): the script whose final
    * answers lose leading working notes in Latin letters (chat/narration.ts leadScript; null: off) and the person's message */
@@ -1290,9 +1293,13 @@ export class TurnExec {
     // claudeAttempt: the prompt is for a Claude attempt (the Agent rule when it has sub-agents); the Codex fallback gets none
     // fresh instructions that start a Claude session (`sessionId`) list the skills as they are now: what a later resumed
     // turn of that session is compared with (skill-list.ts). Codex and the API engine start fresh every turn.
+    // the tools left out of a small API model's list (engine/api-tools-fit.ts, set below): its instructions carry no
+    // rules for them, as the model cannot call them (the left-out note names them). Claude Code and Codex never set it
+    let apiLeftOut: ReadonlySet<string> | null = null
+    const apiPromptTools = (left: ReadonlySet<string> | null) => left?.size ? { tools: extraTools.filter((n) => !left.has(n)) } : {}
     // `api`: the API engine's instructions, without the time line (it goes with the message: apiTimeContext)
     const prompt = (fresh: boolean, claudeAttempt = true, sessionId: string | null = null, api = false) => {
-      const input = { ...promptInput(fresh), subagents: subagents && claudeAttempt, ...(api ? { timeInMessage: true } : {}) }
+      const input = { ...promptInput(fresh), subagents: subagents && claudeAttempt, ...(api ? { timeInMessage: true, ...apiPromptTools(apiLeftOut) } : {}) }
       this.historyTrimmed = fresh ? historyTrimmed(input.history, input.historySummary, historyBudget) : before?.role === 'assistant' && before.history_trimmed === 1
       // cut only because the model's context is small: the default window would have held it (the chat says so)
       this.historySmallModel = fresh ? this.historyTrimmed && historyBudget !== undefined && !historyTrimmed(input.history, input.historySummary) : before?.role === 'assistant' && before.history_small_model === 1
@@ -1425,7 +1432,7 @@ export class TurnExec {
       const all = apiToolsOf(listedTools(rt.files, toolSet))
       const onDemand = !whole && (toolBudget === undefined || toolTokens(all) <= toolBudget)
       const tools = fitApiTools(onDemand ? apiOfferedTools(all).tools : all, toolBudget)
-      const instructions = [buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false, timeInMessage: true }), API_GROUNDING_RULES, toolsLeftOutNote(tools.left), onDemand ? moreToolsNote(deferredOf(all)) : ''].filter(Boolean).join('\n\n')
+      const instructions = [buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false, timeInMessage: true, ...apiPromptTools(new Set(tools.left)) }), API_GROUNDING_RULES, toolsLeftOutNote(tools.left), onDemand ? moreToolsNote(deferredOf(all)) : ''].filter(Boolean).join('\n\n')
       return { tools, fit: historyFit({ contextTokens, instructions, tools: JSON.stringify(tools.tools), message: `${apiTime}\n\n${message}` }) }
     }
     this.apiFixedLeavesNoRoom = (contextTokens) => apiFit(contextTokens, apiToolBudget).fit.budget === 0
@@ -1440,6 +1447,7 @@ export class TurnExec {
         const guess = blindGuess(size, api.baseUrl)
         if (!guess) apiToolBudget = toolBudgetFor({ contextTokens: size.tokens, instructions: `${buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false, timeInMessage: true })}\n\n${API_GROUNDING_RULES}`, message })
         const { tools, fit } = apiFit(size.tokens, apiToolBudget)
+        apiLeftOut = tools.left.length ? new Set(tools.left) : null
         if (fit.overflows && size.exact) {
           rt.log.warn('API model context too small for the instructions', { turn: this.id, contextTokens: size.tokens, source: size.source })
           this.error = engineError('model_too_small', spec.locale)
@@ -2453,18 +2461,28 @@ export class TurnExec {
     if (at === null || !this.narration.active) return false
     const piece = this.writtenText.slice(at)
     if (!piece.trim()) return false
+    // longer than a step's text can hold (Step.detail): no working note but content; it stays in the answer whole,
+    // never cut mid-sentence on a step (docs/decisions/20261125-interim-text-inline.md)
+    if (piece.trim().length > INTERIM_MAX) return false
     const statusLine = this.narration.wouldDrop(piece)
     this.discardTextFrom(at)
-    // a status line ("Let me check …") is never the fallback answer
-    if (!statusLine) this.lastInterim = piece.trim()
     this.interimDropped++
-    this.addStep({ kind: 'thinking', label: tr('thinking', this.spec.locale), status: 'ok', detail: piece.trim() })
+    // in the person's script it is text to them: the chat shows it at its place among the steps, as Claude Code does;
+    // a working note in other letters stays folded under the thinking label (docs/decisions/20261125-interim-text-inline.md)
+    const step = this.addStep({ kind: 'thinking', label: tr('thinking', this.spec.locale), status: 'ok', detail: piece.trim(), ...(!statusLine && this.narration.inOwnScript(piece) ? { interim: true as const } : {}) })
+    // a status line ("Let me check …") is never the fallback answer
+    if (!statusLine) { this.lastInterim = piece.trim(); this.lastInterimStep = step.id }
     return true
   }
   /** The end: an answer with no text after its last call gets the last interim piece, so it is never blank. */
   private endInterimFallback() {
     if (!this.interimDropped) return
-    if (!this.writtenText.trim() && this.lastInterim) { if (this.writtenText) this.discardTextFrom(0); this.appendText(this.lastInterim); this.lastInterim = ''; this.flushText() }
+    if (!this.writtenText.trim() && this.lastInterim) {
+      // its step no longer shows the text at its place: the answer has it now (never twice)
+      const st = this.steps.find((x) => x.id === this.lastInterimStep)
+      if (st?.interim) { delete st.interim; this.dirty = true; this.publishStep(st) }
+      if (this.writtenText) this.discardTextFrom(0); this.appendText(this.lastInterim); this.lastInterim = ''; this.flushText()
+    }
   }
   /** The end: the final piece's leading paragraphs that are the AI's working notes in Latin letters above an answer in
    * the person's script (chat/narration.ts finalAnswerLead) leave the answer, streamed and saved, as a thinking step,
@@ -2540,6 +2558,7 @@ export class TurnExec {
       // a sub-agent's step: the id of its sub-task step, through the same cap as step ids (review S8)
       ...(s.parentId ? { parentId: stepId(s.parentId) } : {}), ...(s.subtask ? { subtask: s.subtask } : {}),
       ...(s.devEnvRun ? { devEnvRun: s.devEnvRun } : {}), ...(s.todos ? { todos: s.todos } : {}),
+      ...(s.interim ? { interim: true as const } : {}),
     }
     const i = this.steps.findIndex((x) => x.id === step.id)
     // where in the answer the step started (held text is let out before a tool step): an artifact's card shows there.
@@ -5780,7 +5799,27 @@ export class TurnExec {
   /** The step of a call whose card waits after the answer: it says so (not a refusal) */
   markCallWaiting(tool: string) {
     const st = [...this.steps].reverse().find((x) => x.tool === tool && !x.parentId)
-    if (st) this.updateStep(st.id, { detail: tr('cardWaits', this.spec.locale) })
+    if (st) this.updateStep(st.id, { detail: tr('cardWaits', this.spec.locale), waiting: true })
+  }
+
+  /** The person answered a card that waited after an earlier answer (replayCalls): that answer's step of the call stops
+   * waiting, and says "Declined" for a no (QA of #594: "파일 수정 ✓" while the card was still open). The newest waiting
+   * step of the tool in that message; nothing when it is gone. */
+  private settleWaitingStep(messageId: string | undefined, tool: string, declinedIt: boolean) {
+    if (!messageId) return
+    try {
+      const row = this.rt.db.query('SELECT chat_id, steps FROM messages WHERE id = ?').get(messageId) as { chat_id: string; steps: string | null } | null
+      if (!row?.steps) return
+      const steps = JSON.parse(row.steps) as StoredStep[]
+      const st = [...steps].reverse().find((x) => x.tool === tool && x.waiting)
+      if (!st) return
+      delete st.waiting
+      delete st.detail
+      if (declinedIt) st.outcome = { ...(st.outcome ?? {}), end: 'declined' }
+      this.rt.db.query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify(steps), messageId)
+      const step: Step = st.sv ? { ...publicStep(st), label: st.sv.label } : { ...st }
+      this.rt.hub.publish(this.spec.userId, { type: 'message.step', data: { chatId: row.chat_id, messageId, step } })
+    } catch (e) { this.rt.log.warn('settling a waiting step failed', { err: e, turn: this.id }) }
   }
 
   /**
@@ -5800,6 +5839,7 @@ export class TurnExec {
       // the card's no (or Skip) runs nothing: the call is not run again, so no check of this moment can act on a no
       // (docs/decisions/20261122-late-card-answer-resumes.md)
       if (declined(c.card, c.answer)) {
+        this.settleWaitingStep(c.asked?.assistantId, c.tool, true)
         // (the step says so, as the call's own "no" did)
         this.onEvent({ type: 'tool_start', id, name: TEAM_TOOL_PREFIX + c.tool, summary: '', input: c.args as Record<string, unknown> }, errors)
         this.onEvent({ type: 'tool_end', id, ok: true, output: 'Not done: the user said no on the card.' }, errors)
@@ -5828,6 +5868,7 @@ export class TurnExec {
         try { keepAlways(this.rt.db, this.spec.userId, c.always, this.id) } catch (e) { this.rt.log.warn('keeping a waiting card\'s Always allow failed', { err: e, turn: this.id }) }
       }
       this.onEvent({ type: 'tool_end', id, ok, output: said.slice(0, 4000) }, errors)
+      this.settleWaitingStep(c.asked?.assistantId, c.tool, false)
       out.push(`- ${c.tool} ${argsAi}: the user answered ${JSON.stringify(c.answer ?? null)}. It ran again now (every check made again) and returned:\n${neutralizeTags(said)}`)
     }
     this.attemptHadOutput = false

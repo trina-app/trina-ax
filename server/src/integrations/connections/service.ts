@@ -19,17 +19,22 @@ import { errorForLog, secretHider, SecretTooLarge } from './hide'
 import { MCP_CALL_IDLE_MS, MCP_CALL_TIMEOUT_MS, MAX_SCHEMA_CHARS, MCP_LIST_TIMEOUT_MS, McpClient, McpError } from './mcp'
 import { NetError, serviceRequest, TIMEOUT_MS, type NetOptions, type NetResponse } from './net'
 import { codeParts, refusalCode, refusalOf, refusalReason, refusesToken } from './refusal'
-import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, documentOrigins, GrantError, issuerMatches, loopbackClient, loopbackPortOk, manualServer, MAX_SCOPE_CHARS, NoSignInFound, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
+import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, documentOrigins, GrantError, issuerMatches, loopbackClient, loopbackPortOk, loopbackRedirect, manualServer, MAX_SCOPE_CHARS, NoSignInFound, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
 import {
   accessOf, activeUser, clientAad, clientInfo, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, offByTeam, requestSignedIn, savedTools, SecretBox, secretHere, selectRows, setAccess, StoreError, templateClientAad, templateCovers, toolListsOf, usable, view,
-  type ClientInfo, type FlowRow, type Row, type Viewer,
+  microsoftAccountIn, type ClientInfo, type FlowRow, type MicrosoftAccount, type Row, type Viewer,
 } from './store'
+import { rebindAccount, sharedBind } from './tool-allow'
 import { say, type Reason, type TextKey } from './text'
 import { NOTIFICATION_RETENTION_MS, notifyConnectionReconnect, notifyTemplateLeft, notifyTemplateReconnect } from '../../notifications/service'
 import { refreshGoogleApp } from '../google-apps/tokens'
-import { serverAppAt } from '@mycel/shared'
+import { officialService, serverAppAt, teamAppAt, type ServerApp } from '@mycel/shared'
 import { CLAIM_MS, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
 import { GITHUB_AUTHORIZE_URL, GITHUB_TOKEN_URL, githubAppOf, githubAppView, revokeGitHubToken } from '../github/app'
+import { MICROSOFT_SCOPE, microsoftAppOf, microsoftAppView, microsoftAuthorizeUrl, microsoftTokenUrl } from '../microsoft/app'
+import { answerMicrosoftMcp } from '../microsoft/mcp-server'
+import { Graph, microsoftMe } from '../microsoft/graph'
+import { extractText } from '../../files/extract'
 import { APP_NAMES, appTools, isAppTool } from '../google-apps/catalog'
 import { downMessage, libraryRequest, LibraryDown } from '../google-apps/transport'
 import { demoFakesOf } from '../../demo/fakes'
@@ -72,6 +77,8 @@ const PROBE_PORT = 49152
 /** loopbackSeen's key: the sign-in server (its issuer and registration address), never the team's address */
 const loopbackKey = (s: OAuthServer) => JSON.stringify([s.issuer, s.registrationEndpoint])
 const CLIENT_IDLE_MS = 10 * 60_000
+/** after Graph did not name a Microsoft 365 connection's account, how long until a check tries again */
+const MS_NAME_RETRY_MS = 10 * 60_000
 /** earlier secret values remembered per connection for hiding (OAuth tokens rotate; an old one may still work) */
 const RECENT_SECRETS = 16
 /** what is shown instead of an answer when the connection's secret cannot be read to hide it */
@@ -91,8 +98,8 @@ type Secret = KeySecret | OAuthSecret
 interface FlowSecret {
   verifier: string; server: OAuthServer; client: OAuthClient; resource: string | null; scope: string | null
   pinOnto?: { json: string; enc: string | null } | null; appVersion?: number | null; own?: 'mine' | 'template' | boolean
-  /** signed in through the server's GitHub App (serverApp): kept with the tokens, so refreshes use that app as it is now */
-  serverApp?: 'github'
+  /** signed in through an app the server holds (serverApp): kept with the tokens, so refreshes use that app as it is now */
+  serverApp?: ServerApp
   /** a desktop sign-in answered in a browser without the starter's session (hold): the tokens, waiting for the app's
    * one-time code (`claim`: its sha256, never the code) until `until` (ms) */
   held?: { tokens: OAuthTokens; claim: string; until: number }
@@ -213,6 +220,8 @@ export class Integrations {
   readonly net: NetOptions
   readonly now: () => number
   private clients = new Map<string, McpClient>()
+  /** Microsoft 365 connections whose account Graph did not name at the last try, and when (nameMicrosoftAccount) */
+  private msTried = new Map<string, number>()
   /** an app on the computer: one client per connection, for the window and turn it was made for (local.ts) */
   private localClients = new Map<string, { key: string; client: McpClient }>()
   /** the guide last saved per connection and version (keepInstructions) */
@@ -240,7 +249,7 @@ export class Integrations {
     const team = (this.db.query(`${selectRows(this.db)} WHERE scope = 'team' AND google_app IS NULL ORDER BY name, id`).all() as Row[]).filter((r) => mayUse(this.db, r, viewer.id))
     const settings = getTeamSettings(this.db)
     const personalAllowed = settings.personalIntegrations
-    return { items: [...personal, ...team].map((r) => view(this.db, r, viewer, locale)), personalAllowed, localAllowed: personalAllowed && localOn(this.db), recommendedTools: settings.recommendedTools ?? [], github: githubAppView(this.ctx) }
+    return { items: [...personal, ...team].map((r) => view(this.db, r, viewer, locale)), personalAllowed, localAllowed: personalAllowed && localOn(this.db), recommendedTools: settings.recommendedTools ?? [], github: githubAppView(this.ctx), microsoft: microsoftAppView(this.ctx) }
   }
   listTeam(viewer: Viewer, locale: Locale): Integration[] {
     // an app's account shared with the team is on that app's page in Admin › Connectors (google-apps/)
@@ -773,7 +782,15 @@ export class Integrations {
    * from a template only at the template's address. null: another address, or no GitHub App on this server (the
    * service's own metadata then says it registers no apps: oauth_no_registration, as before). */
   private serverApp(row: Row, src: Pick<Row, 'url' | 'version'>): OwnClient | null {
-    if (row.kind !== 'mcp' || row.url !== src.url || serverAppAt(row.url) !== 'github') return null
+    if (row.kind !== 'mcp' || row.url !== src.url) return null
+    const which = serverAppAt(row.url)
+    // Microsoft 365 (docs/decisions/20261125-m365-connector.md): the server's Microsoft app at Microsoft's fixed
+    // addresses for its tenant, with the connector's fixed scopes
+    if (which === 'microsoft') {
+      const ms = microsoftAppOf(this.ctx)
+      return ms ? { clientId: ms.clientId, clientSecret: ms.clientSecret, authorizationUrl: microsoftAuthorizeUrl(ms), tokenUrl: microsoftTokenUrl(ms), scope: MICROSOFT_SCOPE, foundTokenUrl: null, serverApp: 'microsoft', stored: { json: '', enc: null, version: src.version } } : null
+    }
+    if (which !== 'github') return null
     const gh = githubAppOf(this.ctx)
     if (!gh) return null
     return { clientId: gh.clientId, clientSecret: gh.clientSecret, authorizationUrl: GITHUB_AUTHORIZE_URL, tokenUrl: GITHUB_TOKEN_URL, scope: null, foundTokenUrl: null, serverApp: 'github', stored: { json: '', enc: null, version: src.version } }
@@ -782,6 +799,10 @@ export class Integrations {
    * replaced since: GitHub keeps several secrets of an app while one is rotated), never with a copy kept with the tokens.
    * The same client ID only: another app (or none now) keeps the stored one, which GitHub then refuses (sign in again). */
   private currentClient(row: Row, s: OAuthSecret): OAuthSecret {
+    if (s.serverApp === 'microsoft' && serverAppAt(row.url) === 'microsoft') {
+      const ms = microsoftAppOf(this.ctx)
+      return ms && ms.clientId === s.client.clientId ? { ...s, client: { ...s.client, clientSecret: ms.clientSecret } } : s
+    }
     if (s.serverApp !== 'github' || serverAppAt(row.url) !== 'github') return s
     const gh = githubAppOf(this.ctx)
     return gh && gh.clientId === s.client.clientId ? { ...s, client: { ...s.client, clientSecret: gh.clientSecret } } : s
@@ -847,7 +868,9 @@ export class Integrations {
           // a Google app: the card's client as set up now, or the hosting service (google-apps/tokens.ts)
           const tokens = row.google_app
             ? await refreshGoogleApp(this.ctx, s, this.now())
-            : await tokenRequest(this.currentClient(row, s), { grant_type: 'refresh_token', refresh_token: s.tokens.refreshToken!, ...(s.resource ? { resource: s.resource } : {}) }, this.net, this.now(), s.tokens)
+            : await tokenRequest(this.currentClient(row, s), { grant_type: 'refresh_token', refresh_token: s.tokens.refreshToken!, ...(s.resource ? { resource: s.resource } : {}),
+              // Microsoft 365: the same scopes again (Entra's v2.0 refresh otherwise answers for its own default set)
+              ...(serverAppAt(row.url) === 'microsoft' && s.scope ? { scope: s.scope } : {}) }, this.net, this.now(), s.tokens)
           this.keepTokens(row.id, s.tokens.refreshToken!, tokens)
           return tokens.accessToken
         } catch (e) {
@@ -1017,6 +1040,14 @@ export class Integrations {
         // say "1,000 of 1,200", or "1,000 of more than 1,000" when reading stopped with pages left (mcp.ts listTools);
         // how many were left out as too large, so an empty list says why (ConnectionPage.tsx)
         this.setStatus(row, 'connected', null, { tools: JSON.stringify(tools), total: more ? Math.max(total, tools.length) : null, totalMore: unread, dropped: dropped.length })
+        // Microsoft 365 whose account is not known yet (signed in before it was named at sign-in, or Graph did not
+        // answer then): named now; after a try Graph did not answer, not again for MS_NAME_RETRY_MS
+        const now = getRow(this.db, row.id)
+        const known = microsoftAccountIn(now?.account)
+        if (now && now.secret_enc && serverAppAt(now.url) === 'microsoft' && (!known || !known.microsoft || known.check) && this.now() - (this.msTried.get(now.id) ?? -Infinity) >= MS_NAME_RETRY_MS) {
+          // the token first: a refresh replaces the stored tokens, and the name goes with the ones stored then
+          try { const token = await this.oauthToken(now, undefined, deadline); const cur = getRow(this.db, row.id); if (cur?.secret_enc) await this.nameMicrosoftAccount(cur.id, cur.secret_enc, token, cur.account, null) } catch (err) { this.msTried.set(now.id, this.now()); this.ctx.log.warn('microsoft 365 account not named', { id: row.id, err: errorForLog(err) }) }
+        }
       } else {
         const res = await this.send(row, row.url, { method: 'GET', headers: [['Accept', 'application/json, text/plain;q=0.9, */*;q=0.5']], signal })
         if (res.status === 401 || res.status === 403) {
@@ -1046,6 +1077,32 @@ export class Integrations {
     return getRow(this.db, row.id) ?? row
   }
 
+  /** The Microsoft account a Microsoft 365 connection's tokens are for, kept as its `account` (store.ts MicrosoftAccount)
+   * while those tokens (`enc`) are the stored ones; `prev`: its account before. People's "Always allow" answers are
+   * bound to the account's id (store.ts accountKey), never to its label:
+   *  - a new sign-in (`signIn`): the id its token answer's id_token named (oauth.ts idSubject), else the one Graph /me
+   *    names for these new tokens, else unknown (its answers ask again and are kept until it is known). Never the
+   *    earlier account's id, and nothing is moved: another account's answers ask again;
+   *  - a check (`signIn` null) of a connection signed in before its account was named (no account stored): the id Graph
+   *    names for the tokens it already had, and the answers given while it was unnamed follow it (rebindAccount);
+   *  - Graph /me gives only the label. Not answering: the label stays empty (or the same account's earlier one), marked
+   *    `check`, and a check tries again after MS_NAME_RETRY_MS; answering with no usable name is not asked again. */
+  private async nameMicrosoftAccount(id: string, enc: string, token: string, prev: string | null, signIn: { subject: string | null } | null): Promise<void> {
+    const before = microsoftAccountIn(prev)
+    let me: { id: string | null; label: string | null } | null = null
+    try { me = await microsoftMe(new Graph(token, this.net)) } catch (err) { this.ctx.log.warn('microsoft 365 account not named', { id, err: errorForLog(err) }) }
+    if (me) this.msTried.delete(id); else this.msTried.set(id, this.now())
+    const subject = signIn ? signIn.subject ?? me?.id ?? null : before?.microsoft ?? me?.id ?? null
+    const same = !!subject && before?.microsoft === subject
+    const next: MicrosoftAccount = { microsoft: subject, label: me ? me.label : same ? before!.label : null, ...(me && subject ? {} : { check: true as const }) }
+    const account = JSON.stringify(next)
+    this.db.transaction(() => {
+      if (!this.db.query('UPDATE integrations SET account=? WHERE id=? AND secret_enc=?').run(account, id, enc).changes) return
+      const url = getRow(this.db, id)?.url
+      if (url && !signIn && prev === null && next.microsoft) rebindAccount(this.db, id, sharedBind({ url, account: prev }), sharedBind({ url, account }))
+    })()
+  }
+
   /** one line for a check the service refused: the status and what it said (sanitized and cut, refusal.ts; no token) */
   private logRefused(row: Row, status: number, code: string) {
     const { reason, said } = codeParts(code)
@@ -1063,7 +1120,10 @@ export class Integrations {
     const c = this.clients.get(key)
     if (c && this.now() - c.usedAt < CLIENT_IDLE_MS && (!library || c.url === library)) return c
     this.dropClient(row.id)
-    const fresh = library
+    const fresh = serverAppAt(row.url) === 'microsoft'
+      // Microsoft 365: its MCP server is in this process (microsoft/mcp-server.ts); only Graph is reached, with the token
+      ? new McpClient(row.url, (deadline) => this.authHeaders(row, deadline), this.net, () => this.hider([row]), (_url, r) => answerMicrosoftMcp(r, { net: this.net, extract: this.extractText }))
+      : library
       ? new McpClient(library, (deadline) => this.authHeaders(row, deadline), this.net, () => this.hider([row]), (url, r) => libraryRequest(library, url, r).catch((e) => {
         throw e instanceof LibraryDown ? new CallError(downMessage(APP_NAMES[row.google_app!]), 'service down') : e
       }))
@@ -1071,6 +1131,10 @@ export class Integrations {
     this.clients.set(key, fresh)
     return fresh
   }
+  /** A Microsoft 365 file's text (microsoft/mcp-server.ts files_read): the team files' readers (PDF text layer, Word,
+   * Excel, PowerPoint, Hangul), as for a Gmail attachment */
+  private extractText = (name: string, bytes: Uint8Array, signal?: AbortSignal) =>
+    extractText(name, bytes, { pandoc: this.ctx.engineConfig.pandoc, pdftotext: this.ctx.engineConfig.pdftotext, ocr: this.ctx.engineConfig.ocr, quarantine: this.ctx.files.quarantine, textLayerOnly: true }, signal)
   /** An app on the computer: a client whose requests go through the local relay to `via`'s window (local.ts), made
    * again for another window, turn or version of the connection. */
   private localClient(row: Row, via: LocalVia | null): McpClient {
@@ -1229,15 +1293,39 @@ export class Integrations {
       if (!row.secret_enc) this.setStatus(row, 'needs_auth', 'oauth_unsupported')
       return fail('validation', say('oauthHttpNeedsApp', L))
     }
+    // a listed service that signs in only through the team's own app (Asana, HubSpot, Box) and has none: nothing is
+    // looked up, registered or opened (a member of a template signs in through the template's app). Not a try at the
+    // service, so it counts toward no limit
+    if (!app && row.kind === 'mcp' && teamAppAt(row.url)) {
+      const reason = row.template_id ? 'oauth_no_registration_member' : 'oauth_needs_team_app'
+      if (!row.secret_enc) this.setStatus(row, 'needs_auth', reason)
+      return fail('validation', say(reason, L, { name: officialService(row.url)?.name ?? row.name }))
+    }
+    // Microsoft 365 (its address never resolves): only through the server's Microsoft app or an own app, nothing to find
+    const microsoft = serverAppAt(row.url) === 'microsoft'
+    // a company's own Entra app given by its ID and secret only: Microsoft's own addresses (any tenant) and the scopes
+    if (microsoft && app && !app.serverApp) {
+      if (!app.authorizationUrl && !app.tokenUrl) app = { ...app, authorizationUrl: microsoftAuthorizeUrl({}), tokenUrl: microsoftTokenUrl({}) }
+      // one of the two addresses only (a single-tenant app's): nothing to find at the reserved address, so both are needed
+      else if (!app.authorizationUrl || !app.tokenUrl) return fail('validation', say('microsoftOwnAppAddresses', L))
+      // the connector's scopes whatever addresses the app gave, unless it names its own
+      if (!app.scope) app = { ...app, scope: MICROSOFT_SCOPE }
+    }
+    if (microsoft && !app?.authorizationUrl) return fail('validation', say('microsoftNotSetUp', L))
     let setup: { server: OAuthServer; resource: string | null; scope: string | null; authMethods: string[] | null; metadataClients?: boolean }
     let client: OAuthClient
-    const redirectUri = new URL(CALLBACK_PATH, origin).href
+    // the server's Microsoft app from the desktop app: its one-time return address on this computer (RFC 8252; Entra
+    // matches a loopback address whatever its port), so it works whatever address the team's server has; the web:
+    // the team's own return address
+    const loopbackPort = app?.serverApp === 'microsoft' && from.client === 'desktop' && loopbackPortOk(from.loopbackPort) ? from.loopbackPort : null
+    const redirectUri = loopbackPort ? loopbackRedirect(loopbackPort) : new URL(CALLBACK_PATH, origin).href
     const flowId = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
     const challenge = crypto.createHash('sha256').update(verifier).digest('base64url')
     try {
       if (app?.authorizationUrl && app.tokenUrl) {
         // the app's own addresses: nothing to find (an MCP server keeps its resource indicator, an API has none)
-        setup = { server: manualServer(app), resource: row.kind === 'mcp' ? canonicalResource(row.url) : null, scope: app.scope, authMethods: null }
+        // (Microsoft's v2.0 sign-in refuses a resource indicator: its scopes name Graph)
+        setup = { server: manualServer(app), resource: row.kind === 'mcp' && !microsoft ? canonicalResource(row.url) : null, scope: app.scope, authMethods: null }
       } else {
         // the server's 401 names its metadata (WWW-Authenticate); without one the well-known addresses are tried
         let header = ''
@@ -1509,6 +1597,8 @@ export class Integrations {
       // bookkeeping never undoes a sign-in that worked)
       try { requestSignedIn(this.db, cur, viewer.id, iso(this.now())) } catch (err) { this.ctx.log.warn('connection request not marked connected', { err }) }
       if (old?.type === 'oauth' && old.tokens.refreshToken !== tokens.refreshToken) void this.revokeTokens(old)
+      // Microsoft 365: the account these tokens are for, named on the connection (another account on a reconnect)
+      if (serverAppAt(cur.url) === 'microsoft') await this.nameMicrosoftAccount(cur.id, sealed.enc, tokens.accessToken, cur.account, { subject: tokens.subject ?? null })
       await this.check(getRow(this.db, cur.id)!)
     } finally { this.db.query("UPDATE integration_oauth_flows SET state='completed', secret_enc=NULL WHERE id=?").run(f.id) }
     return { ok: true }

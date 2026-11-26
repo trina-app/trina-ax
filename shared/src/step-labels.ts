@@ -5,6 +5,7 @@
 // and only the words are translated. On screen, a path's well-known team folders are said in words (stepPlace).
 import type { Locale } from './api/common'
 import { BRAND_FOLDER, BRAND_IMAGES_FOLDER, NOTES_FOLDER } from './api/onboarding-packs'
+import { skillLabel } from './api/skills'
 import { ownFolderLabel, ownFolderWord, personFolderLabel, TOP_FOLDER_LABELS } from './folder-labels'
 import { mediaKind, type MediaKind } from './media'
 import { parsePlace } from './places'
@@ -196,6 +197,10 @@ export const STEP_TEXT = {
   rememberUpdated: t('기억 고침: {text}', 'Memory updated: {text}', 'Ingatan diperbarui: {text}', "記憶を更新しました：{text}", "Memoria actualizada: {text}", "已更新记忆：{text}"),
   /** forget, with the text of the memory it removed */
   forgotText: t('잊음: {text}', 'Forgot: {text}', 'Dilupakan: {text}', "忘れました：{text}", "Olvidado: {text}", "已忘记：{text}"),
+  /** one of the person's own skills saved, fixed or deleted by the AI (server/src/chat/personal-skills.ts) */
+  skillSaved: t('스킬 저장함: {name}', 'Saved skill: {name}', 'Skill disimpan: {name}', "スキルを保存しました：{name}", "Habilidad guardada: {name}", "已保存技能：{name}"),
+  skillFixed: t('스킬 고침: {name}', 'Skill updated: {name}', 'Skill diperbarui: {name}', "スキルを更新しました：{name}", "Habilidad actualizada: {name}", "已更新技能：{name}"),
+  skillDeleted: t('스킬 지움: {name}', 'Deleted skill: {name}', 'Skill dihapus: {name}', "スキルを削除しました：{name}", "Habilidad eliminada: {name}", "已删除技能：{name}"),
   forgot: t('기억 지움', 'Forgot a memory', 'Ingatan dihapus', "メモリを削除しました", "Se olvidó una memoria", "已删除一条记忆"),
   notAnswered: t('답하지 않음', 'Not answered', 'Tidak dijawab', "未回答", "Sin respuesta", "未回答"),
   /** detail of a connect_service step: the person finished the card (or it was connected already), or did not */
@@ -654,6 +659,9 @@ export const STEP_PLACE = {
   chatFiles: t('이 채팅', 'This chat', 'Chat ini', "このチャット", "Este chat", "此对话"),
   /** chat:work/…: the chat's work folder ($TRINA_WORK) */
   work: t('작업 폴더', 'Work folder', 'Folder kerja', "作業フォルダー", "Carpeta de trabajo", "工作文件夹"),
+  /** users/<id>/skills/<name>/SKILL.md (or its folder): the person's own skill by its name as words, never the file
+   * path (QA of #606: "파일 고치기 · 내 파일 › skills › meeting-notes › SKILL.md") */
+  mySkill: t("내 스킬 '{name}'", "My skill '{name}'", "Skill saya '{name}'", "自分のスキル「{name}」", "Mi habilidad '{name}'", "我的技能“{name}”"),
   /** users/<id>/: an answer only ever reaches the person's own */
   own: t('내 폴더', 'My folder', 'Folder saya', "自分のフォルダー", "Mi carpeta", "我的文件夹"),
   /** shared/: the whole team's, by the name the file screen gives it (shared/src/folder-labels.ts) */
@@ -713,6 +721,8 @@ export function placeName(path: string, locale: Locale, viewer?: PlaceViewer): s
     const head = name ? personFolderLabel(name, locale) : TOP_FOLDER_LABELS.users[locale] ?? TOP_FOLDER_LABELS.users.en
     return (b === '.attachments' && c ? [head, STEP_PLACE.attachments[locale] ?? STEP_PLACE.attachments.en, ...segs.slice(4)] : [head, ...segs.slice(2)]).join(' › ')
   }
+  // one of the person's own skills: by its name (its folder) as words, not the file
+  if (top === 'users' && a && b === 'skills' && c && (segs.length === 4 || (segs.length === 5 && segs[4] === 'SKILL.md'))) return fill(STEP_PLACE.mySkill[locale] ?? STEP_PLACE.mySkill.en, { name: skillLabel({ name: c }) })
   // the own folder by the name it has on this server ("내 파일": folder-labels.ts ownFolderLabel)
   if (top === 'users' && a) return b === '.attachments' && c ? say('attachments', 4) : ownFolderWord() === 'files' ? [ownFolderLabel(locale), ...segs.slice(2)].join(' › ') : say('own', 2)
   if (top === 'shared') {
@@ -934,6 +944,8 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   else if (tool === 'read') label = reverb(READ_MEDIA_VERB.video, step.label, locale) ?? reverb(READ_MEDIA_VERB.audio, step.label, locale) ?? reverb(READ_SLIDES_VERB, step.label, locale) ?? reverb(FILE_STEP_VERB.read!, step.label, locale)
   else if (tool === 'artifact') label = reverb(ARTIFACT_ACTION_VERB.edit, step.label, locale) ?? reverb(ARTIFACT_ACTION_VERB.read, step.label, locale) ?? reverb(ARTIFACT_ACTION_VERB.restore, step.label, locale) ?? reverb(FILE_STEP_VERB.artifact!, step.label, locale, LEGACY_VERBS[tool])
   else if (tool !== 'box_shell' && FILE_STEP_VERB[tool]) label = reverb(FILE_STEP_VERB[tool]!, step.label, locale, LEGACY_VERBS[tool])
+  // a personal skill saved, fixed or deleted (a write, edit or delete_files step the server relabelled)
+  if ((label === null || label === step.label) && (tool === 'write' || tool === 'edit' || tool === 'delete_files')) label = retemplate(['skillSaved', 'skillFixed', 'skillDeleted'], step.label, locale)
   const details: StepTextKey[] = tool === 'connect_service' ? ['connectConnected', 'connectNotConnected'] : ['notAnswered', 'webSearchRefused']
   let detail = step.detail !== undefined ? (retemplate(details, step.detail, locale) ?? step.detail) : undefined
   // a dev-environment command: plain words on the line (the AI's description, else what kind of command it is), and the

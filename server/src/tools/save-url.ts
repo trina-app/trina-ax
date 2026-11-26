@@ -39,7 +39,7 @@ import { getMedia, MEDIA_PREFIX } from '../integrations/connections/media'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment } from '../policy/names'
-import { inSkills } from '../skills/guard'
+import { inAnySkills } from '../skills/guard'
 import { componentC } from '../team-files/component'
 import { privateToMe } from '../files/share-readers'
 import type { StatFs } from '../system/storage'
@@ -165,7 +165,7 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
   const wanted = a.save_as === undefined ? undefined : savePathArg(a.save_as)
   const folderOnly = !wanted || wanted.endsWith('/')
   const explicitFolder = wanted ? (folderOnly ? wanted.replace(/\/+$/, '') : wanted.split('/').slice(0, -1).join('/')) : null
-  if (wanted && inSkills(wanted)) throw new ToolError('files cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
+  if (wanted && inAnySkills(wanted)) throw new ToolError('files cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
   // one naming rule for the card before the download and the file after it: the name asked for, else the address's
   // (after the download the address its redirects ended at, which may name the file: ".../fwlink/?LinkID=1" ->
   // "Financial Sample.xlsx"; a changed name is checked again on the wider-audience card below)
@@ -327,7 +327,7 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
       const refusal = await t.confirmWidening?.(target, [])
       if (refusal) throw new ToolError(refusal)
     }
-    if (inSkills(target)) throw new ToolError('files cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
+    if (inAnySkills(target)) throw new ToolError('files cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
     const made = await placeProduced(ctx, files, t, target.split('/').filter(Boolean), tmp, 'save_url', undefined, { turnBytes: false, thisAnswerOnly: true, fetched: true, detail: { url: from.slice(0, 4000), type: k.mime } })
     // macros are programs inside the document: the person decides whether to trust them
     if (k.macros) notes.push(`This ${k.label} file contains macros (small programs inside the document). Tell the user plainly before they open it: open it only if they trust where it came from, and keep macros turned off otherwise.`)

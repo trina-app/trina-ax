@@ -38,28 +38,37 @@ Admin › Connected apps has one card per app. Each needs a Google OAuth web cli
      Gmail's permissions are "restricted": publishing an External app that uses them needs Google's verification.
 4. **Data access (scopes)**: add the scopes of the apps you use. Trina asks for exactly these, per app:
    - every app: `openid`, `.../auth/userinfo.email`, `.../auth/userinfo.profile` (the library checks whose token it is)
-   - Gmail: `gmail.readonly`, `gmail.send`, `gmail.compose`, `gmail.modify`, `gmail.labels`, `gmail.settings.basic`
-   - Calendar: `calendar`, `calendar.readonly`, `calendar.events`
-   - Docs: `documents`, `documents.readonly`, `drive.readonly`, `drive.file`
-   - Sheets: `spreadsheets`, `spreadsheets.readonly`, `drive.readonly`, `drive.file`
+   - Gmail: `gmail.modify`, `gmail.settings.basic`
+   - Calendar: `calendar`
+   - Docs: `documents`, `drive.readonly`, `drive.file`
+   - Sheets: `spreadsheets`, `drive.readonly`, `drive.file`
+
+   These are the minimum scopes (Google's verification review, 2026-11-25): no narrower scope is asked for beside the
+   broader one that includes it (`gmail.modify` covers reading, drafts, sending and labels; `gmail.settings.basic`
+   is only for filters and vacation replies). All of them together are `GOOGLE_CONSOLE_SCOPES` (shared
+   cloud-protocol/drive-broker.ts), exactly the list on the hosting service's console Data Access page.
 
    A sign-in where the person unticks one of them is refused (`reason: "scope_denied"`; the page says "Some
    permissions were not ticked. Connect again and keep every box ticked."), because the tools that need it would fail
    later. A narrower scope counts as given when Google granted its broader one instead (`calendar` for
    `calendar.readonly` and `calendar.events`, `documents` for `documents.readonly`, `spreadsheets` for
-   `spreadsheets.readonly`, `gmail.modify` for `gmail.readonly`, `drive` for `drive.readonly` and `drive.file`), and
-   `email` / `profile` count for `userinfo.email` / `userinfo.profile` (`scopesCover` in service.ts; the hosting
-   service's broker has the same list).
+   `spreadsheets.readonly`, `gmail.modify` for `gmail.readonly`, `gmail.send`, `gmail.compose` and `gmail.labels`,
+   `drive` for `drive.readonly` and `drive.file`), and `email` / `profile` count for `userinfo.email` /
+   `userinfo.profile` (`googleScopesCover` in the shared cloud-protocol contract; the hosting service's broker uses
+   the same one). A grant made before 2026-11-25 also holds the narrower scopes: a superset, so it keeps working.
 5. **Clients › Create client › Web application**, with this **Authorized redirect URI** (the card shows it):
    `https://<your team address>/api/integrations/google-apps/callback` (one address for all four apps).
 
 ### In Trina
 
+A step-by-step guide for admins, with screenshots from a real run:
+[Google with your own Google app (self-installed)](site/operate/google-own-app-self-installed.md).
+
 Admin › Connected apps › the app › **Set up**:
 
 - **Use the same Google app as Drive** (offered, and on, when Google Drive has one): the card signs in with Drive's
   client and follows it when Drive's changes (people then reconnect). Add the redirect URI above to that client in
-  Google Cloud, and switch on the card's APIs in the same project.
+  Google Cloud (the dialog shows it, with Copy), and switch on the card's APIs in the same project.
 - **Its own Google app**: the JSON file Google Cloud downloads for the client (its redirect URIs must list the address
   above), or the client ID and secret.
 
@@ -95,6 +104,10 @@ older apps and changes nothing, and a stored `integrations.googleApps.<app>.memb
   have asked for it). So does every change in a chat that read something from outside, a mail included
   ([DECISIONS.md](DECISIONS.md) "Connector write cards: outside content asks"). Scheduled tasks keep the rules of any personal connection: only to recipients the task's card
   pinned, otherwise nothing is sent.
+- A card for an event, a message or a spreadsheet that is there already names it first (its title or subject), read
+  with the app's own read tool on the same connection just before the card shows (`google-apps/names.ts`, at most
+  5 seconds, never when that read tool is turned off). The name goes only onto the card, never to the AI; when it
+  cannot be read the card shows the id. Docs cards show the document's id (no read names a document cheaply).
 - Rooms have no AI of their own (no "@트리나" since 2026-11-09). The ✦ side chat beside a room is a personal chat: it
   uses the asker's own Google apps like any personal chat, and an answer reaches the room only when the person sends
   it (**Send to a conversation**).

@@ -57,6 +57,7 @@ Trina AX がつなぐものは 2 種類あります。
 | Slack（自分たちの Slack アプリ） | **Bot User OAuth Token**（`xoxb-`）、**App-Level Token**（`xapp-`）、**Client ID**、**Client Secret** | api.slack.com › あなたのアプリ |
 | Notion、Linear、Atlassian、Figma、Canva など「見つける」にあるアプリ | なし：アプリ自身のページでログインします | そのアプリのあなたのアカウント |
 | GitHub | なし：GitHub でサインインします | 自分の GitHub アカウント |
+| Asana、HubSpot、Box | 管理者が一度だけ：チームがそのサービスで作ったアプリの **クライアント ID** と **クライアントシークレット**（画面に各サービスのガイドへのリンクがあります）。その後はなし：各自がサービスでサインインします | Asana：My apps › **MCP app**。HubSpot：Development › **MCP Connectors**。Box：Admin Console › Integrations › **Box MCP server** |
 | キーを発行するその他のアプリ | **アドレス** と **キー**（**ヘッダー名** が必要な場合もあります） | アプリのヘルプページ（「MCP server」「API keys」） |
 | 会社の API | **アドレス**、**キー**、**使用上の注意** | そのシステムの担当者 |
 | NAVER WORKS など、独自のアプリでログインするサービス | **クライアントID**、**クライアントシークレット**、**ログインアドレス**、**トークンアドレス**、**スコープ** | そのアプリの開発者コンソール |

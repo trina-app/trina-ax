@@ -6,7 +6,7 @@ import path from 'node:path'
 import { describe, expect, test } from 'bun:test'
 import { catalogAt, catalogNamed, mixedScript, nameSkeleton, officialService, officialUrls, posesAsListed, sameListedService, SERVICE_CATALOG, trustedServiceName } from '@mycel/shared'
 import { IntegrationInput } from '@mycel/shared/api'
-import { AI_APPS, BUILT_IN, connectorFor, CONNECTORS, isConnected, SLACK_APP } from '../../src/lib/connectors'
+import { AI_APPS, BUILT_IN, connectorFor, connectorTeamApp, CONNECTORS, isConnected, SLACK_APP } from '../../src/lib/connectors'
 import { canonicalService, emptyForm, toInput, validate } from '../../src/lib/integrations'
 import { DICTS } from '../../src/i18n'
 import { LISTED_LOCAL_APPS } from '../../src/lib/localApps'
@@ -17,11 +17,21 @@ describe('the shared list of services (shared/src/service-catalog.ts)', () => {
     expect(CONNECTORS.map(({ id, name, url }) => ({ id, name, url }))).toEqual(SERVICE_CATALOG.map(({ id, name, url }) => ({ id, name, url })))
     for (const c of CONNECTORS) expect(c.logo).toMatch(/^[a-z0-9-]+\.(svg|png)$/)
   })
+  test('Asana, HubSpot and Box connect only through the team\'s own app; Granola and the rest register themselves', () => {
+    expect(CONNECTORS.filter((c) => connectorTeamApp(c)).map((c) => c.id).sort()).toEqual(['asana', 'box', 'hubspot'])
+    const asana = CONNECTORS.find((c) => c.id === 'asana')!
+    expect(connectorTeamApp(asana)).toMatchObject({ scope: 'default', guide: expect.stringMatching(/^https:\/\/developers\.asana\.com\//) })
+    // a team app's form: the app switched on, Asana's scope; it is incomplete until its client ID is pasted
+    const f = { ...emptyForm('mcp'), name: asana.name, url: asana.url, ownApp: true, scope: 'default' }
+    expect(validate(f).clientId).toBe('integrations.error.clientId')
+    expect(validate({ ...f, clientId: 'app-1', clientSecret: 's' })).toEqual({})
+    expect(CONNECTORS.find((c) => c.id === 'granola') && connectorTeamApp(CONNECTORS.find((c) => c.id === 'granola')!)).toBeNull()
+  })
   test('a name means a listed service exactly, holds one among other words, or names none', () => {
     for (const n of ['Notion', 'notion', 'NOTION', 'Notion MCP', 'the Notion app', 'Ｎｏｔｉｏｎ']) expect(catalogNamed(n), n).toMatchObject({ exact: true, service: { id: 'notion' } })
     for (const [n, id] of [['ClickUp', 'clickup'], ['Click Up', 'clickup'], ['WordPress', 'wordpress'], ['WordPress.com', 'wordpress'], ['Mermaid', 'mermaid'], ['Mermaid Chart', 'mermaid'], ['Monday.com', 'monday']] as const) expect(catalogNamed(n), n).toMatchObject({ exact: true, service: { id } })
     for (const [n, id] of [['Notion workspace', 'notion'], ['Acme GitLab', 'gitlab'], ['My Click Up tasks', 'clickup']] as const) expect(catalogNamed(n), n).toMatchObject({ exact: false, service: { id } })
-    for (const n of ['Higgs Studio', 'Notes', 'Lineup', 'Hubspot']) expect(catalogNamed(n), n).toBeUndefined()
+    for (const n of ['Higgs Studio', 'Notes', 'Lineup', 'Zendesk']) expect(catalogNamed(n), n).toBeUndefined()
     for (const n of ['GitHub', 'github', '깃허브']) expect(catalogNamed(n), n).toMatchObject({ exact: true, service: { id: 'github' } })
   })
   test('look-alikes and local names count as the service: other scripts, accents, digits, Korean and Japanese', () => {

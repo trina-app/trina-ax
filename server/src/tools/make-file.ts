@@ -40,6 +40,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import ExcelJS from 'exceljs'
 import { addCharts, placeCharts, type ChartSheet, type ChartSpec } from './xlsx-chart'
+import { chartBlocks, insertDocxCharts, insertPptxCharts, type DocChart } from './office-chart'
 import { finishDocx, markTextColors, type TextMark } from './docx-format'
 import { stripUnsafeLinks } from './office-links'
 import { applySheetOptions, type SheetOptions, type WrittenSheet } from './xlsx-format'
@@ -114,6 +115,16 @@ export const OFFICE_PICTURE_HINT =
   '(a new name; the original stays); only the text, headings, lists and simple tables carry over, not its layout, fonts, headers or footers: say so in one ' +
   'sentence. Never say a picture cannot go into a Word file. (PowerPoint fits a picture to the slide and takes no width; Hangul .hwpx takes no pictures.) '
 
+/** make_file's words for charts in Word and PowerPoint (office-chart.ts; live QA 2026-11-25: a Korean request for a Word
+ * report with a chart got a PNG nobody can edit, because these words offered only SVG pictures). */
+export const CHART_BLOCK_HINT =
+  'Charts in Word and PowerPoint: every chart (bar, column, line, pie) is a native chart with its data sheet, so the person can change its numbers ' +
+  '(right-click > Edit Data), whatever language they ask in and even when they do not say "editable": write it as a fenced block ```chart with one ' +
+  'JSON object {"type":"column","title":"Sales by quarter","categories":["Q1","Q2","Q3"],"series":[{"name":"2026","values":[120,135,150]}]} ' +
+  '(type column = vertical bars, bar = horizontal bars, line or pie with one series; plain numbers, null for a gap) on its own lines where the chart goes; ' +
+  'in PowerPoint put it alone under its slide\'s ## heading. Draw a chart as a picture only when the person asks for a picture or the chart has no ' +
+  'such form, and then say in your answer that it is a picture whose numbers cannot be edited. '
+
 /** make_file's words for formatting in Word and Excel and for chart pictures (tools/index.ts; second limits audit
  * N3/N4: the AI said it could not colour text, add a header, footer or conditional formatting, or make a PNG). */
 export const RICH_OFFICE_HINT =
@@ -125,10 +136,11 @@ export const RICH_OFFICE_HINT =
   'freeze: { rows: 1, columns: 1 }, filter: false, conditional: [{ range: "D2:D50", when: "less_than", value: 0, fill: "red", font_color: "white" }] }]; ' +
   'conditional `when`: greater_than, less_than, greater_or_equal, less_or_equal, equal, not_equal, between (value, value2), contains (text), duplicates, ' +
   'top / bottom (value = how many), above_average, below_average, formula (e.g. "=$E2<0", true for a cell to format), color_scale, data_bar. ' +
-  'Pictures: format "png" saves an SVG (in `content`, or an .svg `source`) as a PNG picture: draw a chart, Gantt chart or diagram as SVG with ' +
-  'its numbers and labels and save it as PNG, never just as SVG when the user wants a picture. An .svg picture in a Word or PowerPoint document ' +
-  '(![](charts/sales.svg){width=15cm}) goes in as a PNG, so a report can hold a chart: write the SVG file first, then refer to it. ' +
-  'Never say text colours, headers, footers, page numbers, conditional formatting or chart pictures cannot be made. '
+  CHART_BLOCK_HINT +
+  'Pictures: format "png" saves an SVG (in `content`, or an .svg `source`) as a PNG picture: draw a Gantt chart, diagram, or a chart the user ' +
+  'wants as a picture, as SVG with its numbers and labels and save it as PNG, never just as SVG when the user wants a picture. An .svg picture in ' +
+  'a Word or PowerPoint document (![](charts/flow.svg){width=15cm}) goes in as a PNG: write the SVG file first, then refer to it. ' +
+  'Never say text colours, headers, footers, page numbers, conditional formatting, charts or chart pictures cannot be made. '
 
 /** make_file's description where this server prints HTML (tools/index.ts). Before it, an AI asked to turn a quote's
  * .html into a PDF rewrote it as Markdown tables (losing its navy headers, highlights, merged cells and A4 layout) and
@@ -403,6 +415,8 @@ export class MakeFile {
       let csvSheet: string | undefined
       /** link targets that became plain text (office-links.ts) */
       let linksRemoved: string[] = []
+      /** docx and pptx: the ```chart blocks, by the marker paragraph pandoc writes for each (office-chart.ts) */
+      let docCharts = new Map<string, DocChart>()
       if (a.format === 'xlsx') { const x = await this.xlsx(text, kind, produced, a.charts ?? [], a.sheets ?? [], first ? { name: first.name, more: a.content! } : undefined); formulas = x.formulas; stored = x.stored; charts = x.charts; conditional = x.conditional; csvSheet = x.csvSheet }
       else if (a.format === 'hwpx') await this.hwpx(c, a, text, kind, work, produced, sources)
       else {
@@ -430,6 +444,9 @@ export class MakeFile {
           linksRemoved = stripUnsafeLinks(ast)
           images = await this.copyImages(c, ast, base, work)
           sources.push(...images)
+          // ```chart blocks: native charts with their data sheet in Word and PowerPoint, put in after pandoc
+          docCharts = chartBlocks(ast, a.format === 'pptx' ? 'pptx' : a.format === 'pdf' ? 'pdf' : 'docx')
+          if (docCharts.size && a.format === 'pdf') throw new ToolError('a ```chart block makes a native chart in a Word (docx) or PowerPoint (pptx) file; a PDF cannot hold one: for a PDF, draw the chart as SVG and put it in as a picture (![](charts/sales.svg)); nothing was saved')
           if (a.format === 'pdf' || a.format === 'docx') doc = { pictures: imageCount(ast), textBars: textBars(text) }
           // Word and PowerPoint: an SVG picture (a chart the AI drew) goes in as a PNG, which every reader shows
           if (a.format === 'docx' || a.format === 'pptx') svgPictures = await this.svgPictures(c, ast, work, text)
@@ -474,6 +491,7 @@ export class MakeFile {
             if (!got.ok) throw new ToolError(got.why === 'too_large' ? 'the document is too large to convert' : got.why === 'not_regular' ? 'the converter left a link or a special file instead of the document (symbolic links are not followed); nothing was saved' : 'the converter produced no file')
             let bytes: Uint8Array = new Uint8Array(got.bytes)
             if (a.format === 'docx' && (marks.size || a.page)) bytes = finishDocx(bytes, marks, a.page)
+            if (docCharts.size) { bytes = a.format === 'docx' ? insertDocxCharts(bytes, docCharts) : insertPptxCharts(bytes, docCharts); charts = docCharts.size }
             const checked = await officeWorkerWrite(a.format === 'docx' ? DOCX_LINK_CHECK_MODE : PPTX_LINK_CHECK_MODE, bytes, c.signal)
             const finished = path.join(work, freshName(work, 'finished', a.format))
             fs.writeFileSync(finished, checked, { flag: 'wx', mode: 0o600 })
@@ -495,7 +513,7 @@ export class MakeFile {
       this.movedFirst(c, out)
       await this.checkWidening(c, out.rel, out.segs, sources)
       const made = await this.place(c, out.segs, produced, sources)
-      const extra = { ...(conditional ? { conditional } : {}), ...(svgPictures ? { svgPictures } : {}), ...(linksRemoved.length ? { linksRemoved } : {}), ...(doc ? { doc } : {}) }
+      const extra = { ...(docCharts.size ? { charts } : {}), ...(conditional ? { conditional } : {}), ...(svgPictures ? { svgPictures } : {}), ...(linksRemoved.length ? { linksRemoved } : {}), ...(doc ? { doc } : {}) }
       return deck ? { ...made, deck, ...extra } : formulas !== undefined ? { ...made, formulas, stored, ...(charts ? { charts } : {}), ...(csvSheet ? { csvSheet } : {}), ...extra } : { ...made, ...extra }
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
@@ -1498,7 +1516,7 @@ export const textBars = (markdown: string): boolean => TEXT_BAR.test(markdown)
 export function docResultText(d: FromMarkdown, format: 'pdf' | 'docx'): string {
   const pages = d.pages ? `${d.pages} page${d.pages === 1 ? '' : 's'} and ` : ''
   const pics = d.pictures ? `${d.pictures} picture${d.pictures === 1 ? '' : 's'}` : 'no pictures'
-  const bars = !d.pictures && d.textBars ? ' Bars drawn with block characters (■, █) are text, not a chart: for a chart, draw it as SVG, save it as PNG with make_file and put the picture in; otherwise do not call it a chart.' : ''
+  const bars = !d.pictures && d.textBars ? ` Bars drawn with block characters (■, █) are text, not a chart: for a chart, ${format === 'docx' ? 'write a ```chart block (a native chart)' : 'draw it as SVG, save it as PNG with make_file and put the picture in'}; otherwise do not call it a chart.` : ''
   return `The ${format === 'pdf' ? 'PDF' : 'Word file'} has ${pages}${pics}.${bars}`
 }
 
