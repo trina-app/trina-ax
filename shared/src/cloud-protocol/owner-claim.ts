@@ -236,6 +236,17 @@ export interface AppCreateTeam {
 }
 export interface AppTeamAnswer { team: AppTeam }
 
+/** `POST /teams/:id/retry` (and `/resume`, `/owner-claim`, `/waitlist`, which take `{v: 1}` only): a failed setup made
+ * again. `slug`: a new address, after the setup failed because its address went to another team (`slug_conflict`);
+ * absent: the same address. Answers `{team}` (`AppTeamAnswer`). */
+export interface AppRetryTeam { v: 1; slug?: string }
+export function parseAppRetryTeam(raw: unknown): AppRetryTeam | null {
+  const o = plain(raw)
+  if (!o || o.v !== 1 || !Object.keys(o).every((k) => k === 'v' || k === 'slug')) return null
+  if (!('slug' in o)) return { v: 1 }
+  return typeof o.slug === 'string' && teamSlugOk(o.slug) ? { v: 1, slug: o.slug } : null
+}
+
 /** `POST /teams/:id/owner-claim`: the address the app opens (`ownerClaimSetupUrl`). A team server older than the
  * console setup gets error `unsupported` with `fields.setupUrl`, the old one-time setup link the app opens instead. */
 export interface AppOwnerClaimAnswer { url: string }
