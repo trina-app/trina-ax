@@ -11,6 +11,7 @@ import { API } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { fileSharesOf } from '../../server/src/files/shares'
 import { roomsOf } from '../../server/src/rooms/service'
+import { setAnswerReads, withheldFrom } from '../../server/src/chat/shared-answers'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -100,5 +101,21 @@ describe('a linked team file in a shared chat', () => {
     put(rel, 'own')
     await say('alice', own, `x\n${fake({ say: link(rel) })}`)
     expect((await access('bob', own, rel)).status).toBe(404)
+  })
+  test('an answer hidden from me never counts: its link is the one no, and the POST stores nothing', async () => {
+    const chatId = await sharedWithBob()
+    const rel = `users/alice/hidden-${crypto.randomUUID().slice(0, 6)}/plan.md`
+    put(rel, '# plan')
+    await say('alice', chatId, `the plan\n${fake({ say: `Here: ${link(rel)}` })}`)
+    const answer = db().query("SELECT id FROM messages WHERE chat_id = ? AND role = 'assistant' ORDER BY rowid DESC LIMIT 1").get(chatId) as { id: string }
+    // (the question's own words name what the fake engine says: keep the link in the answer only)
+    db().query("UPDATE messages SET content = 'the plan' WHERE chat_id = ? AND role = 'user' AND content LIKE '%path=%'").run(chatId)
+    // (what it read is not all known, and only alice saw the chat then: hidden from bob)
+    setAnswerReads(db(), chatId, answer.id, [{ c: ['alice'], s: [], x: 1 }])
+    expect(withheldFrom(db(), h.ctx.files.rules(), chatId, 'bob').has(answer.id)).toBe(true)
+    expect(await access('bob', chatId, rel)).toEqual({ status: 200, body: { status: 'no' } })
+    const before = requests('bob')
+    expect((await askFor('bob', chatId, rel)).status).toBe(404)
+    expect(requests('bob')).toBe(before)
   })
 })
