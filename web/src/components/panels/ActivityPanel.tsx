@@ -275,7 +275,7 @@ export function ActivityPanel() {
         <>
           <SetupRow />
           {chips.length > 1 && (
-            <div role="group" aria-label={t('activity.chips')} className="flex flex-wrap gap-1.5 px-1 pt-1" data-testid="activity-panel-chips">
+            <div role="group" aria-label={t('activity.chips')} className="flex flex-wrap gap-1 px-1 pt-1" data-testid="activity-panel-chips">
               {chips.map((c) => (
                 <button
                   key={c}
@@ -284,7 +284,7 @@ export function ActivityPanel() {
                   // a touch screen: the chip takes taps from a 44 px box around it (its ::after: 26 px inside the border + 2 × 9), and
                   // looks the same
                   onClick={() => setChip(c)}
-                  className={clsx("relative inline-flex h-7 items-center rounded-full border px-3 text-meta font-medium pointer-coarse:after:absolute pointer-coarse:after:inset-x-0 pointer-coarse:after:-inset-y-[9px] pointer-coarse:after:content-['']", shownChip === c ? 'border-ink bg-ink text-canvas' : 'border-field-border text-muted hover:bg-hover hover:text-ink')}
+                  className={clsx("relative inline-flex h-7 items-center rounded-full border px-2.5 text-meta font-medium pointer-coarse:after:absolute pointer-coarse:after:inset-x-0 pointer-coarse:after:-inset-y-[9px] pointer-coarse:after:content-['']", shownChip === c ? 'border-ink bg-ink text-canvas' : 'border-field-border text-muted hover:bg-hover hover:text-ink')}
                   data-testid={`activity-chip-${c}`}
                 >
                   {chipLabel(c, t)}
@@ -317,11 +317,11 @@ export function ActivityPanel() {
 
 type T = ReturnType<typeof useT>
 
-/** a chip's word */
+/** a chip's word (DM's short one, as the phone's tab: the six chips stay in two rows of the narrow panel) */
 function chipLabel(c: ActivityChip, t: T): string {
   if (c === 'trina') return aiName(t)
   if (c === 'requests') return t('activity.chip.requests')
-  return t(c === 'all' ? 'feed.tab.all' : c === 'dms' ? 'feed.tab.dms' : c === 'mentions' ? 'feed.tab.mentions' : 'feed.tab.threads')
+  return t(c === 'all' ? 'feed.tab.all' : c === 'dms' ? 'feed.tab.dmsShort' : c === 'mentions' ? 'feed.tab.mentions' : 'feed.tab.threads')
 }
 
 /** The writer's photo in the row's people box: the AI's mark for an answer of the AI, the letter without a photo. */

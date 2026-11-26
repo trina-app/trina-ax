@@ -80,7 +80,7 @@ test('owner: the notices on the left, unread first; chips 전체 · DM · 멘션
   await expect(page.getByTestId('rail-activity-mark')).toHaveAttribute('data-n', '4')
   await expect(page.getByTestId('activity-panel-dot')).toHaveCount(4)
   // the chips: 트리나 the scheduled runs, 요청 the connection
-  await expect(page.getByTestId('activity-panel-chips').getByRole('button')).toHaveText([t['feed.tab.all'], t['feed.tab.dms'], t['feed.tab.mentions'], t['feed.tab.threads'], '트리나', t['activity.chip.requests']])
+  await expect(page.getByTestId('activity-panel-chips').getByRole('button')).toHaveText([t['feed.tab.all'], t['feed.tab.dmsShort'], t['feed.tab.mentions'], t['feed.tab.threads'], '트리나', t['activity.chip.requests']])
   await expect(page.getByTestId('activity-panel-mark-all')).toBeVisible()
   await page.getByTestId('activity-chip-trina').click()
   await expect(rows(page)).toHaveCount(3)
@@ -155,7 +155,7 @@ test('member: no 요청 (it is for the owner and admins)', async ({ page }) => {
   await routeNotices(page, week(chatId))
   await page.reload()
   await page.getByTestId('rail-activity').click()
-  await expect(page.getByTestId('activity-panel-chips').getByRole('button')).toHaveText([t['feed.tab.all'], t['feed.tab.dms'], t['feed.tab.mentions'], t['feed.tab.threads'], '트리나'])
+  await expect(page.getByTestId('activity-panel-chips').getByRole('button')).toHaveText([t['feed.tab.all'], t['feed.tab.dmsShort'], t['feed.tab.mentions'], t['feed.tab.threads'], '트리나'])
   await expect(page.getByTestId('activity-chip-requests')).toHaveCount(0)
 })
 
