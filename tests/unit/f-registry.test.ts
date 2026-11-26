@@ -91,6 +91,28 @@ describe('registry', () => {
     expect(r.teamByName('acme-co')?.id).toBe(b.teamId)
   })
 
+  test('key rotation back to an earlier key of the same team (restore rollback): that key is live again', async () => {
+    const r = await registry()
+    const { req, kp } = regReq('acme-co')
+    const a = r.register(req, BITS)
+    const rot = (k: ReturnType<typeof generateTeamKey>) => r.rotateKey(a.teamId, k.publicKey, signB64(loadPrivateKey(k.privatePem), keyRotationString(a.teamId, k.publicKey)))
+    const next = generateTeamKey()
+    rot(next)
+    rot(kp)
+    expect(r.currentKey(a.teamId)?.public_key).toBe(kp.publicKey)
+    const ts = Date.now()
+    const sigNext = signB64(loadPrivateKey(next.privatePem), apiSigningString('GET', `/teams/${a.teamId}`, ts, ''))
+    expect(code(() => r.verifyApi(a.teamId, 'GET', `/teams/${a.teamId}`, ts, '', sigNext))).toBe('unauthorized')
+    // the live key again: no change
+    rot(kp)
+    expect(r.currentKey(a.teamId)?.public_key).toBe(kp.publicKey)
+    // a key of another team stays refused
+    const other = regReq('other-co')
+    r.register(other.req, BITS)
+    expect(code(() => rot(other.kp))).toBe('key_in_use')
+    expect(r.currentKey(a.teamId)?.public_key).toBe(kp.publicKey)
+  })
+
   test('key rotation needs the new key to sign; the old key stops working', async () => {
     const r = await registry()
     const { req, kp } = regReq('acme-co')
