@@ -146,7 +146,9 @@ export type CreateView =
    * sign-in ("Sign in again to finish") */
   | { screen: 'signin'; step: 'choose' | 'browser' | 'code'; email: string | null; error: 'cancelled' | 'expired' | EmailSignInError | null; again: string | null; busy: boolean }
   /** S3: name the team */
-  | { screen: 'name'; email: string; plan: AppFreePlan; busy: boolean; slugError: boolean; name?: string }
+  | { screen: 'name'; email: string; plan: AppFreePlan; busy: boolean; slugError: boolean; name?: string
+      /** a retry over the address (slug_conflict): the name is the team's and cannot change here */
+      nameLocked?: boolean }
   /** S4: the team is being made */
   | { screen: 'starting'; team: string; step: number; waitingCapacity: boolean }
   /** a state line (CREATE_NOTICES); `action`: its one button besides Back */

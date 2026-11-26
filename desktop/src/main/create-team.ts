@@ -126,25 +126,29 @@ export class CreateTeam {
   async submit(name: string, slug: string, agreedAt: number) {
     const v = this.v
     if (v.screen !== 'name' || v.busy || this.o.store) return
-    const displayName = name.trim().slice(0, 60)
+    // the team exists and failed over its address: the same team again with the new address (the console's retry, which
+    // takes the address only: the name stays the one the team was made with, locked on the screen)
+    const again = this.slugRetry
+    const displayName = again ? again.name : name.trim().slice(0, 60)
     const s = slug.trim().toLowerCase() || suggestTeamSlug(displayName, slugSuffix())
     if (!displayName || !teamSlugOk(s)) return this.show({ ...v, slugError: !teamSlugOk(s) })
     const run = this.run
     this.show({ ...v, busy: true, slugError: false })
     // when the box was ticked, within this screen's time (the console records the consent with the terms version)
     const at = Number.isFinite(agreedAt) && agreedAt >= this.nameShownAt && agreedAt <= Date.now() ? agreedAt : Date.now()
-    // the team exists and failed over its address: the same team again with the new address (the console's retry)
-    const again = this.slugRetry
     const r = again
       ? await this.o.signin.api('POST', appTeamPath(again.id, 'retry'), { v: 1, slug: s })
       : await this.o.signin.api('POST', APP_PATHS.teams, {
         v: 1, planId: 'free', displayName, slug: s, timeZone: this.o.timeZone(), locale: this.o.locale(),
         consent: { termsVersion: v.plan.termsVersion, shownAt: new Date(at).toISOString() },
       })
-    if (run === this.run && again && r.status !== null && r.status < 300) this.slugRetry = null
     if (run !== this.run) return
     const team = r.status !== null && r.status < 300 ? parseAppTeam((r.body as { team?: unknown } | null)?.team) : null
-    if (team) return this.starting(run, team)
+    if (team) {
+      // the retry went through (its answer names the team): no longer a retry
+      if (again) this.slugRetry = null
+      return this.starting(run, team)
+    }
     const code = this.errorCode(r)
     if (code === 'unauthorized') return this.askSignIn(null)
     if (code === 'slug_unavailable') return this.show({ ...v, busy: false, slugError: true })
@@ -278,7 +282,7 @@ export class CreateTeam {
       if (failed === 'slug_conflict' && this.me?.freePlan && !this.o.store) {
         this.slugRetry = t
         this.nameShownAt = Date.now()
-        return this.show({ screen: 'name', email: this.me.email, plan: this.me.freePlan, busy: false, slugError: true, name: t.name })
+        return this.show({ screen: 'name', email: this.me.email, plan: this.me.freePlan, busy: false, slugError: true, name: t.name, nameLocked: true })
       }
       return this.notice('provisionFailed')
     }
