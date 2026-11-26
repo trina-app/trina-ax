@@ -203,14 +203,14 @@ A direct chat with someone who left the team says "<name> left the team" and has
 ## Team chat
 
 **Chats** on the bar on the left (on a phone, the **Chats** tab) is where people talk to each other: **Channels**
-(one for everyone in the team, one per group, and the private channels you are in) and **Direct messages** (one-to-one chats and group chats). **Mentions & threads**
-at the top collects the messages that name you and the threads you follow.
+(one for everyone in the team, one per group, and the private channels you are in) and **Direct messages** (one-to-one chats and group chats).
+The messages that name you and the new replies in threads you follow are in **Activity**, with your other notices.
 
 To message one person, click their photo or name beside a message (an @mention of them, or their row in a conversation's member list, works too). A small card opens with their name and title: **Message** opens your direct message with them. On a phone the card opens from the bottom of the screen. Your own card has **Edit profile** instead. Apps, and people who are no longer in the team, have no card; a guest can message only the people in their group chat or project.
 
 To bring in someone from outside the team, choose **Invite a guest** when you add people to a private channel, a group chat or a project. [Read about guests](guests.md).
 
-![The Chats list: Mentions & threads, Channels with Everyone and Marketing, then Direct messages with a group chat and a direct message](../images/chats/rooms-list.webp "The Chats list")
+![The Chats list: Channels with Everyone, the private channel Launch email and Marketing, then Direct messages with one direct message](../images/chats/rooms-list.webp "The Chats list")
 
 #### Ask Trina beside a conversation
 
@@ -244,7 +244,7 @@ before you send: **Only show link** (the default) sends just the link; **Show me
 marked as shared by you. A copy goes away if the original is deleted. To take a card off your own message, point at it
 and click **✕** (or choose **Remove preview** in the message's menu).
 
-![Chats on a phone: Mentions & threads, channels, a group chat and a direct message, with the five tabs at the bottom](../images/chats/rooms-phone.webp "Chats on a phone")
+![Chats on a phone: Channels with Everyone, a private channel and Marketing, then a direct message, with the five tabs at the bottom](../images/chats/rooms-phone.webp "Chats on a phone")
 
 ### Where your conversations are listed
 

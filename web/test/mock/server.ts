@@ -571,7 +571,7 @@ export class MockServer {
   suggestions: SkillSuggestion[] = []
   skillChanges: SkillChange[] = []
   /** engine / model named in chat requests (tests check people who may not pick never send one) */
-  engineRequests: { name: string; user: string; engine?: unknown; model?: unknown }[] = []
+  engineRequests: { name: string; user: string; engine?: unknown; model?: unknown; effort?: unknown }[] = []
   /** Admin > AI engines: "팀원이 엔진 고르기 허용" and "다른 AI로 대신 답하기" (like a self-hosted server: off by default) */
   memberChoice: MemberEngineChoice = { mode: 'off', groupIds: [], userIds: [] }
   limitFallback = false
@@ -1582,9 +1582,9 @@ export class MockServer {
     return c.mode === 'everyone' || (c.mode === 'selected' && (c.userIds.includes(u.id) || u.groupIds.some((g) => c.groupIds.includes(g))))
   }
   /** like the server: someone who may not pick naming another engine or model than they get anyway -> 403 */
-  guardEngine(name: string, u: User, body: { engine?: unknown; model?: unknown }, current: { engine: string; model: string | null }) {
-    if (body.engine === undefined && body.model === undefined) return
-    this.engineRequests.push({ name, user: u.id, engine: body.engine, model: body.model })
+  guardEngine(name: string, u: User, body: { engine?: unknown; model?: unknown; effort?: unknown }, current: { engine: string; model: string | null }) {
+    if (body.engine === undefined && body.model === undefined && body.effort === undefined) return
+    this.engineRequests.push({ name, user: u.id, engine: body.engine, model: body.model, ...(body.effort !== undefined ? { effort: body.effort } : {}) })
     if (this.canChoose(u)) return
     if ((body.engine !== undefined && body.engine !== current.engine) || (body.model !== undefined && (body.model ?? null) !== current.model))
       fail('forbidden', 403, 'AI 엔진과 모델은 관리자가 정해요. 엔진을 고르지 말고 보내면 팀 기본 엔진으로 답해요.')
@@ -3104,13 +3104,14 @@ export class MockServer {
       const e = this.enginesResponse()
       const canChoose = this.canChoose(c.user)
       return {
-        canChoose, defaultEngine: this.settings.defaultEngine, defaultModel: this.settings.defaultModel,
-        engines: canChoose ? e.engines.filter((x) => x.enabled).map((x) => ({ id: x.id, label: x.label, models: x.models })) : [],
+        canChoose, defaultEngine: this.settings.defaultEngine, defaultModel: this.settings.defaultModel, defaultEffort: this.settings.defaultEffort ?? null,
+        // like the server: Claude Code and Codex take a depth (빠르게 · 보통 · 꼼꼼하게), the API engine none
+        engines: canChoose ? e.engines.filter((x) => x.enabled).map((x) => ({ id: x.id, label: x.label, models: x.models, effort: x.id !== 'api' })) : [],
       }
     },
     createChat: (c) => {
       this.guardEngine('createChat', c.user, c.body, { engine: this.settings.defaultEngine, model: this.settings.defaultModel })
-      const chat: Chat = { id: uuidv7(), projectId: c.body.projectId ?? null, title: c.body.title ?? '', engine: c.body.engine ?? 'claude-code', model: c.body.model ?? null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle', ...(c.body.sideRoomId ? { sideRoomId: c.body.sideRoomId } : {}) }
+      const chat: Chat = { id: uuidv7(), projectId: c.body.projectId ?? null, title: c.body.title ?? '', engine: c.body.engine ?? 'claude-code', model: c.body.model ?? null, ...(c.body.effort ? { effort: c.body.effort } : {}), createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle', ...(c.body.sideRoomId ? { sideRoomId: c.body.sideRoomId } : {}) }
       this.chats.push(chat)
       return { status: 201, body: chat }
     },
@@ -4948,6 +4949,7 @@ export class MockServer {
     updateEngines: (c) => {
       if (c.body.defaultEngine) this.settings.defaultEngine = c.body.defaultEngine
       if (c.body.defaultModel !== undefined) this.settings.defaultModel = c.body.defaultModel
+      if (c.body.defaultEffort !== undefined) this.settings.defaultEffort = c.body.defaultEffort
       if (c.body.concurrency) this.settings.concurrency = c.body.concurrency
       if (c.body.enabled?.codex !== undefined) this.codexEnabled = c.body.enabled.codex
       if (c.body.enabled?.api !== undefined) this.apiEngineEnabled = c.body.enabled.api
@@ -6277,6 +6279,7 @@ export class MockServer {
       ],
       defaultEngine: this.settings.defaultEngine,
       defaultModel: this.settings.defaultModel,
+      defaultEffort: this.settings.defaultEffort ?? null,
       concurrency: this.settings.concurrency, concurrencyMax: this.cloud ? 3 : 16,
       accounts: [],
       memberChoice: this.memberChoice,

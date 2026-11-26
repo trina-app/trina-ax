@@ -148,6 +148,8 @@ export function registerAccountsCleanup(ctx: AppContext): void {
       'member_welcome.user_id', 'group_member_since.user_id',
       'account_deletion_notices.user_id', 'account_deletion_due_notices.user_id', 'reset_link_notices.user_id', 'google_connect_notices.user_id', 'handover_notices.user_id',
       'hosting_notices.user_id', 'engine_start_notices.user_id', 'storage_notices.user_id', 'credential_change_notices.user_id', 'team_join_notices.user_id',
+      // the person's problem reports' outbox rows (system/problem-reports.ts): a pending report is not sent after the account goes
+      'problem_reports.user_id',
       // a deleted guest's place and AI choice (docs/DECISIONS.md "Guests: only what they were invited to")
       'guests.user_id',
     ],

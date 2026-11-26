@@ -36,9 +36,9 @@
 // alone: send waits and a quiet line under the box says what to add.
 import { composerRadius } from './composerBox'
 import clsx from 'clsx'
-import { ArrowUp, Camera, CirclePause, Clock, FolderOpen, Hourglass, Loader2, Monitor, Plus, Smartphone, Square, ChevronDown, WifiOff } from 'lucide-react'
+import { ArrowUp, Camera, CirclePause, Clock, FolderOpen, Hourglass, Loader2, Monitor, Plus, Smartphone, ChevronDown, WifiOff } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
-import { isUuid7, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, type Attachment, type EngineId, type FileEntry } from '@mycel/shared/api'
+import { isUuid7, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, type Attachment, type Effort, type EngineId, type FileEntry } from '@mycel/shared/api'
 import { errorText, isApiError, isConnectionError } from '../../lib/api'
 import { textOverLimit } from '../../lib/longPaste'
 import { waitForUpdate, waitsForUpdate } from '../../lib/serverUpdating'
@@ -57,12 +57,14 @@ import { useMe } from '../../store/session'
 import { isGuestMe } from '../../lib/guests'
 import { ComposerFileList, SharedUploadLine, useComposerFiles, useFileDrop } from './ComposerFiles'
 import { useDropTarget } from '../FileDropZone'
-import { ENGINE_LABEL, EngineOptions, onlyModels, showsEnginePicker } from './EngineMenu'
+import { EFFORT_KEY, ENGINE_LABEL, EffortRow, EngineOptions, onlyModels, showsEnginePicker, type EnginePick } from './EngineMenu'
+import { useEngines } from '../../store/engines'
 import { Button, IconButton, useMediaQuery } from '../ui'
 import { CalmNotice, useSaysConnection } from '../LoadError'
 import { useSkillMenu } from './SkillMenu'
 import TeamFilePicker from './TeamFilePicker'
 import { AttachSheet } from './AttachSheet'
+import { StopButton } from './StopButton'
 import { EngineSheet } from './EngineSheet'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import { SkillChip } from './SkillChip'
@@ -76,7 +78,8 @@ import { MicBlockedNotice } from '../MicBlockedNotice'
 import { DemoLimitNotice } from '../demo/FreeRoam'
 import { useDemoOut } from '../../store/demo'
 
-export interface EngineChoice { engine: EngineId | undefined; model: string | null | undefined }
+/** effort: the depth (빠르게 · 보통 · 꼼꼼하게); undefined / null = not chosen (the person's or the team's default) */
+export interface EngineChoice { engine: EngineId | undefined; model: string | null | undefined; effort?: Effort | null }
 export interface ComposerHandle { prepareDraft: (request: string) => void; focus: () => void }
 
 
@@ -218,7 +221,6 @@ export default function Composer({
   const [sending, setSending] = useState(false)
   /** the text looks like a key: sending waits for "Send anyway" or "Edit" (a changed text asks again) */
   const secret = useSecretHold(text)
-  const [stopping, setStopping] = useState(false)
   // files from this computer dropped anywhere on the chat's page, Home or a project's page (their FileDropZone) come here,
   // with the box's own checks: none for someone who may not write a shared chat's project folder, no more in a full box.
   // Outside such a page the box takes them on itself, and refuses them in the same case (the not-allowed cursor, no
@@ -431,15 +433,8 @@ export default function Composer({
   }, [unsent])
 
   const stop = async () => {
-    setStopping(true)
     setError(null)
-    try {
-      await onStop()
-    } catch (e) {
-      setError(errorText(e, locale, t('error.network')))
-    } finally {
-      setStopping(false)
-    }
+    await onStop()
   }
 
   // the API engine has one model (the owner's): its name shows even when none was picked
@@ -448,7 +443,18 @@ export default function Composer({
   // with one engine it lists that engine's models only
   const pick = onEngine && showsEnginePicker(engines ?? [], models) ? onEngine : undefined
   const modelsOnly = onlyModels(engines ?? [])
-  const engineLabel = engine.engine ? ENGINE_LABEL[engine.engine] + (shownModel ? ` · ${shownModel}` : '') : t('composer.defaultEngine')
+  // the depth (빠르게 · 보통 · 꼼꼼하게): a row under the models when the engine takes one; the button names it only when it
+  // is not 보통 ("Claude · Opus · 꼼꼼하게")
+  const takesEffort = useEngines((s) => s.effort)
+  const billing = useEngines((s) => s.billing)
+  const teamEffort = useEngines((s) => s.defaultEffort)
+  const teamEngine = useEngines((s) => s.defaultEngine)
+  const effortOn = !!takesEffort[engine.engine ?? teamEngine]
+  const effortNow: Effort = engine.effort ?? teamEffort ?? 'normal'
+  const pickModel = pick && ((p: EnginePick) => pick({ ...p, ...(engine.effort !== undefined ? { effort: engine.effort } : {}) }))
+  const pickEffort = pick && ((e: Effort) => pick({ engine: engine.engine, model: engine.model, effort: e }))
+  const effortWord = effortOn && effortNow !== 'normal' ? t(EFFORT_KEY[effortNow]) : null
+  const engineLabel = (engine.engine ? ENGINE_LABEL[engine.engine] + (shownModel ? ` · ${shownModel}` : '') : t('composer.defaultEngine')) + (effortWord ? ` · ${effortWord}` : '')
   // the text on top and one row under it inside the box (ComposerToolbar: + and the box's choices on the left, the
   // engine, the mic and send on the right), as in the AI apps' boxes (QA TC-1400): every computer, and a phone whenever the box has more
   // than + and send (Home's card, the engine picker, a team project's who-sees chip). A phone's plain chat box keeps
@@ -615,11 +621,7 @@ export default function Composer({
             </Tooltip>
           )}
       {running ? (
-        <Tooltip label={t('composer.stop')}>
-          <button type="button" onClick={stop} disabled={stopping} aria-label={t('composer.stop')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-full bg-ink text-canvas transition hover:opacity-80 disabled:opacity-40" data-testid="stop">
-            {stopping ? <Loader2 size={17} className="animate-spin" /> : <Square size={14} className="fill-current" />}
-          </button>
-        </Tooltip>
+        <StopButton onStop={stop} onError={(e) => setError(errorText(e, locale, t('error.network')))} />
       ) : (
         !answering && !later && (
           <Tooltip label={t('chat.send')}>
@@ -646,24 +648,27 @@ export default function Composer({
   // the engine picker in the box's row: on a phone the choices as a sheet (a tap outside, Escape or Back closes it),
   // named for what it does and what is chosen ("AI 고르기, 지금: 기본 AI"); on a computer the small list
   const enginePicker = pick && (phone ? (
-    <EngineSheet engines={engines ?? []} models={models} current={engine} onPick={pick} label={engineLabel} name={t('composer.engineNow', { engine: engineLabel })} title={t('composer.engine')} testId="engine-picker" look="pill" modelsOnly={modelsOnly} />
+    <EngineSheet engines={engines ?? []} models={models} current={engine} onPick={pickModel!} label={engineLabel} name={t('composer.engineNow', { engine: engineLabel })} title={t('composer.engine')} testId="engine-picker" look="pill" modelsOnly={modelsOnly}
+      billing={billing} effort={effortOn && pickEffort ? { value: effortNow, onPick: pickEffort } : undefined} />
   ) : (
     <div className="relative">
       <button ref={engineButtonRef} type="button" aria-haspopup="listbox" aria-expanded={engineMenu} onClick={() => setEngineMenu((v) => !v)} className="touch-hit flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted hover:bg-hover hover:text-ink" data-testid="engine-picker">
         {engineLabel} <ChevronDown size={13} aria-hidden />
       </button>
       {engineMenu && (
-        <ul ref={engineListRef} role="listbox" aria-label={t('composer.engine')} className="absolute right-0 bottom-full z-30 mb-1 max-h-72 w-64 overflow-y-auto rounded-xl border border-line bg-surface p-1 shadow-lg" onMouseLeave={() => setEngineMenu(false)}>
+        <ul ref={engineListRef} role="listbox" aria-label={t('composer.engine')} className="absolute right-0 bottom-full z-30 mb-1 max-h-96 w-64 overflow-y-auto rounded-xl border border-line bg-surface p-1 shadow-lg" onMouseLeave={() => setEngineMenu(false)}>
           <EngineOptions
             engines={engines ?? []}
             models={models}
             current={engine}
             modelsOnly={modelsOnly}
+            billing={billing}
             onPick={(p) => {
               setEngineMenu(false)
-              pick(p)
+              pickModel!(p)
             }}
           />
+          {effortOn && pickEffort && <li role="presentation"><EffortRow value={effortNow} onPick={pickEffort} /></li>}
         </ul>
       )}
     </div>

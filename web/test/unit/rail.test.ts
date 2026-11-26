@@ -95,9 +95,9 @@ describe('the places', () => {
     for (const i of RAIL_ITEMS) expect(railOf(new URL(RAIL_ROOT[i], 'http://x').pathname)).toBe(i)
   })
 
-  test("Activity's 멘션·스레드 is 대화's; the rest of Activity is 활동", () => {
-    expect(railOf('/activity', '?in=chats')).toBe('chats')
-    expect(railOf('/activity', '?in=chats&tab=threads')).toBe('chats')
+  test('Activity is one place, 활동, whatever its search (an old 멘션·스레드 link too)', () => {
+    expect(railOf('/activity', '?in=chats')).toBe('activity')
+    expect(railOf('/activity', '?tab=mentions')).toBe('activity')
     expect(railOf('/activity', '')).toBe('activity')
     expect(railOf('/activity', '?tab=all')).toBe('activity')
   })
@@ -122,10 +122,10 @@ describe('what each place remembers', () => {
   test('the last page per place; a press goes there, a press on the lit place goes to its start', () => {
     rememberRail('/c/abc')
     rememberRail('/rooms/r1', '')
-    rememberRail('/activity', '?in=chats')
+    rememberRail('/activity', '?tab=mentions')
     rememberRail('/admin/members')
     const { last } = useRailMemory.getState()
-    expect(last).toEqual({ ai: '/c/abc', chats: '/activity?in=chats' })
+    expect(last).toEqual({ ai: '/c/abc', chats: '/rooms/r1', activity: '/activity?tab=mentions' })
     expect(railTarget('ai', 'chats', last)).toBe('/c/abc')
     expect(railTarget('ai', 'ai', last)).toBe('/')
     expect(railTarget('files', 'ai', last)).toBe('/files?view=recent')
@@ -196,8 +196,8 @@ describe("a page opened from another place's list (phase P3: a notice's chat ope
     expect(railHereKept('/c/abc', '', railLinkState('ai'))).toBe('ai')
     // the page tidying its own address after that keeps 트리나
     expect(railHereKept('/c/abc', '', null)).toBe('ai')
-    // 활동 pressed (its own place named), then its line to 멘션·스레드 (the same path, no state) lights 대화
+    // 활동 pressed (its own place named), then a chip's link (the same path, no state) keeps 활동
     expect(railHereKept('/activity', '', railLinkState('activity'))).toBe('activity')
-    expect(railHereKept('/activity', '?in=chats', null)).toBe('chats')
+    expect(railHereKept('/activity', '?tab=mentions', null)).toBe('activity')
   })
 })

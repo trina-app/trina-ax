@@ -333,7 +333,7 @@ describe('a chat turn with the api engine', () => {
 
   test('offered like the other engines: in GET /api/engines with its display name and model', async () => {
     const r = await h.api('alice').call(API.chatEngines)
-    expect(r.engines.find((e) => e.id === 'api')).toEqual({ id: 'api', label: 'M1', models: [{ id: 'm-1', label: 'M1' }] })
+    expect(r.engines.find((e) => e.id === 'api')).toMatchObject({ id: 'api', label: 'M1', models: [{ id: 'm-1', label: 'M1' }] })
   })
 
   test('tools go through the team handler: allowed reads work, a hidden folder is refused, both are audited', async () => {

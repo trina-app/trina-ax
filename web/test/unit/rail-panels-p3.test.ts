@@ -1,12 +1,12 @@
 // Phase P3 of the new navigation (docs/AGENTS/plan/20261112-1839-nav-rail.md): the rules under 활동's and 대화's lists
-// beside the rail. 활동's chips sort the notices that are not conversations (lib/activityKinds.ts), unread first; 대화
+// beside the rail. 활동's chips sort every notice, the one Activity (lib/activityKinds.ts), unread first; 대화
 // lists every room by kind (panels/RoomsByKind.tsx) and draws long lists in budgets.
 import { describe, expect, test } from 'bun:test'
-import { chipOf, chipsFor, inChip, unreadFirst } from '../../src/lib/activityKinds'
+import { chipOf, chipOfParam, chipsFor, inChip, isServerChip, unreadFirst } from '../../src/lib/activityKinds'
 import { ROOMS_BUDGET, roomsByKind, rowsToDraw } from '../../src/components/panels/RoomsByKind'
 import type { Room } from '@mycel/shared/api'
 
-describe('활동: 전체 · 트리나 · 요청', () => {
+describe('활동: 전체 · DM · 멘션 · 스레드 · 트리나 · 요청', () => {
   test("트리나 is the AI's own work, 요청 what waits for an answer, the rest is under 전체 only", () => {
     expect(chipOf({ code: 'schedule.success' })).toBe('trina')
     expect(chipOf({ code: 'schedule.failure' })).toBe('trina')
@@ -20,9 +20,33 @@ describe('활동: 전체 · 트리나 · 요청', () => {
     expect(inChip({ code: 'team.joined' }, 'all')).toBe(true)
     expect(inChip({ code: 'team.joined' }, 'trina')).toBe(false)
   })
-  test('요청 is for the owner and admins only', () => {
-    expect(chipsFor(true)).toEqual(['all', 'trina', 'requests'])
-    expect(chipsFor(false)).toEqual(['all', 'trina'])
+  test('요청 is for the owner and admins only (and a member while an ask of theirs is listed)', () => {
+    expect(chipsFor(true)).toEqual(['all', 'dms', 'mentions', 'threads', 'trina', 'requests'])
+    expect(chipsFor(false)).toEqual(['all', 'dms', 'mentions', 'threads', 'trina'])
+    expect(chipsFor(false, [{ code: 'file.access_requested' }])).toEqual(['all', 'dms', 'mentions', 'threads', 'trina', 'requests'])
+  })
+  test("the conversation chips follow the server's tab rule; Mark all as read only where the server reads the tab", () => {
+    const at = (kind: 'team' | 'dm' | 'group', o: object = {}) => ({ id: 'r', kind, reason: 'mention', ...o }) as never
+    const mention = { code: 'room.mention', room: at('team') } as const
+    const dmMention = { code: 'room.mention', room: at('dm') } as const
+    const threadReply = { code: 'room.dm', room: at('team', { reason: 'reply', thread: 'm1' }) } as const
+    const chatReply = { code: 'chat.thread_reply', chatThread: { mention: false } as never } as const
+    expect(inChip(mention, 'mentions')).toBe(true)
+    expect(inChip(mention, 'dms')).toBe(false)
+    expect(inChip(dmMention, 'dms')).toBe(true)
+    expect(inChip(threadReply, 'threads')).toBe(true)
+    expect(inChip(threadReply, 'mentions')).toBe(false)
+    expect(inChip(chatReply, 'threads')).toBe(true)
+    // the app's own notice is under 전체 and its own chip, never a conversation chip
+    expect(inChip({ code: 'schedule.success' }, 'mentions')).toBe(false)
+    expect(inChip({ code: 'schedule.success' }, 'trina')).toBe(true)
+    expect(inChip(mention, 'trina')).toBe(false)
+    expect(['all', 'dms', 'mentions', 'threads'].every((c) => isServerChip(c as never))).toBe(true)
+    expect(isServerChip('trina')).toBe(false)
+    expect(isServerChip('requests')).toBe(false)
+    expect(chipOfParam('mentions')).toBe('mentions')
+    expect(chipOfParam('nope')).toBeNull()
+    expect(chipOfParam(null)).toBeNull()
   })
   test('unread first, newest first in each part', () => {
     const n = (id: string, at: string, read: boolean) => ({ id, createdAt: at, readAt: read ? at : null })

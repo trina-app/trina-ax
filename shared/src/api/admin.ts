@@ -3,7 +3,7 @@
 // Admins never see other people's chats or memories, and there is no "sign in as" (tab 1).
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { Access, EngineId, GuestAiChoiceBody, ReauthFields, GuestPlace, IsoTime, Locale, PageQuery, QueryBool, RelPath, Role, TeamRole, UserStatus, page } from './common'
+import { Access, Effort, EngineId, GuestAiChoiceBody, ReauthFields, GuestPlace, IsoTime, Locale, PageQuery, QueryBool, RelPath, Role, TeamRole, UserStatus, page } from './common'
 import { binary, endpoint, empty } from './endpoint'
 import { AuditEntry, Budget, EngineAccount, Folder, FolderRuleInput, Group, Invite, SubjectType, TeamSettings, User, UserRef } from './entities'
 import { Password, PersonName, Username } from './auth'
@@ -538,6 +538,8 @@ export const EnginesResponse = z.object({
   engines: z.array(EngineStatus),
   defaultEngine: EngineId,
   defaultModel: z.string().nullable(),
+  /** the team's default depth for new chats (null = 보통). Absent from older servers. */
+  defaultEffort: Effort.nullable().optional(),
   concurrency: z.number().int(),
   /** the highest concurrency that may be set: the plan's (the hosted cloud), else 16. Absent from older servers. */
   concurrencyMax: z.number().int().min(1).optional(),
@@ -555,6 +557,7 @@ export type EnginesResponse = z.infer<typeof EnginesResponse>
 export const UpdateEnginesBody = z.object({
   defaultEngine: EngineId.optional(),
   defaultModel: z.string().max(100).nullable().optional(),
+  defaultEffort: Effort.nullable().optional(),
   concurrency: z.number().int().min(1).max(16).optional(),
   enabled: z.partialRecord(EngineId, z.boolean()).optional(),
   memberChoice: MemberEngineChoice.optional(),

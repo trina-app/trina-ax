@@ -31,7 +31,7 @@ import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
 import { ArrowDown, ChevronLeft, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId, type Project } from '@mycel/shared/api'
+import { chatErrorReason, uuidv7, type Attachment, type Chat, type Effort, type EngineId, type Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { isPeopleShared, noLongerMemberOf, noLongerSharedWith, privateInTeamProject, refusalKey, refusalReason, shareKindOf, sharedRights } from '../lib/sharedChat'
 import { answerTooLong, BoxAnswers, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
@@ -591,15 +591,17 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   /** the picker shows the new engine / model at once; a refusal puts it back with one toast (lib/optimistic.ts) */
   const onEngine = async (e: EngineChoice) => {
     if (!chat) return
-    type Pick = { engine: EngineId; model: string | null; updatedAt: string }
+    type Pick = { engine: EngineId; model: string | null; effort: Effort | null; updatedAt: string }
+    // the depth stays the chat's own when only the model changes (EngineChoice.effort undefined)
+    const effort = e.effort !== undefined ? e.effort : chat.effort ?? null
     await changeChat<Pick>({
       chat,
       field: 'engine',
-      from: { engine: chat.engine, model: chat.model, updatedAt: chat.updatedAt },
-      to: { engine: e.engine ?? chat.engine, model: e.model ?? null, updatedAt: new Date().toISOString() },
+      from: { engine: chat.engine, model: chat.model, effort: chat.effort ?? null, updatedAt: chat.updatedAt },
+      to: { engine: e.engine ?? chat.engine, model: e.model ?? null, effort, updatedAt: new Date().toISOString() },
       apply: (c, v) => ({ ...c, ...v }),
-      send: () => api.call(API.updateChat, { params: { id: chatId }, body: { engine: e.engine, model: e.model ?? null } }),
-      confirmed: (c) => ({ engine: c.engine, model: c.model, updatedAt: c.updatedAt }),
+      send: () => api.call(API.updateChat, { params: { id: chatId }, body: { engine: e.engine, model: e.model ?? null, ...(e.effort !== undefined ? { effort: e.effort } : {}) } }),
+      confirmed: (c) => ({ engine: c.engine, model: c.model, effort: c.effort ?? null, updatedAt: c.updatedAt }),
       onShown: setChat,
     })
   }
@@ -849,7 +851,7 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
                 <Fragment key={m.id}>
                 {before}
                 <ViewerMeta sender={{ kind: 'ai' }} at={m.createdAt}>
-                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={rowsBusy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} shareRoomId={chat?.sideRoomId ?? undefined} canRegenerate={!readOnly && mine(askedBy(m))} ownAnswer={mine(askedBy(m))} canSuggest={!shared} onThread={shared && !chat?.sideRoomId ? (focus) => openThread(m.id, focus) : undefined} />
+                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={rowsBusy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} shareRoomId={chat?.sideRoomId ?? undefined} canRegenerate={!readOnly && mine(askedBy(m))} ownAnswer={mine(askedBy(m))} canSuggest={!shared} onThread={shared && !chat?.sideRoomId ? (focus) => openThread(m.id, focus) : undefined} reportConversation={!shared && !chat?.projectId && !chat?.sideRoomId && mine(askedBy(m))} />
                 </ViewerMeta>
                 </Fragment>
               )
@@ -895,7 +897,7 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
             answering={question ? { question: question.request.question, onAnswer: (text) => onAnswer(question.request.requestId, text) } : undefined}
             choiceWaiting={choosing}
             onStop={() => stop(chatId)}
-            engine={{ engine: chat?.engine, model: chat?.model }}
+            engine={{ engine: chat?.engine, model: chat?.model, effort: chat?.effort ?? null }}
             onEngine={choose && rights.creator ? onEngine : undefined}
             engines={engines}
             models={models}

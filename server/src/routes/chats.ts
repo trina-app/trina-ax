@@ -8,7 +8,7 @@ import { markTeamShares } from '../chat/team-shares'
 import { redactorFor } from '../integrations/connections/redact'
 import { searchForms, searchWords } from '@mycel/shared'
 import { formsWhere } from '../search-forms'
-import { ACCESS_TARGET_ID, API, CHAT_FILE_EDIT_MAX, WINDOW_HEADER, type Attachment, type Chat, type EngineId, type Locale, type Message, type UserRef } from '@mycel/shared/api'
+import { ACCESS_TARGET_ID, API, CHAT_FILE_EDIT_MAX, WINDOW_HEADER, type Attachment, type Chat, type Effort, type EngineId, type Locale, type Message, type UserRef } from '@mycel/shared/api'
 import type { Context } from 'hono'
 import type { RouteModule } from './module'
 import type { AppContext } from '../context'
@@ -47,7 +47,7 @@ import { roomsOf } from '../rooms/service'
 import { confirmMac } from '../chat/confirm-key'
 import { WIDENING_PAGE } from '../chat/widening'
 import { shareChat } from '../chat/share-chat'
-import { readChatNotices, setMuted } from '../chat/message-notices'
+import { isConversationRow, readChatNotices, setMuted } from '../chat/message-notices'
 import { chatAudienceView, chatWidening, checkWideningAdd, hideChat, leaveChat, peopleSharedChatsOf, previewChatAudience, putChatAudience, unhideOnOpen } from '../chat/people-share'
 import { resolveSubjects } from '../chat/chat-audience'
 import { historyWhere } from '../chat/history-list'
@@ -224,7 +224,7 @@ function messagesPage(rt: ChatRuntime, chat: ChatRow, cursor: string | undefined
 
 /** The turn's engine and model: the chat's (or the team default when the admin switched it off); a choice in the
  * request only from people who may pick (admin/engine-choice.ts). */
-function pickEngine(ctx: AppContext, rt: ChatRuntime, auth: AuthInfo, chat: ChatRow, body: { engine?: EngineId; model?: string | null }, locale: Locale): TurnEngine {
+function pickEngine(ctx: AppContext, rt: ChatRuntime, auth: AuthInfo, chat: ChatRow, body: { engine?: EngineId; model?: string | null; effort?: Effort | null }, locale: Locale): TurnEngine {
   return turnEngine(ctx, auth.user, chat, body, locale, (e) => rt.defaultModelFor(e))
 }
 
@@ -364,8 +364,9 @@ export const chatsRoutes: RouteModule = {
         if (query.q || query.projectId || query.folderId || query.sideRoomId || query.trash) fail('validation', undefined, { fields: { 'query.other': 'alone' } })
         return otherChats(rt, me, query.cursor, limit)
       }
-      // the shared chats with messages I have not read (chat/message-notices.ts): a project's shared chat I never wrote in
-      // is in no list of mine, so the rail's Projects mark, the app icon and the desktop notice read it here after a reload
+      // the chats shared with people with messages I have not read (chat/message-notices.ts), for the app icon and the
+      // desktop notice after a reload; a project's shared chat has no unread messages (docs/decisions/
+      // 20261126-project-chat-mention-only.md: an older row there is not listed)
       if (query.unread) {
         if (query.q || query.projectId || query.folderId || query.sideRoomId || query.trash || query.cursor || query.other) fail('validation', undefined, { fields: { 'query.unread': 'alone' } })
         // every such chat is read (one indexed read of my unread notices), then only the ones I see now are kept, then
@@ -373,7 +374,7 @@ export const chatsRoutes: RouteModule = {
         const rows = ctx.db.query(`SELECT ${CHAT_COLS} FROM chats WHERE room_id IS NULL AND deleted_at IS NULL AND ${notInternalChat(ctx.db)}
           AND id IN (SELECT chat_id FROM chat_message_notices WHERE user_id = ? AND read_at IS NULL AND suppressed = 0) ORDER BY updated_at DESC, id DESC`).all(me) as ChatRow[]
         const aud = new Audiences(ctx.db, ctx.files)
-        const seen = rows.filter((r) => isSharedRow(r) && aud.seesChat(me, r)).slice(0, limit)
+        const seen = rows.filter((r) => isConversationRow(r) && aud.seesChat(me, r)).slice(0, limit)
         const people = chatPeople(ctx.db, seen.map((r) => r.id), me)
         return { items: seen.map((r) => chatOut(rt, me, r, { aud, people })), nextCursor: null }
       }
@@ -547,7 +548,7 @@ export const chatsRoutes: RouteModule = {
       // a used-up block limit: no new chat either, so a refused first question (Home) leaves no empty chat behind;
       // the composer keeps the text and shows the refusal (QA TC-215)
       checkBudget(ctx, auth.user.id, c.get('locale'))
-      const { engine, model } = newChatEngine(ctx, auth.user, body, c.get('locale'))
+      const { engine, model, effort } = newChatEngine(ctx, auth.user, body, c.get('locale'))
       // a chat made in a team project is a shared chat, from its first moment and for good (never a personal project,
       // never while safe operations are on: chat/shared.ts sharesNewChats), unless it starts "Only me" (`private`): then
       // it is its creator's alone until they share it (POST /api/chats/:id/share; docs/DECISIONS.md "Team project chats
@@ -571,8 +572,8 @@ export const chatsRoutes: RouteModule = {
       // a title given here is the person's own (the AI does not rename it); none: the first message gives one
       // a stored connection secret or a secret-looking part is never kept in a title (QA B-W5-1, SEC-16, B-W47-3)
       const title = hideTitle(body.title?.trim() ?? '', redactorFor(ctx, auth.user.id).hide)
-      ctx.db.query('INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at, shared_at, side_room_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-        .run(id, auth.user.id, body.projectId ?? null, title, title ? 'user' : 'auto', engine, model ?? null, now, now, shared ? now : null, body.sideRoomId ?? null)
+      ctx.db.query('INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, effort, created_at, updated_at, shared_at, side_room_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run(id, auth.user.id, body.projectId ?? null, title, title ? 'user' : 'auto', engine, model ?? null, effort ?? null, now, now, shared ? now : null, body.sideRoomId ?? null)
       rt.publishChat(auth.user.id, id, 'created')
       return chatOut(rt, auth.user.id, rt.store.chatRow(id)!)
     })
@@ -636,6 +637,7 @@ export const chatsRoutes: RouteModule = {
       if (body.engine !== undefined) { sets.push('engine = ?'); args.push(body.engine) }
       if (body.model !== undefined) { sets.push('model = ?'); args.push(body.model) }
       else if (body.engine !== undefined && body.engine !== chat.engine) sets.push('model = NULL')
+      if (body.effort !== undefined) { sets.push('effort = ?'); args.push(body.effort) }
       if (sets.length) {
         sets.push('updated_at = ?'); args.push(new Date().toISOString())
         // into a project or out of one, the chat stays in its history section (chat/nav-folders.ts: a section shows a
@@ -879,9 +881,9 @@ export const chatsRoutes: RouteModule = {
           busy(now, c.get('locale'), auth.user.id)
         } catch (e) { discardCopies(ctx, auth.user.id, picked, atts); throw e }
       }
-      const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
+      const { engine, model, effort, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
-        const started = rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, timeZone: turnZone(body.timeZone),
+        const started = rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, effort, substitutedFrom, timeZone: turnZone(body.timeZone),
           user: { parentId, content: body.content, attachments: atts, clientMessageId: body.clientMessageId } })
         // sent: their place in line is gone (more of theirs waiting go to the back); the others hear how many still wait
         if (a.shared && rt.sharedWaiting.sent(chat.id, auth.user.id)) rt.publishChat(auth.user.id, chat.id, 'updated')
@@ -924,8 +926,8 @@ export const chatsRoutes: RouteModule = {
       if (a.shared && question.author_id !== auth.user.id) fail('forbidden', tr('sharedChatOwnMessages', c.get('locale')), { params: { reason: 'shared_chat_own_messages' } })
       busy(a, c.get('locale'), auth.user.id)
       checkBudget(ctx, auth.user.id, c.get('locale'))
-      const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
-      return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, timeZone: turnZone(body.timeZone), answerTo: question })
+      const { engine, model, effort, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
+      return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, effort, substitutedFrom, timeZone: turnZone(body.timeZone), answerTo: question })
     })
 
     // a shared chat: one's own messages only
@@ -952,9 +954,9 @@ export const chatsRoutes: RouteModule = {
           busy(now, c.get('locale'), auth.user.id)
         } catch (e) { discardCopies(ctx, auth.user.id, picked, atts); throw e }
       }
-      const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
+      const { engine, model, effort, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
-        return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, timeZone: turnZone(body.timeZone),
+        return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, effort, substitutedFrom, timeZone: turnZone(body.timeZone),
           user: { parentId: target.parent_id, content: body.content, attachments: atts, clientMessageId: body.clientMessageId } })
       } catch (e) {
         discardCopies(ctx, auth.user.id, picked, atts)
@@ -1014,10 +1016,10 @@ export const chatsRoutes: RouteModule = {
       if (asking) return
       const ready = r as Extract<typeof r, { state: 'ready' }>
       try {
-        const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, a.row, {}, locale)
+        const { engine, model, effort, substitutedFrom } = pickEngine(ctx, rt, auth, a.row, {}, locale)
         const hidden = labelsHidden(ctx.db, a.shared, q.messageId)
         // a browser site's call runs again in the window whose browser it was for
-        rt.createTurn({ chat: a.row, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: ready.window ?? windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom,
+        rt.createTurn({ chat: a.row, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: ready.window ?? windowOf(c), clientKind: auth.session.client, engine, model, effort, substitutedFrom,
           // from the chat's newest answer: a waiting call's card stays open while the chat goes on (the person wrote
           // instead of pressing), and a late press continues the conversation there, never as a branch from the asking
           // answer (docs/decisions/20261122-late-card-answer-resumes.md); with nothing after it, that is the asking answer

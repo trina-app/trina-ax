@@ -18,7 +18,7 @@
 import { tileUpdated, updatedLine } from '../../lib/chatFileVersions'
 import { useTeamPlace } from '../../lib/teamPlace'
 import clsx from 'clsx'
-import { AlertTriangle, BookmarkPlus, Check, ChevronDown, ChevronLeft, ChevronRight, CirclePause, Copy, History, Info, Loader2, MessageSquareReply, MessageSquareShare, MessagesSquare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
+import { AlertTriangle, BookmarkPlus, Check, ChevronDown, ChevronLeft, ChevronRight, CirclePause, Copy, History, Info, Loader2, MessageSquareReply, MessageSquareShare, MessagesSquare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square, ThumbsDown } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, answerEndsInFailure, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, sideQuoteOf, skillLabel, type Attachment, type EngineId, type SideQuote, type UserRef } from '@mycel/shared/api'
@@ -63,6 +63,7 @@ import ScheduledCard from './ScheduledCard'
 import ConnectCard from './ConnectCard'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import SuggestSkillDialog from '../SuggestSkillDialog'
+import ProblemReportSheet, { type ReportedAnswer } from '../ProblemReportSheet'
 import ShareToRoom from './ShareToRoom'
 import { SendHere, SendHereNote, type SentHere } from '../rooms/SendHere'
 import { MenuButton, useLongPress, type MenuItem } from '../rooms/MenuButton'
@@ -684,6 +685,7 @@ export function AssistantMessage({
   canSuggest: canSuggestHere = true,
   pressMenu = false,
   onThread,
+  reportConversation = false,
 }: {
   m: ViewMessage
   chatId: string
@@ -721,6 +723,9 @@ export function AssistantMessage({
    * thread's line under it; `focus` puts the caret in the thread's box. Absent: no thread (a chat of one person, a room's
    * side chat: never shared) */
   onThread?: (focus: boolean) => void
+  /** 👎's sheet may offer "이 답변과 질문 함께 보내기": my own question in my own chat of one person (not shared, not in a
+   * project, not a side chat; docs/decisions/20261126-problem-reports.md). The server checks it again. */
+  reportConversation?: boolean
 }) {
   const t = useT()
   const locale = useLocale()
@@ -783,6 +788,7 @@ export function AssistantMessage({
     : null
   const [suggesting, setSuggesting] = useState(false)
   const [sharing, setSharing] = useState(false)
+  const [reporting, setReporting] = useState<ReportedAnswer | null>(null)
   // phones: an older answer's actions show once it is tapped
   const [tapped, setTapped] = useState(false)
   const untilTap = pressMenu || (!isLast && !tapped)
@@ -808,6 +814,13 @@ export function AssistantMessage({
   const sendHereOn = !!sendHere && shareable && sendable
   // an answer that can have a thread: finished (done or stopped), not hidden from me
   const threadable = !!onThread && !m.withheld && (m.status === 'done' || m.status === 'stopped')
+  // 👎 (docs/decisions/20261126-problem-reports.md): a finished answer, where this server sends reports and the team allows
+  // it (a guest never: Me.team.problemReports is absent for them)
+  const reportable = !!meNow?.team?.problemReports && !streaming && !m.local && (m.status === 'done' || m.status === 'error' || m.status === 'stopped')
+  const openReport = () => {
+    const question = m.parentId ? useChats.getState().threads[chatId]?.messages.find((x) => x.id === m.parentId)?.content ?? '' : ''
+    setReporting({ messageId: m.id, conversation: reportConversation && !m.withheld ? { question, answer: m.content } : null })
+  }
   const pressItems: MenuItem[] = pressMenu && !streaming ? [
     ...(m.content ? [{ label: t('chat.copyAnswer'), icon: <Copy size={14} aria-hidden />, onSelect: () => {
       let rich: string | undefined
@@ -818,6 +831,7 @@ export function AssistantMessage({
     ...(canRetry && !busy ? [{ label: t('chat.regenerate'), icon: <RotateCcw size={14} aria-hidden />, onSelect: () => onRegenerate(m), testId: 'side-answer-regenerate' }] : []),
     // a guest has no skills (docs/DECISIONS.md "Guests: only what they were invited to")
     ...(canSuggest && !guest && finished ? [{ label: t('suggest.button'), icon: <BookmarkPlus size={14} aria-hidden />, onSelect: () => setSuggesting(true), testId: 'side-answer-suggest' }] : []),
+    ...(reportable ? [{ label: t('problemReport.thumbsDown'), icon: <ThumbsDown size={14} aria-hidden />, onSelect: openReport, testId: 'side-answer-report' }] : []),
   ] : []
 
   // after the work and before the final answer: the to-do card, "the provider is busy", "thinking…"
@@ -1011,6 +1025,11 @@ export function AssistantMessage({
                   <BookmarkPlus size={13} />
                 </IconButton>
               )}
+              {reportable && (
+                <IconButton label={t('problemReport.thumbsDown')} onClick={openReport} className="touch-hit" data-testid="report-answer">
+                  <ThumbsDown size={13} />
+                </IconButton>
+              )}
             </span>
             <BranchNav m={m} onSelect={onSelectBranch} disabled={busy} />
             {(m.model || m.engine) && !(m.status === 'error' && reason === 'engine_start_failed') && <AnsweredBy m={m} className={clsx(untilTap && UNTIL_TAP)} />}
@@ -1022,6 +1041,7 @@ export function AssistantMessage({
         {suggesting && (
           <SuggestSkillDialog source={{ kind: 'message', chatId, messageId: m.id }} initialContent={m.content} onClose={() => setSuggesting(false)} />
         )}
+        {reporting && <ProblemReportSheet answer={reporting} onClose={() => setReporting(null)} />}
         {sharing && <ShareToRoom chatId={chatId} messageId={m.id} answer={m.content} roomId={shareRoomId} onClose={() => setSharing(false)} />}
       </div>
     </div>

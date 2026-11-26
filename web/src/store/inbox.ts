@@ -1,8 +1,8 @@
 // How many Inbox notices I have not read: one count for the whole window, read once and again when the server says the
-// Inbox changed (or after a reconnect, or a change of what I may open). The rail's 활동 shows it whole. A phone
-// counts each unread thing once across its tabs (QA TC-256): the conversation rows (mentions, thread replies) are the 대화
-// tab's, which counts their rooms already, so the 나 tab and the 활동 row on top of its list show only the rest (the app's
-// own notices), and 대화's 멘션·스레드 row a dot for them. Loaded while at least one of them is on screen.
+// Inbox changed (or after a reconnect, or a change of what I may open). Activity is one place with every notice
+// (docs/decisions/20261126-one-activity.md): the rail's 활동, the phone's 나 tab and its 활동 row all show the whole count,
+// mentions, DMs and thread replies with the app's own notices (their rooms keep their own marks on 대화, as in Slack).
+// Loaded while at least one of them is on screen.
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { ActivityTab, InboxNotification } from '@mycel/shared/api'
@@ -10,9 +10,8 @@ import { api, API } from '../lib/api'
 import { optimistic, optimisticEdits, optimisticPending, optimisticPendingKeys, type OptimisticResult } from '../lib/optimistic'
 import { accessChanged, notificationsChanged, reloadAsked } from './live'
 
-/** `unread`: every unread row; `rooms`: its part that is conversation rows (GET /api/notifications roomUnreadCount);
- * `notices`: the unread notices that are not conversation rows at all (noticeUnreadCount; an older server: the rest) */
-export const useInbox = create<{ unread: number; rooms: number; notices: number }>(() => ({ unread: 0, rooms: 0, notices: 0 }))
+/** `unread`: every unread row the server counts (GET /api/notifications unreadCount) */
+export const useInbox = create<{ unread: number }>(() => ({ unread: 0 }))
 
 let watchers = 0
 let stop: (() => void) | null = null
@@ -38,8 +37,7 @@ function load() {
       // else read again now
       if (optimisticPendingKeys(isNoticeKey).length) return
       if (optimisticEdits(isNoticeKey) !== edits) return load()
-      const rooms = Math.min(r.unreadCount, r.roomUnreadCount ?? 0)
-      useInbox.setState({ unread: r.unreadCount, rooms, notices: r.noticeUnreadCount ?? r.unreadCount - rooms })
+      useInbox.setState({ unread: r.unreadCount })
     },
     () => {},
   )
@@ -48,7 +46,7 @@ function load() {
 function watch(): () => void {
   if (watchers++ === 0) {
     // nothing on screen counted it meanwhile (another account may have signed in): no old count until the read
-    useInbox.setState({ unread: 0, rooms: 0, notices: 0 })
+    useInbox.setState({ unread: 0 })
     load()
     const offs = [notificationsChanged.on(load), reloadAsked.on(load), accessChanged.on(load)]
     stop = () => offs.forEach((off) => off())
@@ -65,7 +63,7 @@ function watch(): () => void {
 export function resetInbox() {
   asked++
   readAsked.clear()
-  useInbox.setState({ unread: 0, rooms: 0, notices: 0 })
+  useInbox.setState({ unread: 0 })
 }
 
 /** The unread Inbox count, kept up to date while the caller is mounted. */
@@ -74,39 +72,20 @@ export function useInboxUnread(): number {
   return useInbox((s) => s.unread)
 }
 
-/** A phone's 나 count: the unread notices that are not conversation rows (those are counted on 대화). */
-export function useNoticeUnread(): number {
-  useEffect(watch, [])
-  return useInbox((s) => s.unread - s.rooms)
-}
-
-/** How many conversation rows (mentions, thread replies) are unread: a phone's 멘션·스레드 row shows a dot for them. */
-export function useRoomNoticeUnread(): number {
-  useEffect(watch, [])
-  return useInbox((s) => s.rooms)
-}
-
-/** The computer's 활동 (rail/Rail.tsx, panels/ActivityPanel.tsx): the unread notices that are not
- * conversation rows, the same number as the 활동 list's own unread rows. Conversation rows are 대화's, of any room (a
- * muted room's too: that room's choice is to stay quiet). */
+/** 활동's count, on the computer's rail and the phone's 나 tab (rail/Rail.tsx, BottomTabs.tsx, panels/ActivityPanel.tsx):
+ * every unread notice, the same number as the 활동 list's own unread rows. */
 export function useActivityUnread(): number {
   useEffect(watch, [])
-  return useInbox((s) => s.notices)
+  return useInbox((s) => s.unread)
 }
 
 /** Read the count again now (the 활동 list read or marked something). */
 export const reloadInboxCount = () => load()
 
-/** a conversation row (a DM, a mention or a thread reply, in a room or under a shared AI chat's answer): counted on
- * 대화, not in 활동's own number */
-const roomRow = (item: InboxNotification) => item.code === 'room.dm' || item.code === 'room.mention' || item.code === 'chat.thread_reply'
-
-/** The counts with one notice read (-1) or unread again (+1), before the server says so. */
-function count(item: InboxNotification, by: 1 | -1) {
-  useInbox.setState((s) => {
-    const room = roomRow(item)
-    return { unread: Math.max(0, s.unread + by), rooms: room ? Math.max(0, s.rooms + by) : s.rooms, notices: room ? s.notices : Math.max(0, s.notices + by) }
-  })
+/** The count with one notice read (-1) or unread again (+1), before the server says so (a row the server does not
+ * count, a reply the person turned off, is put right by the read that follows). */
+function count(by: 1 | -1) {
+  useInbox.setState((s) => ({ unread: Math.max(0, s.unread + by) }))
 }
 
 /** Mark one notice read (docs/DECISIONS.md "Optimistic changes"): read on screen at once (`show` puts its readAt on the
@@ -124,7 +103,7 @@ export async function markNoticeRead(item: InboxNotification, show: (readAt: str
       show(at)
       if (!!at === counted) return
       counted = !!at
-      count(item, at ? -1 : 1)
+      count(at ? -1 : 1)
     },
     send: () => api.call(API.markNotificationRead, { params: { id: item.id } }),
     confirmed: (reply) => reply.readAt ?? null,
@@ -135,21 +114,21 @@ export async function markNoticeRead(item: InboxNotification, show: (readAt: str
   return r
 }
 
-/** "Mark all as read" of an Activity tab (`only`: its conversation rows, or the other notices, alone): read on screen
+/** "Mark all as read" of an Activity tab: read on screen
  * at once (`show` puts the time on the caller's unread rows, null puts them back), the counts it empties at zero; a
  * failure puts the rows back with a toast. The counts are read again after. Never rejects. */
-export async function markAllNoticesRead(tab: ActivityTab, only: 'rooms' | 'notices' | undefined, show: (readAt: string | null) => void): Promise<OptimisticResult<unknown>> {
+export async function markAllNoticesRead(tab: ActivityTab, show: (readAt: string | null) => void): Promise<OptimisticResult<unknown>> {
   const r = await optimistic<string | null, unknown>({
-    key: `notice:all:${tab}:${only ?? 'any'}:read`,
+    key: `notice:all:${tab}:read`,
     from: null,
     to: new Date().toISOString(),
     show: (at) => {
       show(at)
       // a tab other than All empties only part of a count: the read after says how much
       if (!at || tab !== 'all') return
-      useInbox.setState((s) => (only === 'notices' ? { unread: s.rooms, notices: 0 } : only === 'rooms' ? { unread: Math.max(0, s.unread - s.rooms), rooms: 0 } : { unread: 0, rooms: 0, notices: 0 }))
+      useInbox.setState({ unread: 0 })
     },
-    send: () => api.call(API.markAllNotificationsRead, { body: { tab, ...(only ? { only } : {}) } }),
+    send: () => api.call(API.markAllNotificationsRead, { body: { tab } }),
   })
   load()
   return r

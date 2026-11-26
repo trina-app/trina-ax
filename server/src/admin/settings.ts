@@ -10,6 +10,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   defaultLocale: DEFAULT_LOCALE,
   defaultEngine: 'claude-code',
   defaultModel: null,
+  /** 보통 (no flag): what ran before the depth choice (docs/decisions/20261126-model-effort-choice.md) */
+  defaultEffort: null,
   concurrency: 3,
   updateChannel: 'stable',
   updateWindow: null,
@@ -40,6 +42,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   autoMode: 'off',
   /** rooms may add an Email app (rooms/apps/mail): off until an owner or admin turns it on (owner, 2026-11-23) */
   roomEmail: false,
+  /** problem reports to the <app> team (system/problem-reports.ts): on unless an owner or admin turns it off */
+  problemReports: true,
   /** members share files they own (files/shares.ts): on unless an admin turns it off */
   memberFileShares: true,
   /** any member may make a team project (docs/DECISIONS.md "Projects live only in projects/") */

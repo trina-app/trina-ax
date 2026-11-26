@@ -1,5 +1,5 @@
 // The left rail on computers (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1). Four places, in the order of the phone's tabs: 트리나 (the AI: Home, its chats,
-// projects, scheduled tasks, team skills, deleted history), 대화 (rooms, DMs, group chats and their 멘션·스레드), 파일 and
+// projects, scheduled tasks, team skills, deleted history), 대화 (rooms, DMs and group chats), 파일 and
 // 활동. Every address of the app belongs to one place or to none (Admin, the Slack pages, an unknown address): the rail
 // lights that place. Settings is a dialog over a page, so the caller asks with the page under it (App.tsx
 // `settings.under`). Each place remembers what was open in it for this browser tab (sessionStorage): going back to 트리나
@@ -9,7 +9,7 @@
 import { matchPath, useLocation } from 'react-router-dom'
 import { create } from 'zustand'
 import { RAIL_LAST_KEY } from './localData'
-import { activityInChats } from './screens'
+import { oldChatsActivity } from './screens'
 
 export type RailItem = 'ai' | 'chats' | 'projects' | 'files' | 'activity'
 /** the rail's order, top to bottom: the phone's tabs 1–4, then 활동 (the phone has it under 나) */
@@ -40,12 +40,12 @@ const PAGES: Record<RailItem, readonly string[]> = {
 
 /**
  * The place an address belongs to, or null (Admin, the Slack link pages, an unknown address, Settings itself: no place
- * lit). Matched as the router matches (any letter case, a trailing slash). The conversations' part of Activity
- * (멘션·스레드, `?in=chats`) is 대화's, as on a phone.
+ * lit). Matched as the router matches (any letter case, a trailing slash). Activity is one place with every notice
+ * (docs/decisions/20261126-one-activity.md), whatever its search.
  */
-export function railOf(pathname: string, search = ''): RailItem | null {
+// (`search` stays in the signature: the callers pass the address whole)
+export function railOf(pathname: string, _search = ''): RailItem | null {
   const item = RAIL_ITEMS.find((i) => PAGES[i].some((p) => matchPath(p, pathname)))
-  if (item === 'activity' && activityInChats(search)) return 'chats'
   return item ?? null
 }
 
@@ -55,7 +55,8 @@ const ownPath = (v: unknown): v is string => typeof v === 'string' && v.startsWi
 const read = (): Partial<Record<RailItem, string>> => {
   try {
     const v = JSON.parse(sessionStorage.getItem(KEY) ?? '{}') as Record<string, unknown>
-    return Object.fromEntries(RAIL_ITEMS.flatMap((i) => (ownPath(v[i]) ? [[i, v[i]]] : [])))
+    // (an old 멘션·스레드 address kept under 대화 is no longer 대화's: dropped)
+    return Object.fromEntries(RAIL_ITEMS.flatMap((i) => (ownPath(v[i]) && !(i === 'chats' && oldChatsActivity(v[i])) ? [[i, v[i]]] : [])))
   } catch {
     return {}
   }
@@ -99,8 +100,7 @@ let kept: { path: string; item: RailItem } | null = null
 export function railHereKept(pathname: string, search = '', state?: unknown): RailItem | null {
   const named = railState(state)
   const item = railHere(pathname, search, state)
-  // (only a place other than the address's own needs keeping: a rail press names its own place on every entry, and
-  // 활동's own ?in=chats tidy must still light 대화)
+  // (only a place other than the address's own needs keeping: a rail press names its own place on every entry)
   if (named && item === named) kept = item !== railOf(pathname, search) ? { path: pathname, item } : null
   else if (kept && kept.path === pathname && railOf(pathname, search)) return kept.item
   else kept = null

@@ -284,7 +284,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.goto('/')
       const { menu } = await rowMenu(page, 'Launch plan (shared)')
       // mine: the pin, the link, rename and delete, never the move (a project's chat stays in its project)
-      await expect(menu.getByRole('menuitem')).toHaveText([t['chat.pin'], t['rooms.menu.copyLink'], t['chat.rename'], t['sidebarSections.moveTo'], t['chat.mute'], t['common.delete']])
+      await expect(menu.getByRole('menuitem')).toHaveText([t['chat.pin'], t['rooms.menu.copyLink'], t['chat.rename'], t['sidebarSections.moveTo'], t['common.delete']])
       await expect(menu.getByTestId('chat-row-move')).toHaveCount(0)
       await audit(page, 'shared chat row menu open')
     })

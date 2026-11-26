@@ -35,3 +35,16 @@ export function withCounts<T extends { unpricedTurns?: number; estimatedTurns?: 
   if (!r.estimatedTurns) delete r.estimatedTurns
   return r
 }
+
+/**
+ * Usage by model (Settings › Usage, Admin › Usage by model): one row per turn and model that answered it, with the same
+ * columns as a turn row, to read `FROM ${TURN_MODEL_ROWS} t` with USAGE_AGG. A turn with turn_models rows (migration 456:
+ * what the model proxy or the engine reported per model, never both) gives one row per model; an older turn, or one
+ * that reported no model, gives its own row under turns.model (the model asked for; NULL = "default model").
+ */
+export const TURN_MODEL_ROWS = `(SELECT t.id, t.user_id, t.engine, t.started_at, t.credential_id, t.usage_source, tm.model AS model,
+    tm.input_tokens, tm.output_tokens, tm.cost_usd, tm.est_cost_usd
+  FROM turns t JOIN turn_models tm ON tm.turn_id = t.id
+  UNION ALL
+  SELECT t.id, t.user_id, t.engine, t.started_at, t.credential_id, t.usage_source, t.model, t.input_tokens, t.output_tokens, t.cost_usd, t.est_cost_usd
+  FROM turns t WHERE NOT EXISTS (SELECT 1 FROM turn_models tm WHERE tm.turn_id = t.id))`

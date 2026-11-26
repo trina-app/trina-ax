@@ -5,20 +5,22 @@ import { ChevronDown } from 'lucide-react'
 import type { EngineId } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { MenuButton, type MenuItem } from '../rooms/MenuButton'
-import { ENGINE_LABEL, type EnginePick } from './EngineMenu'
+import type { Effort } from '@mycel/shared/api'
+import { ENGINE_LABEL, EffortRow, modelHintKey, type EnginePick } from './EngineMenu'
 
 /** The same choices as EngineOptions as a phone's menu rows (MenuButton): per engine its default model (the engine's name,
  * "기본 모델" after it), then its models, a little in; the chosen one ticked. A model named like another row gets its
  * engine's name after it (a row is known by its words). `modelsOnly` (one engine in the composer's picker, AP-032):
  * the models only, without the engine's row. */
-export function engineMenuItems(engines: readonly EngineId[], models: Partial<Record<EngineId, { id: string; label: string }[]>> | undefined, current: { engine: EngineId | undefined; model: string | null | undefined } | undefined, onPick: (p: EnginePick) => void, defaultModel: string, modelsOnly = false): MenuItem[] {
-  if (modelsOnly) return engines.flatMap((id) => (models?.[id] ?? []).map((m): MenuItem => ({ label: m.label, checked: current?.engine === id && current?.model === m.id, onSelect: () => onPick({ engine: id, model: m.id }) })))
+export function engineMenuItems(engines: readonly EngineId[], models: Partial<Record<EngineId, { id: string; label: string }[]>> | undefined, current: { engine: EngineId | undefined; model: string | null | undefined } | undefined, onPick: (p: EnginePick) => void, defaultModel: string, modelsOnly = false, hintOf?: (engine: EngineId, model: string) => string | undefined): MenuItem[] {
+  if (modelsOnly) return engines.flatMap((id) => (models?.[id] ?? []).map((m): MenuItem => ({ label: m.label, ...(hintOf?.(id, m.id) ? { hint: hintOf(id, m.id) } : {}), checked: current?.engine === id && current?.model === m.id, onSelect: () => onPick({ engine: id, model: m.id }) })))
   const seen = new Map<string, number>()
   for (const id of engines) for (const l of [ENGINE_LABEL[id], ...(models?.[id] ?? []).map((m) => m.label)]) seen.set(l, (seen.get(l) ?? 0) + 1)
   return engines.flatMap((id): MenuItem[] => [
     { label: ENGINE_LABEL[id], hint: defaultModel, checked: current?.engine === id && !current?.model, onSelect: () => onPick({ engine: id, model: null }) },
     ...(models?.[id] ?? []).map((m): MenuItem => ({
       label: (seen.get(m.label) ?? 0) > 1 ? `${m.label} · ${ENGINE_LABEL[id]}` : m.label,
+      ...(hintOf?.(id, m.id) ? { hint: hintOf(id, m.id) } : {}),
       icon: <span aria-hidden className="w-4 shrink-0" />,
       checked: current?.engine === id && current?.model === m.id,
       onSelect: () => onPick({ engine: id, model: m.id }),
@@ -39,7 +41,7 @@ const LOOK = {
  * and which never covers the message box while it is closed. The choices are EngineOptions' (engineMenuItems). `label`:
  * the button's words and name, as on a computer (the current choice, or what it does); `title`: the sheet's name and
  * the button's tooltip. Computers keep the small list by the button. */
-export function EngineSheet({ engines, models, current, onPick, label, name, title, testId, look = 'picker', modelsOnly = false }: {
+export function EngineSheet({ engines, models, current, onPick, label, name, title, testId, look = 'picker', modelsOnly = false, billing, effort }: {
   engines: readonly EngineId[]
   models?: Partial<Record<EngineId, { id: string; label: string }[]>>
   current?: { engine: EngineId | undefined; model: string | null | undefined }
@@ -52,14 +54,20 @@ export function EngineSheet({ engines, models, current, onPick, label, name, tit
   look?: keyof typeof LOOK
   /** the models only, without an engine row (engineMenuItems) */
   modelsOnly?: boolean
+  /** a plain hint under each Claude model, in the words of how the connection is paid (modelHintKey) */
+  billing?: Partial<Record<EngineId, 'limit' | 'cost'>>
+  /** the depth row under the models (the current engine takes one): the chosen depth and what picking one does */
+  effort?: { value: Effort; onPick: (e: Effort) => void }
 }) {
   const t = useT()
+  const hintOf = billing ? (id: EngineId, m: string) => { const k = modelHintKey(m, billing[id]); return k ? t(k) : undefined } : undefined
   return (
     <MenuButton
       label={name ?? label}
       tip={title}
       heading={title}
-      items={engineMenuItems(engines, models, current, onPick, t('composer.defaultModel'), modelsOnly)}
+      items={engineMenuItems(engines, models, current, onPick, t('composer.defaultModel'), modelsOnly, hintOf)}
+      footer={effort ? <EffortRow value={effort.value} onPick={effort.onPick} itemRole="menuitemradio" /> : undefined}
       icon={<>{label} <ChevronDown size={13} aria-hidden /></>}
       muted={look === 'picker'}
       // the picker and the pill: a 44 px tap area around them (touch-hit), as on a computer; the button: 44 px tall, as

@@ -14,7 +14,7 @@ import { useT } from '../../i18n'
 import { useMe } from '../../store/session'
 import { RAIL_ITEMS, railLinkState, railTarget, useRailHere, useRailMemory, type RailItem } from '../../lib/rail'
 import { aiName } from '../../lib/tabs'
-import { useActivityUnread, useRoomNoticeUnread } from '../../store/inbox'
+import { useActivityUnread } from '../../store/inbox'
 import { useChats } from '../../store/chats'
 import { loadChatList } from '../../lib/chatListLoad'
 import { useRooms } from '../../store/rooms'
@@ -42,10 +42,9 @@ export function Rail({ showList }: { showList: boolean }) {
     if (!chatsLoaded) void loadChatList().catch(() => {})
   }, [chatsLoaded])
   const rooms = useRooms((s) => s.rooms)
-  const roomNotices = useRoomNoticeUnread()
   const notices = useActivityUnread()
   const projects = useProjectsMark()
-  const marks: Record<RailItem, RailMark> = { ai: aiMark(attention), chats: chatsMark(rooms, roomNotices), projects, files: null, activity: activityMark(notices) }
+  const marks: Record<RailItem, RailMark> = { ai: aiMark(attention), chats: chatsMark(rooms), projects, files: null, activity: activityMark(notices) }
   // 트리나 with its "?": the first chat that waits on me (not the one on screen), wherever it sits in the list, so it
   // never waits below the project groups (UX review S2); without one the place opens as any place does
   const waiting = useWaitingChats()
@@ -138,7 +137,7 @@ function MarkWords({ mark, item }: { mark: RailMark; item: RailItem }) {
   if (!mark) return null
   const words =
     mark.kind === 'ask' ? t('marker.card')
-    : mark.kind === 'dot' ? (item === 'chats' ? t('feed.chatsUnread') : t('marker.new'))
+    : mark.kind === 'dot' ? t('marker.new')
     : item === 'chats' ? t('rail.unreadRooms', { n: mark.n }) : item === 'projects' ? t('rail.unreadProjects', { n: mark.n }) : t('notifications.unread', { count: mark.n })
   return <span className="sr-only" data-testid={`rail-${item}-mark-words`}>, {words}</span>
 }

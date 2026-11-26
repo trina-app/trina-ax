@@ -100,8 +100,8 @@ const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_a
  * have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
 const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'service_request_closed_notices', 'stored_key_file_notices', 'reset_link_notices', 'hosting_notices', 'engine_start_notices', 'storage_notices', 'room_app_notices', 'room_app_leaver_notices', 'chat_answer_notices', 'chat_share_notices', 'file_share_notices', 'chat_thread_notices', 'access_request_notices', 'chat_lost_notices', 'chat_left_notices', 'google_connect_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
-/** A person's message in a chat shared with people or a project's shared chat (chat_message_notices, migration 436;
- * chat/message-notices.ts): read by id (what a push opens) like every notice, never listed, counted or marked read in
+/** A person's message in a chat shared with people (chat_message_notices, migration 436; chat/message-notices.ts; a
+ * project's shared chat has none, docs/decisions/20261126-project-chat-mention-only.md): read by id (what a push opens) like every notice, never listed, counted or marked read in
  * Activity: the chat row's number shows it and reading the chat reads it. The main box of an AI chat mentions nobody
  * (docs/decisions/20261122-ai-session-no-main-mention.md): a person is mentioned in a thread under an AI answer. */
 const PUSH_ONLY_TABLES = ['chat_message_notices'] as const
@@ -112,8 +112,8 @@ const INBOX = union([...NOTICE_TABLES, ...PUSH_ONLY_TABLES])
 /** An AI chat's answer (chat_answer_notices) is pushed only: the chat list's markers show those chats, so the Inbox
  * neither lists nor counts it (docs/DECISIONS.md "AI 답변 알림"). */
 /** A row of LISTED that is a reply in a thread under a shared chat's answer (chat_thread_notices): a conversation row,
- * listed and counted with the rooms' rows on 대화's 멘션·스레드, not with the app's own notices on 활동 (rooms do the same
- * with their mentions and thread replies). */
+ * as the rooms' mentions and thread replies are. Activity lists them all together (docs/decisions/20261126-one-activity.md);
+ * `only` still splits them for older windows. */
 const CHAT_THREAD_ROW = "event_type='chat.thread_reply'"
 const LISTED = `(${NOTICE_TABLES.filter((t) => t !== 'room_notices' && t !== 'chat_answer_notices').map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed,created_at AS sort_at FROM ${t}`).join(' UNION ALL ')})`
 /** A notice (alias `n`) whose phone push was cancelled (notifications/away.ts: the person was at Trina; or it was read
@@ -218,19 +218,21 @@ export class Notifications {
    * (docs/DECISIONS.md "Session markers"). `run`: an app's message (rooms/apps; an app may post a burst of 30, then one a
    * second) stays one per unread run as before, as a quiet one does, so an app cannot ring a phone 30 times in a row or
    * run into the gateway's 20 a minute per device (review of #108, finding 2); only an unread notice that may ring holds
-   * it back. */
-  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString(), threadRootId: string | null = null, quiet = false, seq?: number, run = false): boolean {
+   * it back. `silent`: a followed thread's reply the person turned off ("Replies in threads I'm part of"): quiet as well,
+   * listed in Activity but never counted (room_notices.silent, rooms/inbox.ts COUNTED_SQL). */
+  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString(), threadRootId: string | null = null, quiet = false, seq?: number, run = false, silent = false): boolean {
     if (!this.active(userId) || at < this.cutoff()) return false
-    const open = quiet || run ? this.ctx.db.query(`SELECT n.id FROM room_notices n JOIN room_messages m ON m.id=n.source_id WHERE n.user_id=? AND n.room_id=? AND n.event_type=? AND n.read_at IS NULL AND n.suppressed=0 AND n.created_at>=?
-      AND m.thread_root_id IS ? AND (n.quiet=0 OR ?=1) AND ${NOT_SKIPPED('room_push_deliveries')} ORDER BY n.created_at DESC, n.id DESC LIMIT 1`).get(userId, roomId, event, this.cutoff(), threadRootId, quiet ? 1 : 0) as { id: string } | null : null
+    // (a silent notice opens or joins only a run of silent ones: a counted run never turns uncounted, nor the other way)
+    const open = quiet || run || silent ? this.ctx.db.query(`SELECT n.id FROM room_notices n JOIN room_messages m ON m.id=n.source_id WHERE n.user_id=? AND n.room_id=? AND n.event_type=? AND n.read_at IS NULL AND n.suppressed=0 AND n.created_at>=?
+      AND m.thread_root_id IS ? AND (n.quiet=0 OR ?=1) AND n.silent=? AND ${NOT_SKIPPED('room_push_deliveries')} ORDER BY n.created_at DESC, n.id DESC LIMIT 1`).get(userId, roomId, event, this.cutoff(), threadRootId, quiet || silent ? 1 : 0, silent ? 1 : 0) as { id: string } | null : null
     if (open) {
       // only for the kinds the Inbox lists (a mention, a reply: rooms/inbox.ts; a DM's message is no row). No signal: the
       // Inbox's count is the same, and an open Inbox reads its rows again as the rooms change
       if (seq !== undefined && (event === 'room.mention' || threadRootId !== null)) this.ctx.db.query('UPDATE room_notices SET last_seq=?, last_at=? WHERE id=? AND COALESCE(last_seq, 0) < ?').run(seq, at, open.id, seq)
       return false
     }
-    const r = this.ctx.db.query('INSERT INTO room_notices(id,user_id,event_type,source_id,room_id,created_at,suppressed,quiet) VALUES(?,?,?,?,?,?,0,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING')
-      .run(newId(), userId, event, messageId, roomId, at, quiet ? 1 : 0)
+    const r = this.ctx.db.query('INSERT INTO room_notices(id,user_id,event_type,source_id,room_id,created_at,suppressed,quiet,silent) VALUES(?,?,?,?,?,?,0,?,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING')
+      .run(newId(), userId, event, messageId, roomId, at, quiet || silent ? 1 : 0, silent ? 1 : 0)
     if (r.changes) this.signal(userId)
     return r.changes > 0 && !quiet
   }
@@ -1083,7 +1085,7 @@ export class Notifications {
     const title = s ? plainLabel(s.title) : ''
     return title ? { schedule: { title } } : {}
   }
-  /** `only: 'rooms'`: the conversation rows alone (a phone's 멘션·스레드, opened from 대화); `only: 'notices'`: the other
+  /** `only: 'rooms'`: the conversation rows alone (older windows' 멘션·스레드; store/chatMentions.ts); `only: 'notices'`: the other
    * notices alone (활동's list beside the rail); paged the same way; the counts are the whole Inbox's either way. */
   list(userId: string, o: { cursor?: string; limit?: number; only?: 'rooms' | 'notices' }) {
     const cur = decodeCursor(o.cursor, ['t', 'id'])
@@ -1091,7 +1093,7 @@ export class Notifications {
     if (!this.active(userId)) return { items: [], nextCursor: null, unreadCount: 0, roomUnreadCount: 0, noticeUnreadCount: 0 }
     const limit = Math.min(100, Math.max(1, o.limit ?? 30)), db = this.ctx.db, cutoff = this.cutoff()
     // newest first by sort_at: a notice's own time, a room row's its newest message's
-    // a reply in a thread under a shared chat's answer is a conversation row (CHAT_THREAD_ROW): on 대화's 멘션·스레드
+    // a reply in a thread under a shared chat's answer is a conversation row (CHAT_THREAD_ROW): with the rooms' rows
     // (`only: 'rooms'`), never with the app's own notices (`only: 'notices'`)
     const kind = o.only === 'rooms' ? `AND ${CHAT_THREAD_ROW}` : o.only === 'notices' ? `AND NOT ${CHAT_THREAD_ROW}` : ''
     const rows = db.query(`SELECT * FROM ${LISTED} WHERE user_id=? AND suppressed=0 AND created_at>=? ${kind}
@@ -1103,10 +1105,10 @@ export class Notifications {
     const merged = [...rows, ...listedRooms.filter(after)].sort((a, b) => (a.sort_at === b.sort_at ? (a.id < b.id ? 1 : -1) : a.sort_at < b.sort_at ? 1 : -1)).slice(0, limit + 1)
     const selected = merged.slice(0, limit), last = selected.at(-1)
     const { n } = db.query(`SELECT COUNT(*) n FROM ${LISTED} WHERE user_id=? AND suppressed=0 AND read_at IS NULL AND created_at>=?`).get(userId, cutoff) as { n: number }
-    // the conversation rows' part on its own: the rooms list counts those too, so a phone's 나 tab leaves them to 대화.
+    // the conversation rows' part on its own (older windows; Activity counts unreadCount, every counted row).
     // Not a room I muted: the 대화 tab does not count it (lib/rooms.ts totalUnread), so its row counts on 나 instead
     const counted = rooms.filter((r) => r.counted)
-    // the unread chat-thread rows are conversation rows too: 대화's part, never 활동's
+    // the unread chat-thread rows are conversation rows too
     const { t } = db.query(`SELECT COUNT(*) t FROM chat_thread_notices WHERE user_id=? AND suppressed=0 AND read_at IS NULL AND created_at>=?`).get(userId, cutoff) as { t: number }
     const roomUnreadCount = counted.filter((r) => !r.muted).length + t
     // a "shared with you" notice whose file no longer opens drops out once it is read (docs/decisions/20261120-file-share-gone-notice.md):
@@ -1136,8 +1138,8 @@ export class Notifications {
     return this.out(r)
   }
   /** Activity's "Mark all as read" for a tab (activityTabHas, the page's own rule): All reads every unread notice of
-   * mine (`only: 'rooms'`: the conversation rows alone, the phone's 멘션·스레드; `only: 'notices'`: the others alone,
-   * 활동 beside the rail), the other tabs only the conversation
+   * mine (older windows: `only: 'rooms'`, the conversation rows alone; `only: 'notices'`, the others alone), the other
+   * tabs only the conversation
    * rows they show; also the ones not loaded yet. A conversation row reads as opening it does: its notices, and my place
    * in its room (a thread's: in the thread) moves to the row's newest message, as a notification's "Mark as read" does
    * (`room.seq`), so the room's unread count and the attention count follow; my other windows and devices hear it

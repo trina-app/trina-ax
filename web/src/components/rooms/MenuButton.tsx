@@ -174,7 +174,8 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
     // is in sight; the draft stays and the keyboard comes back only when the person taps the box again
     if (!window.matchMedia?.('(min-width: 48rem)').matches) dismissKeyboard()
     // the keyboard goes into the menu; a finger that opened it does not need a focus ring on the first item
-    if (Date.now() - pressedAt.current > 1000) (menu.current?.querySelector<HTMLElement>('[aria-checked="true"]') ?? usable(menu.current)[0])?.focus({ preventScroll: true })
+    // (the ticked one of its items, not a choice in its footer: the AI picker's depth row)
+    if (Date.now() - pressedAt.current > 1000) ([...(menu.current?.querySelectorAll<HTMLElement>('[aria-checked="true"]') ?? [])].find((el) => el.parentNode === menu.current) ?? usable(menu.current)[0])?.focus({ preventScroll: true })
     // (the menu too: an `inline` one is drawn outside its box)
     const h = (e: Event) => !box.current?.contains(e.target as Node) && !menu.current?.contains(e.target as Node) && setOpen(false)
     document.addEventListener('pointerdown', h)
