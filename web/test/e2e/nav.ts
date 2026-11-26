@@ -252,11 +252,18 @@ export async function openNewConversation(page: Page) {
   await (await showPanel(page, 'chats')).getByTestId('rooms-new-dm').click()
 }
 
-/** 멘션·스레드: the 대화 panel's row (a computer), the 대화 tab's row (a phone). */
+/** Activity's mentions (the one Activity, docs/decisions/20261126-one-activity.md): 활동 and its 멘션 chip (a computer),
+ * 나 › 활동 and its Mentions tab (a phone). */
 export async function openMentions(page: Page) {
-  await showRooms(page)
-  await (isPhone(page) ? page.getByTestId('rooms-page') : panel(page, 'chats')).getByTestId('rooms-activity').click()
-  await expect(page).toHaveURL(/\/activity\?in=chats/)
+  if (isPhone(page)) {
+    await openTab(page, 'me')
+    await page.getByTestId('settings-inbox').click()
+    await expect(page).toHaveURL(/\/activity/)
+    await page.getByTestId('activity-tab-mentions').click()
+    return
+  }
+  await page.getByTestId('rail-activity').click()
+  await page.getByTestId('activity-chip-mentions').click()
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

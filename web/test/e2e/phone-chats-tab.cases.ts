@@ -137,42 +137,34 @@ export function chatsTabCases() {
       await expect(tab(page, 'chats')).toHaveAttribute('aria-current', 'page')
     })
 
-    test('step 2: mentions and thread replies from 대화, each unread counted once across the tabs', async ({ page }) => {
+    test('step 2: mentions and thread replies are in 나 › 활동, the one Activity; 대화 counts its rooms, 나 every notice', async ({ page }) => {
       await start(page)
       // 대화: how many conversations have something unread (the rail's one number, rail/railBadges.ts chatsMark: 디자인
-      // 리뷰 and 지호's DM); 나: only the scheduled task's result, not the mention or reply again
+      // 리뷰 and 지호's DM); 나: every unread notice, the mention and the reply with the scheduled task's result
       await expect(tabMark(page, 'chats')).toContainText('2')
-      await expect(tabMark(page, 'me')).toContainText('1')
-      await expect(tabMark(page, 'me')).not.toContainText('3')
+      await expect(tabMark(page, 'me')).toContainText('3')
       // 나's 활동 row says what the 나 tab says
       await tab(page, 'me').click()
-      await expect(page.getByTestId('settings-inbox-unread')).toContainText('1')
+      await expect(page.getByTestId('settings-inbox-unread')).toContainText('3')
 
-      // 대화: 멘션·스레드 first, a dot (no second number)
+      // 대화: no 멘션·스레드 row, the rooms first
       await tab(page, 'chats').click()
       await expect(page).toHaveURL(/\/rooms$/)
-      const row = page.getByTestId('rooms-activity')
-      await expect(row).toBeVisible()
-      await expect(row).toContainText(t['feed.chats'])
-      await expect(row.getByTestId('rooms-activity-unread')).toBeVisible()
-      await expect(row).not.toContainText(/\d/)
-      expect((await row.boundingBox())!.y).toBeLessThan((await page.getByTestId('rooms-row').first().boundingBox())!.y)
+      await expect(page.getByTestId('rooms-row').first()).toBeVisible()
+      await expect(page.getByTestId('rooms-activity')).toHaveCount(0)
 
-      // a page of the 대화 tab: ‹ 대화, the name 멘션·스레드, 대화 marked; the conversations only
-      const before = await historyLength(page)
-      await row.click()
-      await expect(page).toHaveURL(/\/activity\?in=chats$/)
-      await expect(page.getByTestId('topbar-title')).toHaveText(t['feed.chats'])
-      await expect(page.getByTestId('topbar-back')).toHaveAccessibleName(t['tabs.backTo'].replace('{page}', t['tabs.chats']))
-      await expect(tab(page, 'chats')).toHaveAttribute('aria-current', 'page')
-      await expect(page.getByRole('tab')).toHaveCount(3)
-      await expect(page.getByRole('tab')).toContainText([t['feed.tab.all'], t['feed.tab.mentions'], t['feed.tab.threads']])
-      await expect(page.getByTestId('activity-tab-dms')).toHaveCount(0)
+      // 나 › 활동: ‹ 설정, 나 marked, All · DM · Mentions · Threads
+      await tab(page, 'me').click()
+      await page.getByTestId('settings-inbox').click()
+      await expect(page).toHaveURL(/\/activity$/)
+      await expect(page.getByTestId('topbar-title')).toHaveText(t['inbox.title'])
+      await expect(tab(page, 'me')).toHaveAttribute('aria-current', 'page')
+      await expect(page.getByRole('tab')).toHaveCount(4)
       const rows = page.getByTestId('notification-room-row')
       await expect(rows).toHaveCount(2)
-      await expect(page.getByTestId('notification-chat-link')).toHaveCount(0)
       await expect(page.getByTestId('activity-tab-mentions-unread')).toBeVisible()
       await expect(page.getByTestId('activity-tab-threads-unread')).toBeVisible()
+      const before = await historyLength(page)
       // a tab of it is the same page: no new entry
       await page.getByTestId('activity-tab-threads').click()
       await expect(rows).toHaveCount(1)
@@ -180,44 +172,29 @@ export function chatsTabCases() {
       await page.getByTestId('activity-tab-mentions').click()
       await expect(rows).toHaveCount(1)
       await expect(rows.first().getByTestId('notification-room-line')).toContainText('견적서 확인 부탁해요')
-      expect(await historyLength(page)).toBe(before + 1)
+      expect(await historyLength(page)).toBe(before)
 
-      // the mention opens its room; Back: 멘션·스레드, then the 대화 list
+      // the mention opens its room; Back: 활동
       await rows.first().click()
       await expect(page).toHaveURL(new RegExp(`/rooms/${TEAM}\\?m=${TEAM_MESSAGE}$`))
       await back(page)
-      await expect(page).toHaveURL(/\/activity\?in=chats/)
-      await expect(page.getByTestId('topbar-title')).toHaveText(t['feed.chats'])
-      await back(page)
-      await expect(page).toHaveURL(/\/rooms$/)
-      await expect(page.getByTestId('rooms-activity')).toBeVisible()
-
-      // ‹ goes to the list too
-      await page.getByTestId('rooms-activity').click()
-      await expect(page).toHaveURL(/\/activity\?in=chats$/)
-      await page.getByTestId('topbar-back').click()
-      await expect(page).toHaveURL(/\/rooms$/)
+      await expect(page).toHaveURL(/\/activity/)
+      await expect(page.getByTestId('topbar-title')).toHaveText(t['inbox.title'])
     })
 
-    test('opened from outside, 멘션·스레드 has the 대화 list under it; the whole Activity stays in 나', async ({ page }) => {
+    test('an old 멘션·스레드 link (?in=chats) opens the one Activity in 나, its tab kept, never a 404', async ({ page }) => {
       await start(page)
       await page.goto('/activity?in=chats')
-      await expect(page.getByTestId('topbar-title')).toHaveText(t['feed.chats'])
-      await expect(tab(page, 'chats')).toHaveAttribute('aria-current', 'page')
-      await expect(page.getByTestId('notification-room-row')).toHaveCount(2)
-      await back(page)
-      await expect(page).toHaveURL(/\/rooms$/)
-      await expect(tab(page, 'chats')).toHaveAttribute('aria-current', 'page')
-
-      // 나 › 활동: everything, the app's own notice too, with DMs; ‹ 설정
-      await tab(page, 'me').click()
-      await page.getByTestId('settings-inbox').click()
       await expect(page).toHaveURL(/\/activity$/)
       await expect(page.getByTestId('topbar-title')).toHaveText(t['inbox.title'])
       await expect(tab(page, 'me')).toHaveAttribute('aria-current', 'page')
+      // everything, the app's own notice too, with DMs
       await expect(page.getByRole('tab')).toHaveCount(4)
       await expect(page.getByTestId('notification-room-row')).toHaveCount(2)
       await expect(page.getByTestId('notification-chat-link')).toHaveCount(1)
+      await page.goto('/activity?in=chats&tab=threads')
+      await expect(page).toHaveURL(/\/activity\?tab=threads$/)
+      await expect(page.getByTestId('activity-tab-threads')).toHaveAttribute('aria-selected', 'true')
     })
   })
 
@@ -239,22 +216,12 @@ export function chatsTabCases() {
   test.describe('a phone, past the first page', () => {
     test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 
-    test('35 newer notices of the app and one mention: 멘션·스레드 shows the mention at once, never "nothing here"', async ({ page }) => {
-      const asked = await startBusy(page)
-      // 나 counts the app's 35, 대화's row has its dot
-      await expect(tabMark(page, 'me')).toContainText('35')
+    test('35 newer notices of the app and one mention: 나 counts all 36; no 멘션·스레드 row on 대화', async ({ page }) => {
+      await startBusy(page)
+      await expect(tabMark(page, 'me')).toContainText('36')
       await tab(page, 'chats').click()
-      await expect(page.getByTestId('rooms-activity-unread')).toBeVisible()
-      await page.getByTestId('rooms-activity').click()
-      await expect(page).toHaveURL(/\/activity\?in=chats$/)
-      const rows = page.getByTestId('notification-room-row')
-      await expect(rows).toHaveCount(1)
-      await expect(rows.first().getByTestId('notification-room-line')).toContainText('견적서 확인 부탁해요')
-      await expect(page.getByText(t['feed.chatsEmpty'])).toHaveCount(0)
-      await expect(page.getByTestId('notification-item').filter({ hasNot: rows })).toHaveCount(0)
-      // asked for the conversation rows alone; one page was all of them
-      expect(asked.some((q) => q.includes('only=rooms'))).toBe(true)
-      await expect(page.getByRole('button', { name: t['common.loadMore'] })).toHaveCount(0)
+      await expect(page.getByTestId('rooms-activity')).toHaveCount(0)
+      await expect(page.getByTestId('rooms-activity-unread')).toHaveCount(0)
     })
 
     test('나 › 활동 › 멘션: older pages are read by themselves until the mention shows; no "nothing here" meanwhile', async ({ page }) => {

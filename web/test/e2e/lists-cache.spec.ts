@@ -44,7 +44,6 @@ const PLACES = (phone: boolean): { name: string; url: string; lists: RegExp[] }[
   { name: '예약 작업', url: '/scheduled', lists: [/^\/api\/schedules$/] },
   { name: 'Connectors', url: '/settings/connectors', lists: [/^\/api\/integrations$/, /^\/api\/integrations\/google-apps$/, /^\/api\/integration-templates$/, /^\/api\/me\/credentials$/] },
   { name: 'Notifications', url: '/settings/notifications', lists: [/^\/api\/notification-preferences$/, /^\/api\/me\/credentials$/] },
-  { name: '멘션', url: '/activity?in=chats&tab=mentions', lists: [/^\/api\/notifications\?limit=\d+&only=rooms$/] },
   ...(phone ? [{ name: '활동', url: '/activity', lists: [/^\/api\/notifications\?limit=\d+$/] }] : []),
 ]
 

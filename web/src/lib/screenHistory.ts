@@ -30,7 +30,7 @@
 import { createPath, NavigationType, parsePath, UNSAFE_createBrowserHistory, type HistoryRouterProps, type Location, type To } from 'react-router-dom'
 import { historySettled, stepping } from './historySteps'
 import { TAB_STACKS_KEY } from './localData'
-import { chainOf, rootTab, sameScreen, screenOf } from './screens'
+import { chainOf, oldChatsActivity, rootTab, sameScreen, screenOf } from './screens'
 import { isTabNow, TAB_ROOT, type Tab } from './tabs'
 
 type History = HistoryRouterProps['history']
@@ -113,7 +113,16 @@ type Saved = { user: string; stacks: Partial<Record<Tab, Item[]>> }
 function loadSaved(user: string): Saved {
   try {
     const v = JSON.parse(sessionStorage.getItem(TAB_STACKS_KEY) ?? 'null') as Saved | null
-    if (v && v.user === user && v.stacks && typeof v.stacks === 'object') return v
+    // (an old 멘션·스레드 page kept in 대화's stack is no longer 대화's: docs/decisions/20261126-one-activity.md)
+    if (v && v.user === user && v.stacks && typeof v.stacks === 'object') {
+      const chats = v.stacks.chats
+      if (Array.isArray(chats) && chats.some((x) => oldChatsActivity(x.p))) {
+        const kept = chats.filter((x) => !oldChatsActivity(x.p))
+        if (kept.length) v.stacks.chats = kept
+        else delete v.stacks.chats
+      }
+      return v
+    }
   } catch { /* none */ }
   return { user, stacks: {} }
 }

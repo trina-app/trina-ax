@@ -1,5 +1,5 @@
 // Activity's "Mark all as read" (pages/Activity.tsx, QA TC-457): shown only while the open tab has something unread,
-// one call for the tab (POST /api/notifications/read, with only=rooms on the conversations' page), the tab's rows and
+// one call for the tab (POST /api/notifications/read), the tab's rows and
 // dots read at once, the other tabs' left as they are.
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
@@ -125,16 +125,15 @@ test('All: every unread notice, the app\'s own too; no button once all is read',
   } finally { await m.unmount() }
 })
 
-test('the conversations\' page (from 대화) marks its rows only', async () => {
+test('an old link to 대화\'s 멘션·스레드 (?in=chats) opens the one Activity: every row, and All marks them all', async () => {
   inbox = fresh()
   const m = await open('?in=chats')
   try {
+    expect(unreadRows(m)).toBe(3)
     await m.click('activity-mark-all-read')
     await m.until(() => sent.length === 1, 'the call')
-    expect(sent).toEqual([{ tab: 'all', only: 'rooms' }])
-    await m.until(() => !m.find('activity-mark-all-read'), 'the button gone')
-    // the app's own notice is not on this page and stays unread
-    expect(inbox.filter((x) => !x.readAt).map((x) => x.code)).toEqual(['connection.reconnect'])
+    expect(sent).toEqual([{ tab: 'all' }])
+    await m.until(() => unreadRows(m) === 0, 'every row read')
   } finally { await m.unmount() }
 })
 

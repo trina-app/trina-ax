@@ -1,24 +1,25 @@
-// 활동's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1).
-// 활동 holds the notices that are not conversations: mentions and thread replies are 대화's
-// (멘션·스레드), and one quiet line on top says so and goes there. Its header: the gear (Settings › Notifications) and,
-// while something is unread, "Mark all as read" (these notices only: GET/POST /api/notifications only=notices). Then the
-// owner's setup row while it shows, the chips 전체 · 트리나 · 요청 (lib/activityKinds.ts; 요청 for the owner and admins),
-// and the notices, unread first, then the read ones under "읽음". A notice opens on the right while 활동 stays lit
+// 활동's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1): the one Activity, like Slack's
+// (docs/decisions/20261126-one-activity.md): mentions, thread replies and the app's own notices together. Its header:
+// the gear (Settings › Notifications) and, while the chip has something unread, "Mark all as read" (전체 · DM · 멘션 ·
+// 스레드: the server reads that tab's rows, and a conversation row's room or thread is read to its newest message too).
+// Then the owner's setup row while it shows, the chips 전체 · DM · 멘션 · 스레드 · 트리나 · 요청 (lib/activityKinds.ts;
+// 요청 for the owner and admins; a link's `?tab=` picks one), and the notices, unread first, then the read ones under
+// "읽음". A conversation row has the writer's photo, who and the line, and where (#room › 스레드, a DM). A notice opens on the right while 활동 stays lit
 // (lib/rail.ts railState): its chat, project, scheduled task or setup page; one with no page of its own, or with
 // buttons or a job's log under it, opens as itself (/activity?n=<id>, pages/Activity.tsx). Opening one reads it.
 // The rail's 활동 mark is the same count (store/inbox.ts useActivityUnread).
+// Opening a conversation row opens its room or thread on the right with 활동 still lit, as Slack does.
 import clsx from 'clsx'
-import { AtSign, Bell, CalendarClock, CheckCheck, ChevronRight, Plug, Settings } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Bell, CalendarClock, CheckCheck, MessagesSquare, Plug, Settings } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import type { InboxNotification } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
 import { api, API, errorText } from '../../lib/api'
-import { chipOf, chipsFor, inChip, unreadFirst, type ActivityChip } from '../../lib/activityKinds'
+import { chipOf, chipOfParam, chipsFor, inChip, isServerChip, unreadFirst, type ActivityChip } from '../../lib/activityKinds'
 import { listTime } from '../../lib/format'
 import { ACTIVITY_OPENED_KEY } from '../../lib/localData'
 import { RAIL_STATE_KEY, useRailHere } from '../../lib/rail'
-import { CHATS_ACTIVITY } from '../../lib/screens'
 import { aiName, TAB_ROOT } from '../../lib/tabs'
 import { accessChanged, notificationsChanged, reloadAsked } from '../../store/live'
 import { keepPendingReads, markAllNoticesRead, markNoticeRead } from '../../store/inbox'
@@ -28,6 +29,11 @@ import { unreadRooms } from '../rail/railBadges'
 import { isAdmin, useMe } from '../../store/session'
 import { SetupRow } from '../onboarding/SetupRow'
 import { noticeLink, noticeText } from '../settings/Notifications'
+import { isRoomRow, roomRowText } from '../settings/RoomNoticeRow'
+import { useRoomTitle } from '../rooms/RoomIcon'
+import { Avatar } from '../Avatar'
+import { TrinaStar } from '../TrinaStar'
+import { useAvatarOf } from '../../store/people'
 import { Tooltip } from '../Tooltip'
 import { IconButton } from '../ui'
 import { ListRow } from '../list/List'
@@ -43,6 +49,17 @@ export function opensAsItself(item: InboxNotification): boolean {
   return !noticeLink(item) || !!item.handover || (item.code === 'service.request' && !!item.serviceRequest?.open)
     // an app paused in a room that can still be resumed: its Resume now (components/rooms/apps/PausedNotice.tsx)
     || (item.code === 'room_app.paused' && !!item.roomApp?.canResume && !!item.roomApp.pausedUntil)
+}
+
+/** A page's address as a notice leads there: a room's or thread's `?m=` (the message it starts at, which the room drops
+ * once it has scrolled there) is the same page. */
+export function noticePage(to: string): string {
+  const at = to.indexOf('?')
+  if (at < 0 || !/^\/rooms\//.test(to)) return to
+  const q = new URLSearchParams(to.slice(at + 1))
+  q.delete('m')
+  const rest = q.toString()
+  return rest ? `${to.slice(0, at)}?${rest}` : to.slice(0, at)
 }
 
 /** the history entry's state key that names the notice opened from here (its page can be another notice's too) */
@@ -64,8 +81,8 @@ export function openNotice(
 ): string | null {
   if (at.pathname === '/activity') return new URLSearchParams(at.search).get('n')
   if (at.lit !== 'activity') return null
-  const here = `${at.pathname}${at.search}`
-  const leadsHere = (x: InboxNotification) => !opensAsItself(x) && noticeLink(x)?.to === here
+  const here = noticePage(`${at.pathname}${at.search}`)
+  const leadsHere = (x: InboxNotification) => { const to = noticeLink(x)?.to; return !opensAsItself(x) && !!to && noticePage(to) === here }
   const named = namedNotice(at.state) ?? (kept?.here === here ? kept.id : null)
   if (named) {
     const item = items.find((x) => x.id === named)
@@ -102,7 +119,7 @@ function writeKept(v: Kept | null) {
 function keptFor(at: { pathname: string; search: string; state?: unknown; lit: string | null }): Kept | null {
   const kept = readKept()
   if (at.lit !== 'activity' || at.pathname === '/activity') return kept
-  const named = namedNotice(at.state), here = `${at.pathname}${at.search}`
+  const named = namedNotice(at.state), here = noticePage(`${at.pathname}${at.search}`)
   if (named) {
     if (kept?.here !== here || kept.id !== named) writeKept({ here, id: named })
     return { here, id: named }
@@ -122,7 +139,11 @@ export function ActivityPanel() {
   const t = useT(), locale = useLocale()
   const admin = isAdmin(useMe())
   const newInChats = useRooms((s) => unreadRooms(s.rooms) > 0)
-  const [chip, setChip] = useState<ActivityChip>('all')
+  const { pathname, search, state } = useLocation()
+  // a link to a chip (/activity?tab=mentions, an old link to 대화's 멘션·스레드 too) picks it
+  const asked = pathname === '/activity' ? chipOfParam(new URLSearchParams(search).get('tab')) : null
+  const [chip, setChip] = useState<ActivityChip>(asked ?? 'all')
+  useEffect(() => { if (asked) setChip(asked) }, [asked])
   // the list as this window last showed it (store/listCache.ts): 활동 again shows it at once and reads it behind it
   const [kept] = useState(() => peekCached<KeptFeed>(FEED_KEY))
   const [items, setItems] = useState<InboxNotification[] | null>(kept?.items ?? null)
@@ -151,7 +172,7 @@ export function ActivityPanel() {
     if (after) setPaging(true)
     try {
       const limit = after ? PAGE : Math.min(100, Math.max(PAGE, itemsRef.current?.length ?? 0))
-      const r = await api.call(API.listNotifications, { query: { limit, only: 'notices', ...(after ? { cursor: after } : {}) } })
+      const r = await api.call(API.listNotifications, { query: { limit, ...(after ? { cursor: after } : {}) } })
       if (generation !== life.current || seq !== sequence.current) return
       if (!after) pages.current = 0
       // (a row being marked read here keeps its mark: this read may be from before it)
@@ -159,7 +180,7 @@ export function ActivityPanel() {
       itemsRef.current = next
       setItems(next)
       setCursor(r.nextCursor)
-      setUnread(r.noticeUnreadCount ?? r.items.filter((x) => !x.readAt).length)
+      setUnread(r.unreadCount)
       setError(null)
     } catch (e) {
       if (generation === life.current) setError(errorText(e, locale, t('error.network')))
@@ -201,14 +222,16 @@ export function ActivityPanel() {
     })
   }
   const markAll = async () => {
-    if (marking) return
+    const tab = shownChip
+    if (marking || !isServerChip(tab)) return
     setMarking(true)
     sequence.current++
     const was = unread
-    const marked = new Set(itemsRef.current?.filter((x) => !x.readAt).map((x) => x.id))
-    await markAllNoticesRead('all', 'notices', (readAt) => {
+    const marked = new Set(itemsRef.current?.filter((x) => !x.readAt && inChip(x, tab)).map((x) => x.id))
+    await markAllNoticesRead(tab, undefined, (readAt) => {
       patch((x) => (marked.has(x.id) && !x.readAt === !!readAt ? { ...x, readAt } : x))
-      setUnread(readAt ? 0 : was)
+      // another chip empties only part of the count: the read after says how much
+      if (tab === 'all') setUnread(readAt ? 0 : was)
     })
     // the server says so to every window too; this one reads again now
     notificationsChanged.emit()
@@ -217,7 +240,6 @@ export function ActivityPanel() {
 
   // the row open on the right: its own view (?n=), or its page opened from here (활동 still lit)
   // (one row at most: openNotice)
-  const { pathname, search, state } = useLocation()
   const lit = useRailHere()
   const at = { pathname, search, state, lit }
   const openId = openNotice(items ?? [], at, keptFor(at))
@@ -236,8 +258,8 @@ export function ActivityPanel() {
       testId="activity-panel"
       actions={
         <>
-          {/* the whole list's, so only under 전체: a chip never reads what it does not show */}
-          {unread > 0 && shownChip === 'all' && (
+          {/* the chip's, under the chips the server reads alone: a chip never reads what it does not show */}
+          {isServerChip(shownChip) && (shownChip === 'all' ? unread > 0 : shown.some((x) => !x.readAt)) && (
             <IconButton label={t('feed.markAllRead')} onClick={() => void markAll()} disabled={marking} data-testid="activity-panel-mark-all">
               <CheckCheck size={16} aria-hidden />
             </IconButton>
@@ -252,12 +274,6 @@ export function ActivityPanel() {
       top={
         <>
           <SetupRow />
-          {/* two lines when the words are long (English, Spanish): never cut */}
-          <Link to={CHATS_ACTIVITY} className={clsx(panelRowBox, 'py-1 text-row text-muted')} data-testid="activity-panel-to-chats">
-            <AtSign size={16} className="shrink-0" aria-hidden />
-            <span className="min-w-0 flex-1">{t('activity.inChats')}</span>
-            <ChevronRight size={14} className="shrink-0 text-faint" aria-hidden />
-          </Link>
           {chips.length > 1 && (
             <div role="group" aria-label={t('activity.chips')} className="flex flex-wrap gap-1.5 px-1 pt-1" data-testid="activity-panel-chips">
               {chips.map((c) => (
@@ -271,7 +287,7 @@ export function ActivityPanel() {
                   className={clsx("relative inline-flex h-7 items-center rounded-full border px-3 text-meta font-medium pointer-coarse:after:absolute pointer-coarse:after:inset-x-0 pointer-coarse:after:-inset-y-[9px] pointer-coarse:after:content-['']", shownChip === c ? 'border-ink bg-ink text-canvas' : 'border-field-border text-muted hover:bg-hover hover:text-ink')}
                   data-testid={`activity-chip-${c}`}
                 >
-                  {c === 'all' ? t('feed.tab.all') : c === 'trina' ? aiName(t) : t('activity.chip.requests')}
+                  {chipLabel(c, t)}
                 </button>
               ))}
             </div>
@@ -281,7 +297,7 @@ export function ActivityPanel() {
     >
       {error && <p role="alert" className="px-3 py-2 text-meta text-danger">{error}</p>}
       {!items && !error && <div className="mx-auto mt-4 size-4 animate-spin rounded-full border-2 border-line border-t-faint" role="status" aria-label={t('common.loading')} />}
-      {items && !shown.length && !cursor && <p className="px-3 py-2 text-sm text-faint" data-testid="activity-panel-empty">{shownChip === 'all' ? t('notifications.empty') : t('feed.emptyFiltered')}</p>}
+      {items && !shown.length && !cursor && <p className="px-3 py-2 text-sm text-faint" data-testid="activity-panel-empty">{shownChip === 'all' ? t('notifications.empty') : shownChip === 'dms' ? t('feed.dmsEmpty') : t('feed.emptyFiltered')}</p>}
       {/* 대화 has unread conversations (the rail's count): "nothing here" points there */}
       {items && !shown.length && !cursor && newInChats && <Link to={TAB_ROOT.chats} className="block px-3 pb-2 text-sm font-medium text-accent-text hover:underline" data-testid="activity-new-in-chats">{t('feed.newInChats')}</Link>}
       {fresh.length > 0 && <ul aria-label={t('notifications.unread', { count: fresh.length })} data-testid="activity-panel-unread">{fresh.map(row)}</ul>}
@@ -299,10 +315,79 @@ export function ActivityPanel() {
   )
 }
 
+type T = ReturnType<typeof useT>
+
+/** a chip's word */
+function chipLabel(c: ActivityChip, t: T): string {
+  if (c === 'trina') return aiName(t)
+  if (c === 'requests') return t('activity.chip.requests')
+  return t(c === 'all' ? 'feed.tab.all' : c === 'dms' ? 'feed.tab.dms' : c === 'mentions' ? 'feed.tab.mentions' : 'feed.tab.threads')
+}
+
+/** The writer's photo in the row's people box: the AI's mark for an answer of the AI, the letter without a photo. */
+function RowFace({ id, name, ai }: { id?: string | null; name?: string | null; ai?: boolean }) {
+  const user = useAvatarOf(id && name ? { id, name } : null)
+  if (ai) return <TrinaStar size={18} />
+  return user ? <Avatar user={user} size="fill" /> : <MessagesSquare />
+}
+
+/** A conversation (a mention, a reply in a thread I follow, in a room or under a shared AI chat's answer): the writer's
+ * photo; who and the line, "@" when it mentions me (two lines at most); where it was (#room › 스레드, a DM, the chat)
+ * and when; a dot while unread. Opens the room or the thread (noticeTarget), 활동 still lit. */
+function ConversationRow({ item, open, onOpen }: { item: InboxNotification; open: boolean; onOpen: () => void }) {
+  const t = useT(), locale = useLocale()
+  const title = useRoomTitle()
+  const roomId = item.room?.id
+  const listed = useRooms((s) => (roomId ? s.rooms.find((r) => r.id === roomId) ?? null : null))
+  const unread = !item.readAt
+  const target = noticeLink(item) ? noticeTarget(item) : null
+  let face: ReactNode, who: string, line: ReactNode, where: string | null, mention: boolean
+  if (isRoomRow(item)) {
+    const words = roomRowText(item.room, t, listed ? title(listed) : null)
+    face = <RowFace id={item.room.fromId} name={item.room.from} ai={item.room.ai} />
+    who = words.who
+    line = words.line
+    mention = !!words.mark
+    where = words.where
+  } else {
+    const th = item.chatThread
+    face = <RowFace id={th?.byId} name={th?.name} />
+    who = th?.name ?? aiName(t)
+    line = noticeText(item, t, locale)
+    mention = !!th?.mention && !th.gone
+    where = th?.title && !th.gone ? th.title : null
+  }
+  return (
+    <ListRow
+      to={target?.to}
+      state={target?.state}
+      onClick={onOpen}
+      selected={open}
+      unread={unread}
+      wrap
+      face
+      icon={face}
+      name={<><bdi data-testid="activity-panel-who">{who}</bdi>{line ? <span className={unread ? 'text-ink' : 'text-muted'}>{': '}{mention && <span aria-hidden className="font-semibold text-accent-text">@</span>}<bdi data-testid="activity-panel-line">{line}</bdi></span> : null}</>}
+      nameTestId="activity-panel-text"
+      meta={<>{where && <><bdi data-testid="activity-panel-where">{where}</bdi> · </>}<time dateTime={item.room?.at ?? item.createdAt}>{listTime(item.room?.at ?? item.createdAt, locale, t('sidebar.yesterday'))}</time></>}
+      end={
+        unread && (
+          <span className="mt-1.5 size-2 shrink-0 rounded-full bg-accent max-md:mt-0" data-testid="activity-panel-dot">
+            <span className="sr-only">{mention ? t('notifications.room.mention') : t('notifications.unreadMark')}</span>
+          </span>
+        )
+      }
+      testId="activity-panel-row"
+      link={{ 'data-unread': unread ? '' : undefined, 'data-chip': 'conversation' }}
+    />
+  )
+}
+
 /** One notice: its kind's icon, its words (two lines at most), when; a dot while unread. A link to where it opens
- * (noticeTarget), so it can also open in a new tab. */
+ * (noticeTarget), so it can also open in a new tab. A conversation row is ConversationRow. */
 function NoticeRow({ item, open, onOpen }: { item: InboxNotification; open: boolean; onOpen: () => void }) {
   const t = useT(), locale = useLocale()
+  if (isRoomRow(item) || item.code === 'chat.thread_reply') return <ConversationRow item={item} open={open} onOpen={onOpen} />
   const unread = !item.readAt
   const kind = chipOf(item)
   const Icon = kind === 'trina' ? CalendarClock : kind === 'requests' ? Plug : Bell
