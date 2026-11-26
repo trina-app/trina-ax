@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-26 02:50
 - Branch: `ci/windows-sslcom-signing`
-- Status: in progress
+- Status: done (PR open; signing off until the variable is set)
 - Where: `.github/workflows/release.yml` (build-windows), `desktop/scripts/win-sign.ts`, docs/RELEASE-CI.md 11장.
   Why: the company's OV code signing certificate was issued by SSL.com (eSigner cloud signing) on 2026-11-26, and the
   owner cancelled Microsoft Artifact Signing the same day
@@ -40,4 +40,8 @@ Out: the macOS and Linux builds, `publisherName` for electron-updater (unchanged
 
 ## Result
 
-(filled in at the end)
+- eSigner enrolled (OTP app) on 2026-11-26; the four `SSLCOM_*` secrets are in the `release` environment.
+- One test signing on a Mac (CodeSignTool v1.3.2, the same arguments as the hook) of a tiny Go-built exe:
+  `osslsigncode verify` succeeded, SHA-256, signer `CN=Trina Inc., O=Trina Inc., C=KR` issued by "SSL.com Code Signing
+  Intermediate CA RSA R1", timestamped by SSL.com.
+- Learned: the QR's TOTP secret is base32; CodeSignTool wants the same bytes as base64 (docs 11장 "처음 한 번" 1).

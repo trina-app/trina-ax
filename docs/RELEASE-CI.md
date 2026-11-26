@@ -486,7 +486,7 @@ its downloads; a new certificate does not skip it).
 
 ### 무엇을 쓰나
 
-- **SSL.com OV 코드 서명 인증서**(1년, 2026-11-26 발급, 2027-11-26까지; 주문 ref는 SSL.com 계정의 Orders에 있다), **eSigner** 클라우드 서명. 개인 키는 SSL.com의 HSM에 있고 받지 않는다: 잃어버리거나 샐 키 파일이 없다. 서명은 SSL.com 계정(사용자 이름·비밀번호) + eSigner 자격(credential id) + eSigner 일회용 코드(TOTP)로 한다.
+- **SSL.com OV 코드 서명 인증서**(1년; eSigner 서명 인증서는 2026-11-26 발급, 2027-11-26까지; 주문 ref는 SSL.com 계정의 Orders에 있다), **eSigner** 클라우드 서명. 개인 키는 SSL.com의 HSM에 있고 받지 않는다: 잃어버리거나 샐 키 파일이 없다. 서명은 SSL.com 계정(사용자 이름·비밀번호) + eSigner 자격(credential id) + eSigner 일회용 코드(TOTP)로 한다.
 - 도구: SSL.com **CodeSignTool**(Java, https://github.com/SSLcom/CodeSignTool, 문서 https://www.ssl.com/guide/esigner-codesigntool-command-guide/). 서명마다 RFC 3161 타임스탬프(`http://ts.ssl.com`, 도구의 `conf/code_sign_tool.properties`)를 붙여 인증서가 끝난 뒤에도 서명은 유효하다.
 - **비용**(https://www.ssl.com/guide/esigner-pricing-for-code-signing/, 2026-03-25 갱신판): 인증서를 받은 뒤 **처음 30일은 서명 무제한 무료**. 그 뒤 eSigner 서명 요금제가 필요하다. OV 등급 1: 월 $20(한 달 20번) 또는 연 $180(한 해 240번), 넘으면 한 번에 $1. 등급 2: 월 $85(100번)/연 $765(1,200번), 넘으면 $0.85. 안 쓴 횟수는 구독이 이어지는 동안 다음 달로 넘어가고, 구독이 끊기면 사라진다. 한 릴리스는 파일 서너 개(앱 exe, 제거 프로그램, 설치 파일)를 서명한다. **요금제는 대표가 고른다**(결제).
 - Microsoft Artifact Signing은 2026-11-15부터 시도했지만(조직 확인이 끝나지 않았다) 2026-11-26 대표가 해지했다. release.yml에서 그 길은 지웠다.
@@ -502,7 +502,7 @@ its downloads; a new certificate does not skip it).
 
 ### 처음 한 번
 
-1. **eSigner 등록**: secure.ssl.com → Orders → 그 코드 서명 주문 → eSigner PIN을 정하고 QR 코드(=TOTP 비밀값)를 받는다. 사람이 쓰는 인증 앱에 이미 등록했다면 같은 비밀값을 CI에도 넣는다. **QR을 다시 만들면(reset) 예전 인증 앱의 코드는 더 이상 맞지 않는다.**
+1. **eSigner 등록**(2026-11-26에 했다): secure.ssl.com → Orders → 그 코드 서명 주문 → Second factor **OTP APP**, 4자리 PIN을 정하면 QR 코드가 나온다. 그 뒤에는 같은 화면의 "reset eSigner PIN or get new QR Code"에서 PIN을 넣어 **같은** QR을 다시 볼 수 있다(reveal; 비밀값은 바뀌지 않는다). QR 안의 `otpauth://` URI의 `secret`은 base32다. CodeSignTool의 `-totp_secret`은 **그 바이트의 base64**를 받는다(`python3 -c 'import base64,sys; s=sys.argv[1].upper(); print(base64.b64encode(base64.b32decode(s+"="*(-len(s)%8))).decode())' <base32>`). 사람이 쓰는 인증 앱에는 같은 QR을 넣으면 된다. PIN을 바꾸거나 새 QR을 만들면(reset) 예전 비밀값의 코드는 더 이상 맞지 않는다.
 2. **credential id**: `CodeSignTool get_credential_ids -username=… -password=…`(또는 주문 화면의 signing credential).
 3. **GitHub에 넣는다**(environment `release`의 비밀값 넷; 값은 파이프로 넣고 화면·파일에 남기지 않는다):
    ```sh
@@ -523,8 +523,8 @@ its downloads; a new certificate does not skip it).
 |---|---|---|
 | `Windows signing is switched on but half set up` | 변수는 `sslcom`인데 비밀값이 빠졌다 | 처음 한 번 3을 다시 하거나 변수를 지운다 |
 | `not a known signing provider` | 변수 값이 `sslcom`이 아니다 | 값을 고치거나 지운다 |
-| `Error: invalid otp` | TOTP 비밀값이 틀리거나 QR이 다시 만들어졌다 | 주문 화면의 비밀값으로 `SSLCOM_TOTP_SECRET`을 다시 넣는다 |
-| `invalid_grant` / 로그인 실패 | 사용자 이름·비밀번호가 틀리거나 비밀번호가 바뀌었다 | `SSLCOM_USERNAME`·`SSLCOM_PASSWORD`를 다시 넣는다 |
+| `Error: invalid otp` | TOTP 비밀값이 틀렸거나(base32를 그대로 넣었다), QR이 다시 만들어졌다 | 처음 한 번 1처럼 QR의 base32를 base64로 바꿔 `SSLCOM_TOTP_SECRET`을 다시 넣는다 |
+| `The provided authorization grant is invalid` | 사용자 이름·비밀번호가 틀리거나 비밀번호가 바뀌었다 | `SSLCOM_USERNAME`·`SSLCOM_PASSWORD`를 다시 넣는다 |
 | 서명 거절, 횟수·구독 관련 오류 | 30일 무료가 끝났고 요금제가 없거나 횟수를 다 썼다 | 대표가 요금제를 고른다. 그동안은 변수를 지워 서명 없이 낸다 |
 | 서명 후 Status가 Valid가 아님 / 타임스탬프 없음 | 체인이나 `ts.ssl.com` 문제 | 다시 돌려 본다(Re-run failed jobs) |
 
