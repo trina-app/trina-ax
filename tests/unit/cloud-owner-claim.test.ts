@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'bun:test'
 import crypto from 'node:crypto'
 import {
-  APP_PATHS, appCallbackUrl, appConnectUrl, isAppEmail, isOwnerClaim, parseAppEmailStart, parseAppEmailVerify, OWNER_CLAIM_CONFIRM_PATH, OWNER_CLAIM_RESERVE_PATH, ownerClaimSetupUrl,
+  APP_PATHS, appCallbackUrl, appConnectUrl, isAppEmail, isOwnerClaim, parseAppEmailStart, parseAppEmailVerify, parseAppRetryTeam, OWNER_CLAIM_CONFIRM_PATH, OWNER_CLAIM_RESERVE_PATH, ownerClaimSetupUrl,
   ownerClaimSigningString, parseAppConnectParams, parseAppCreateTeam, parseAppError, parseAppMe, parseAppTeam,
   parseAppTokenAnswer, parseAppTokenRequest, parseOwnerClaimConfirmAnswer, parseOwnerClaimOwner, parseOwnerClaimRequest,
   readOwnerClaimFragment, suggestTeamSlug, teamSlugOk,
@@ -123,6 +123,14 @@ describe('app and console', () => {
     expect(parseAppMe({ ...me, freePlan: { ...freePlan, termsUrl: 'http://x' } })).toBeNull()
     expect(parseAppError({ error: { code: 'capacity_full', message: 'x', fields: { pool: 'free' } } })).toEqual({ code: 'capacity_full', fields: { pool: 'free' } })
     expect(parseAppError({ error: { code: 'Bad Code' } })).toBeNull()
+  })
+
+  test('retry body: the same address, or a new one after slug_conflict', () => {
+    expect(parseAppRetryTeam({ v: 1 })).toEqual({ v: 1 })
+    expect(parseAppRetryTeam({ v: 1, slug: 'acme-2' })).toEqual({ v: 1, slug: 'acme-2' })
+    expect(parseAppRetryTeam({ v: 1, slug: 'A' })).toBeNull()
+    expect(parseAppRetryTeam({ v: 1, planId: 'pro' })).toBeNull()
+    expect(parseAppRetryTeam({})).toBeNull()
   })
 
   test('create team body', () => {
