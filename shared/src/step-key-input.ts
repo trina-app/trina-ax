@@ -12,7 +12,8 @@ const KINDS: { kind: KeyKind; words: ReadonlySet<string> }[] = [
   { kind: 'url', words: new Set(['url', 'urls', 'uri', 'link', 'links', 'href', 'website', 'domain', 'site']) },
   { kind: 'path', words: new Set(['path', 'paths', 'file', 'files', 'filename', 'filepath', 'folder', 'dir', 'directory']) },
   { kind: 'command', words: new Set(['command', 'cmd']) },
-  { kind: 'text', words: new Set(['name', 'title', 'subject', 'topic', 'text', 'message']) },
+  // "summary": an event's or an issue's title in the Calendar and Jira APIs
+  { kind: 'text', words: new Set(['name', 'title', 'subject', 'summary', 'headline', 'topic', 'text', 'message']) },
 ]
 export type KeyKind = 'text' | 'url' | 'path' | 'command'
 
@@ -123,6 +124,23 @@ const addressIn = (v: string): string | null => { const m = /https?:\/\/[^\s"'`)
 
 type Schema = { properties?: Record<string, unknown>; required?: unknown } | null | undefined
 
+/** Last words of an argument's name that say it picks what kind of operation the call does ("action": "create",
+ * "mode": "append"), not the item it acts on: never a step's key input (QA: `Google Calendar · 일정 관리 · "create"`). */
+const CHOICE_WORDS = new Set(['action', 'actions', 'operation', 'op', 'mode', 'method', 'verb', 'type', 'kind', 'format', 'status', 'state',
+  'scope', 'level', 'order', 'sort', 'direction', 'visibility', 'role', 'strategy', 'style', 'variant', 'category', 'priority'])
+/** An argument that is a choice among a few words, not a name: its schema gives the values (`enum`, `const`, or a
+ * `oneOf`/`anyOf` of them), or its name's last word is a CHOICE_WORDS one. */
+export function choiceArg(name: string, schema?: unknown): boolean {
+  const w = words(name)
+  if (CHOICE_WORDS.has(w.at(-1) ?? '')) return true
+  const s = (schema && typeof schema === 'object' ? schema : null) as Schema
+  const p = s?.properties && typeof s.properties === 'object' && Object.hasOwn(s.properties, name) ? (s.properties as Record<string, unknown>)[name] : null
+  const fixed = (x: unknown): boolean => !!x && typeof x === 'object' && (Array.isArray((x as { enum?: unknown }).enum) || Object.hasOwn(x as object, 'const'))
+  if (fixed(p)) return true
+  const alts = p && typeof p === 'object' ? ((p as { oneOf?: unknown }).oneOf ?? (p as { anyOf?: unknown }).anyOf) : null
+  return Array.isArray(alts) && alts.length > 0 && alts.every((x) => fixed(x) || (!!x && typeof x === 'object' && (x as { type?: unknown }).type === 'null'))
+}
+
 /** One string argument (or the first of a list of strings, with how many more) that may show. */
 function valueOf(v: unknown): { s: string; more: number } | null {
   if (typeof v === 'string') return v.trim() ? { s: v, more: 0 } : null
@@ -136,7 +154,8 @@ function valueOf(v: unknown): { s: string; more: number } | null {
 /**
  * The key input of one call, or null: the best-named argument (a query, then an address, a path, a command, a name or
  * title), ties going to the schema's required arguments, then its order, then the call's. Without a well-named one,
- * the first required string argument of the schema. Never an argument named like a secret, or a value that is one.
+ * the first required string argument of the schema that is not a choice (choiceArg: an `action`, a `mode`, an
+ * `enum`). Never an argument named like a secret, or a value that is one.
  */
 export function stepKeyInput(input: unknown, schema?: unknown): { text: string; quoted: boolean; more: number } | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null
@@ -153,7 +172,7 @@ export function stepKeyInput(input: unknown, schema?: unknown): { text: string; 
     if (shown) return { ...shown, more: v!.more }
   }
   for (const k of required) {
-    if (secretArgName(k) || codeArgName(k) || !Object.hasOwn(a, k)) continue
+    if (secretArgName(k) || codeArgName(k) || choiceArg(k, s) || !Object.hasOwn(a, k)) continue
     const v = valueOf(a[k])
     const shown = v && v.s.length <= 200 ? stepValue(v.s, 'text') : null
     if (shown) return { ...shown, more: v!.more }
