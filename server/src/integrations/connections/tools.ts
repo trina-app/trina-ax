@@ -384,13 +384,25 @@ function titleArg(args: unknown): string | null {
 
 /** Argument names that hold code an app on the person's computer runs (Aside's Repl "code", ego lite's "script") */
 const CODE_KEY = /^(code|script|js|javascript|program)$/i
-/** Argument names that hold a task for an app's own agent (Aside's exec "prompt") */
-const TASK_KEY = /^(prompt|task|instructions?)$/i
-/** A team file handle given as an app on the computer's code or task (a top-level argument), where no file can go */
+/** Argument names where a tool takes a file's content (a mail's attachment "content", "data"): the only place a team file
+ * handle can go to an app on the person's computer */
+const CONTENT_KEY = /^(content|contents|data|bytes|base64|file_content|filecontent|file_data)$/i
+/** A team file handle given to an app on the person's computer anywhere but where its tool takes a file's content
+ * (security review of #647: any depth, any argument name; Aside's repl "code" and exec "prompt", a CLI's stdin, a
+ * "command"): it would go as text, not a file. Fails closed: an argument the walk cannot reach counts as such. */
 function handleAsCode(row: Pick<Row, 'local_app'>, tool: string, args: unknown): boolean {
-  if (!row.local_app || !args || typeof args !== 'object' || Array.isArray(args)) return false
+  if (!row.local_app) return false
   const own = scriptArg(row, tool)
-  return Object.entries(args as Record<string, unknown>).some(([k, v]) => typeof v === 'string' && v.startsWith(TEAM_FILE_PREFIX) && (k === own || CODE_KEY.test(k) || TASK_KEY.test(k)))
+  let bad = false
+  const walk = (v: unknown, key: string | null, depth: number) => {
+    if (bad) return
+    if (depth > 12) { bad = true; return }
+    if (typeof v === 'string') { if (v.startsWith(TEAM_FILE_PREFIX) && (key === null || key === own || !CONTENT_KEY.test(key))) bad = true }
+    else if (Array.isArray(v)) for (const x of v) walk(x, key, depth + 1)
+    else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v as Record<string, unknown>)) walk(x, k, depth + 1)
+  }
+  walk(args, null, 0)
+  return bad
 }
 
 /** The argument that is code an app on the person's computer runs: a declared CLI's stdin, or a top-level string
@@ -1376,6 +1388,12 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
           // no card was due (the connection sends without asking for this person): a file still leaves only in a turn
           // the person watches from their own app, never from a question asked elsewhere (Slack)
           if (!confirmed && !tc.files.person?.allSitesHere?.()) throw new CallError(`Nothing was sent to ${current.name}: a team file is attached only in a chat the user has open in the app, where they see what leaves the team. Tell the user to ask there.`, 'refused (attachment: not watched)')
+          // a shared chat: the read check again after the send card, which may have waited while people joined (security
+          // review of #647); a yes this answer gave for the same people holds, someone new asks again
+          if (b.shared) {
+            const no = await b.shared.attach(files.map((f) => f.rel), name)
+            if (no) throw new CallError(no, 'not sent (shared chat: team file not shared)')
+          }
           recheckTeamFiles(ctx, tc, files)
           sending = withTeamFiles(args, files)
         }

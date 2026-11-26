@@ -194,4 +194,11 @@ describe('a team file handed to an app on the computer', () => {
       expect(ev.summary).toContain('refused (attachment: app on the computer)')
     })
   }
+  // security review of #647: at any depth and under any name but a file's content
+  test('a handle nested under another argument name is refused too', async () => {
+    const chat = await projectChat()
+    const r = await ask(from.desk, chat, fake({ tool: 'my_aside__repl', args: { code: 'x', opts: { command: ['team-file:projects/falcon/plan.md'] } }, sayResult: true }))
+    expect(r.content).toContain('a team file cannot be attached through it')
+    expect(callsOf(r.started.turnId).some((s) => s.method === 'tools/call')).toBe(false)
+  })
 })

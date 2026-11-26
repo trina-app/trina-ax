@@ -25,16 +25,23 @@
   needs a connection row, so no migration) and Settings › Allowed for Trina lists it ("Browser · <place>") and can reset
   it. What its pages bring in joins the answer's read record as the asker's own (`via: 'browser'`, a k group), as their
   own connection's answer does: someone who joins later does not see that answer.
+- **Rule, other people's words (security review of #647):** in a shared chat where someone else wrote, or that a guest
+  sees, a browser call that acts (anything but the page reads: `read_page`, `get_page_text`, `find`, `tabs_context`, the
+  console and network reads) waits for the asker's card after the notice ("Other people wrote in this chat, so the AI
+  asks before it acts in your browser…", Allow once / Always allow / Don't allow), as after a room read in a private
+  chat: another person's message may be what asks for the click. Their Always for changes after other people's words
+  (`room_change`, Rule A) holds; Allow once covers the same call for the rest of the answer.
 - **Rule, team files:** a team file the asker attaches through a connection (`team-file:` handle) is no longer refused in
   a shared chat. It goes through the chat's read check first, as a read of the same file would: when someone in the
   chat cannot open it, the asker gets the file read card (only they see it); a yes adds it to the answer's read record;
   a no (or no answer) sends nothing, the call's step says "그 파일은 이 채팅 사람 중 일부가 열 수 없어서, 보내지 않았어요." /
   "Not sent: some people in this chat can't open that file.", and the AI says the same. Then the send card, which in a
-  shared chat asks every time. The hard blocks stay: a stored key inside the file, the size and count limits, files held
+  shared chat asks every time, and the read check once more after it (people may have joined while it waited). The hard blocks stay: a stored key inside the file, the size and count limits, files held
   by the safety check, the recheck after the card, never in a scheduled run.
 - **Rule, what cannot attach:** no tool of an app on the computer (Aside's repl and exec take code or a task) and no
   in-app browser tool takes a file's content, so a team file cannot be attached through them, a web mail opened there
-  included. A handle given as such an app's code or task (`code`, `script`, `prompt`, a CLI's stdin) is refused in plain
+  included. A handle given to such an app anywhere but an argument that takes a file's content (`content`, `data`, at any
+  depth; never its code, task, command or a CLI's stdin) is refused in plain
   words before anything reaches the desktop app (an app's tool that does take a file's content still gets it), and the
   AI's instructions (ATTACH_HOW, the browser rules) say to say so before starting, never promise it, and offer what
   works: a connected mail service that takes attachments, a link to each file, or the person attaching the files

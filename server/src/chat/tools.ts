@@ -1909,6 +1909,9 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       if (exec.shared) {
         const no = await exec.confirmSharedBrowser()
         if (no) return { ...text(no, true), summary: `${name} -> not run (shared chat: browser notice)` }
+        // ...and where other people wrote or a guest is here, an action waits for the asker's card (their Always holds)
+        const change = await exec.confirmSharedBrowserChange(name, args)
+        if (change) return { ...text(change, true), summary: `${name} -> not run (shared chat: browser change card)` }
       }
       const person = turnPerson(exec)
       /** null when the address may be opened; otherwise the refusal for the AI */
