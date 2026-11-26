@@ -23,7 +23,7 @@ export const reactable = (m: Pick<RoomMessage, 'event' | 'deletedAt' | 'visibili
 
 /** The phone's strip (the top of the long-press sheet): six, so it fits a 360px screen with "More emoji". */
 export const STRIP_REACTIONS = ['👍', '✅', '👀', '❤️', '😂', '😭'] as const
-/** The computer's strip (the hover row's smile button): the row has ✅ 👀 👍 (MessageHoverBar QUICK_REACTIONS) already. */
+/** The computer's strip (the hover row's smile button): the row has ✅ 👀 👍 (components/messages/MessageActions.tsx QUICK_REACTIONS) already. */
 export const STRIP_REACTIONS_COMPUTER = ['❤️', '😂', '😭', '🙏', '🎉', '🔥'] as const
 
 /** Emoji in a row and "More emoji" after them; `onPick` gets the one chosen, `onMore` opens the picker. */

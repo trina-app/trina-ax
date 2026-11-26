@@ -1507,7 +1507,8 @@ function PrivateChatsNotice({ project, chats }: { project: Project; chats: Chat[
   const t = useT()
   const me = useMe()
   const safeOps = !!me?.server?.allChatsConfidential
-  const mine = chats.filter((c) => mayShareChat(c, project, safeOps))
+  // (a chat made with "Continue in a new chat" is private on purpose: never counted here, docs/decisions/20261126-chat-fork-tree.md)
+  const mine = chats.filter((c) => !c.forkedFrom && mayShareChat(c, project, safeOps))
   const key = noticeKey(me?.user.id ?? '', project.id)
   const [closed, setClosed] = useState(() => noticeClosed(key))
   const [open, setOpen] = useState(false)

@@ -73,7 +73,7 @@ test('CHATS-17: a side chat message opens its actions with a long press, as a ro
   await longPress(page, answer.locator('p').first())
   const sheet = page.getByRole('menu', { name: '메시지 메뉴' })
   await expect(sheet).toBeVisible()
-  await expect(sheet.getByRole('menuitem')).toHaveText(['답변 복사', '다시 생성'])
+  await expect(sheet.getByRole('menuitem')).toHaveText(['답변 복사', '텍스트 선택', '다시 생성'])
   const box = (await sheet.boundingBox())!
   expect(Math.round(box.width)).toBe(390)
   expect(Math.round(box.y + box.height)).toBe(844)
@@ -82,7 +82,7 @@ test('CHATS-17: a side chat message opens its actions with a long press, as a ro
   await expect(sheet).toHaveCount(0)
   // my question: copy and edit
   await longPress(page, side.getByTestId('user-text').first())
-  await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['복사', '메시지 수정'])
+  await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['복사', '메시지 수정', '텍스트 선택'])
   await shot(page, 'chats17-question-sheet-390.png')
   await page.getByRole('menuitem', { name: '메시지 수정' }).click()
   await expect(side.getByTestId('edit-input')).toBeVisible()

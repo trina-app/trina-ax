@@ -1,4 +1,4 @@
-// A message's hover bar in the browser (components/rooms/MessageHoverBar.tsx): it floats over the top-right edge of the
+// A message's hover bar in the browser (components/messages/MessageActions.tsx, layout "float"): it floats over the top-right edge of the
 // message under the mouse (under the first one), never over its words, moves nothing, names each button in a tooltip
 // (components/Tooltip.tsx), toggles a quick reaction, opens the thread, and is reached with the keyboard too (Tab shows
 // it, Esc closes its menu). Its buttons in order: ✅ 👀 👍, 반응 추가, 스레드에서 답장, ✦ 트리나에게 이 메시지 묻기, ⋮ 더 보기.

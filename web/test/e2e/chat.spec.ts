@@ -79,7 +79,7 @@ test('copy answer, regenerate makes a branch, ‹ › switches back', async ({ p
   await lastAnswer(page).hover()
   await lastAnswer(page).getByRole('button', { name: '답변 복사' }).click()
   // "Copied" shows once the clipboard has it
-  await expect(lastAnswer(page).getByRole('button', { name: '복사됨' })).toBeVisible()
+  await expect(lastAnswer(page).getByRole('button', { name: '복사했어요' })).toBeVisible()
   const clip = await page.evaluate(() => navigator.clipboard.readText())
   expect(clip).toContain('Here is **the answer** for: first question')
   // like Claude's copy: formatted text too (text/html), for Gmail, Outlook, Word and Google Docs (lib/richCopy.tsx)
@@ -118,7 +118,7 @@ test('copy answer without the async clipboard (plain http on an office network):
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
   await lastAnswer(page).hover()
   await lastAnswer(page).getByRole('button', { name: '답변 복사' }).click()
-  await expect(lastAnswer(page).getByRole('button', { name: '복사됨' })).toBeVisible()
+  await expect(lastAnswer(page).getByRole('button', { name: '복사했어요' })).toBeVisible()
   const flavours = await page.evaluate(async () => {
     const [item] = await navigator.clipboard.read()
     const out: Record<string, string> = {}

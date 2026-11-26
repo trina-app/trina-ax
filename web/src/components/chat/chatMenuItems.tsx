@@ -5,7 +5,8 @@
 // personal project, which explains and offers Move; never a shared project chat: docs/DECISIONS.md "Chats shared with
 // people and groups"), "Hide from my list" for a chat someone shared with me (opening it brings it back) and "Leave this
 // chat" (out of it until its creator adds me again), 삭제 for its
-// creator or an editor of its project (lib/sharedChat.ts sharedRights: the server's own rules).
+// creator or an editor of its project (lib/sharedChat.ts sharedRights: the server's own rules). After 이름 바꾸기: 포크 /
+// "나만 보는 채팅에서 이어 하기" and, for a fork under a chat, 최상위로 꺼내기 (components/chat/forkItems.tsx).
 import { Bell, BellOff, EyeOff, FolderInput, LogOut, Pencil, Pin, PinOff, Trash2, Users } from 'lucide-react'
 import type { RefObject } from 'react'
 import type { Chat } from '@mycel/shared/api'
@@ -18,6 +19,7 @@ import type { MenuItem } from '../rooms/MenuButton'
 import { useChatActions } from './chatActions'
 import { useChatLinkItem } from './copyChatLink'
 import { moveLabel } from './ChatProject'
+import { useForkItems } from './forkItems'
 
 export interface ChatMenuOptions {
   /** the items' test ids: `<testId>-pin`, `-copy-link`, `-rename`, `-move`, `-delete` */
@@ -47,12 +49,16 @@ export function useChatMenuItems(chat: Chat, { testId, more, select = (fn) => ()
   // (a chat that is not shared is always mine: nobody else lists another person's private chat)
   const share = shareKindOf(chat, project, me.user.id, !!me.server?.allChatsConfidential)
   const linkItem = useChatLinkItem(chat, `${testId}-copy-link`, select)
+  // Fork (my own chat) or "Continue in a chat only you see" (a shared one), and Detach to top level for a fork under a
+  // chat in my history (components/chat/forkItems.tsx; docs/decisions/20261126-chat-fork-tree.md)
+  const forkItems = useForkItems(chat, { testId, onFork: select(() => actions.fork(chat)), ...(rights.creator ? { onDetach: select(() => actions.detachFork(chat, onChanged)) } : {}) })
   return [
     chat.pinnedAt
       ? { label: t('chat.unpin'), icon: <PinOff size={14} aria-hidden />, onSelect: select(() => actions.togglePin(chat, onChanged)), testId: `${testId}-unpin` }
       : { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: select(() => actions.togglePin(chat, onChanged)), testId: `${testId}-pin` },
     linkItem,
     ...(rights.creator ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: select(() => actions.rename(chat, onChanged)), testId: `${testId}-rename` }] : []),
+    ...forkItems,
     ...extra,
     // the item goes with the menu: the dialog gives the keyboard back to "···" when it closes
     ...(rights.canMove && onMove ? [{ label: t(moveLabel(chat)), icon: <FolderInput size={14} aria-hidden />, onSelect: () => (more.current?.focus(), onMove(chat)), testId: `${testId}-move` }] : []),

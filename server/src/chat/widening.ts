@@ -115,7 +115,7 @@ export function wideningAnswers(db: Database, rules: { now: RuleSet; after: Rule
   // 2. the project's shared chats' messages with their turns' person and records, in order (rowid)
   // (a room's side chat is never one of them; status: an answer still being written is not listed, a failed one is not
   // previewed to anyone but its runner, as the chat shows it: ChatStore.toMessage)
-  const rows = db.query(`SELECT m.rowid AS rid, m.id, m.chat_id, m.parent_id, m.role, m.status, t.user_id AS runner, r.reads, r.left_out, m.created_at, c.shared_at
+  const rows = db.query(`SELECT m.rowid AS rid, m.id, m.chat_id, m.parent_id, m.role, m.status, t.user_id AS runner, r.reads, r.left_out, m.created_at, c.shared_at, m.withheld_copy
     FROM chats c JOIN messages m ON m.chat_id = c.id LEFT JOIN turns t ON t.id = m.turn_id LEFT JOIN shared_answer_reads r ON r.message_id = m.id
     WHERE ${target.kind === 'project' ? 'c.project_id = ? AND c.shared_at IS NOT NULL' : 'c.id = ?'} AND c.deleted_at IS NULL AND c.room_id IS NULL ORDER BY m.rowid`).all(target.kind === 'project' ? target.projectId : target.chatId) as (NodeRow & { rid: number; chat_id: string; status: string })[]
   const cutover = hiddenAnswersCutover(db)

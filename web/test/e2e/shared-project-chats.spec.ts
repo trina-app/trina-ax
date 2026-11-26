@@ -161,19 +161,23 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByTestId('private-chats-notice')).toContainText('나만 보는 채팅 1개')
       await expect(page.getByTestId('only-me-toggle')).toHaveAttribute('aria-pressed', 'false')
       await expect(boxLine(page)).toHaveAccessibleDescription('지금 시작하는 채팅은 이 프로젝트의 4명이 보고 이어 쓸 수 있어요.')
-      // a shared chat: "Continue in a chat only you see" (the AI points there when asked for something personal) opens
-      // the project's box "Only me" with my last question in it; nothing is sent
+      // a shared chat: "Continue in a chat only you see" (the AI points there when asked for something personal) opens a
+      // chat only I see with this conversation so far (docs/decisions/20261126-chat-fork.md); the box is empty
       await page.getByTestId('composer-input').fill('팀 일정 정리해 줘')
       await page.getByTestId('send').click()
       await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
       await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
       await expect(page.getByTestId('chat-shared')).toBeVisible()
+      const sharedUrl = page.url()
       await page.getByTestId('chat-menu').click()
       await page.getByTestId('chat-continue-privately').click()
-      await expect(page).toHaveURL(new RegExp(`/projects/${id}$`))
-      await expect(page.getByTestId('only-me-toggle')).toHaveAttribute('aria-pressed', 'true')
-      await expect(page.getByTestId('composer-input')).toHaveValue('팀 일정 정리해 줘')
-      await expect(boxLine(page)).toHaveAccessibleDescription('지금 시작하는 채팅은 나만 볼 수 있어요. 내 앱과 메모리를 쓸 수 있어요.')
+      await expect(page).not.toHaveURL(sharedUrl)
+      await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
+      await expect(page.getByTestId('chat-forked-from')).toBeVisible()
+      await expect(page.getByTestId('user-message')).toContainText('팀 일정 정리해 줘')
+      await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
+      await expect(page.getByTestId('chat-shared')).toHaveCount(0)
+      await expect(page.getByTestId('composer-input')).toHaveValue('')
 
       // safe operations (1A): new chats are only mine for now, and the line says why; no switch
       expect((await post(page, '/__test/confidential', { all: true })).ok()).toBeTruthy()
@@ -183,7 +187,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await audit(page, 'project box, safe operations')
     })
 
-    test('a file attached in the box (a shared chat made for it), then "Continue in a chat only you see": the question goes to a new private chat (review M1)', async ({ page, browser }) => {
+    test('a file attached in the box (a shared chat made for it), then "Continue in a chat only you see" on another chat: a chat only I see with that conversation, the draft untouched (review M1)', async ({ page, browser }) => {
       await reset(page)
       await signIn(page)
       const id = await project(page)
@@ -205,19 +209,16 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
       await page.getByTestId('chat-menu').click()
       await page.getByTestId('chat-continue-privately').click()
-      await expect(page).toHaveURL(new RegExp(`/projects/${id}$`))
-      // the shared draft and its chip are gone; Only me is on and may be changed
-      await expect(page.getByTestId('attachment-chip')).toHaveCount(0)
-      await expect(page.getByTestId('only-me-toggle')).toHaveAttribute('aria-pressed', 'true')
-      await expect(page.getByTestId('only-me-toggle')).toBeEnabled()
-      await expect(page.getByTestId('composer-input')).toHaveValue('내 일정 알려줘')
-      await page.getByTestId('send').click()
+      await expect(page).not.toHaveURL(new RegExp(`/c/${other.id}$`))
       await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
       const sent = page.url().split('/c/')[1]!
       expect(sent).not.toBe(draft.id)
-      expect(sent).not.toBe(other.id)
+      // the conversation came along; nobody else sees it; the box is empty and carries no chip of the draft
+      await expect(page.getByTestId('user-message')).toContainText('내 일정 알려줘')
       await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
       await expect(page.getByTestId('chat-shared')).toHaveCount(0)
+      await expect(page.getByTestId('attachment-chip')).toHaveCount(0)
+      await expect(page.getByTestId('composer-input')).toHaveValue('')
       // the shared draft got nothing; Bob cannot open the new chat
       const msgs = (await (await page.request.get(`/api/chats/${draft.id}/messages`)).json()) as { items: unknown[] }
       expect(msgs.items).toEqual([])
@@ -268,7 +269,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       // 링크 복사, and "Continue in a chat only you see" (a new "Only me" chat of the project with his last question:
       // docs/DECISIONS.md "Team project chats shared by default"); no edit, no "regenerate", no engine
       await b.getByTestId('chat-menu').click()
-      await expect(b.getByRole('menuitem')).toHaveText(['상단에 고정', '링크 복사', '나만 보는 채팅에서 이어 하기'])
+      await expect(b.getByRole('menuitem')).toHaveText(['상단에 고정', '링크 복사', '나만 보는 새 채팅에서 이어 하기'])
       await b.keyboard.press('Escape')
       await expect(b.getByTestId('chat-title')).toHaveText(/출시 일정/)
       await expect(b.getByTestId('edit-message')).toHaveCount(0)

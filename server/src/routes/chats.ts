@@ -47,6 +47,7 @@ import { roomsOf } from '../rooms/service'
 import { confirmMac } from '../chat/confirm-key'
 import { WIDENING_PAGE } from '../chat/widening'
 import { shareChat } from '../chat/share-chat'
+import { forkChat } from '../chat/fork'
 import { isConversationRow, readChatNotices, setMuted } from '../chat/message-notices'
 import { chatAudienceView, chatWidening, checkWideningAdd, hideChat, leaveChat, peopleSharedChatsOf, previewChatAudience, putChatAudience, unhideOnOpen } from '../chat/people-share'
 import { resolveSubjects } from '../chat/chat-audience'
@@ -578,6 +579,20 @@ export const chatsRoutes: RouteModule = {
       return chatOut(rt, auth.user.id, rt.store.chatRow(id)!)
     })
 
+    // "Continue in a chat only you see" on a shared chat (chat/fork.ts): a new chat of mine with the conversation as I see
+    // it. The engine and model of the original when I may use them, else what a new chat of mine gets
+    kit.handle(API.forkChat, ({ c, params, body, auth }) => {
+      checkBudget(ctx, auth.user.id, c.get('locale'))
+      const src = chatOf(rt, c, auth, params.id, 'view').row
+      let em: { engine: string; model: string | null }
+      try { em = newChatEngine(ctx, auth.user, { engine: src.engine as EngineId, model: src.model }, c.get('locale')) } catch { em = newChatEngine(ctx, auth.user, {}, c.get('locale')) }
+      const row = forkChat(rt, auth.user.id, params.id, { ...(body.leafId ? { leafId: body.leafId } : {}), engine: em.engine, model: em.model ?? null, locale: c.get('locale'),
+        // the title as I see it there (a stored connection secret of its creator never comes along)
+        title: (r) => chatOut(rt, auth.user.id, r).title })
+      rt.publishChat(auth.user.id, row.id, 'created')
+      return chatOut(rt, auth.user.id, row)
+    })
+
     kit.handle(API.getChat, ({ c, params, auth }) => chatOut(rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view', { deleted: true }).row))
     // the person has the chat on screen: its finished answers are seen; every window and device hears it (chat.updated).
     // A shared chat keeps one mark, its creator's (unseen markers per viewer are not in phase 1)
@@ -638,13 +653,20 @@ export const chatsRoutes: RouteModule = {
       if (body.model !== undefined) { sets.push('model = ?'); args.push(body.model) }
       else if (body.engine !== undefined && body.engine !== chat.engine) sets.push('model = NULL')
       if (body.effort !== undefined) { sets.push('effort = ?'); args.push(body.effort) }
+      // "Detach to top level": a fork of mine leaves the chat it sits under in my history (chat/fork.ts; migration 463).
+      // Only where it rows: not its last activity (the list keeps its place by date)
+      const detach = body.forkParent === null && !!chat.fork_parent && chat.user_id === auth.user.id
+      if (detach) {
+        ctx.db.query('UPDATE chats SET fork_parent = NULL WHERE id = ?').run(chat.id)
+        audit(ctx.db, { actor: auth.user.id, action: 'chat.fork_detach', target: chat.id, detail: { from: chat.fork_parent } })
+      }
       if (sets.length) {
         sets.push('updated_at = ?'); args.push(new Date().toISOString())
         // into a project or out of one, the chat stays in its history section (chat/nav-folders.ts: a section shows a
         // chat while it is in its person's history; owner decision 2026-11-22)
         ctx.db.query(`UPDATE chats SET ${sets.join(', ')} WHERE id = ?`).run(...args, chat.id)
-        rt.publishChat(auth.user.id, chat.id, 'updated')
       }
+      if (sets.length || detach) rt.publishChat(auth.user.id, chat.id, 'updated')
       return chatOut(rt, auth.user.id, rt.store.chatRow(chat.id)!)
     })
 

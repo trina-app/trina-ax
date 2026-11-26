@@ -130,6 +130,8 @@ export const GUEST_ENDPOINTS: ReadonlySet<Endpoint> = new Set<Endpoint>([
   API.listChats,
   API.listChatGroups,
   API.createChat,
+  // "Continue in a chat only you see" of their own shared chat in their project, while they have AI (chat/fork.ts)
+  API.forkChat,
   API.getChat,
   API.getChatQueue,
   API.updateChat,

@@ -314,7 +314,7 @@ export function keepChatPlace(chatId: string, place: ChatPlace | null) {
 }
 
 /** A chat's fields that a change made here (lib/optimistic.ts, components/chat/chatActions.ts) sets, by its key's field */
-const PENDING_FIELDS: Record<string, (keyof Chat)[]> = { pin: ['pinnedAt'], title: ['title'], engine: ['engine', 'model', 'effort'], project: ['projectId', 'folderId'], folder: ['folderId'] }
+const PENDING_FIELDS: Record<string, (keyof Chat)[]> = { pin: ['pinnedAt'], title: ['title'], engine: ['engine', 'model', 'effort'], project: ['projectId', 'folderId'], folder: ['folderId'], fork: ['forkParents'] }
 
 /** A chat read or heard while a change of mine to it (a pin, its name, engine, project, folder) is still on its way: it
  * keeps that value on screen (the copy may be from before it; the change's own answer decides). */
@@ -329,7 +329,7 @@ function keepPending(s: Pick<ChatsState, 'chats' | 'others'>, c: Chat): Chat {
     else out[k] = now[k]
   }
   // a name, engine or project stamps the chat: the row stays where it went
-  if (now.updatedAt > c.updatedAt && fields.some((f) => f !== 'pin' && f !== 'folder')) out.updatedAt = now.updatedAt
+  if (now.updatedAt > c.updatedAt && fields.some((f) => f !== 'pin' && f !== 'folder' && f !== 'fork')) out.updatedAt = now.updatedAt
   return out as Chat
 }
 

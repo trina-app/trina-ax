@@ -25,7 +25,6 @@ import clsx from 'clsx'
 import { sharedNote } from '../lib/sharedNote'
 import { composerInset } from '../components/chat/composerBox'
 import { GuestNoAi, useGuestAiOff, useGuestNoAi } from '../components/GuestView'
-import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
 import { ArrowDown, ChevronLeft, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
@@ -63,7 +62,7 @@ import { LinkAskAccess } from '../components/LinkAskAccess'
 import Composer, { type ComposerHandle, type EngineChoice } from '../components/chat/Composer'
 import { changeChat, trashChat, useChatActions } from '../components/chat/chatActions'
 import { AssistantMessage, UserMessage } from '../components/chat/Messages'
-import { ChatEventLine, eventsBetween, useAudienceEvents } from '../components/chat/ChatEvents'
+import { ChatEventLine, ForkedFromLine, eventsBetween, useAudienceEvents } from '../components/chat/ChatEvents'
 import { ImageGroup, ViewerMeta } from '../components/ImageViewer'
 import QueuedMessages from '../components/chat/QueuedMessages'
 import { ChatProjectCrumb, MoveToProjectDialog } from '../components/chat/ChatProject'
@@ -71,7 +70,6 @@ import type { EnginePick } from '../components/chat/EngineMenu'
 import { ChatTitleMenu } from '../components/chat/ChatTitleMenu'
 import { PrivateChatMark, SharedByLine, SharedChatMark, SharedReadOnly, sharedByOf } from '../components/chat/SharedChat'
 import { WhoSeesLine } from '../components/chat/WhoSees'
-import { askPrivately, askPrivatelyHome, lastOwnQuestion } from '../components/chat/privateAsk'
 import { openChatShare, startShare, useSharedWithNames } from '../components/chat/ChatShareDialog'
 import { HeaderShare, WhoSeesWords } from '../components/HeaderShare'
 import { ProjectRoomButton } from '../components/rooms/ProjectRoomButton'
@@ -226,6 +224,9 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   // a shared project chat: what this person may do in it, whose question is being answered (not mine), and read-only
   // while safe operations are on
   const shared = chat?.shared
+  // Fork / "Continue in a chat only you see" (POST /api/chats/:id/fork; components/chat/chatActions.ts fork): from the
+  // end of the branch on screen (my own unsent messages left out)
+  const forkHere = (c: Chat) => void actions.fork(c, (useChats.getState().threads[c.id]?.messages ?? []).filter((m) => !m.local).at(-1)?.id)
   const rights = sharedRights(chat, me.user.id)
   const othersTurn = shared?.answering ?? null
   const sharedLine = sharedNote(chat)
@@ -279,6 +280,8 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
       // everyone in it opens the Share dialog: its creator to change it, anyone else its read-only list (QA TC-7265)
       onOpen={people ? (!chat.deletedAt ? () => openChatShare(chat) : undefined) : shared && project?.membersEditable ? () => setMembers(true) : undefined}
       openLabel={people ? t(rights.creator ? 'chat.share.changeWho' : 'chat.share.seeWho') : undefined}
+      // a chat made with "Continue in a new chat": only mine, where it came from, the original unchanged
+      {...(chat.forkedFrom ? { forkedFrom: chat.forkedFrom } : {})}
     />
   ) : undefined
   // Share at the top right of the header (docs/DECISIONS.md "Share in the title row"; components/HeaderShare.tsx), the
@@ -404,6 +407,9 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   /** who asked the question an answer answers (a shared chat: edit, regenerate and "send to a room" are for one's own) */
   const askedBy = (m: { parentId: string | null }) => messages.find((x) => x.id === m.parentId)?.author?.id
   const mine = (id: string | undefined) => !shared || id === me.user.id
+  // who asked, above each question: a shared chat, and a chat of mine that holds other people's questions (a fork of a
+  // shared chat keeps their names: docs/decisions/20261126-chat-fork.md)
+  const authorsShown = !!shared || messages.some((x) => x.role === 'user' && !!x.author && x.author.id !== me.user.id)
   // a shared chat: the running answer is mine to stop only when I asked; someone else's turn holds the box instead
   const runningMine = shared ? (!!running && mine(askedBy(running))) || messages.some((m) => m.local?.state === 'sending') : busy
 
@@ -793,9 +799,13 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
               onRename={rights.creator ? () => void actions.rename(chat, setChat) : undefined}
               onMove={rights.canMove ? () => setMovingProject(true) : undefined}
               onDelete={rights.canDelete ? () => void actions.remove(chat) : undefined}
-              // a shared chat: the same question again in a chat only I see, in its project (my last question here); a
-              // chat shared with people: Home's box, no project
-              onPrivately={shared ? () => (chat.projectId ? askPrivately(navigate, chat.projectId, lastOwnQuestion(chat.id, me?.user.id)) : askPrivatelyHome(navigate, lastOwnQuestion(chat.id, me?.user.id))) : undefined}
+              // a fork of this chat, only mine, with the conversation so far (a shared chat: "Continue in a chat only you
+              // see", in its project; a chat shared with people: outside projects), the AI going on from it. Refused for
+              // a shared chat (an older server, a guest where they may not start one): the old way, my last question in a
+              // new chat's box. Not before an answer has finished here
+              onFork={messages.some((m) => m.role === 'assistant' && m.status === 'done') ? () => forkHere(chat) : undefined}
+              // a fork under a chat in my history: to the top of it (its "이어 왔어요" line stays)
+              onDetach={rights.creator ? () => void actions.detachFork(chat, setChat) : undefined}
               onHide={() => void actions.hide(chat)}
               onLeave={() => void actions.leave(chat)}
             />
@@ -831,6 +841,8 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
           <BoxAnswers.Provider value={chat?.deletedAt || readOnly ? null : (question?.request.requestId ?? null)}>
           <ChatLinks.Provider value={chatLinks}>
           <ImageGroup>
+            {/* a chat made by "Continue in a chat only you see": where it came from, above its first message */}
+            {chat?.forkedFrom && messages.length > 0 && !thread.nextCursor && !loading && <ForkedFromLine from={chat.forkedFrom} />}
             {messages.map((m, i) => {
               // who changed its people since the message before (a chat shared with people; nothing before the oldest
               // message read while older ones are still to load)
@@ -841,7 +853,7 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
                   <Fragment key={m.id}>
                     {before}
                     <ViewerMeta sender={{ kind: 'user', user: m.author ?? (shared ? null : me.user) }} at={m.createdAt}>
-                      <UserMessage m={m} chatId={chatId} busy={rowsBusy} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={!!shared} canEdit={!readOnly && mine(m.author?.id)} sideChat={!!chat?.sideRoomId} />
+                      <UserMessage m={m} chatId={chatId} busy={rowsBusy} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={authorsShown} canEdit={!readOnly && mine(m.author?.id)} sideChat={!!chat?.sideRoomId} />
                     </ViewerMeta>
                   </Fragment>
                 )
@@ -886,10 +898,10 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
           {/* one suggestion under the newest answer: the welcome invite on the first result, else schedule or PPT */}
           {/* (not for a guest: no team skills, schedules or welcome invite are theirs, and the server refuses it) */}
           {!guestHere && <ResultSuggestion chatId={chatId} messages={messages} busy={busy} onSend={(text) => void onSend(text, []).catch(fail)} />}
-          {/* the newest answer failed for want of AI: its own line has the button, one is enough */}
-          {!noAiError(messages.at(-1)) && <AiAccessBanner />}
           <Composer
             ref={composer}
+            // "no usable AI" above the box, unless the newest answer failed for want of AI: its own line has the button
+            aiBand={!noAiError(messages.at(-1))}
             draftId={chatId}
             ensureChat={async () => chatId}
             running={runningMine}

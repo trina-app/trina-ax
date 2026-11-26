@@ -187,7 +187,7 @@ test('the side chat: a question and its answer copy without the buttons; the ans
   // its own copy button copies the answer as it was written (Markdown)
   await answer.hover()
   await answer.getByRole('button', { name: '답변 복사' }).click()
-  await expect(answer.getByRole('button', { name: '복사됨' })).toBeVisible()
+  await expect(answer.getByRole('button', { name: '복사했어요' })).toBeVisible()
   const md = await page.evaluate(() => navigator.clipboard.readText())
   expect(md.length).toBeGreaterThan(0)
   expect(text).toContain(md.replace(/\*\*/g, '').split('\n')[0]!.trim())

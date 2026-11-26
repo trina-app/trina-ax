@@ -1494,6 +1494,8 @@ export class ChatRuntime {
       this.db.query('DELETE FROM messages WHERE chat_id = ?').run(chatId)
       this.db.query('DELETE FROM artifacts WHERE chat_id = ?').run(chatId)
       this.db.query('UPDATE memories SET source_chat_id = NULL WHERE source_chat_id = ?').run(chatId)
+      // its forks move up a level in their person's list: under its own parent, or to the top (migration 463)
+      this.db.query('UPDATE chats SET fork_parent = (SELECT fork_parent FROM chats WHERE id = ?) WHERE fork_parent = ?').run(chatId, chatId)
       this.db.query('DELETE FROM chats WHERE id = ?').run(chatId)
     })()
     // the files kept with a chat shared with people (chat/chat-files.ts): their rows went with the chat, their folder now

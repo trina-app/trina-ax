@@ -17,6 +17,7 @@ import { api, API } from '../../lib/api'
 import { useT } from '../../i18n'
 import type { MarkerView } from '../../lib/sessionMarkers'
 import { strongestMark } from '../../lib/historyGroups'
+import { forkRows, type TreeRow } from '../../lib/forkTree'
 import { readChatGroups, useChatGroups } from '../../store/chatGroups'
 import { useChats } from '../../store/chats'
 import { cardChats, reasonText, useSessionMarkers } from '../../store/sessionMarkers'
@@ -64,7 +65,7 @@ export type SectionRows = ReturnType<typeof useSectionRows>
 
 /** The sections block: each of my sections as a top-level header with its chats. `filtered`: a filter is on (an empty
  * section is not drawn, and the server's count is not the shown one). `row`: the surface's chat row. */
-export function HistorySections({ state, row, filtered = false, className }: { state: SectionRows; row: (c: Chat) => ReactNode; filtered?: boolean; className?: string }) {
+export function HistorySections({ state, row, filtered = false, className }: { state: SectionRows; row: (c: Chat, tree?: TreeRow) => ReactNode; filtered?: boolean; className?: string }) {
   const shown = filtered ? state.sections.filter((f) => (state.rows.get(f.id) ?? []).length > 0) : state.sections
   if (!shown.length) return null
   return (
@@ -76,7 +77,7 @@ export function HistorySections({ state, row, filtered = false, className }: { s
   )
 }
 
-function HistorySection({ section, rows, row, filtered }: { section: NavFolder; rows: Chat[]; row: (c: Chat) => ReactNode; filtered: boolean }) {
+function HistorySection({ section, rows, row, filtered }: { section: NavFolder; rows: Chat[]; row: (c: Chat, tree?: TreeRow) => ReactNode; filtered: boolean }) {
   const t = useT()
   const drop = useSectionDrop(section, 'chats')
   const head = useChatGroups((s) => s.groups?.folders.find((f) => f.id === section.id))
@@ -89,6 +90,8 @@ function HistorySection({ section, rows, row, filtered }: { section: NavFolder; 
   const view = (c: Chat): MarkerView => ({ card: cards.has(c.id), here: c.id === here })
   const open = /^\/c\/([^/]+)/.exec(useLocation().pathname)?.[1] ?? null
   const openRow = rows.find((c) => c.id === open)
+  // continuations under the chat they came from when both are in this section (lib/forkTree.ts)
+  const tree = useMemo(() => forkRows(rows), [rows])
   // its strongest marker: its rows and the marked chats the server named that no page has brought yet
   const marked = useMemo(() => [...rows, ...((head?.marked ?? []).filter((m) => !rows.some((c) => c.id === m.id)) as Chat[])], [rows, head?.marked])
   const mark = strongestMark(marked, view)
@@ -121,7 +124,7 @@ function HistorySection({ section, rows, row, filtered }: { section: NavFolder; 
       data-section-id={section.id}
       data-drop={drop.over ? '' : undefined}
     >
-      <ul>{rows.map(row)}</ul>
+      <ul>{tree.map((r) => row(r.chat, r))}</ul>
       {left && (
         <button type="button" className={clsx(panelRowBox, 'text-meta text-muted')} disabled={more.busy} onClick={() => void readMore()} data-testid="history-section-more">
           {more.busy ? t('common.loading') : t('sidebar.more')}
