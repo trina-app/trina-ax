@@ -6,7 +6,7 @@
 - Where: web (`web/src/components/composer/` new, the four boxes that move onto it). Why: a UI consistency change of
   one surface type, no server change (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. Visible changes in four message boxes (the + menu, round send, Esc stops, mic in answer
-  threads, kept drafts, the key warning in rooms); no API, data or permission change
+  threads, kept drafts, the key warning in the side chat); no API, data or permission change
 
 ## Goal
 
