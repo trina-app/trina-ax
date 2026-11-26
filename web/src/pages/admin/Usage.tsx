@@ -8,6 +8,7 @@
 // filters (Group, Person, Engine, Model, AI connection) go under the Filters icon at its end (components/PhoneFilters.tsx,
 // TC-379); Group by is a view choice, not a filter, so it sits in the breakdown's heading; the numbers, the chart and the
 // breakdown stand without frames.
+import { modelDisplayName } from '@mycel/shared'
 import clsx from 'clsx'
 import { Download } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
@@ -119,7 +120,8 @@ export default function Usage() {
   const set = (k: keyof typeof filters) => (v: string) => setFilters((f) => ({ ...f, [k]: v }))
   // known engines by their product name (Claude, Codex, API); anything else keeps the report's own label
   const engineName = (k: string, label = k) => ENGINE_LABEL[k as keyof typeof ENGINE_LABEL] ?? label
-  const modelName = (k: string, label: string) => (k === '' ? t('composer.defaultModel') : label)
+  // the server names a model as people read it ("Claude Opus"); an older server sends the id, named here the same way
+  const modelName = (k: string, label: string) => (k === '' ? t('composer.defaultModel') : modelDisplayName(label))
   // removed connections have no label: with more than one, a number tells them apart (QA TC-068)
   const removed = (facets?.credentials ?? []).filter((c) => !c.label).map((c) => c.key)
   const removedName = (k: string) => {

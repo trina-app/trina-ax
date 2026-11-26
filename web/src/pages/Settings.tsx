@@ -20,7 +20,7 @@ import { rowName } from '../components/list/List'
 import { Brain, KeyRound, Laptop, Loader2, LogOut, Monitor, Pencil, Plus, Send, ShieldAlert, Smartphone, Tablet, Trash2 } from 'lucide-react'
 import { lazy, useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { type EngineId, type Memory, type Session, type TextSize, type Theme } from '@mycel/shared/api'
+import { type Effort, type EngineId, type Memory, type Session, type TextSize, type Theme } from '@mycel/shared/api'
 import { APP_DOWNLOADS, PROFILE_TITLE_MAX } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
@@ -36,7 +36,7 @@ import { useFreeRoam } from '../store/demo'
 import { isGuestMe, meGuest } from '../lib/guests'
 import { peekCached, rememberCached } from '../store/listCache'
 import { useEngines } from '../store/engines'
-import { ENGINE_LABEL } from '../components/chat/EngineMenu'
+import { EFFORTS, EFFORT_KEY, ENGINE_LABEL } from '../components/chat/EngineMenu'
 import { PhoneChoiceRow } from '../components/phone/PhoneChoice'
 import { LanguageSelect } from '../components/LanguageSelect'
 import { toast } from '../store/ui'
@@ -548,8 +548,19 @@ function MyEngine() {
   const locale = useLocale()
   const me = useMeStrict()
   const updatePrefs = useSession((s) => s.updatePrefs)
-  const { loaded, engines, models, defaultEngine, defaultModel, load } = useEngines()
+  const { loaded, engines, models, defaultEngine, defaultModel, defaultEffort, effort: takesEffort, load } = useEngines()
   useEffect(() => void load(), [load])
+  // the depth of new chats (빠르게 · 보통 · 꼼꼼하게): empty = the team's; only when the engine new chats start on takes one
+  const myEffort = me.user.prefs.effort ?? null
+  const effortShown = !!takesEffort[(me.user.prefs.engine && engines.includes(me.user.prefs.engine) ? me.user.prefs.engine : null) ?? defaultEngine]
+  const effortOptions = [{ value: '', label: t('settings.myEngine.team', { engine: t(EFFORT_KEY[defaultEffort ?? 'normal']) }) }, ...EFFORTS.map((e) => ({ value: e, label: t(EFFORT_KEY[e]) }))]
+  const saveEffort = async (v: string) => {
+    try {
+      if (await updatePrefs({ effort: (v || null) as Effort | null })) toast({ level: 'success', text: t('common.saved') })
+    } catch (err) {
+      toast({ level: 'error', text: errorText(err, locale, t('error.network')) })
+    }
+  }
   const engine = me.user.prefs.engine && engines.includes(me.user.prefs.engine) ? me.user.prefs.engine : null
   const model = engine ? me.user.prefs.model ?? null : null
   const save = async (e: EngineId | null, m: string | null) => {
@@ -573,6 +584,9 @@ function MyEngine() {
             <PhoneChoiceRow list title={t('settings.myEngine.model')} value={model ?? ''} testId="my-model-select"
               options={[{ value: '', label: t('composer.defaultModel') }, ...(models[engine] ?? []).map((x) => ({ value: x.id, label: x.label }))]}
               onChange={(v) => void save(engine, v || null)} />
+          )}
+          {effortShown && (
+            <PhoneChoiceRow list title={t('composer.effort')} value={myEffort ?? ''} testId="my-effort-select" options={effortOptions} onChange={(v) => void saveEffort(v)} />
           )}
         </PhoneListGroup>
       </PhoneSection>
@@ -602,6 +616,13 @@ function MyEngine() {
                     {x.label}
                   </option>
                 ))}
+              </select>
+            </Field>
+          )}
+          {effortShown && (
+            <Field label={t('composer.effort')}>
+              <select className={inputCls} value={myEffort ?? ''} onChange={(e) => void saveEffort(e.target.value)} data-testid="my-effort-select">
+                {effortOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </Field>
           )}
