@@ -6,7 +6,7 @@
 // `linux`). The team server puts that manifest next to the installer as
 // /downloads/<channel>.json (server/src/office/update.ts offerWindows), so an office without internet still updates;
 // otherwise the release feed itself is asked. No Electron here (unit-tested in tests/unit/office-update-desktop.test.ts).
-import { RELEASE_CHANNEL } from '@mycel/shared'
+import { RELEASE_CHANNEL } from '@mycel/shared/release-channel'
 import { openSignedManifest } from '@mycel/shared/release-manifest'
 import { compareVersions } from './update'
 

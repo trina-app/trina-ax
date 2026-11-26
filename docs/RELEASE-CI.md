@@ -68,7 +68,7 @@ git push origin v0.3.0-beta.1
   - 이 검사는 워크플로 파일 안에 있어 실수를 막는 난간이다. 쓰기 권한이 있는 사람이 검사를 뺀 워크플로로 태그를 다는 것까지 막으려면 4장 5(태그 보호)와 6(environment `release`, 비밀값을 그 environment로)을 설정해야 한다.
 - 태그에 `-`가 있으면 beta 채널(`v0.3.0-beta.1`, `v0.3.0-rc.1`), 없으면 stable 채널(`v0.3.0`)이다.
 - stable 릴리스는 사흘에 걸쳐 나간다(아래 "단계적 배포"). 모든 서버에 한 번에 내려면 태그 메시지에 `Rollout: all` 한 줄을 넣는다.
-- 릴리스는 하루에 한 번까지다(대표, 2026-11-26). **윈도우 설치 파일은 약 일주일에 한 번만 들어간다**: 맥 앱, 사무실 zip, 리눅스 서버, 휴대폰은 릴리스마다 나간다. prepare가 GitHub Releases를 보고 스스로 정하므로 보통 날에는 할 일이 없다(11장 "윈도우는 일주일에 한 번"). 윈도우 hotfix는 태그 메시지에 `Windows: yes` 한 줄, 윈도우를 빼려면 `Windows: no` 한 줄(둘 다 노트에서 빠진다).
+- 릴리스는 하루에 한 번까지다(대표, 2026-11-26). **윈도우 설치 파일은 윈도우 앱이 바뀐 릴리스에만, 많아야 약 일주일에 한 번 들어간다**: 맥 앱, 사무실 zip, 리눅스 서버, 휴대폰은 릴리스마다 나간다. prepare가 GitHub Releases와 마지막 윈도우 릴리스의 코드를 보고 스스로 정하므로 보통 날에는 할 일이 없다(11장 "윈도우는 바뀔 때만, 많아야 일주일에 한 번"). 윈도우 hotfix는 태그 메시지에 `Windows: yes` 한 줄, 윈도우를 빼려면 `Windows: no` 한 줄(둘 다 노트에서 빠진다).
 - 주석 없는 태그(`git tag v0.3.0`)도 된다. 그때 피드의 노트는 비고, GitHub Release는 노트를 자동으로 만든다.
 - 진행은 GitHub의 Actions 탭 → Release에서 본다. 한 번에 하나만 돈다(다음 태그는 앞의 것이 끝날 때까지 기다린다).
 
@@ -81,7 +81,7 @@ git push origin v0.3.0-beta.1
 | 2 | build-linux | 리눅스 kit amd64(ubuntu-24.04)·arm64(ubuntu-24.04-arm): whisper, native, 웹, `build-bundle.ts --os linux --strict`(서명 없이) | 없음 |
 | 2 | build-mac-whisper | Apple 실리콘 사무실 맥의 whisper-cli(`mac-whisper.yml`, build-office와 같은 러너): 고정한 whisper.cpp를 Metal·OpenMP 없이 빌드, 말한 문장을 받아쓰는지 확인, Developer ID 서명(hardened runtime), Apple 공증(아래 "whisper-cli for the office Mac") | 맥 서명 비밀값 5개 |
 | 2→3 | build-office | 사무실 zip(macos-15, 또는 `mac_runner` 입력·레포 변수 `RELEASE_MAC_RUNNER`, self-hosted 릴리스 맥은 13장; 두 맥 프로세서 universal, `bun run build:office -- --whisper …`). build-mac-whisper를 기다려 그 whisper-cli를 `app/bin/darwin-arm64/`에 넣는다 | 없음 |
-| 2 | build-windows | prepare가 윈도우를 넣는 릴리스에만(약 일주일에 한 번, 11장). 윈도우 설치 파일 + `latest.yml`(windows-2025, `desktop dist:win`, 버전은 태그 것). 레포 변수 `WINDOWS_SIGNING_PROVIDER`가 `sslcom`이면 SSL.com eSigner(CodeSignTool)로 서명하고 `signtool verify /pa`로 확인한다(11장), 비어 있으면 서명 없이 | environment `release`의 `SSLCOM_*` 넷(빌드 단계에만) |
+| 2 | build-windows | prepare가 윈도우를 넣는 릴리스에만(윈도우 앱이 바뀌었을 때, 많아야 약 일주일에 한 번, 11장). 윈도우 설치 파일 + `latest.yml`(windows-2025, `desktop dist:win`, 버전은 태그 것). 레포 변수 `WINDOWS_SIGNING_PROVIDER`가 `sslcom`이면 SSL.com eSigner(CodeSignTool)로 서명하고 `signtool verify /pa`로 확인한다(11장), 비어 있으면 서명 없이 | environment `release`의 `SSLCOM_*` 넷(빌드 단계에만) |
 | 2 | build-mac-app | 맥 앱(`mac-app.yml`, build-office와 같은 러너): dmg + 업데이트 zip + `latest-mac.yml`. Developer ID로 서명, hardened runtime, Apple 공증, staple, Gatekeeper 확인(아래 "Mac app") | 맥 서명 비밀값 5개 |
 | 2 | build-linux-desktop | 리눅스 데스크톱 앱(ubuntu-24.04, `desktop dist:linux`, 버전은 태그 것): x64·arm64의 `.deb`와 AppImage, `latest-linux.yml`·`latest-linux-arm64.yml`. 서명 없음. office_only에서도 돈다. 실패해도 릴리스를 막지 않는다(`docs/decisions/20261119-linux-desktop-app.md`) | 없음 |
 | 3 | publish | 리눅스 묶음 서명(manifest.sig) → 사무실 피드(`publish.ts`, 맥 앱이 있으면 `--mac`, 리눅스 데스크톱 앱이 있으면 `--linux`, 윈도우가 없는 릴리스는 `--keep-windows`) → 서버 피드(`publish-server.ts`) → `SHA256SUMS` + `.sig` | 키 + Cloudflare 토큰 |
@@ -499,21 +499,31 @@ its downloads; a new certificate does not skip it).
 - 도구: SSL.com **CodeSignTool**(Java, https://github.com/SSLcom/CodeSignTool, 문서 https://www.ssl.com/guide/esigner-codesigntool-command-guide/). 서명마다 RFC 3161 타임스탬프(`http://ts.ssl.com`, 도구의 `conf/code_sign_tool.properties`)를 붙여 인증서가 끝난 뒤에도 서명은 유효하다.
 - **비용**(https://www.ssl.com/guide/esigner-pricing-for-code-signing/, 2026-03-25 갱신판): 인증서를 받은 뒤 **처음 30일은 서명 무제한 무료**. 그 뒤 eSigner 서명 요금제가 필요하다. OV 등급 1: 월 $20(한 달 20번) 또는 연 $180(한 해 240번), 넘으면 한 번에 $1. 등급 2: 월 $85(100번)/연 $765(1,200번), 넘으면 $0.85. 등급 3: 월 $175(300번)/연 $1,575, 넘으면 $0.58. 등급 4: 월 $250(1,000번)/연 $2,250, 넘으면 $0.25. 안 쓴 횟수는 구독이 이어지는 동안 다음 달로 넘어가고, 구독이 끊기면 사라진다. 한 릴리스는 파일 서너 개(앱 exe, 제거 프로그램, 설치 파일)를 서명한다(파일마다 한 번; 실패해서 다시 하면 그만큼 더).
   결정 전의 속도: 레포 교체(11-19) 뒤 2026-11-19..11-25에 데스크톱 릴리스 21개(`gh release list`, 하루 약 3개) → 한 달 약 90개 × 3–4 = **월 270–360번**, 다시 돌린 job과 재시도를 더하면 그 이상. 이 속도면 등급 1(20)·2(100)로는 모자라고 등급 3(월 300번, $175)도 빠듯하다. 등급 4(월 1,000번, $250) 또는 일부 릴리스만 서명하는 쪽을 함께 봤다(아래 결정). **요금제는 대표가 고른다**(결제).
-- **대표의 결정(2026-11-26): 릴리스는 하루 한 번까지, 윈도우 설치 파일은 약 일주일에 한 번만 서명·게시**(아래 "윈도우는 일주일에 한 번"). 그러면 한 달 4–5번 × 3–4 = 20번 안쪽이라 **등급 1(월 $20, 20번)** 이다.
+- **대표의 결정(2026-11-26): 릴리스는 하루 한 번까지, 윈도우 설치 파일은 약 일주일에 한 번만 서명·게시**, 그리고 같은 날 **윈도우 앱이 바뀐 릴리스에서만**(아래 "윈도우는 바뀔 때만, 많아야 일주일에 한 번"). 그러면 한 달 4–5번 × 3–4 = 20번 안쪽이라 **등급 1(월 $20, 20번)** 이다.
 - Microsoft Artifact Signing은 2026-11-15부터 시도했지만(조직 확인이 끝나지 않았다) 2026-11-26 대표가 해지했다. release.yml에서 그 길은 지웠다.
 
-### 윈도우는 일주일에 한 번 (Windows once a week)
+### 윈도우는 바뀔 때만, 많아야 일주일에 한 번 (Windows only when it changed, at most once a week)
 
-The Windows installer ships about once a week; the Mac app, the office zip, the Linux server and the phone ship with
-every release (owner, 2026-11-26; `docs/decisions/20261126-windows-weekly.md`). Nobody has to do anything on a normal
-day: `prepare` decides from the GitHub Releases, with no state of its own (`scripts/release/windows-cadence.ts`,
+The Windows installer ships only when the Windows app itself changed since the last release with the installer, and
+then at most about once a week; the Mac app, the office zip, the Linux server and the phone ship with every release
+(owner, 2026-11-26; `docs/decisions/20261126-windows-weekly.md`, `docs/decisions/20261126-windows-when-changed.md`).
+Nobody has to do anything on a normal day: `prepare` decides from the GitHub Releases and a checkout of the last
+Windows release's tag, with no state of its own (`scripts/release/windows-cadence.ts`, `scripts/release/windows-inputs.ts`,
 `tests/unit/windows-cadence.test.ts`).
 
-- **넣는다**: 이 채널에서 윈도우 설치 파일이 든 마지막 릴리스(stable 태그는 stable 릴리스만, beta 태그는 아무 릴리스나: stable 릴리스는 beta 채널의 것도 된다)가 한국 날짜로 **7일 이상** 지났을 때, 그런 릴리스가 없을 때, 서명을 켰는데(`WINDOWS_SIGNING_PROVIDER`) 그 설치 파일이 서명되지 않았을 때(첫 서명판은 바로 나간다; 설치 파일 앞 4 KiB의 PE 헤더로 본다, 업데이트 주소에서 먼저, 안 되면 GitHub에서).
+윈도우 앱은 데스크 껍데기다: Electron, main 프로세스, preload 셋, 작은 화면 다섯(시작, 브라우저 패널, 주소 막대, 찾기, 동의)과 앱 안 브라우저에 넣는 스크립트(`desktop/build.ts`, 목록은 `desktop/build-entries.ts`). 팀 화면(웹 앱)은 들어 있지 않다: 앱은 팀 서버 주소를 열고 화면은 서버가 보낸다. 그래서 웹·서버만 바뀐 릴리스는 새 설치 파일 없이 윈도우 팀원에게 닿는다.
+
+- **무엇을 비교하나**(`windows-inputs.ts`): `dist:win`과 똑같이 만든 번들(압축, 소스 맵 없이) 아홉 개의 내용, electron-builder 설정과 그 파일들(`shared/src/product.ts`, `desktop/scripts/win-sign.ts`, 앱 id), 패키징이 그대로 읽는 파일(화면 html·css, page script, 아이콘, `installer.nsh`, `ensure-electron.ts`, `scripts/release-notices.ts`, LICENSE, NOTICE), `desktop/build-resources/`의 나머지 파일(electron-builder가 이름만으로 집어 가는 `icon.ico`, `installerSidebar.bmp`, `license.txt` 같은 것; 맥·리눅스 전용 제외), release.yml의 `BUN_VERSION`(두 트리를 이번 Bun으로 묶기 때문), `version`을 뺀 `desktop/package.json`(Electron·electron-builder 버전), bun.lock에서 Electron·electron-builder가 끌어오는 항목. 맥 전용(받아쓰기 도우미, InfoPlist, dmg 그림)과 리눅스 아이콘은 넣지 않는다. 번들은 실제 `dist/`와 바이트까지 같다. 주석, 버전 올림, 데스크톱이 쓰지 않는 파일의 변경은 바뀐 것이 아니다.
+  - 주의: 데스크톱은 `@mycel/shared`를 묶음(barrel)으로 가져와서 `shared/src`의 서버 API 스키마 대부분이 번들에 들어간다(zod 스키마는 tree shaking으로 빠지지 않는다). 그래서 API 스키마가 바뀐 릴리스는 데스크톱이 그 스키마를 쓰지 않아도 "바뀜"이다. 데스크톱의 import를 좁히면 이런 릴리스도 건너뛴다(후속 작업).
+- **안 넣는다(날짜와 상관없이)**: 윈도우 앱이 마지막 윈도우 릴리스와 같을 때.
+- **바로 넣는다**: 팀 화면과 앱이 맞추는 bridge 버전(`shared/src/desktop-bridge.ts`, `shared/src/api/local-apps.ts`의 `*_BRIDGE_VERSION`, `WORK_FILES_WIDE_VERSION`; 맥 전용 `DICTATION_BRIDGE_VERSION` 제외)이 바뀌었을 때. 새 서버의 화면은 옛 앱에 그 기능을 "too old"로 거절하기 때문이다. 서버가 요구하는 최소 데스크톱 버전 같은 것은 없다: 이 bridge 버전이 그 역할이다. 요금제 난간과 `Windows: no`는 그래도 앞선다.
+- **넣는다**: 바뀌었고 이 채널에서 윈도우 설치 파일이 든 마지막 릴리스(stable 태그는 stable 릴리스만, beta 태그는 아무 릴리스나: stable 릴리스는 beta 채널의 것도 된다)가 한국 날짜로 **7일 이상** 지났을 때(7일이 안 됐으면 그 뒤의 릴리스가 낸다), 그런 릴리스가 없을 때, 서명을 켰는데(`WINDOWS_SIGNING_PROVIDER`) 그 설치 파일이 서명되지 않았을 때(첫 서명판은 바뀌지 않았어도 바로 나간다; 설치 파일 앞 4 KiB의 PE 헤더로 본다, 업데이트 주소에서 먼저, 안 되면 GitHub에서).
+- **비교할 수 없을 때**(그 태그를 받지 못했거나 `bun install`·번들이 실패): 예전처럼 7일로만 정하고 warning을 남긴다.
+- **흐름**(prepare): "The last release with the Windows installer"(`windows-cadence.ts last`)가 그 태그를 찾고, "Check out the last Windows release"가 `.windows-last`에 받는다(실패해도 계속), "Does this release ship the Windows installer"가 두 트리에 `bun install --frozen-lockfile --ignore-scripts`를 하고 `decide --last-tree .windows-last --last-tree-tag <태그>`로 정한다. 이유는 notice에 바뀐 부분 이름과 함께 찍힌다. 손으로 볼 때: `bun scripts/release/windows-inputs.ts <레포 폴더>`.
 - **태그 메시지 한 줄**(그 줄만, 코드 블록 밖; 노트에서 빠진다): `Windows: yes`는 날짜와 상관없이 넣는다(윈도우 hotfix), `Windows: no`는 뺀다. "Windows: 트레이 아이콘…" 같은 다른 줄은 그냥 노트다. 손으로 돌릴 때는 입력 **windows**(tag / yes / no)가 태그 메시지보다 앞선다.
 - **다시 돌릴 때**: GitHub Release가 이미 있는 태그는 처음 run이 한 대로 한다(설치 파일이 있거나, 노트의 `**Windows:** no new Windows installer` 줄). 한 버전의 사무실 목록은 윈도우 앱을 바꾸지 않기 때문이다(`publish.ts` `versionManifestAction`). 다르게 하려면 새 버전으로 태그한다. "Re-run failed jobs"는 prepare를 다시 돌리지 않으므로 처음 결정을 그대로 쓴다.
 - **요금제 난간**: 서명을 켰을 때, 지난 30일의 서명된 윈도우 릴리스 × 4(파일 셋 + 재시도 하나) + 이번 4가 한 달 한도를 넘으면 자동으로는 윈도우를 빼고(warning), `Windows: yes`면 prepare가 빌드 전에 멈춘다. 한도는 레포 변수 `WINDOWS_SIGNING_MONTHLY_LIMIT`(없으면 20, 등급 1). 요금제를 올리면 그 값도 올린다.
-- **윈도우가 없는 날**: `build-windows`는 돌지 않는다(서명 0번). `publish.ts --keep-windows`가 사무실 피드(사무실 zip, 맥 앱, 리눅스 데스크톱 앱)를 채널 머리의 `windows` 그대로 낸다: 파일은 마지막 윈도우 버전의 폴더(`<officeDir>/<그 버전>/`)에 있던 것이다. 그래서 사무실 맥·리눅스 서버는 그 설치 파일을 계속 내주고(`system/windows-app.ts`), 팀원의 윈도우 앱은 그것으로 업데이트한다(`windows.version`으로 보며 릴리스 버전과 같을 필요가 없다). GitHub Release에는 설치 파일이 없고 노트 첫 줄이 `**Windows:** no new Windows installer in this release (it is published about once a week); the current Windows installer is the one of vX.`이다. "Downloads not in this release yet"에 윈도우를 넣지 않는다. 웹사이트의 다운로드 링크는 "윈도우 설치 파일이 든 가장 새 릴리스"를 고르므로 그대로 마지막 윈도우 빌드를 가리킨다(웹사이트 레포 `src/windows-release.ts`).
+- **윈도우가 없는 날**: `build-windows`는 돌지 않는다(서명 0번). `publish.ts --keep-windows`가 사무실 피드(사무실 zip, 맥 앱, 리눅스 데스크톱 앱)를 채널 머리의 `windows` 그대로 낸다: 파일은 마지막 윈도우 버전의 폴더(`<officeDir>/<그 버전>/`)에 있던 것이다. 그래서 사무실 맥·리눅스 서버는 그 설치 파일을 계속 내주고(`system/windows-app.ts`), 팀원의 윈도우 앱은 그것으로 업데이트한다(`windows.version`으로 보며 릴리스 버전과 같을 필요가 없다). GitHub Release에는 설치 파일이 없고 노트 첫 줄이 `**Windows:** no new Windows installer in this release (a new one comes when the Windows app changes, at most about once a week); the current Windows installer is the one of vX.`이다. "Downloads not in this release yet"에 윈도우를 넣지 않는다. 웹사이트의 다운로드 링크는 "윈도우 설치 파일이 든 가장 새 릴리스"를 고르므로 그대로 마지막 윈도우 빌드를 가리킨다(웹사이트 레포 `src/windows-release.ts`).
 - **GitHub API가 답하지 않으면**(세 번 시도): 그 릴리스는 윈도우 없이 나간다(warning). 맥·서버·휴대폰 릴리스를 막지 않는다. 윈도우가 그 빌드를 꼭 받아야 하면 `Windows: yes`로 다음 버전을 낸다.
 - 채널 머리에 이어 줄 윈도우 앱이 없으면(그럴 일은 없다: 윈도우가 든 릴리스가 있을 때만 뺀다) `--keep-windows`가 멈춘다. 지우고 넘어가면 그 뒤 모든 릴리스에서 윈도우가 사라지기 때문이다(6장 표).
 

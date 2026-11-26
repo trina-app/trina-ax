@@ -28,6 +28,43 @@ export const CARD_ALWAYS_KINDS = ['room_change', 'remember', 'save_wider', 'post
 export const CardAlwaysKind = z.enum(CARD_ALWAYS_KINDS)
 export type CardAlwaysKind = z.infer<typeof CardAlwaysKind>
 
+/** Auto mode (docs/decisions/20261125-auto-mode.md): what it does with each kind of card. `auto`: no card, the call is
+ * free of the floor by its kind; `auto-if`: no card only when the call's own floor check passes (the tool passes it) and
+ * the chat read nothing of other people or from outside; `ask`: the card always shows. The `auto` column of the "Kinds"
+ * table in docs/ASKS.md must say the same (tests/unit/ask-registry.test.ts). */
+export type AutoRule = 'auto' | 'auto-if' | 'ask'
+export const AUTO_KINDS: Readonly<Record<CardAlwaysKind, AutoRule>> = {
+  big_download: 'auto', bulk_files: 'auto',
+  save_wider: 'auto-if', move_files: 'auto-if', skill_files: 'auto-if',
+  // the floor (plan section 3): rooms and other people's words, memory after outside content, everything that sends,
+  // shares, costs, deletes, signs in or changes other people's AI
+  room_change: 'ask', remember: 'ask', post_to_room: 'ask', shared_read: 'ask', shared_save: 'ask', skill_save: 'ask',
+  delete_files: 'ask', project_members: 'ask', video: 'ask', share_files: 'ask', post_files: 'ask', share_folder: 'ask',
+  folder_access: 'ask', dev_login: 'ask',
+}
+
+/** The team's auto mode (Admin › Team AI settings): `off` nobody can turn it on; `allowed` each person can, it starts
+ * off; `default` it starts on for each person who did not choose. */
+export const AUTO_MODE_TEAM = ['off', 'allowed', 'default'] as const
+export const AutoModeTeam = z.enum(AUTO_MODE_TEAM)
+export type AutoModeTeam = z.infer<typeof AutoModeTeam>
+
+/** One card auto mode approved (audit action `ai.auto_allow`), for Settings › 트리나에게 허용한 것 "최근 자동 승인". */
+export const AutoApproval = z.object({
+  kind: CardAlwaysKind,
+  chatId: z.string().nullable(),
+  /** the chat's title as the person sees it now; null when it has none or is gone */
+  chatTitle: z.string().nullable(),
+  at: z.string(),
+})
+export type AutoApproval = z.infer<typeof AutoApproval>
+
+/** GET /api/ai-allowances/auto-mode: my auto mode as it works now. `available`: the team lets me use it (not `off`, the
+ * team's "Always allow" on, not a guest). `on`: it is on for me now. */
+export const MyAutoMode = z.object({ available: z.boolean(), on: z.boolean(), team: AutoModeTeam, recent: z.array(AutoApproval) })
+export type MyAutoMode = z.infer<typeof MyAutoMode>
+export const MyAutoModeBody = z.strictObject({ on: z.boolean(), via: z.enum(['pill', 'settings']) })
+
 /** "Always allow" on one kind of card (id `card:<kind>`). */
 export const CardAllowance = z.object({
   kind: z.literal('card'),
@@ -116,5 +153,7 @@ export type AiAllowance = z.infer<typeof AiAllowance>
 
 export const AI_ALLOWANCES = {
   listAiAllowances: endpoint({ method: 'GET', path: '/api/ai-allowances', auth: 'user', owner: 'B', response: z.object({ items: z.array(AiAllowance) }), summary: 'What I allowed the AI in advance ("Always allow" on a kind of card, a connector tool or a site, room folders for new files), newest first.' }),
+  getAutoMode: endpoint({ method: 'GET', path: '/api/ai-allowances/auto-mode', auth: 'user', owner: 'B', response: MyAutoMode, summary: 'My auto mode: if the team lets me use it, if it is on, and the last 50 cards it approved for me.' }),
+  setAutoMode: endpoint({ method: 'PUT', path: '/api/ai-allowances/auto-mode', auth: 'user', owner: 'B', body: MyAutoModeBody, response: MyAutoMode, summary: 'Turn my auto mode on or off (409 when the team does not allow it).' }),
   deleteAiAllowance: endpoint({ method: 'DELETE', path: '/api/ai-allowances/:id', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Take one of my allowances back (404: not mine or not there).' }),
 } as const

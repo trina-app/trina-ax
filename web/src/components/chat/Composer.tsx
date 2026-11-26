@@ -73,6 +73,7 @@ import { fromWire } from '../../lib/roomRefs'
 import { useTextSize } from '../../lib/textSize'
 import { Tooltip } from '../Tooltip'
 import { ComposerToolbar } from './ComposerToolbar'
+import { AutoModePill } from './AutoModePill'
 import { MicBlockedNotice } from '../MicBlockedNotice'
 import { DemoLimitNotice } from '../demo/FreeRoam'
 import { useDemoOut } from '../../store/demo'
@@ -458,7 +459,9 @@ export default function Composer({
   // engine, the mic and send on the right), as in the AI apps' boxes (QA TC-1400): every computer, and a phone whenever the box has more
   // than + and send (Home's card, the engine picker, a team project's who-sees chip). A phone's plain chat box keeps
   // one line (+ · text · mic · send), with nothing under or beside it either
-  const stacked = !phone || !!card || !!pick || !!tools
+  // the auto mode pill (AutoModePill): while the team lets this person use it, never in a confidential chat
+  const autoPill = me?.team?.autoMode && confidential !== true ? <AutoModePill /> : null
+  const stacked = !phone || !!card || !!pick || !!tools || !!autoPill
 
   // attach: under the box with its small menu on a computer; inside the box on a phone, as the attach sheet every
   // message box has there (AttachSheet: 사진 보관함, 사진 찍기, 파일, 팀 파일; one picker each)
@@ -786,7 +789,7 @@ export default function Composer({
                 // taking taps from 44 px (touch-hit)
                 <ComposerToolbar
                   testId="composer-tools"
-                  start={<>{attachControls}{tools}</>}
+                  start={<>{attachControls}{tools}{autoPill}</>}
                   end={<>{enginePicker}{actions}</>}
                 />
               ) : (

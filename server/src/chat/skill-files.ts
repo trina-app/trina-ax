@@ -12,6 +12,7 @@
 // is bound to the plan's token, which the file service checks again right before the change. The result tells the AI
 // counts, and names only where the person may see them.
 import { alwaysHere, withAlways } from './always-allow'
+import { inOwnFolder } from './explicit-send'
 import { z } from 'zod'
 import { SkillFilesInput, uuidv7 } from '@mycel/shared'
 import type { ConfirmDetail, Locale, TurnRequest } from '@mycel/shared/api'
@@ -131,11 +132,14 @@ export function skillFilesTool(exec: TurnExec) {
       })() : null
       const yes = a.action === 'copy' ? st('copyYes', L) : a.action === 'rename' ? st('fileYesRename', L) : st('moveYes', L)
       // "Always allow" for skill file moves, copies and renames (chat/always-allow.ts)
+      // auto mode (plan section 4, `skill.files` auto-if): only inside the person's own folder, where nobody gains, loses
+      // or may newly change a skill (a team, group or project level always asks: floor 8)
+      const floorFree = inOwnFolder(plan.from, user.id) && inOwnFolder(plan.to, user.id) && !plan.lostIds.length && !plan.gainedIds.length && !plan.editorsGainedIds.length
       const answer = await withAlways(exec.alwaysPlace?.(), 'skill_files', [{ label: yes, value: 'yes' }, { label: st('fileNo', L), value: 'no' }], 'yes', (options, more) => exec.waitForPerson({
         kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: card, multiple: false, allowText: false,
         options, details, ...more, ...(lean ? { batch: lean } : {}),
         expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
-      } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))
+      } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }), 'cardAlways', { floorFree })
       const picked = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
       if (picked !== 'yes') {
         const declined = picked === 'no'

@@ -10,8 +10,12 @@ import { app as electronApp, BaseWindow, dialog, nativeTheme, net, Notification,
 import { COMPUTER_REPORT_PATH, ComputerReporter, readSystemActivity, SYSTEM_ACTIVITY_EVERY_MS, type SystemActivity } from '../common/system-activity'
 import { join } from 'node:path'
 import { applyMePolicy } from '../common/me-policy'
-import { PRODUCT, WEB_ALLOW_ALL_RISK, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
-import { API, CSRF_HEADER, GOOGLE_APP_RETURN_PATH, Health, Me } from '@mycel/shared/api'
+import { PRODUCT } from '@mycel/shared/product'
+import { WEB_ALLOW_ALL_RISK } from '@mycel/shared/web-allow-all'
+import type { DesktopConnection, DesktopPaneState } from '@mycel/shared/desktop-bridge'
+import { CSRF_HEADER } from '@mycel/shared/api/common'
+import { CLAIM_DRIVE_FLOW_PATH, GOOGLE_APP_RETURN_PATH, Me } from '@mycel/shared/api/auth'
+import { Health } from '@mycel/shared/api/system'
 import { answersAgain, asksOutside, certTrouble, checkTeam, desktopPagePath, firstRunLinks, googleSignInCode, hostLineNow, hostOf, isShownTeamStart, isSignInPath, signInCode, officeCertPage, offlineRetryDelay, onThisComputer, originOf, parseTeamAddress, readDesktopLink, retypablePath, startupLinkTarget, teamLabel, type AddressError, type CertTrouble, type HealthAnswer } from '../common/address'
 import { LinkGate, type WakeAnswer } from '@mycel/shared/team-link'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
@@ -457,7 +461,7 @@ export class AppWindow {
       post: async (o, c) => {
         // the team was closed or switched meanwhile: its session is not the one that started the sign-in any more
         if (this.team?.id !== teamId || app.webContents.isDestroyed()) return 409
-        const res = await ses.fetch(o + API.claimDriveFlow.path, {
+        const res = await ses.fetch(o + CLAIM_DRIVE_FLOW_PATH, {
           method: 'POST',
           headers: { 'content-type': 'application/json', [CSRF_HEADER]: '1' },
           body: JSON.stringify({ code: c }),

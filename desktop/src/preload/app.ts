@@ -5,7 +5,7 @@
 // main process, which shows its own confirmation dialog).
 // The main process re-checks every call: top frame only, team origin only (main/main.ts, common/trust.ts).
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import type { DesktopBridge } from '@mycel/shared'
+import type { DesktopBridge } from '@mycel/shared/desktop-bridge'
 import { keepPageFocus } from '../common/keyboard-focus'
 
 // constants come from the main process: this preload stays free of shared runtime code (zod etc.)

@@ -38,6 +38,7 @@
     "./speech-pieces": "./src/speech-pieces.ts",
     "./places": "./src/places.ts",
     "./page-keys": "./src/page-keys.ts",
-    "./web-site": "./src/web-site.ts"
+    "./web-site": "./src/web-site.ts",
+    "./*": "./src/*.ts"
   }
 }

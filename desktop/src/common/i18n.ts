@@ -3,7 +3,7 @@
 // the language the open team page shows (its person's choice, else the team default, reported over the bridge),
 // or the one picked on the team list screen, kept in <user data>/ui-locale.json; English before either. The
 // system language does not decide. The team page itself is translated by the web app.
-import { PRODUCT } from '@mycel/shared'
+import { PRODUCT } from '@mycel/shared/product'
 import { fillPlurals } from '@mycel/shared/plural'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { DEFAULT_UI_LOCALE, type UiLocale } from './locales'
