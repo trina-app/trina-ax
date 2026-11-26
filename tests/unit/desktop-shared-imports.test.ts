@@ -6,7 +6,6 @@
 import { describe, expect, test } from 'bun:test'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { BUNDLE_ENTRIES } from '../../desktop/build-entries'
 
 const ROOT = join(import.meta.dir, '../..')
 const DESKTOP = join(ROOT, 'desktop')
@@ -40,19 +39,30 @@ describe('desktop imports of shared code', () => {
     expect(bad).toEqual([])
   })
 
-  test('the built bundles hold no shared barrel and no API schema the desktop does not use', async () => {
-    const shared = new Set<string>()
-    // every bundle desktop/build.ts makes (desktop/build-entries.ts), so a new screen or preload is checked too
-    for (const [entry, , target] of BUNDLE_ENTRIES) {
-      // the options of desktop/build.ts that decide what goes in (sourcemaps only to read the file list)
-      const r = await Bun.build({ entrypoints: [join(DESKTOP, entry)], target, format: target === 'node' ? 'cjs' : 'esm', external: ['electron'], sourcemap: 'external', minify: true })
-      expect(r.success).toBe(true)
-      const map = r.outputs.find((o) => o.path.endsWith('.map'))
-      if (!map) continue
-      for (const s of JSON.parse(await map.text()).sources as string[]) {
-        const i = s.indexOf('shared/src/')
-        if (i >= 0) shared.add(s.slice(i + 'shared/src/'.length))
+  test('the built bundles hold no shared barrel and no API schema the desktop does not use', () => {
+    // Built in a child process: Bun.build in a test process that already ran some other test files (the CI shard ran
+    // c-local-apps-e2e.test.ts first) fails with "Unexpected reading file" on shared/src files, on dev as well.
+    const script = `
+      import { join } from 'node:path'
+      import { BUNDLE_ENTRIES } from ${JSON.stringify(join(DESKTOP, 'build-entries.ts'))}
+      const out = { failed: [], sources: [] }
+      // every bundle desktop/build.ts makes (desktop/build-entries.ts), so a new screen or preload is checked too
+      for (const [entry, , target] of BUNDLE_ENTRIES) {
+        // the options of desktop/build.ts that decide what goes in (sourcemaps only to read the file list)
+        const r = await Bun.build({ entrypoints: [join(${JSON.stringify(DESKTOP)}, entry)], target, format: target === 'node' ? 'cjs' : 'esm', external: ['electron'], sourcemap: 'external', minify: true, throw: false })
+        if (!r.success) { out.failed.push(entry + ': ' + r.logs.map(String).join(' | ').slice(0, 300)); continue }
+        const map = r.outputs.find((o) => o.path.endsWith('.map'))
+        if (map) out.sources.push(...JSON.parse(await map.text()).sources)
       }
+      console.log(JSON.stringify(out))`
+    const run = Bun.spawnSync([process.execPath, '-e', script], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' })
+    expect(run.exitCode, run.stderr.toString()).toBe(0)
+    const built = JSON.parse(run.stdout.toString().trim().split('\n').pop()!) as { failed: string[]; sources: string[] }
+    expect(built.failed).toEqual([])
+    const shared = new Set<string>()
+    for (const s of built.sources) {
+      const i = s.indexOf('shared/src/')
+      if (i >= 0) shared.add(s.slice(i + 'shared/src/'.length))
     }
     expect([...shared].filter((f) => /(^|\/)index\.ts$/.test(f))).toEqual([])
     // server-only schemas and the step list's words: a change there must leave the desktop app as it is
