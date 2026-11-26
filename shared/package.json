@@ -24,6 +24,7 @@
     "./cloud-protocol/slack-broker": "./src/cloud-protocol/slack-broker.ts",
     "./cloud-protocol/team-name": "./src/cloud-protocol/team-name.ts",
     "./cloud-protocol/problem-report": "./src/cloud-protocol/problem-report.ts",
+    "./cloud-protocol/owner-claim": "./src/cloud-protocol/owner-claim.ts",
     "./plugins": "./src/plugins.ts",
     "./plural": "./src/plural.ts",
     "./honorific": "./src/honorific.ts",

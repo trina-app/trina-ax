@@ -1,12 +1,16 @@
-// The first-run screen (①: one box for an invite link, a team link or a team address, with the remembered teams),
-// its two help views (②: no address, ③: no team yet), the one-time question for an address the hosted service does
-// not run, screen ④ for a link from outside, and the "cannot reach the team server" screen. docs/DECISIONS.md
-// "First run: one box" and "First run, phase 2".
+// The first-run screen: S0 (the remembered teams, then "Create a team for free" and "Join with an invite link", and
+// "Just look around first"), S1 = ① (one box for an invite link, a team link or a team address) with its help view
+// (②: no address), the create screens (S2 sign in, S3 name your team, S4 starting, and the state lines: ./create.ts),
+// the one-time question for an address the hosted service does not run, screen ④ for a link from outside, and the
+// "cannot reach the team server" screen. docs/DECISIONS.md "First run: one box" and "First run, phase 2";
+// docs/decisions/20261126-desktop-create-team.md. A console without the create flow (an older hosting service), and
+// the Mac App Store build, keep ① as the first screen.
 import { UI_LOCALES } from '../common/locales'
 import { h, locale, onLocaleChange, tr, ui, type WelcomeState } from './dom'
+import { createScreen, focusCreate } from './create'
 
 const root = document.getElementById('root')!
-let state: WelcomeState = { mode: 'welcome', teams: [], canGoBack: false, offline: null }
+let state: WelcomeState = { mode: 'welcome', teams: [], canGoBack: false, offline: null, offer: 'checking' }
 let busy = false
 let error = ''
 let confirming: string | null = null
@@ -14,8 +18,13 @@ let confirming: string | null = null
  * renamed at its relay (the new address, `address`, is the one connected to) */
 let outside: { kind: 'outside' | 'renamed'; host: string; address: string } | null = null
 let draft = ''
-/** ① the box, ② no address, ③ no team yet */
-let view: 'main' | 'unknown' | 'none' = 'main'
+/** S0 the first screen, S1 = ① the box, ② no address */
+let view: 'start' | 'join' | 'unknown' = 'start'
+/** S0 has the two rows: the console offers the create flow, and this is not the Mac App Store build */
+const rows = () => state.offer === 'yes' && !state.store
+const creating = () => !!state.create && state.create.screen !== 'off'
+/** a create screen and its step: the keyboard moves when it changes */
+const createKey = (c: WelcomeState['create']) => (c ? `${c.screen}:${c.screen === 'signin' ? c.step : ''}` : '')
 /** a kit build's address is filled in once; after that the field is the person's */
 let suggestedUsed = false
 function takeState(s: WelcomeState) {
@@ -28,17 +37,26 @@ function takeState(s: WelcomeState) {
   // a link from outside that cannot open a team: said on ① (never over ④)
   if (newLinkError) {
     error = s.linkError!
-    view = 'main'
+    view = 'join'
   }
+  // a kit build for one team: its box, with the address filled in
   if (s.suggested && !suggestedUsed && !draft) {
     draft = s.suggested
     suggestedUsed = true
+    view = 'join'
   }
 }
 
 function render() {
   const focused = document.activeElement?.id
-  root.replaceChildren(state.link ? linkAsk(state.link) : state.mode === 'offline' && state.offline ? offline() : view === 'unknown' ? noAddress() : view === 'none' ? noTeam() : welcome())
+  root.replaceChildren(
+    state.link ? linkAsk(state.link)
+    : state.mode === 'offline' && state.offline ? offline()
+    : creating() ? createScreen(state.create!, { store: state.store === true, teams: state.teams.length > 0, rerender: render })
+    : view === 'unknown' ? noAddress()
+    : view === 'join' || !rows() ? (state.offer === 'checking' && view !== 'join' ? checking() : welcome())
+    : start(),
+  )
   if (focused) document.getElementById(focused)?.focus()
 }
 
@@ -46,18 +64,21 @@ function show(next: typeof view) {
   view = next
   render()
   // the new view's own first control, so a keyboard user lands on it (Esc goes back)
-  document.querySelector<HTMLElement>(next === 'main' ? '#address' : '[data-autofocus]')?.focus()
+  document.querySelector<HTMLElement>(next === 'unknown' ? '[data-autofocus]' : next === 'start' && rows() ? '#create-team' : '#address')?.focus()
 }
 
 addEventListener('keydown', (e: KeyboardEvent) => {
   if (e.key !== 'Escape') return
   if (state.link) {
     void ui.welcome.answerLink(false, state.link.host)
+  } else if (creating()) {
+    ui.create.cancel()
   } else if (outside) {
     outside = null
     render()
     document.getElementById('address')?.focus()
-  } else if (view !== 'main') show('main')
+  } else if (view === 'unknown') show('join')
+  else if (view === 'join' && rows()) show('start')
   else if (menuFor) closeMenu(true)
   else if (confirming) closeConfirm()
 })
@@ -172,21 +193,24 @@ function welcome() {
     waking(),
     h('p', { id: 'address-error', class: 'error', role: 'alert', 'data-testid': 'address-error' }, error),
   )
-  // the two help views: quiet text buttons (muted, no underline, a hover fill like the team rows), never orange links;
-  // their text lines up with the box above (the button's own inset reaches out past the card's text column)
+  // the help view: a quiet text button (muted, no underline, a hover fill like the team rows), never an orange link;
+  // its text lines up with the box above (the button's own inset reaches out past the card's text column). Next to it,
+  // on S1, Back to S0; where ① is the first screen, the demo link (and in the Mac App Store build, its sign-in)
   const helpLinks = h(
     'div',
     { class: 'help-links' },
     h('button', { type: 'button', class: 'ghost', 'data-testid': 'no-address', onclick: () => show('unknown') }, tr('welcome.noAddress')),
-    h('button', { type: 'button', class: 'ghost', 'data-testid': 'no-team', onclick: () => show('none') }, tr('welcome.noTeam')),
+    rows() ? h('button', { type: 'button', class: 'ghost', 'data-testid': 'join-back', onclick: () => show('start') }, tr('nav.back')) : demoLink(),
+    // a hosting console without the create flow (GET /me 404): still a way to make a team, on its website (never in the
+    // Mac App Store build: no sign-up or plans there)
+    state.offer === 'no' && !state.store
+      ? h('button', { type: 'button', class: 'ghost', 'data-testid': 'signup-web', onclick: () => ui.welcome.openLink('console') }, tr('start.signupWeb'), h('span', { class: 'out', 'aria-hidden': 'true' }, ' ↗'))
+      : null,
   )
-  // the bottom line: [돌아가기] (the same quiet button, when a team is open behind this screen) and the language
-  const foot = h(
-    'div',
-    { class: 'foot' },
-    state.canGoBack ? h('button', { type: 'button', class: 'ghost', 'data-testid': 'welcome-back', onclick: () => ui.welcome.back() }, tr('welcome.back')) : h('span'),
-    languagePicker(),
-  )
+  const storeSignIn = state.store && state.offer === 'yes'
+    ? h('p', { class: 'store-signin', 'data-testid': 'store-signin' }, tr('start.storeAsk'), ' ', h('button', { type: 'button', class: 'inline', 'data-testid': 'store-signin-button', onclick: () => ui.create.signIn() }, tr('start.signIn')))
+    : null
+  const foot = footLine()
   // remembered teams: they come first (the usual thing here is opening one), the box for another address under them
   if (state.teams.length) {
     return h(
@@ -197,6 +221,7 @@ function welcome() {
       h('h2', { class: 'another', id: 'another-title' }, tr('welcome.another')),
       form,
       outside ? outsideBox(outside) : null,
+      storeSignIn,
       helpLinks,
       foot,
     )
@@ -209,8 +234,53 @@ function welcome() {
     h('p', { class: 'sub', id: 'welcome-sub' }, tr('welcome.subtitle')),
     form,
     outside ? outsideBox(outside) : null,
+    storeSignIn,
     helpLinks,
     foot,
+  )
+}
+
+/** the bottom line: [돌아가기] (the same quiet button, when a team is open behind this screen) and the language */
+function footLine() {
+  return h(
+    'div',
+    { class: 'foot' },
+    state.canGoBack ? h('button', { type: 'button', class: 'ghost', 'data-testid': 'welcome-back', onclick: () => ui.welcome.back() }, tr('welcome.back')) : h('span'),
+    languagePicker(),
+  )
+}
+
+/** "Just look around first": the demo team in the browser (the address is the app's own) */
+const demoLink = () => h('button', { type: 'button', class: 'ghost', 'data-testid': 'demo', onclick: () => ui.welcome.openLink('demo') }, tr('start.demo'), h('span', { class: 'out', 'aria-hidden': 'true' }, ' ↗'))
+
+/** before the console answered whether it offers the create flow (a moment): the card, nothing to press yet */
+function checking() {
+  return h('section', { class: 'card', 'aria-busy': 'true', 'data-testid': 'welcome-checking' }, h('div', { class: 'brand' }, tr('app.name')))
+}
+
+/**
+ * S0: the remembered teams first (opening one is the usual thing here), then two full-width rows, "Create a team for
+ * free" (the one primary) and "Join with an invite link" (S1, the box), and the small demo link.
+ */
+function start() {
+  return h(
+    'section',
+    { class: 'card', 'aria-labelledby': state.teams.length ? 'teams-title' : 'start-title', 'data-testid': 'start' },
+    h('div', { class: 'brand' }, tr('app.name')),
+    state.teams.length ? teamList() : h('h1', { id: 'start-title' }, tr('start.title')),
+    h(
+      'div',
+      { class: 'choices' },
+      h(
+        'button',
+        { type: 'button', class: 'choice primary', id: 'create-team', 'data-testid': 'create-team', onclick: () => ui.create.start() },
+        h('span', { class: 'choice-title' }, tr('start.create')),
+        h('span', { class: 'choice-sub' }, tr('start.createSub')),
+      ),
+      h('button', { type: 'button', class: 'choice', id: 'join-team', 'data-testid': 'join-team', onclick: () => show('join') }, h('span', { class: 'choice-title' }, tr('start.join'))),
+    ),
+    h('div', { class: 'help-links' }, demoLink()),
+    footLine(),
   )
 }
 
@@ -285,10 +355,10 @@ function linkAsk(link: { id: number; host: string; hosted: boolean }) {
               if (r && !r.ok && r.error === 'renamed' && r.next) {
                 outside = { kind: 'renamed', host: r.host ?? '', address: r.next }
                 draft = r.next
-                view = 'main'
+                view = 'join'
               } else if (r && !r.ok) {
                 error = r.message
-                view = 'main'
+                view = 'join'
               }
             } catch {
               error = tr('err.unreachable')
@@ -312,26 +382,7 @@ function noAddress() {
     h('div', { class: 'brand' }, tr('app.name')),
     h('h1', { id: 'unknown-title' }, tr('welcome.noAddress')),
     h('ol', { class: 'steps' }, h('li', {}, tr('noAddress.paste')), h('li', {}, tr('noAddress.device')), h('li', {}, tr('noAddress.ask'))),
-    h('div', { class: 'actions' }, h('button', { type: 'button', 'data-autofocus': true, 'data-testid': 'view-back', onclick: () => show('main') }, tr('nav.back'))),
-  )
-}
-
-/** ③ "아직 팀이 없어요": a leader makes the team; members come in with a link. */
-function noTeam() {
-  return h(
-    'section',
-    { class: 'card', 'aria-labelledby': 'none-title', 'data-testid': 'no-team-view' },
-    h('div', { class: 'brand' }, tr('app.name')),
-    h('h1', { id: 'none-title' }, tr('welcome.noTeam')),
-    h('p', { class: 'sub' }, tr('noTeam.body')),
-    h(
-      'div',
-      { class: 'actions' },
-      state.signup ? h('button', { type: 'button', 'data-autofocus': true, 'data-testid': 'signup', onclick: () => ui.welcome.openLink('signup') }, tr('noTeam.create'), h('span', { class: 'out', 'aria-hidden': 'true' }, ' ↗')) : null,
-      h('button', { type: 'button', 'data-autofocus': state.signup ? undefined : true, 'data-testid': 'install-docs', onclick: () => ui.welcome.openLink('docs') }, tr('noTeam.docs'), h('span', { class: 'out', 'aria-hidden': 'true' }, ' ↗')),
-    ),
-    state.signup ? h('p', { class: 'note' }, tr('noTeam.after')) : null,
-    h('div', { class: 'actions' }, h('button', { type: 'button', class: 'primary', 'data-testid': 'view-back', onclick: () => show('main') }, tr('noTeam.enter'))),
+    h('div', { class: 'actions' }, h('button', { type: 'button', 'data-autofocus': true, 'data-testid': 'view-back', onclick: () => show('join') }, tr('nav.back'))),
   )
 }
 
@@ -522,19 +573,27 @@ function confirmBox(id: string) {
 
 onLocaleChange(render)
 ui.welcome.onState((s) => {
-  // the screen shown again from the 팀 menu or the host strip: start at the box
-  if (s.mode === 'welcome' && state.mode !== 'welcome') view = 'main'
+  // the screen shown again from the 팀 menu or the host strip: start at the first screen
+  if (s.mode === 'welcome' && state.mode !== 'welcome') view = 'start'
   const asked = !state.link && s.link
+  const screen = createKey(state.create)
+  const offerBefore = state.offer
   takeState(s)
   render()
+  // a create screen came or changed: the keyboard goes to its first control
+  if (s.create && createKey(s.create) !== screen) focusCreate(s.create)
+  // S0's rows appeared after the console answered: the keyboard to "Create a team for free" when nothing has it
+  else if (offerBefore === 'checking' && rows() && !creating() && view === 'start' && !state.teams.length && document.activeElement === document.body) document.getElementById('create-team')?.focus()
+  else if (offerBefore === 'checking' && !rows() && !creating() && !state.teams.length && document.activeElement === document.body) document.getElementById('address')?.focus()
   // ④ appeared: the safe answer has the focus
   if (asked) document.getElementById('link-cancel')?.focus()
 })
 void ui.welcome.state().then((s) => {
   if (s) takeState(s)
   render()
-  // no saved team: the box, ready to type in. Saved teams: nothing is focused (no ring on a row the person did not
-  // pick); Tab reaches the first row
-  if (!state.teams.length) document.getElementById('address')?.focus()
+  // no saved team: the box (or S0's create row), ready to use. Saved teams: nothing is focused (no ring on a row the
+  // person did not pick); Tab reaches the first row
+  if (creating()) focusCreate(state.create!)
+  else if (!state.teams.length) document.getElementById(rows() && view === 'start' ? 'create-team' : 'address')?.focus()
 })
 render()

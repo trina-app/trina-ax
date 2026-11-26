@@ -250,7 +250,7 @@ function SystemSections({ office, shown, focus }: { office: Office; shown: Syste
   // an admin: the plan, the storage use, and (office mode) the automatic updates
   if (!isOwner(me)) return (
     <>
-      {part('storage', <><PlanCard /><Storage /></>)}
+      {part('storage', <><PlanCard owner={false} /><Storage /></>)}
       {office.data?.v ? part('updates', <OfficeUpdate status={office.data.v} reload={office.reload} />) : null}
     </>
   )
@@ -258,7 +258,7 @@ function SystemSections({ office, shown, focus }: { office: Office; shown: Syste
   // reaches it, and the tools (connected folders, backups, export)
   return (
     <>
-      {part('storage', <><PlanCard /><Storage /></>)}
+      {part('storage', <><PlanCard owner /><Storage /></>)}
       {part('updates', office.data?.v ? <OfficeUpdate status={office.data.v} reload={office.reload} /> : (office.data || office.error) && <Update />)}
       {part('health', <Health rev={rev} />)}
       {part('connection', <Connection canChange={features?.connectionChange !== false} />)}
@@ -457,18 +457,24 @@ const supportHref = (v: string) => (/^[^\s@/]+@[^\s@/]+$/.test(v) ? `mailto:${v}
 
 /** The plan (plan.json; the hosted service or a self-hosted plan file): "Plan: Team · up to 3 answers at the same time ·
  * 7 of 12 members · 50 GB storage · [Manage plan]". Nothing without a plan file (GET /api/admin/plan answers null). */
-function PlanCard() {
+function PlanCard({ owner }: { owner: boolean }) {
   const state = useLoad(() => api.call(API.plan))
   const p = state.data?.plan
   if (!p) return null
-  return <PlanDetails plan={p} store={noPurchaseLinks()} />
+  return <PlanDetails plan={p} store={noPurchaseLinks()} owner={owner} />
 }
 
+/** the hosting service's Free plan (a team made from the desktop app, docs/decisions/20261126-desktop-create-team.md) */
+export const FREE_PLAN_ID = 'free'
+
 /** The plan card's content. `store`: a store app (lib/desktop.ts noPurchaseLinks), which has no "Manage plan" link and
- * says a full plan as a fact, with no "change the plan"; the status and support links stay. */
-export function PlanDetails({ plan: p, store }: { plan: NonNullable<PlanStatus['plan']>; store: boolean }) {
+ * says a full plan as a fact, with no "change the plan"; the status and support links stay. The Free plan says that it
+ * sleeps when idle, and only the owner gets "Choose a plan" (the console's checkout, where the console lets only the
+ * owner upgrade too); an admin gets no plan link there. */
+export function PlanDetails({ plan: p, store, owner = true }: { plan: NonNullable<PlanStatus['plan']>; store: boolean; owner?: boolean }) {
   const t = useT()
-  const manage = store ? null : safeHref(p.links?.account)
+  const free = p.id === FREE_PLAN_ID
+  const manage = store || (free && !owner) ? null : safeHref(p.links?.account)
   const status = safeHref(p.links?.status)
   const support = p.links ? supportHref(p.links.support) : null
   return (
@@ -483,11 +489,12 @@ export function PlanDetails({ plan: p, store }: { plan: NonNullable<PlanStatus['
           {' · '}
           {t('plan.disk', { gb: p.diskGiB })}
         </p>
+        {free && <p className="text-xs text-muted" data-testid="plan-free">{t('plan.freeSleeps')}</p>}
         <p className="text-xs text-faint">{t('plan.details', { days: p.localBackupRetentionDays })}</p>
         {p.maxActiveMembers !== null && p.activeMembers >= p.maxActiveMembers && <p className="text-xs text-warn" role="status">{t(store ? 'plan.membersFullStore' : 'plan.membersFull')}</p>}
         {(manage || status || support) && (
           <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-            {manage && <a className="font-medium text-accent-text underline" href={manage} target="_blank" rel="noreferrer">{t('plan.manage')}</a>}
+            {manage && <a className="font-medium text-accent-text underline" href={manage} target="_blank" rel="noreferrer" data-testid={free ? 'plan-choose' : 'plan-manage'}>{t(free ? 'plan.choose' : 'plan.manage')}</a>}
             {status && <a className="text-accent-text underline" href={status} target="_blank" rel="noreferrer">{t('plan.status')}</a>}
             {support && <a className="text-accent-text underline" href={support} target="_blank" rel="noreferrer">{t('plan.support')}</a>}
           </p>

@@ -37,7 +37,7 @@ import { isHosted } from '../system/deployment'
 import { HOSTED_BROKER_ORIGIN } from '../integrations/google-drive/broker'
 import { isManaged } from '../app-config'
 import { resolveLayout } from '../system/layout'
-import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameTaken, userRef, type NewUser, type UserRow } from './users'
+import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameFromEmail, usernameTaken, userRef, type NewUser, type UserRow } from './users'
 import { notifyResetLink, notifySignInChange, notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
 import { recordJoin } from '../onboarding/member-welcome'
@@ -81,7 +81,7 @@ export function linkBase(c: Context<AppEnv>, ctx: AppContext): string {
   return ctx.config.publicOrigins[0] ?? new URL(c.req.url).origin
 }
 
-function checkNewPassword(pw: string, username: string | null, locale: Locale, field: string): void {
+export function checkNewPassword(pw: string, username: string | null, locale: Locale, field: string): void {
   const p = passwordProblem(pw, { username })
   if (p) fail('validation', weakPasswordMessage(p, locale), { fields: { [field]: p } })
 }
@@ -145,12 +145,20 @@ function withToken(c: Context<AppEnv>, ctx: AppContext, s: ReturnType<typeof set
   return { ...s, needed: false }
 }
 
-export interface OwnerInput { username: string; name: string; email?: string | null; teamName: string; locale: Locale
-  /** how the owner signs in: a password (POST /api/setup, the server CLI) or the Google account Google just proved
-   * (auth/google-signup.ts: no password) */
+export type OwnerInput = {
+  name: string; teamName: string; locale: Locale
+  /** how the owner signs in: a password (POST /api/setup, the server CLI) or the Google account Google (or the hosting
+   * console, auth/setup-console.ts) just proved (auth/google-signup.ts: no password) */
   credential: { password: string } | { google: GoogleIdentity }
   /** IANA zone (the setup page sends the browser's); unknown or absent = the server's default (system/time-zone.ts) */
-  timeZone?: string | null }
+  timeZone?: string | null
+  /** how the setup came: the audit's `method` (with Google it is 'google' unless said here) */
+  method?: 'console'
+} & (
+  | { username: string; email?: string | null }
+  /** no username: one is made from the e-mail address (users.ts usernameFromEmail), so the e-mail is required */
+  | { username?: undefined; email: string }
+)
 
 /** The team name as it will be kept, or a 400 (a hosted team's name must be one the hosting service takes,
  * system/cloud-team-name.ts). The Google start checks it too, so a setup never fails over it only after Google. */
@@ -167,7 +175,10 @@ export function ownerTeamName(ctx: AppContext, teamName: string, locale: Locale)
 export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<string> {
   o = { ...o, teamName: ownerTeamName(ctx, o.teamName, o.locale) }
   const cred: NewCredential = 'password' in o.credential ? { passwordHash: await hashPassword(o.credential.password) } : { google: o.credential.google }
-  const id = deriveUserId(ctx.db, o.username, ctx.files.fx.root)
+  // no username given (a team made from the desktop app, auth/setup-console.ts): from the e-mail. No user exists yet, so
+  // the name is free; checked again inside the write with the rest
+  const username = o.username ?? usernameFromEmail(ctx.db, o.email)
+  const id = deriveUserId(ctx.db, username, ctx.files.fx.root)
   const created = ctx.db.transaction(() => {
     if (userCount(ctx.db) > 0) return false
     // the owner follows the team language they just picked (null), like everyone who has not chosen their own.
@@ -175,13 +186,13 @@ export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<st
     // sign-up; the host's backup window is in that zone) — the owner can still change it in Admin > Settings.
     const keepCpZone = isHosted(ctx.config) && isValidTimeZone(process.env.MYCEL_TEAM_TZ)
     updateTeamSettings(ctx.db, { teamName: o.teamName, defaultLocale: o.locale, ...(isValidTimeZone(o.timeZone) && !keepCpZone ? { timeZone: o.timeZone } : {}) })
-    insertAccount(ctx.db, { id, username: o.username, name: o.name, email: o.email ?? null, role: 'owner', locale: null, mustChangePassword: false }, cred, new Date(authOf(ctx).now()).toISOString())
+    insertAccount(ctx.db, { id, username, name: o.name, email: o.email ?? null, role: 'owner', locale: null, mustChangePassword: false }, cred, new Date(authOf(ctx).now()).toISOString())
     createDefaultFolders(ctx)
     // a new team lets everyone pick the AI model and depth (docs/decisions/20261126-model-effort-choice.md); a team
     // from before keeps its setting (no key = off)
     settleNewTeamMemberChoice(ctx)
-    // with Google: that it was Google, never the address
-    audit(ctx.db, { actor: id, action: 'setup', target: id, detail: { teamName: o.teamName, ...('google' in cred ? { method: 'google' } : {}) } })
+    // with Google: that it was Google, never the address; from the hosting console (desktop app): 'console'
+    audit(ctx.db, { actor: id, action: 'setup', target: id, detail: { teamName: o.teamName, ...(o.method ? { method: o.method } : 'google' in cred ? { method: 'google' } : {}) } })
     return true
   }).immediate()
   if (!created) fail('conflict', msg('setupDone', o.locale))

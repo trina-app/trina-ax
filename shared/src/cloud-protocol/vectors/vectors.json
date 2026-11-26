@@ -1236,5 +1236,299 @@
    "issuedAt": "2026-10-22T00:00:00Z",
    "notices": []
   }
+ },
+ "ownerClaim": {
+  "claim": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "claimSha256": "ea866a757e4c38babfa8127cbe9a409d3e1f93a00ff1488ff735fcf917afffd0",
+  "setupUrl": "https://acme.treesoop.com/app-setup#c=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "reserve": {
+   "path": "/api/hosted-team/v1/owner/reserve",
+   "ts": 1761100000000,
+   "nonce": "bm9uY2Utb2YtYS10ZXN0LXZlY3Rvcg",
+   "body": "{\"v\":1,\"claim\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\"}",
+   "bodySha256": "60be0893ad328911c8b878256215609ad8dc1594d5668c07946850a244f77684",
+   "string": "trina-drive-broker-v1\nPOST\n/api/hosted-team/v1/owner/reserve\n1761100000000\nbm9uY2Utb2YtYS10ZXN0LXZlY3Rvcg\n60be0893ad328911c8b878256215609ad8dc1594d5668c07946850a244f77684",
+   "sig": "1lvQP5e1jf6AUdHw5pZT1bJXlqu7Wtu+RpmU6Sjx1qnARsJvohFhTLhst7gY/lSiclopOfLj4AdjxiX13gcJDA==",
+   "authorization": "TrinaDriveBroker key=MCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=, ts=1761100000000, nonce=bm9uY2Utb2YtYS10ZXN0LXZlY3Rvcg, sig=1lvQP5e1jf6AUdHw5pZT1bJXlqu7Wtu+RpmU6Sjx1qnARsJvohFhTLhst7gY/lSiclopOfLj4AdjxiX13gcJDA=="
+  },
+  "confirm": {
+   "path": "/api/hosted-team/v1/owner/confirm",
+   "ts": 1761100000000,
+   "nonce": "bm9uY2Utb2YtYS10ZXN0LXZlY3Rvcg",
+   "body": "{\"v\":1,\"claim\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\"}",
+   "bodySha256": "60be0893ad328911c8b878256215609ad8dc1594d5668c07946850a244f77684",
+   "string": "trina-drive-broker-v1\nPOST\n/api/hosted-team/v1/owner/confirm\n1761100000000\nbm9uY2Utb2YtYS10ZXN0LXZlY3Rvcg\n60be0893ad328911c8b878256215609ad8dc1594d5668c07946850a244f77684",
+   "sig": "bMFhkK6mXk+d+HZ5mKeH2Lh8sL4XDMLIgXIJb1OFmrQagdj8EOTEunLWEqiiutrPGrnfUWsrWLdX+AmbGiN4BA==",
+   "authorization": "TrinaDriveBroker key=MCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=, ts=1761100000000, nonce=bm9uY2Utb2YtYS10ZXN0LXZlY3Rvcg, sig=bMFhkK6mXk+d+HZ5mKeH2Lh8sL4XDMLIgXIJb1OFmrQagdj8EOTEunLWEqiiutrPGrnfUWsrWLdX+AmbGiN4BA=="
+  },
+  "request": {
+   "valid": [
+    {
+     "v": 1,
+     "claim": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+    }
+   ],
+   "invalid": [
+    {
+     "raw": {
+      "v": 1,
+      "claim": "AECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+     },
+     "why": "claim is 43 characters"
+    },
+    {
+     "raw": {
+      "v": 1,
+      "claim": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh="
+     },
+     "why": "base64url, no padding"
+    },
+    {
+     "raw": {
+      "v": 2,
+      "claim": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+     },
+     "why": "version"
+    },
+    {
+     "raw": {
+      "v": 1,
+      "claim": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "team": "acme"
+     },
+     "why": "unknown key"
+    }
+   ]
+  },
+  "owner": {
+   "valid": [
+    {
+     "teamName": "Acme",
+     "email": "owner@example.com",
+     "name": "Alex Kim",
+     "locale": "en",
+     "timeZone": "Asia/Seoul",
+     "google": null
+    },
+    {
+     "teamName": "Acme",
+     "email": "owner@example.com",
+     "name": "Alex Kim",
+     "locale": "ko",
+     "timeZone": null,
+     "google": {
+      "sub": "109876543210987654321",
+      "email": "owner@example.com",
+      "hd": null
+     }
+    }
+   ],
+   "invalid": [
+    {
+     "raw": {
+      "teamName": "Acme",
+      "email": "not-an-address",
+      "name": "Alex Kim",
+      "locale": "en",
+      "timeZone": "Asia/Seoul",
+      "google": null
+     },
+     "why": "e-mail"
+    },
+    {
+     "raw": {
+      "teamName": "Acme",
+      "email": "owner@example.com",
+      "name": "",
+      "locale": "en",
+      "timeZone": "Asia/Seoul",
+      "google": null
+     },
+     "why": "empty name"
+    },
+    {
+     "raw": {
+      "teamName": "Acme​",
+      "email": "owner@example.com",
+      "name": "Alex Kim",
+      "locale": "en",
+      "timeZone": "Asia/Seoul",
+      "google": null
+     },
+     "why": "team name rule"
+    },
+    {
+     "raw": {
+      "teamName": "Acme",
+      "email": "owner@example.com",
+      "name": "Alex\nKim",
+      "locale": "en",
+      "timeZone": "Asia/Seoul",
+      "google": null
+     },
+     "why": "a control character"
+    },
+    {
+     "raw": {
+      "teamName": "Acme",
+      "email": "owner@example.com",
+      "name": "Alex Kim",
+      "locale": "en",
+      "timeZone": "Asia/Seoul",
+      "google": {
+       "sub": "x y",
+       "email": "owner@example.com",
+       "hd": null
+      }
+     },
+     "why": "Google sub"
+    },
+    {
+     "raw": {
+      "teamName": "Acme",
+      "email": "owner@example.com",
+      "name": "Alex Kim",
+      "locale": "en",
+      "timeZone": "Asia/Seoul",
+      "google": null,
+      "password": "x"
+     },
+     "why": "unknown key"
+    }
+   ]
+  },
+  "connect": {
+   "url": "https://account.treesoop.com/app/connect?state=BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc&challenge=CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk&port=53682&locale=en",
+   "storeUrl": "https://account.treesoop.com/app/connect?state=BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc&challenge=CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk&port=53682&locale=ko&store=1",
+   "callback": "http://127.0.0.1:53682/console-callback?code=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&state=BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+   "cancelled": "http://127.0.0.1:53682/console-callback?error=cancelled&state=BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc"
+  },
+  "email": {
+   "start": {
+    "valid": [
+     {
+      "email": "owner@example.com",
+      "locale": "en",
+      "challenge": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk"
+     },
+     {
+      "email": "owner@example.com",
+      "locale": "ko",
+      "challenge": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk",
+      "store": true
+     }
+    ],
+    "invalid": [
+     {
+      "raw": {
+       "email": "owner@example.com",
+       "locale": "en",
+       "challenge": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk",
+       "store": false
+      },
+      "why": "store is true or absent"
+     },
+     {
+      "raw": {
+       "email": " owner@example.com",
+       "locale": "en",
+       "challenge": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk"
+      },
+      "why": "surrounding spaces"
+     },
+     {
+      "raw": {
+       "email": "owner@localhost",
+       "locale": "en",
+       "challenge": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk"
+      },
+      "why": "a domain with a dot"
+     },
+     {
+      "raw": {
+       "email": "owner@example.com",
+       "locale": "en"
+      },
+      "why": "challenge is required"
+     },
+     {
+      "raw": {
+       "email": "owner@example.com",
+       "locale": "en",
+       "challenge": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk",
+       "password": "x"
+      },
+      "why": "unknown key"
+     }
+    ]
+   },
+   "verify": {
+    "valid": [
+     {
+      "email": "owner@example.com",
+      "code": "042917",
+      "verifier": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM"
+     }
+    ],
+    "invalid": [
+     {
+      "raw": {
+       "email": "owner@example.com",
+       "code": "42917",
+       "verifier": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM"
+      },
+      "why": "6 digits"
+     },
+     {
+      "raw": {
+       "email": "owner@example.com",
+       "code": "04291a",
+       "verifier": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM"
+      },
+      "why": "digits only"
+     },
+     {
+      "raw": {
+       "email": "owner@example.com",
+       "code": "042917",
+       "verifier": "short"
+      },
+      "why": "verifier"
+     }
+    ]
+   }
+  },
+  "slugs": [
+   {
+    "name": "Acme",
+    "suffix": "x7k2",
+    "slug": "acme",
+    "out": "acme"
+   },
+   {
+    "name": "Café Olé Studio",
+    "suffix": "x7k2",
+    "slug": "cafe-ole-studio",
+    "out": "cafe-ole-studio"
+   },
+   {
+    "name": "  ACME — Seoul  ",
+    "suffix": "x7k2",
+    "slug": "acme-seoul",
+    "out": "acme-seoul"
+   },
+   {
+    "name": "東京チーム",
+    "suffix": "x7k2",
+    "slug": "team-x7k2",
+    "out": "team-x7k2"
+   },
+   {
+    "name": "ab",
+    "suffix": "x7k2",
+    "slug": "team-x7k2",
+    "out": "team-x7k2"
+   }
+  ]
  }
 }

@@ -7,6 +7,29 @@ Setelah Anda membuat tim, aplikasi memandu Anda, sebagai owner, melalui beberapa
 
 Jika Anda membuat tim di browser pada komputer Mac atau Windows, halaman berikutnya menawarkan **Lanjutkan di aplikasi Mac** (atau **Lanjutkan di aplikasi Windows**): aplikasi memasukkan Anda dengan sendirinya, tanpa kata sandi kedua, dan hanya aplikasi yang bisa menemukan file kerja di komputer Anda. **Lanjutkan di browser** meneruskan ke langkah-langkah di sini. Langkah-langkah ini ikut bersama Anda: di aplikasi, langkah dibuka di tempat Anda berhenti, dengan situs web perusahaan dari tautan pendaftaran sudah terisi.
 
+## Membuat tim dari aplikasi desktop
+
+Belum punya tim? Aplikasi Mac dan Windows membuatkan satu untuk Anda di layanan hosting, dengan paket Gratis, tanpa kartu:
+
+:::steps
+#### Buat tim gratis
+Buka aplikasi dan pilih **Buat tim gratis**. (**Lihat-lihat dulu** membuka tim demo di browser Anda, tanpa mendaftar.)
+
+#### Masuk
+Dengan **Lanjutkan dengan Google**, browser Anda membuka halaman masuk Google; setelah itu Anda bisa menutup tab. Dengan alamat email, Anda tetap di aplikasi: ketik alamatnya, tekan **Kirim kode**, lalu ketik kode 6 digit dari email. Dengan melanjutkan, Anda menyetujui Ketentuan dan Kebijakan Privasi.
+
+#### Beri nama tim
+Ketik nama tim. Aplikasi menyarankan alamatnya (`acme.trina.app`); **Ubah** memilih alamat lain. Baca batas paket Gratis, centang kotaknya, lalu buat.
+
+#### Tunggu beberapa menit
+Membuat tim memakan waktu sekitar 3 sampai 5 menit. Anda bisa menutup aplikasi; saat dibuka lagi, aplikasi kembali ke layar ini.
+
+#### Selamat datang di tim Anda
+Tim terbuka di aplikasi, dan Anda sudah masuk. Jika Anda masuk dengan Google, tekan **Lanjutkan**. Jika Anda masuk dengan kode email, **pilih kata sandi** dulu: Anda memakainya di ponsel dan komputer lain.
+:::
+
+Setiap akun punya satu tim gratis. Jika akun Anda sudah punya tim, aplikasi menawarkan **Buka** sebagai gantinya. Tim Gratis tertidur saat tidak ada yang memakainya dan bangun saat seseorang membukanya. Owner meningkatkan paket di **Admin › Sistem › Paket › Pilih paket**. Versi Mac App Store hanya bisa masuk ke tim yang sudah Anda buat sebelumnya (**Sudah membuat tim?** **Masuk**).
+
 ## Langkah-langkahnya
 
 :::steps
