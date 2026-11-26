@@ -39,12 +39,13 @@ export const SHARED_UNDER_ALWAYS: Readonly<Record<string, CardAlwaysKind>> = {
 /**
  * The only tools a shared project chat gets (docs/DECISIONS.md "Shared project chats"; an allowlist: a tool added later
  * is not offered there until it is listed). Its transcript is seen by everyone who sees its project, so: no private
- * memories (only the asker's memories kept in that chat, from the asker's own words), no chat title, no Google Drive, nothing on a computer or in the person's signed-in
- * browser, no room reading (rooms, room_read, room_file, save_room_file). Posting is there (docs/DECISIONS.md "Sending
+ * memories (only the asker's memories kept in that chat, from the asker's own words), no chat title, no Google Drive, no room reading (rooms, room_read, room_file, save_room_file). Posting is there (docs/DECISIONS.md "Sending
  * to a person or a room from a shared chat"): post_to_room sends as the person whose turn it is, after their yes on its
  * card, which only they see; it brings nothing into the chat. The connections' tools are not listed here: chat/tools.ts
  * adds them in a shared chat from the connections' provider in its shared mode, each call behind the asker's card where
- * someone here could not see the answer (docs/decisions/20261118-shared-chat-connections.md).
+ * someone here could not see the answer (docs/decisions/20261118-shared-chat-connections.md). The asker's own in-app
+ * browser is not listed either: chat/tools.ts adds it when the turn came from their desktop window, each call behind
+ * their one notice there (docs/decisions/20261126-shared-chat-own-tools.md).
  */
 export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   ...Object.keys(FILE_TOOLS),

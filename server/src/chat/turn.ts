@@ -6,6 +6,7 @@ import { landingPaths } from './places-copy'
 import { liveSources } from './answer-share'
 import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, alwaysNote, keepAlways, teamAllowsAlways, withAlways, type AlwaysPlace } from './always-allow'
 import { keepWarnSeen, sharedAllowed, warnPlace, warnSeen } from '../integrations/connections/tool-allow'
+import { BROWSER_NOTICE, browserWarnSeen, keepBrowserWarnSeen } from './browser-notice'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { approvalsFor, approved, clearApprovals, noteApproval } from './card-approvals'
 import { stampOutputOf } from '../tools/stamp-pdf'
@@ -452,7 +453,7 @@ export class TurnExec {
   /** the engine this turn runs on (after routing): the skill tool cuts its result to that engine's limit */
   engineRunning: EngineId | null = null
   browser = false
-  /** the turn was sent from the asker's own desktop window, connected now (shared chats too; `browser` is this and not shared) */
+  /** the turn was sent from the asker's own desktop window, connected now (shared chats too; `browser` is this) */
   desktop = false
   /** the dev environment of this turn (devenv/tool.ts box_shell): off (null), or on with the chat's project (null for a
    * chat with no project, srt runner only) */
@@ -955,10 +956,11 @@ export class TurnExec {
 
     // the asker's own desktop window is connected: their apps on the computer (integrations/connections/local.ts) work
     // in any chat they write in, a shared or project chat too (each person's turn uses their own connections; another
-    // member's turn never has this window). The in-app browser stays out of shared chats: it shows the person's
-    // signed-in pages
+    // member's turn never has this window). The in-app browser too, in a shared chat behind the asker's one notice
+    // there (confirmSharedBrowser; docs/decisions/20261126-shared-chat-own-tools.md): it shows the person's signed-in
+    // pages, which everyone here then sees, so the asker is told once per place, as for a connection
     this.desktop = !this.restricted && spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
-    this.browser = this.desktop && !this.shared
+    this.browser = this.desktop
     if (this.stopReason) return
     // the dev environment (devenv/setting.ts), never in a scheduled run (nobody there answers the credential card), an
     // approved template run (its scope is fixed) or a company profile draft (web_fetch only). Any chat of a person in
@@ -1268,7 +1270,7 @@ export class TurnExec {
       // private ones; a guest's none (docs/decisions/20261125-auto-memory-shared-chats.md; prompt.ts promptMemories)
       memories: this.shared ? (guestTurn ? [] : chatMemories(rt.db, spec.userId, spec.chatId).map((m) => ({ id: m.id, text: m.text, sharedChat: spec.chatId }))) : rt.memoriesForPrompt(spec.userId), autoMemory: this.autoMemoryPlace && autoMemoryOn(rt.db, spec.userId), promptTokens, project, browser: this.browser, tools: extraTools,
       // the web or a phone: the AI says the desktop app has the browser (prompt.ts NO_BROWSER_RULE)
-      browserInDesktopApp: !this.browser && !this.restricted && !this.shared && (spec.clientKind === 'web' || spec.clientKind === 'mobile'),
+      browserInDesktopApp: !this.browser && !this.restricted && (spec.clientKind === 'web' || spec.clientKind === 'mobile'),
       // a shared chat's transcript says who wrote each message (chat/shared.ts)
       history: fresh ? prep(userMsg.parent_id).h : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
       // the summary of what the window leaves out, as this person sees the chat (chat/history-summary.ts)
@@ -4770,7 +4772,29 @@ export class TurnExec {
       // fails closed: a check that cannot be done counts as a guest being here (no team connection)
       guestHere: () => { try { return this.sharedAudience().some((id) => isGuestUser(this.rt.db, id)) } catch { return true } },
       confirm: (c) => this.confirmSharedConnection(c),
+      attach: (paths, step) => this.confirmSharedAttach(paths, step),
     }
+  }
+
+  /**
+   * Team files the asker's own call sends through their connection in a shared chat (docs/decisions/
+   * 20261126-shared-chat-own-tools.md, which replaces the refusal of 20261118-shared-chat-connections.md): the chat's
+   * read check, as for a read of the same files. Someone here who cannot open one of them: the asker's file read card
+   * first (only they see it); the files join the answer's read record, so what the service says back about them stays
+   * with the people who may read them. A no (or no answer, a check that fails) sends nothing: the call's step says why
+   * in one plain line, and the AI is told to say the same. The send card comes after this, as in a private chat.
+   */
+  async confirmSharedAttach(paths: readonly string[], step: string): Promise<string | null> {
+    if (!this.shared || !paths.length) return null
+    let sources: ReadSource[]
+    try { const rules = this.rt.files.rules(); sources = paths.map((p) => sourceOf(this.rt.db, rules, p)) }
+    catch (e) { this.rt.log.warn('shared attach check failed', { err: e, turn: this.id }); sources = [] }
+    const no = sources.length ? await this.sharedReadRefusal('read', { file_path: paths[0] }, { step: false, sources }) : 'failed'
+    if (!no) return null
+    const said = tr('sharedAttachSkipped', this.spec.locale)
+    this.patchToolStep(step, () => ({ label: said, sv: undefined, detail: undefined } as Partial<StoredStep>))
+    return this.sharedReadText(`Nothing was sent: the team file${paths.length === 1 ? '' : 's'} named in this call ${paths.length === 1 ? 'was' : 'were'} not attached.`, no)
+      + ` Tell the user in their language, in these words or close to them: "${said}"`
   }
 
   /**
@@ -4786,7 +4810,7 @@ export class TurnExec {
    * chat later and may not use the connection themselves does not see the answer. Changes at the service keep their
    * own cards (connections/tools.ts gate). null: go on.
    */
-  async confirmSharedConnection(c: { id: string; key: string; name: string; sources: ReadSource[]; bind?: string }): Promise<string | null> {
+  async confirmSharedConnection(c: { id: string; key: string; name: string; sources: ReadSource[]; bind?: string; browser?: true }): Promise<string | null> {
     if (!this.shared) return null
     // this answer saved a version of a chat file (everyone who sees the file opens it), so it never becomes one hidden
     // from people added later (noteSharedReads): said as it is, never "could not check" (QA TC-6962)
@@ -4808,8 +4832,8 @@ export class TurnExec {
     // Always from the old card
     if (this.sharedConnAllowed.has(c.key)) return go()
     try {
-      if (c.bind && warnSeen(this.rt.db, c.id, this.spec.userId, place, c.bind)) return go()
-      if (this.sharedConnForGood(c)) return go()
+      if (c.browser ? browserWarnSeen(this.rt.db, this.spec.userId, place) : c.bind && warnSeen(this.rt.db, c.id, this.spec.userId, place, c.bind)) return go()
+      if (!c.browser && this.sharedConnForGood(c)) return go()
     } catch (e) { this.rt.log.warn('shared connection check failed', { err: e, turn: this.id }); return failed() }
     // one notice per connection at a time (parallel calls share it)
     let pending = this.sharedConnPending.get(c.key)
@@ -4823,11 +4847,23 @@ export class TurnExec {
     if (!this.sharedConnAllowed.has(c.key)) {
       this.sharedConnAllowed.set(c.key, new Set(audience))
       // (a press, kept for the place: the person saw it once there)
-      if (c.bind) {
-        try { keepWarnSeen(this.rt.db, c.id, this.spec.userId, place, c.bind, this.id) } catch (e) { this.rt.log.warn('keeping the shared notice failed', { err: e, turn: this.id }) }
+      if (c.browser || c.bind) {
+        try { if (c.browser) keepBrowserWarnSeen(this.rt.db, this.spec.userId, place, this.id); else keepWarnSeen(this.rt.db, c.id, this.spec.userId, place, c.bind!, this.id) } catch (e) { this.rt.log.warn('keeping the shared notice failed', { err: e, turn: this.id }) }
       }
     }
     return go()
+  }
+
+  /**
+   * The in-app browser in a shared chat (docs/decisions/20261126-shared-chat-own-tools.md): the asker's own browser for
+   * their own request, as in their own chat, behind the same one notice per place as a connection ("Other people in this
+   * chat can also see what the AI gets from your browser.", Continue; kept in card_always_allow, browserWarnSeen). What
+   * its pages bring in joins the answer's read record as the asker's own (via 'browser'), like their own connection's
+   * answer: someone who sees the chat later does not see that answer. null: go on; else the refusal for the AI.
+   */
+  confirmSharedBrowser(): Promise<string | null> {
+    if (!this.shared) return Promise.resolve(null)
+    return this.confirmSharedConnection({ id: BROWSER_NOTICE, key: BROWSER_NOTICE, name: tr('browserName', this.spec.locale), sources: [{ type: 'user', id: this.spec.userId, via: 'browser' }], browser: true })
   }
 
   /** Where the one shared notice counts (tool-allow.ts warnPlace): the project of a shared project chat, else this chat */
@@ -4848,7 +4884,7 @@ export class TurnExec {
   }
 
   /** The one notice and its audit row (counts, never who): one button, Continue. A guest among the people is said. */
-  private async askSharedConnection(c: { id: string; name: string; bind?: string }, asked: readonly string[]): Promise<SharedDecision> {
+  private async askSharedConnection(c: { id: string; name: string; bind?: string; browser?: true }, asked: readonly string[]): Promise<SharedDecision> {
     const L = this.spec.locale
     const scheduled = this.spec.clientKind === 'schedule'
     const name = c.name.replace(/\s+/g, ' ').trim().slice(0, 80)
@@ -4856,7 +4892,7 @@ export class TurnExec {
     try { guests = asked.filter((id) => isGuestUser(this.rt.db, id)).length } catch { guests = 1 }
     const { value, missing: none } = await this.askPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
-      question: tr(guests ? 'sharedConnectionWarnGuest' : 'sharedConnectionWarn', L, { service: name }),
+      question: c.browser ? tr(guests ? 'sharedBrowserWarnGuest' : 'sharedBrowserWarn', L) : tr(guests ? 'sharedConnectionWarnGuest' : 'sharedConnectionWarn', L, { service: name }),
       options: [{ label: tr('sharedConnectionContinue', L), value: 'once' }],
       buttons: true as const,
       multiple: false, allowText: false,
@@ -4865,7 +4901,7 @@ export class TurnExec {
     const v = Array.isArray(value) && value.length === 1 ? value[0] : value
     // (an answer of the old card, "always" or "all", pressed before this version: also a yes to go on)
     const decision: SharedDecision = v === 'once' || v === 'always' || v === 'all' ? 'shared' : scheduled ? 'unattended' : v === 'cancel' ? 'declined' : none ?? 'declined'
-    try { auditLog(this.rt.db, { actor: this.spec.userId, action: 'chat.shared_connection', target: this.spec.chatId, detail: { decision, connection: c.id, audience: asked.length, guests, warned: true, turnId: this.id } }) }
+    try { auditLog(this.rt.db, { actor: this.spec.userId, action: 'chat.shared_connection', target: this.spec.chatId, detail: { decision, ...(c.browser ? { browser: true } : { connection: c.id }), audience: asked.length, guests, warned: true, turnId: this.id } }) }
     catch (e) { this.rt.log.warn('shared connection audit failed', { err: e, turn: this.id }) }
     return decision
   }

@@ -114,7 +114,7 @@ export function keepWarnSeen(db: Database, integrationId: string, userId: string
 }
 
 /** The place's name for Settings: the project's name, or the chat's title */
-function placeName(db: Database, place: string): string {
+export function placeName(db: Database, place: string): string {
   const id = place.slice(2)
   const r = place.startsWith('p:') ? db.query('SELECT name FROM projects WHERE id = ?').get(id) as { name: string } | null
     : db.query('SELECT title AS name FROM chats WHERE id = ?').get(id) as { name: string } | null

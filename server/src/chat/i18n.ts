@@ -638,6 +638,31 @@ export const TEXT = {
     "このチャットの他の人も、AIが{service}から取得した内容を見られます。ゲスト（チーム外の人）もいます。",
     'Las demás personas de este chat también pueden ver lo que la IA obtenga de {service}, incluido un invitado (alguien de fuera del equipo).',
     '这个对话里的其他人也能看到 AI 从{service}获取的内容，其中包括访客（团队以外的人）。'),
+  /** the one notice before a person's first use of their in-app browser in a shared project or shared chat (chat/turn.ts
+   * confirmSharedBrowser; docs/decisions/20261126-shared-chat-own-tools.md): one button, Continue, shown once there */
+  sharedBrowserWarn: t('이 채팅의 다른 사람도 AI가 내 브라우저에서 가져온 내용을 볼 수 있어요.',
+    'Other people in this chat can also see what the AI gets from your browser.',
+    'Orang lain di obrolan ini juga bisa melihat apa yang AI ambil dari browser Anda.',
+    "このチャットの他の人も、AIがあなたのブラウザーから取得した内容を見られます。",
+    'Las demás personas de este chat también pueden ver lo que la IA obtenga de su navegador.',
+    '这个对话里的其他人也能看到 AI 从你的浏览器获取的内容。'),
+  /** ...when a guest sees the chat (someone outside the team) */
+  sharedBrowserWarnGuest: t('이 채팅의 다른 사람도 AI가 내 브라우저에서 가져온 내용을 볼 수 있어요. 여기에는 게스트(팀 밖의 사람)도 있어요.',
+    'Other people in this chat can also see what the AI gets from your browser, including a guest (someone outside the team).',
+    'Orang lain di obrolan ini juga bisa melihat apa yang AI ambil dari browser Anda, termasuk tamu (orang di luar tim).',
+    "このチャットの他の人も、AIがあなたのブラウザーから取得した内容を見られます。ゲスト（チーム外の人）もいます。",
+    'Las demás personas de este chat también pueden ver lo que la IA obtenga de su navegador, incluido un invitado (alguien de fuera del equipo).',
+    '这个对话里的其他人也能看到 AI 从你的浏览器获取的内容，其中包括访客（团队以外的人）。'),
+  /** the browser's name where a list names it beside connections (Settings › Allowed for Trina: its one shared notice) */
+  browserName: t('브라우저', 'Browser', 'Browser', "ブラウザー", 'Navegador', '浏览器'),
+  /** a team file the asker's call would send in a shared chat, after their no on the file read card (chat/turn.ts
+   * confirmSharedAttach): the call's step, and what the AI says */
+  sharedAttachSkipped: t('그 파일은 이 채팅 사람 중 일부가 열 수 없어서, 보내지 않았어요.',
+    "Not sent: some people in this chat can't open that file.",
+    'Tidak dikirim: sebagian orang di obrolan ini tidak bisa membuka berkas itu.',
+    "このチャットの一部の人がそのファイルを開けないため、送りませんでした。",
+    'No se envió: algunas personas de este chat no pueden abrir ese archivo.',
+    '未发送：这个对话里有些人打不开那个文件。'),
   sharedConnectionContinue: t('계속', 'Continue', 'Lanjutkan', "続ける", 'Continuar', '继续'),
   sharedConnectionOnce: t('허용', 'Allow', 'Izinkan', "許可", "Permitir", "允许"),
   // the dev environment's login card (devenv/tool.ts: a command that can use a login after teammates changed files):

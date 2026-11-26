@@ -241,3 +241,120 @@ describe('one card per call (QA batch 5 flow 3: "Create app" twice)', () => {
     } finally { db().query("DELETE FROM open_questions WHERE chat_id = 'chat-twin'").run(); db().exec('PRAGMA foreign_keys = ON') }
   })
 })
+
+// The asker's own in-app browser in a shared chat (docs/decisions/20261126-shared-chat-own-tools.md): offered from their
+// desktop window, behind the same one notice per place; its pages join the answer's read record as theirs; another
+// member's turn never reaches the asker's window.
+describe('the browser in a shared chat (the owner\'s Daum mail case)', () => {
+  const BROWSER_WARN = 'Other people in this chat can also see what the AI gets from your browser.'
+  const ALICE_DESK = 'win-alice-desk1'
+  const BOB_DESK = 'win-bob-desk001'
+  let aliceDesk: TestSocket, bobDesk: TestSocket
+  const stops: (() => void)[] = []
+  /** the desktop app: answers browser.call frames */
+  const serve = (sock: TestSocket) => {
+    const seen = new Set<string>()
+    const timer = setInterval(() => {
+      for (const f of sock.frames) {
+        if (f.type !== 'browser.call' || seen.has(f.data.call.callId)) continue
+        seen.add(f.data.call.callId)
+        sock.send({ type: 'browser.ack', callId: f.data.call.callId })
+        sock.send({ type: 'browser.result', result: { callId: f.data.call.callId, ok: true, content: [{ type: 'text', text: `opened ${f.data.call.args.url}` }] } })
+      }
+    }, 20)
+    stops.push(() => clearInterval(timer))
+  }
+  const browserCalls = (sock: TestSocket) => sock.frames.filter((f) => f.type === 'browser.call').length
+  beforeAll(async () => {
+    aliceDesk = await h.ws('alice', { windowId: ALICE_DESK, client: 'desktop' }); await aliceDesk.next('hello'); serve(aliceDesk)
+    bobDesk = await h.ws('bob', { windowId: BOB_DESK, client: 'desktop' }); await bobDesk.next('hello'); serve(bobDesk)
+  })
+  afterAll(() => { for (const s of stops) s(); aliceDesk?.close(); bobDesk?.close() })
+  const fromDesk = (user: string, window: string, chatId: string, content: string) =>
+    h.api(user, { window, client: 'desktop' }).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
+  const doneOn = async (sock: TestSocket, chatId: string, messageId: string) => {
+    const d = await sock.next('message.done', (f) => f.data.messageId === messageId, 30_000)
+    await waitFor(() => !h.rt().activeTurn(chatId), { timeoutMs: 15_000 })
+    return d.data.message as Message
+  }
+  /** the server's card of a turn.request frame */
+  const ask = (f: { data: { request: unknown } }) => f.data.request as { requestId: string; question: string; options: { label: string; value: string }[] }
+  const NAV = (url: string) => fake({ echo: 'tools' }, { say: ' | ' }, { tool: 'navigate', args: { url }, sayResult: true })
+
+  test('the first use in a project shows the notice once, nothing opens before the press, and the answer joins the read record as the asker\'s own', async () => {
+    const p = await newProject('Heron')
+    const chat = await h.api('alice').call(API.createChat, { body: { projectId: p } })
+    const n = browserCalls(aliceDesk)
+    const started = await fromDesk('alice', ALICE_DESK, chat.id, NAV('https://mail.daum.net/'))
+    const card = await aliceDesk.next('turn.request', (f) => f.data.turnId === started.turnId, 15_000)
+    expect(ask(card).question).toBe(BROWSER_WARN)
+    expect(ask(card).options.map((o: { label: string }) => o.label)).toEqual(['Continue'])
+    expect(browserCalls(aliceDesk)).toBe(n)
+    expect(cardsTo('bob', started.turnId)).toEqual([])
+    await h.api('alice').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: ask(card).requestId, answer: 'once' } })
+    const d = await doneOn(aliceDesk, chat.id, started.assistantMessage.id)
+    expect(d.content.split(' | ')[0]!.split(',')).toContain('navigate')
+    expect(d.content).toContain('opened https://mail.daum.net/')
+    expect(browserCalls(aliceDesk)).toBe(n + 1)
+    const g = answerRecord(db(), d.id)!.reads.find((x) => x.s.some((s) => s.type === 'user' && s.via === 'browser'))!
+    expect([g.c, g.k, g.y]).toEqual([['alice', 'bob'], 1, 1])
+    // the next answer, and another chat of the project: no notice
+    const other = await h.api('alice').call(API.createChat, { body: { projectId: p } })
+    const again = await fromDesk('alice', ALICE_DESK, other.id, NAV('https://mail.daum.net/inbox'))
+    await doneOn(aliceDesk, other.id, again.assistantMessage.id)
+    expect(cardsTo('alice', again.turnId)).toEqual([])
+    expect(browserCalls(aliceDesk)).toBe(n + 2)
+    // Settings lists it under the project; removing it shows the notice again
+    const row = (await h.api('alice').call(API.listAiAllowances)).items.find((a) => a.kind === 'connector_tool' && a.warned === 'Heron' && a.connection === 'Browser')!
+    expect(row).toMatchObject({ shared: true, warned: 'Heron' })
+    await h.api('alice').call(API.deleteAiAllowance, { params: { id: row.id } })
+    const third = await fromDesk('alice', ALICE_DESK, other.id, NAV('https://mail.daum.net/sent'))
+    const card3 = await aliceDesk.next('turn.request', (f) => f.data.turnId === third.turnId, 15_000)
+    expect(ask(card3).question).toBe(BROWSER_WARN)
+    await h.api('alice').call(API.answerTurn, { params: { id: third.turnId }, body: { kind: 'ask_user', requestId: ask(card3).requestId, answer: 'once' } })
+    await doneOn(aliceDesk, other.id, third.assistantMessage.id)
+  })
+
+  test('no answer opens nothing and keeps nothing', async () => {
+    const p = await newProject('Ibis')
+    const chat = await h.api('alice').call(API.createChat, { body: { projectId: p } })
+    const n = browserCalls(aliceDesk)
+    const started = await fromDesk('alice', ALICE_DESK, chat.id, NAV('https://mail.daum.net/'))
+    await aliceDesk.next('turn.request', (f) => f.data.turnId === started.turnId, 15_000)
+    const d = await doneOn(aliceDesk, chat.id, started.assistantMessage.id)
+    expect(browserCalls(aliceDesk)).toBe(n)
+    expect(d.content).toContain('Nothing was fetched from Browser')
+    expect(db().query("SELECT 1 FROM card_always_allow WHERE user_id = 'alice' AND kind = ?").get(`seen:browser:p:${p}`)).toBeNull()
+  })
+
+  test('another member\'s message never drives the asker\'s browser: bob\'s turn uses bob\'s own window only', async () => {
+    const p = await newProject('Jay')
+    const chat = await h.api('alice').call(API.createChat, { body: { projectId: p } })
+    // alice's own turn, after her notice
+    const a = await fromDesk('alice', ALICE_DESK, chat.id, NAV('https://mail.daum.net/'))
+    const ca = await aliceDesk.next('turn.request', (f) => f.data.turnId === a.turnId, 15_000)
+    await h.api('alice').call(API.answerTurn, { params: { id: a.turnId }, body: { kind: 'ask_user', requestId: ask(ca).requestId, answer: 'once' } })
+    await doneOn(aliceDesk, chat.id, a.assistantMessage.id)
+    const nAlice = browserCalls(aliceDesk), nBob = browserCalls(bobDesk)
+    // bob asks from his desktop: his own notice (alice's press is hers), then his own window; alice's gets nothing
+    const b = await fromDesk('bob', BOB_DESK, chat.id, NAV('https://mail.daum.net/') + '\n' + fake({ tool: MINE_TOOL, args: { q: 'alice mail' }, sayResult: true }))
+    const cb = await bobDesk.next('turn.request', (f) => f.data.turnId === b.turnId, 15_000)
+    // (bob reads Korean)
+    expect(ask(cb).question).toBe('이 채팅의 다른 사람도 AI가 내 브라우저에서 가져온 내용을 볼 수 있어요.')
+    expect(ask(cb).options.map((o: { label: string }) => o.label)).toEqual(['계속'])
+    expect(cardsTo('alice', b.turnId)).toEqual([])
+    const sentBefore = calls()
+    await h.api('bob').call(API.answerTurn, { params: { id: b.turnId }, body: { kind: 'ask_user', requestId: ask(cb).requestId, answer: 'once' } })
+    const d = await doneOn(bobDesk, chat.id, b.assistantMessage.id)
+    expect(browserCalls(bobDesk)).toBe(nBob + 1)
+    expect(browserCalls(aliceDesk)).toBe(nAlice)
+    // alice's own connection is not among bob's tools: nothing reached it
+    expect(d.content.split(' | ')[0]!.split(',')).not.toContain(MINE_TOOL)
+    expect(calls()).toBe(sentBefore)
+    // and a bob message on the web (no desktop window): no browser at all
+    const w = await send('bob', chat.id, fake({ echo: 'tools' }))
+    const dw = await done('bob', chat.id, w.assistantMessage.id)
+    expect(dw.content.split(',')).not.toContain('navigate')
+    expect(browserCalls(aliceDesk)).toBe(nAlice)
+  })
+})

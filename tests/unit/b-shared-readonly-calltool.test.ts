@@ -89,7 +89,7 @@ const via = (name: string, args: Record<string, unknown> = {}) => fake({ tool: '
 
 describe('call_tool and find_tools in a shared chat (security review of #1328)', () => {
   test('the connection is looked up; call_tool and find_tools say which tools change something', () => {
-    const shared: SharedConnections = { locale: 'en', audience: () => ['alice', 'bob'], guestHere: () => false, confirm: async () => null }
+    const shared: SharedConnections = { locale: 'en', audience: () => ['alice', 'bob'], guestHere: () => false, confirm: async () => null, attach: async () => null }
     const b = integrationToolProvider(h.ctx).build({ userId: 'alice', chatId: 'none', turnId: 'none', browser: false, scheduled: false, shared })
     expect(b.tools.some((t) => t.name === TEAM_SEND)).toBe(false)
     const ct = b.tools.find((t) => t.name === 'call_tool')!
