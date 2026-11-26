@@ -260,7 +260,7 @@ export class OpsApi {
         if (!verifyB64(b.publicKey, keyRotationString(id, b.publicKey), b.newKeySig)) throw new OpsFail(401, 'bad_signature', 'the new key did not sign the rotation')
         return send(res, 200, this.info(reg.team(id)!))
       }
-      reg.rotateKey(id, b.publicKey, b.newKeySig)
+      reg.rotateKey(id, b.publicKey, b.newKeySig, { reuseOwn: true })
       this.relay.disconnectTeam(id, ControlClose.AUTH_FAILED, 'key rotated')
       this.audit(keyId, 'teams.key', id)
       return send(res, 200, this.info(reg.team(id)!))

@@ -1,0 +1,1 @@
+- After a failed restore of a hosted team server, the team comes back online on its old server. Its relay connection stayed refused.
