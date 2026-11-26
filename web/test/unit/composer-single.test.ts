@@ -38,6 +38,7 @@ const FIELDS: Record<string, string> = {
   'components/LinkAskAccess.tsx': 'the note of an access request',
   'components/onboarding/ProfileStep.tsx': 'profile fields',
   'components/onboarding/TeamLinkPanel.tsx': "a team link's welcome note",
+  'components/ProblemReportSheet.tsx': "a problem report's details (no Enter handler)",
   'components/ProjectForm.tsx': "a project's description and instructions",
   'components/rooms/apps/AppsDialog.tsx': "a room app's code to copy (read only)",
   'components/settings/MemoryForm.tsx': 'a memory note',
