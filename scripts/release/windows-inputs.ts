@@ -15,6 +15,9 @@
 //     desktop/scripts/win-sign.ts, the app id), packages left out
 //   - the files packaging reads as they are: the screens' pages and style, the page script, the Windows icon, the
 //     installer's NSIS include, Electron's download helper, the release notices script, LICENSE and NOTICE
+//   - every other file in desktop/build-resources/ (electron-builder picks up icon.ico, installerSidebar.bmp, license.txt
+//     … there by name alone), except the Mac's and Linux's
+//   - the Bun version release.yml builds with (both trees are bundled here with this run's Bun)
 //   - desktop/package.json without its `version` (bumped every release; the installer gets the release's version from
 //     CI anyway): Electron's and electron-builder's versions are pinned there
 //   - bun.lock's entries for everything Electron and electron-builder pull in (the packaging tools themselves)
@@ -43,6 +46,10 @@ export const RAW_FILES = [
   'LICENSE',
   'NOTICE',
 ] as const
+
+/** electron-builder also picks up files in build-resources/ by name alone (icon.ico, installerSidebar.bmp,
+ * license.txt …): every file there counts, except these, which only the Mac and Linux builds read */
+const NOT_WINDOWS_RESOURCES = /^(mac-infoplist|linux-icons)\/|^background(@2x)?\.png$|^entitlements\..*\.plist$/
 
 /** the packaging tools: their bun.lock entries and everything they depend on */
 export const LOCK_ROOTS = ['electron', 'electron-builder'] as const
@@ -107,6 +114,18 @@ export async function windowsFingerprint(root: string): Promise<Fingerprint> {
     const p = path.join(root, f)
     parts[f] = fs.existsSync(p) ? sha(fs.readFileSync(p)) : 'missing'
   }
+  // the other files electron-builder finds in build-resources/ by their names (a new one counts)
+  const res = path.join(desktop, 'build-resources')
+  if (fs.existsSync(res)) {
+    for (const f of (fs.readdirSync(res, { recursive: true }) as string[]).map((x) => String(x).split(path.sep).join('/')).sort()) {
+      const k = `desktop/build-resources/${f}`
+      if (NOT_WINDOWS_RESOURCES.test(f) || k in parts || !fs.statSync(path.join(res, f)).isFile()) continue
+      parts[k] = sha(fs.readFileSync(path.join(res, f)))
+    }
+  }
+  // the Bun that bundles the real build (release.yml BUN_VERSION): both trees are bundled here with this run's Bun
+  const wf = path.join(root, '.github/workflows/release.yml')
+  parts['Bun version (release.yml)'] = (fs.existsSync(wf) && /^\s*BUN_VERSION:\s*(\S+)/m.exec(fs.readFileSync(wf, 'utf8'))?.[1]) || 'missing'
   const pkg = JSON.parse(fs.readFileSync(path.join(desktop, 'package.json'), 'utf8')) as Record<string, unknown>
   delete pkg.version
   parts['desktop/package.json (without version)'] = sha(JSON.stringify(pkg))

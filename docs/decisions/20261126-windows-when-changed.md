@@ -18,7 +18,8 @@
   - the Windows app of this tag is compared with that of the last release with the installer on this channel
     (`scripts/release/windows-inputs.ts`): the nine bundles `desktop/build.ts` makes (`desktop/build-entries.ts`, built
     like `dist:win`, byte for byte the same as `dist/`), electron-builder's config with its own files, the files
-    packaging reads as they are, `desktop/package.json` without `version`, and bun.lock's entries for Electron and
+    packaging reads as they are (and every other Windows file in `desktop/build-resources/`), release.yml's
+    `BUN_VERSION`, `desktop/package.json` without `version`, and bun.lock's entries for Electron and
     electron-builder and what they pull in. Mac-only and Linux-only files are not in it.
   - the same: no Windows installer, on any day.
   - a bridge version the team's pages check against the app (`*_BRIDGE_VERSION`, `WORK_FILES_WIDE_VERSION` in
