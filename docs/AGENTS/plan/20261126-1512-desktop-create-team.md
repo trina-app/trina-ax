@@ -24,7 +24,7 @@ Out: "Use this computer as the server" (S0 keeps a slot), console single sign-on
 ### 1. Screens (Mac and Windows)
 
 - **S0 First screen.** Remembered teams first, as today. Then two full-width rows: primary "Create a team for free"
-  ("Your own team in about 5 minutes. Free, no card."), secondary "Join with an invite link". At the bottom a small link
+  ("Your own team in about a minute or two. Free, no card."; was "about 5 minutes" before the live free host was timed, 2026-11-27), secondary "Join with an invite link". At the bottom a small link
   "Just look around first", which opens `https://demo.trina.app` in the browser (fixed URL, all builds).
 - **S1 Join.** Today's box and errors, "I don't know the address" inside it. Back and Esc go to S0.
 - **S2 Sign in** (owner change 2026-11-26: people who use e-mail never go to the browser). Two choices on the app screen:
@@ -42,7 +42,7 @@ Out: "Use this computer as the server" (S0 keeps a slot), console single sign-on
 - **S3 Name your team.** One field, "Team name"; the address is derived and shown small ("acme.trina.app · Change").
   Region, zone and language come from the computer. Under it the Free plan rules from the console's `freePlan`, the
   Free terms and privacy links and one agree box; the button sends `planId:'free'` with the consent shown.
-- **S4 Starting.** "Setting up {team}… about 3 to 5 minutes. You can close the app." Three steps. The pending team id
+- **S4 Starting.** "Setting up {team}… about a minute or two. You can close the app." (timed on the live free host 2026-11-27: create 63–90 s, wake 16–22 s) Three steps. The pending team id
   is saved; reopening the app returns to S4.
 - **S5 Signed in.** The team opens at `/app-setup` in the app window: "Welcome to {team}, {name}". Google owners press
   Continue. Email-code owners choose a password (for the phone and other computers), then Continue.

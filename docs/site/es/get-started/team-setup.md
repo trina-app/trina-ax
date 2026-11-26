@@ -21,14 +21,14 @@ Con **Continuar con Google**, su navegador abre el inicio de sesión de Google; 
 #### Poner nombre al equipo
 Escriba el nombre del equipo. La app propone su dirección (`acme.trina.app`); **Cambiar** elige otra. Lea los límites del plan gratuito, marque la casilla y créelo.
 
-#### Esperar unos minutos
-Crear el equipo tarda unos 3 a 5 minutos. Puede cerrar la app; al abrirla de nuevo vuelve a esta pantalla.
+#### Esperar uno o dos minutos
+Crear el equipo tarda uno o dos minutos. Puede cerrar la app; al abrirla de nuevo vuelve a esta pantalla.
 
 #### Bienvenido a su equipo
 El equipo se abre en la app, con su sesión iniciada. Si inició sesión con Google, pulse **Continuar**. Si inició sesión con un código por correo, primero **elija una contraseña**: la usará en su teléfono y en otros ordenadores.
 :::
 
-Cada cuenta tiene un equipo gratuito. Si la suya ya tiene un equipo, la app ofrece **Abrirlo** en su lugar. Un equipo gratuito se duerme cuando nadie lo usa y despierta cuando alguien lo abre. El propietario cambia de plan en **Administración › Sistema › Plan › Elegir un plan**. La versión de la Mac App Store solo inicia sesión en un equipo que creó antes (**¿Ya creó un equipo?** **Iniciar sesión**).
+Cada cuenta tiene un equipo gratuito. Si la suya ya tiene un equipo, la app ofrece **Abrirlo** en su lugar. Un equipo gratuito se duerme cuando nadie lo usa y despierta en menos de medio minuto cuando alguien lo abre. El propietario cambia de plan en **Administración › Sistema › Plan › Elegir un plan**. La versión de la Mac App Store solo inicia sesión en un equipo que creó antes (**¿Ya creó un equipo?** **Iniciar sesión**).
 
 ## Los pasos
 

@@ -21,14 +21,14 @@ With **Continue with Google**, your browser opens Google's sign-in; then you can
 #### Name your team
 Type the team's name. The app suggests its address (`acme.trina.app`); **Change** picks another. Read the Free plan's limits, tick the box, and create it.
 
-#### Wait a few minutes
-Making the team takes about 3 to 5 minutes. You can close the app; it comes back to this screen when you open it again.
+#### Wait a minute or two
+Making the team takes about a minute or two. You can close the app; it comes back to this screen when you open it again.
 
 #### Welcome to your team
 The team opens in the app, signed in as you. If you signed in with Google, press **Continue**. If you signed in with an e-mail code, **choose a password** first: you use it on your phone and other computers.
 :::
 
-Each account has one free team. If yours already has a team, the app offers **Open it** instead. A Free team sleeps when nobody uses it and wakes when someone opens it. The owner upgrades in **Admin › System › Plan › Choose a plan**. The Mac App Store version only signs in to a team you made before (**Already made a team?** **Sign in**).
+Each account has one free team. If yours already has a team, the app offers **Open it** instead. A Free team sleeps when nobody uses it and wakes when someone opens it, in under half a minute. The owner upgrades in **Admin › System › Plan › Choose a plan**. The Mac App Store version only signs in to a team you made before (**Already made a team?** **Sign in**).
 
 ## The steps
 
