@@ -1,7 +1,8 @@
 // The app's list of known services (the "Discover" list of Connectors): each service's own name and its official MCP
 // address. Every one is an MCP server that signs in with OAuth (dynamic client registration), as the list's entries
 // answered on 2026-11-02 (docs/INTEGRATIONS.md "Discover"), except GitHub (`serverApp`), which registers no apps: it signs
-// in through the GitHub App this server holds (docs/INTEGRATIONS.md "GitHub"). The web adds its logos and descriptions
+// in through the GitHub App this server holds (docs/INTEGRATIONS.md "GitHub"), and the services that sign in only
+// through the team's own app (`teamApp`: Asana, HubSpot, Box). The web adds its logos and descriptions
 // (web/src/lib/connectors.ts); the server uses the same list so that the AI's connect card for a known service always
 // goes to the official address (server/src/chat/connect-service.ts, docs/DECISIONS.md "The chat's connect card trusts
 // the app's list"). One list, here only.
@@ -25,6 +26,18 @@ export const SERVICE_CATALOG = [
   { id: 'higgsfield', name: 'Higgsfield', url: 'https://mcp.higgsfield.ai/mcp', aliases: ['힉스필드'] },
   { id: 'ahrefs', name: 'Ahrefs', url: 'https://api.ahrefs.com/mcp/mcp' },
   { id: 'airtable', name: 'Airtable', url: 'https://mcp.airtable.com/mcp', aliases: ['에어테이블'] },
+  // The team's own app (`teamApp`): these register no apps for others and take no Client ID Metadata Document, so the
+  // admin makes an app in the service's console and sets it up once as a template (docs/INTEGRATIONS.md "Services that
+  // need the team's own app"). Checked on the services' own pages and with their OAuth metadata on 2026-11-25.
+  // https://developers.asana.com/docs/integrating-with-asanas-mcp-server: an "MCP app" at app.asana.com/0/my-apps,
+  // distribution "Any workspace", scope `default` (any other is refused)
+  { id: 'asana', name: 'Asana', url: 'https://mcp.asana.com/v2/mcp', teamApp: { guide: 'https://developers.asana.com/docs/integrating-with-asanas-mcp-server', scope: 'default' }, aliases: ['아사나'] },
+  // https://developers.hubspot.com/docs/apps/developer-platform/build-apps/integrate-with-the-remote-hubspot-mcp-server:
+  // Development › MCP Connectors › Create MCP connector; the scopes follow the tools, none are asked for
+  { id: 'hubspot', name: 'HubSpot', url: 'https://mcp.hubspot.com', teamApp: { guide: 'https://developers.hubspot.com/docs/apps/developer-platform/build-apps/integrate-with-the-remote-hubspot-mcp-server' }, aliases: ['허브스팟'] },
+  // https://developer.box.com/guides/box-mcp/remote/: a Box admin adds credentials in Admin Console › Integrations ›
+  // Box MCP server (Add Integration Credentials) with the scopes the AI may use
+  { id: 'box', name: 'Box', url: 'https://mcp.box.com', teamApp: { guide: 'https://developer.box.com/guides/box-mcp/remote/' }, ambiguous: true, aliases: ['박스'] },
   { id: 'brex', name: 'Brex', url: 'https://api.brex.com/mcp' },
   { id: 'calendly', name: 'Calendly', url: 'https://mcp.calendly.com' },
   { id: 'clickup', name: 'ClickUp', url: 'https://mcp.clickup.com/mcp', aliases: ['클릭업'] },
@@ -33,7 +46,16 @@ export const SERVICE_CATALOG = [
   // registration (github-mcp-server issue #1404), so it signs in through the server's GitHub App
   // (server/src/integrations/github/app.ts); a user token of a GitHub App or an OAuth app is accepted (checked 2026-11-20)
   { id: 'github', name: 'GitHub', url: 'https://api.githubcopilot.com/mcp/', serverApp: 'github', aliases: ['깃허브', 'ギットハブ'] },
+  // Microsoft 365 (Outlook mail, Calendar, OneDrive and SharePoint files, Teams chat): no remote MCP server a third-party
+  // app can sign in to, so the tools are this server's own over Microsoft Graph (server/src/integrations/microsoft/),
+  // at a reserved address that never resolves; it signs in through the Microsoft app the server holds
+  // (docs/decisions/20261125-m365-connector.md)
+  { id: 'microsoft365', name: 'Microsoft 365', url: 'https://microsoft-365.invalid/mcp', serverApp: 'microsoft', aliases: ['m365', 'office 365', 'outlook', 'onedrive', 'sharepoint', 'microsoft teams', '마이크로소프트 365', '아웃룩', '원드라이브', '팀즈', 'マイクロソフト365'] },
   { id: 'gitlab', name: 'GitLab', url: 'https://gitlab.com/api/v4/mcp', aliases: ['깃랩'] },
+  // https://docs.granola.ai/help-center/sharing/integrations/mcp (2026-11-25): any MCP client, dynamic client
+  // registration (a registration for a team's https callback answered 201 on 2026-11-25); every Granola plan, the free
+  // one with the last 30 days of notes only
+  { id: 'granola', name: 'Granola', url: 'https://mcp.granola.ai/mcp', aliases: ['그래놀라'] },
   { id: 'indeed', name: 'Indeed', url: 'https://mcp.indeed.com/claude/mcp', ambiguous: true },
   { id: 'intercom', name: 'Intercom', url: 'https://mcp.intercom.com/mcp', ambiguous: true },
   { id: 'mermaid', name: 'Mermaid Chart', url: 'https://mcp.mermaid.ai/mcp', ambiguous: true },
@@ -109,10 +131,23 @@ export function adminAllowsDomains(url: string): boolean {
 
 /** The listed service that signs in through an app this server holds rather than one it registers (GitHub): its id, or
  * null. Only at its exact official address (officialService), so the server's app never signs in for another address. */
-export function serverAppAt(url: string): 'github' | null {
+export type ServerApp = 'github' | 'microsoft'
+export function serverAppAt(url: string): ServerApp | null {
   const c = officialService(url)
   return c && 'serverApp' in c ? c.serverApp : null
 }
+
+/** How the team's own app for a listed service is made: the service's own page that says how (`guide`) and the scope to
+ * ask for (`scope`; none: what the app was given) */
+export interface TeamApp { guide: string; scope?: string }
+/** A listed service that signs in only through an app the team makes in its console (Asana, HubSpot, Box): its
+ * TeamApp, or null. Only at its exact official address (officialService). */
+export function teamAppAt(url: string): TeamApp | null {
+  const c = officialService(url)
+  return c ? teamAppOf(c) : null
+}
+/** the same for a listed service */
+export const teamAppOf = (c: CatalogService): TeamApp | null => ('teamApp' in c ? c.teamApp : null)
 
 /** Two addresses that are official addresses of the same listed service (Atlassian's v1 and v2): one service, never a
  * second connection for it. */

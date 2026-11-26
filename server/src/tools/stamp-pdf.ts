@@ -34,7 +34,7 @@ import { stampOutputOf } from './make-file-path'
 import { ToolError } from '../policy/errors'
 import { checkRegular, freeName } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
-import { skillRootOf } from '../skills/guard'
+import { inAnySkills } from '../skills/guard'
 import { makeWorkDir } from './isolate'
 import { confirmSources, placeProduced, type MadeFile } from './make-file'
 
@@ -125,7 +125,7 @@ async function stamp(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: Input, sr
   // write access where the result goes, before any work (checked again when it is placed)
   const out = authorizeOutput(fx, rules, c, outRel, { mustExist: false, createDirs: true })
   if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder; give output a file name ending in .pdf`, 'is_folder')
-  if (skillRootOf(out.rel)) throw new ToolError('a stamped PDF is not saved in a skill folder; save it in a project or the person\'s own folder')
+  if (inAnySkills(out.rel)) throw new ToolError('a stamped PDF is not saved in a skill folder; save it in a project or the person\'s own folder')
   if (out.rel === src.rel && !c.files.readHashes.has(src.rel)) {
     // never over the original unless the AI read it in this chat (then: a new version, the old one in its history)
     throw new ToolError(`output is the original '${src.rel}'; to replace it (its old version stays in its history), read it in this chat first. Otherwise leave output out to save a new file next to it`)

@@ -16,7 +16,8 @@ import { APP_CLIENT, FakeGoogle, FakeLibrary, sessionRow, ALL_SCOPES } from '../
 import { FakeGoogleDrive, DRIVE_CONFIG } from '../lib/fake-google-drive'
 import { BROKER_ORIGIN, FakeDriveBroker } from '../lib/fake-drive-broker'
 import { loadOrCreateKey } from '../../server/src/relay-client/registration'
-import { googleAppsOf, scopesCover, type GoogleApps } from '../../server/src/integrations/google-apps/service'
+import { googleAppsOf, type GoogleApps } from '../../server/src/integrations/google-apps/service'
+import { GOOGLE_APP_BROKER_SCOPES, GOOGLE_CONSOLE_SCOPES, googleScopesCover as scopesCover } from '../../shared/src/cloud-protocol/drive-broker'
 import { appsSecretsDir } from '../../server/src/integrations/google-apps/config'
 import { googleDriveOf } from '../../server/src/integrations/google-drive/oauth'
 import { integrationToolProvider } from '../../server/src/integrations/connections/tools'
@@ -145,7 +146,7 @@ test('sign-in: PKCE, the app\'s scopes, offline access; the same person\'s brows
 
 test('a sign-in without every scope the app needs is refused', async () => {
   await setUp('gmail')
-  google.grant = (asked) => asked.split(' ').filter((s) => !s.endsWith('gmail.send')).join(' ')
+  google.grant = (asked) => asked.split(' ').filter((s) => !s.endsWith('gmail.settings.basic')).join(' ')
   const f = await apps.authorize('alice', 'alice-session', 'gmail')
   expect(await apps.callback(google.authorize(f.authorizationUrl, 'alice'), browser('alice'))).toBe(false)
   expect(apps.flow('alice', 'alice-session', 'gmail', f.flowId)).toMatchObject({ state: 'failed', reason: 'scope_denied' })
@@ -167,7 +168,7 @@ test('the return page\'s reason (QA TC-2956, TC-2979): cancelled, a permission n
   expect(await apps.callbackOutcome(q, browser('alice'))).toEqual({ ok: false, reason: 'invalid_flow' })
   expect(await apps.callbackOutcome({ state: 'short' }, browser('alice'))).toEqual({ ok: false, reason: 'invalid_flow' })
   // a permission not ticked
-  google.grant = (asked) => asked.split(' ').filter((s) => !s.endsWith('gmail.send')).join(' ')
+  google.grant = (asked) => asked.split(' ').filter((s) => !s.endsWith('gmail.settings.basic')).join(' ')
   f = await apps.authorize('alice', 'alice-session', 'gmail')
   expect(await apps.callbackOutcome(google.authorize(f.authorizationUrl, 'alice'), browser('alice'))).toEqual({ ok: false, reason: 'scope_denied' })
   google.grant = null
@@ -179,23 +180,46 @@ test('the return page\'s reason (QA TC-2956, TC-2979): cancelled, a permission n
   await expect(apps.authorize('dana', 'dana-session', 'gmail')).rejects.toMatchObject({ reason: 'signin_limit', status: 429, message: 'google_app_signin_limit' })
 })
 
+test('minimum scopes: no scope is asked for next to a broader one that includes it; the console list is their union', () => {
+  const G = 'https://www.googleapis.com/auth/'
+  const ID = ['openid', `${G}userinfo.email`, `${G}userinfo.profile`]
+  expect(GOOGLE_APP_BROKER_SCOPES).toEqual({
+    gmail: [...ID, `${G}gmail.modify`, `${G}gmail.settings.basic`],
+    calendar: [...ID, `${G}calendar`],
+    docs: [...ID, `${G}documents`, `${G}drive.readonly`, `${G}drive.file`],
+    sheets: [...ID, `${G}spreadsheets`, `${G}drive.readonly`, `${G}drive.file`],
+  })
+  // exactly what the Google Cloud console's Data Access page lists (10 scopes)
+  expect([...GOOGLE_CONSOLE_SCOPES].sort()).toEqual([...ID, `${G}drive.readonly`, `${G}drive.file`, `${G}gmail.modify`, `${G}gmail.settings.basic`,
+    `${G}calendar`, `${G}documents`, `${G}spreadsheets`].sort())
+  // no scope of a set is covered by another scope of the same set
+  for (const set of Object.values(GOOGLE_APP_BROKER_SCOPES)) {
+    for (const s of set) expect(scopesCover(set.filter((x) => x !== s), [s])).toBe(false)
+  }
+})
+
 test('a broader scope Google granted in place of a narrower one counts; short identity names count', async () => {
   const G = 'https://www.googleapis.com/auth/'
   // the pure check: the small explicit table only
   expect(scopesCover([`${G}calendar`, 'email', 'profile'], [`${G}userinfo.email`, `${G}userinfo.profile`, `${G}calendar`, `${G}calendar.readonly`, `${G}calendar.events`])).toBe(true)
   expect(scopesCover([`${G}documents`, `${G}drive`], [`${G}documents.readonly`, `${G}drive.readonly`, `${G}drive.file`])).toBe(true)
   expect(scopesCover([`${G}spreadsheets`, `${G}gmail.modify`], [`${G}spreadsheets.readonly`, `${G}gmail.readonly`])).toBe(true)
+  // the dropped Gmail scopes are all covered by gmail.modify (Google's API reference: "requires one of")
+  expect(scopesCover([`${G}gmail.modify`], [`${G}gmail.readonly`, `${G}gmail.send`, `${G}gmail.compose`, `${G}gmail.labels`])).toBe(true)
+  expect(scopesCover([`${G}gmail.modify`], [`${G}gmail.settings.basic`])).toBe(false)
   expect(scopesCover([`${G}calendar.readonly`], [`${G}calendar`])).toBe(false)
   expect(scopesCover([`${G}drive.readonly`], [`${G}drive.file`])).toBe(false)
   expect(scopesCover([`${G}gmail.readonly`], [`${G}gmail.send`])).toBe(false)
-  // a sign-in where Google folded calendar.readonly and calendar.events into calendar, with short identity names
+  expect(scopesCover([`${G}gmail.readonly`, `${G}gmail.send`, `${G}gmail.compose`], [`${G}gmail.modify`])).toBe(false)
+  // an older-style grant: Google answers with the narrower scopes as well (the set asked before 2026-11-25), with short
+  // identity names: a superset, still connected
   await setUp('calendar')
-  google.grant = (asked) => asked.split(' ').filter((s) => !s.endsWith('calendar.readonly') && !s.endsWith('calendar.events'))
+  google.grant = (asked) => [...asked.split(' '), `${G}calendar.readonly`, `${G}calendar.events`]
     .map((s) => s.replace(`${G}userinfo.email`, 'email').replace(`${G}userinfo.profile`, 'profile')).join(' ')
   const { view } = await connect('alice', 'calendar')
   expect(view.status).toBe('connected')
-  // a box really unticked (calendar itself): refused with the reason the page words
-  google.grant = (asked) => asked.split(' ').filter((s) => !s.endsWith('/calendar')).join(' ')
+  // narrower scopes only (calendar itself unticked): refused with the reason the page words
+  google.grant = (asked) => [...asked.split(' ').filter((s) => !s.endsWith('/calendar')), `${G}calendar.readonly`, `${G}calendar.events`].join(' ')
   const f = await apps.authorize('bob', 'bob-session', 'calendar')
   expect(await apps.callback(google.authorize(f.authorizationUrl, 'bob'), browser('bob'))).toBe(false)
   expect(apps.flow('bob', 'bob-session', 'calendar', f.flowId)).toMatchObject({ state: 'failed', reason: 'scope_denied' })

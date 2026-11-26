@@ -953,3 +953,74 @@ func TestTenantMailInSet(t *testing.T) {
 		t.Fatal("the mail-in patterns and the contract's MailInOrigin / MailInDomain differ")
 	}
 }
+
+// microsoft-app-set: Go's rules take every app the contract's vectors take and refuse every one they refuse; the file
+// is the server account's (0600 in a 0700 folder), the same values again change nothing, and the secret is never
+// printed.
+func TestTenantMicrosoftAppVectors(t *testing.T) {
+	skipAsRoot(t)
+	b, err := os.ReadFile("../../../shared/src/cloud-protocol/vectors/vectors.json")
+	must(t, err)
+	var v struct {
+		TenantCommands struct {
+			Allowed []struct {
+				Command string          `json:"command"`
+				Stdin   json.RawMessage `json:"stdin"`
+			} `json:"allowed"`
+			Refused []struct {
+				Command string          `json:"command"`
+				Args    map[string]any  `json:"args"`
+				Stdin   json.RawMessage `json:"stdin"`
+				Why     string          `json:"why"`
+			} `json:"refused"`
+		} `json:"tenantCommands"`
+	}
+	must(t, json.Unmarshal(b, &v))
+	tb := newTestBase(t, "0.3.0")
+	f := &fakeTenant{}
+	f.install(t)
+	n := 0
+	for _, a := range v.TenantCommands.Allowed {
+		if a.Command != "microsoft-app-set" {
+			continue
+		}
+		n++
+		code, out, errs := tb.tctl(string(a.Stdin), "microsoft-app-set", "--json")
+		if code != 0 || strings.TrimSpace(out) != `{"ok":true,"changed":true}` {
+			t.Fatalf("refused an allowed vector: %d %q %s", code, out, errs)
+		}
+		var in map[string]string
+		_ = json.Unmarshal(a.Stdin, &in)
+		if strings.Contains(out+errs, in["clientSecret"]) {
+			t.Fatalf("the secret was printed")
+		}
+		p := filepath.Join(tb.base, microsoftAppFile)
+		got, _ := os.ReadFile(p)
+		var want, have map[string]any
+		_ = json.Unmarshal(a.Stdin, &want)
+		if json.Unmarshal(got, &have) != nil || fmt.Sprint(have) != fmt.Sprint(want) {
+			t.Fatalf("file %q for %s", got, a.Stdin)
+		}
+		if st, _ := os.Stat(p); st.Mode().Perm() != 0o600 {
+			t.Fatalf("file mode %v", st.Mode().Perm())
+		}
+		if st, _ := os.Stat(filepath.Dir(p)); st.Mode().Perm() != 0o700 {
+			t.Fatalf("folder mode %v", st.Mode().Perm())
+		}
+		if code, out, _ := tb.tctl(string(a.Stdin), "microsoft-app-set", "--json"); code != 0 || strings.TrimSpace(out) != `{"ok":true,"changed":false}` {
+			t.Fatalf("the same values again: %d %q", code, out)
+		}
+	}
+	for _, r := range v.TenantCommands.Refused {
+		if r.Command != "microsoft-app-set" || len(r.Args) > 0 {
+			continue
+		}
+		n++
+		if code, out, _ := tb.tctl(string(r.Stdin), "microsoft-app-set", "--json"); code == 0 || out != "" {
+			t.Fatalf("took a refused vector (%s): %q", r.Why, out)
+		}
+	}
+	if n < 8 {
+		t.Fatalf("only %d microsoft-app-set vectors", n)
+	}
+}

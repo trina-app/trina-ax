@@ -26,7 +26,7 @@ import type { McpContent } from '../turns'
 import type { TurnFiles } from '../files/service'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
-import { inSkills } from '../skills/guard'
+import { inAnySkills } from '../skills/guard'
 import { freeName } from '../team-files/place'
 import { noWorkText, shownWorkPath, workRel, type WorkFolder } from '../devenv/work-files'
 import { workToChat, workToTeam } from './places-copy'
@@ -85,7 +85,7 @@ export function saveWorkFileTool(exec: TurnExec, where: () => WorkFolder | null,
     try { isFolder = !!wanted && !wanted.endsWith('/') && !!authorize(rt.files.fx, rt.files.rules(), exec.livePrincipal(), wanted, 'list').st?.isDirectory() } catch { /* not one this person sees */ }
     const folder = !wanted ? own : wanted.endsWith('/') || isFolder ? wanted.replace(/\/+$/, '') : null
     let t = folder === null ? wanted : `${folder}/${name}`
-    if (inSkills(t)) return { text: 'Not saved: a work file is not put in a skills folder (team, group or project skills and rules); pick another folder.', summary: `${SAVE_WORK_FILE_TOOL} -> refused: skills/` }
+    if (inAnySkills(t)) return { text: 'Not saved: a work file is not put in a skills folder (team, group or project skills and rules); pick another folder.', summary: `${SAVE_WORK_FILE_TOOL} -> refused: skills/` }
     if (instructionLike(t)) return { text: `Not saved: '${t}' is named like an instruction file the AI follows (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md). Pick another name.`, summary: `${SAVE_WORK_FILE_TOOL} -> refused: instruction file` }
     try {
       const w = authorize(rt.files.fx, rt.files.rules(), exec.livePrincipal(), t, 'write', { createDirs: true })

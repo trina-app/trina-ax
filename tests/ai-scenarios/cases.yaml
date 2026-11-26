@@ -630,6 +630,36 @@ cases:
     checks:
       - { type: pdf_pages, file: "**/*.pdf", max: 2 }
 
+- id: EDIT-19
+  title: A Word report with a chart gets a native chart
+  features: [files.edit]
+  lang: ko
+  context: personal
+  as: jiwoo
+  prompt: 지역별 매출 차트 하나 넣은 Word 보고서 만들어 줘. 서울 320, 부산 140, 대구 95, 광주 70 (단위 백만 원)
+  why: Live QA 2026-11-25 (dev 0.18.2-dev.20261125131845) - a plain request like this got a .docx whose chart was a PNG (word/media/image1.png, no word/charts) and the answer did not say so; only a request that said "editable" got a native chart.
+  expect:
+    outcome: do
+    good: A Word report with a native bar or column chart of the four regions whose numbers open with Edit Data; the answer does not call a picture an editable chart.
+    checks:
+      - { type: office_chart, file: "**/*.docx" }
+  variants:
+    - key: en
+      lang: en
+      as: daniel
+      prompt: Make me a Word report with one chart of sales by region. Seoul 320, Busan 140, Daegu 95, Gwangju 70 (million won).
+    - key: ja
+      lang: ja
+      as: daniel
+      prompt: 地域別売上のグラフを1つ入れたWordの報告書を作ってください。ソウル 320、釜山 140、大邱 95、光州 70(百万ウォン)
+    - key: pptx
+      prompt: 지역별 매출 차트 한 장 넣은 발표 자료(PPT) 3장짜리 만들어 줘. 서울 320, 부산 140, 대구 95, 광주 70 (단위 백만 원)
+      expect:
+        outcome: do
+        good: A 3-slide deck with a native chart of the four regions whose numbers open with Edit Data.
+        checks:
+          - { type: office_chart, file: "**/*.pptx" }
+
 # ================================================================ PDF editing (edit_pdf is being built: fix in progress)
 - id: PDF-01
   title: Take out the blank page of a scan

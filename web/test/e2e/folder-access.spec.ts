@@ -194,7 +194,7 @@ test('an admin: add a person, change one, save with the confirm; remove one, sav
   await expect(page.getByTestId('sharing-general-select')).toHaveValue('restricted')
   await expect(page.getByTestId('sharing-general-role')).toHaveCount(0)
   await expect(page.getByTestId('sharing-general-hint')).toContainText(t['folderAccess.restrictedHint'])
-  await expect(page.getByTestId('sharing-general-inherited')).toHaveText(t['folderAccess.fromTop'])
+  await expect(page.getByTestId('sharing-general-inherited')).toHaveText(t['folderAccess.followsTop'])
   await expect(page.getByTestId('sharing-general-select').locator('option')).toHaveText([t['folderAccess.restricted'], 'Acme'])
   // the owner and admins are a row of the list (Manager, Drive's word), not a footer sentence
   await expect(page.getByTestId('sharing-staff')).toContainText(t['folderAccess.staffRow'])
@@ -335,11 +335,14 @@ test('rows from a folder above: greyed, read only, "Change there" opens that fol
   await expect(page.getByTestId('sharing-row')).toHaveCount(0)
   // no setting of its own: General access shows what marketing gives, and where from
   await expect(page.getByTestId('sharing-general-select')).toHaveValue('restricted')
-  await expect(page.getByTestId('sharing-general-inherited')).toHaveText(en('folderAccess.fromFolder', { folder: 'marketing' }))
+  await expect(page.getByTestId('sharing-general-inherited')).toHaveText(en('folderAccess.followsFolder', { folder: 'marketing' }))
   // Settings › Limit access (Drive): cuts off who the folder above lets in (Bob), asked first by name; Cancel keeps it
   await expect(page.getByTestId('sharing-limit')).not.toBeChecked()
   await page.getByTestId('sharing-limit').check({ force: true })
   await expect(outcome(page)).toContainText(en('folderAccess.willLose', { names: 'Bob' }))
+  // the effect on the dialog itself, before Save: Bob leaves the list and is under Access removed, with Add
+  await expect(page.getByTestId('sharing-removed-row').and(page.locator('[data-subject="user:bob"]'))).toBeVisible()
+  await expect(above).toHaveCount(0)
   await page.getByTestId('sharing-save').click()
   await expect(page.getByRole('dialog', { name: t['folderAccess.narrowTitle'] })).toBeVisible()
   await expect(page.getByTestId('sharing-confirm-body')).toContainText(en('folderAccess.willLose', { names: 'Bob' }))
@@ -347,6 +350,7 @@ test('rows from a folder above: greyed, read only, "Change there" opens that fol
   // off again: nothing to save
   await page.getByTestId('sharing-limit').uncheck({ force: true })
   await expect(page.getByTestId('sharing-save')).toHaveCount(0)
+  await expect(page.getByTestId('sharing-removed')).toHaveCount(0)
 
   // the group Sales set to "Can view" here: Carol gets in; Bob keeps editing through his own row above (access adds up)
   await page.getByTestId('edit-add').fill('Sal')

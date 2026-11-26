@@ -131,6 +131,12 @@ export function copiedFromOutside(memory: string, outside: string, own: string):
 function copiedFrom(memory: string, foldedOutside: string, own: string): boolean {
   const outside = foldedOutside
   memory = cleanOutside(memory)
+  // the person's own words cleaned the same way as the other two (markdown marks dropped): a skill line read back with
+  // "**맨 아래**에" is "맨 아래에" in the output and in the new text, and must be the same in the person's own words
+  // (real-AI QA of #609: an edit of such a line was refused as copied from the skill's own read). Invisible characters
+  // go first: tag characters a person pasted unseen are not their words, so they are never decoded on this side
+  // (#332 H1: hidden text in a pasted snippet must not count as the person's own)
+  own = cleanOutside(stripInvisible(own))
   const out = ` ${outside} `, mine = ` ${fold(own)} `
   const w = words(memory)
   if (w.length) {

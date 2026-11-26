@@ -424,7 +424,7 @@ export async function main(argv: string[]): Promise<number> {
       const r = googleBrokerKey(cfg.dataDir, cfg.tunnel?.host)
       // read only: the server makes the key as its own account; a root run must not leave one it cannot read
       if (!r.publicKey) {
-        const message = 'no relay key yet: start the server first (with MYCEL_GOOGLE_DRIVE_BROKER_URL set it makes the key), then run this again'
+        const message = 'no relay key yet: start the server first (it makes the key), then run this again'
         if (args.includes('--json')) out({ error: 'no_key', message, address: r.address })
         else console.error(`error: ${message}`)
         return 1

@@ -25,7 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useNavigate, useParams } from 'react-router-dom'
 import { SLACK, type DriveAdminStatus, type GoogleAppAdminStatus, type GoogleAppId, type GoogleAppView, type GoogleOwnAppStatus, type Group, type Integration, type IntegrationRequest, type IntegrationTemplate, type RequestableService, type SlackAdmin, type User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
-import { connectorFor, connectorHref, connectorLogo, CONNECTORS, isConnected, servesAt, SLACK_ADMIN_PATH, SLACK_APP, slackLogo, teamAboutKey, type Connector } from '../../lib/connectors'
+import { connectorFor, connectorHref, connectorLogo, connectorTeamApp, CONNECTORS, isConnected, servesAt, SLACK_ADMIN_PATH, SLACK_APP, slackLogo, teamAboutKey, type Connector } from '../../lib/connectors'
 import { connectionRowStatus, covers, isEmptyAccess, NOBODY, type RequestForm } from '../../lib/integrations'
 import { builtInLogo, builtInName, BUILT_IN_ORDER, fits, isGoogleApp, type BuiltInId } from '../../lib/googleApps'
 import { useT } from '../../i18n'
@@ -66,6 +66,8 @@ export default function AdminIntegrations() {
   // toList: opened from Discover or while a connector's page is open; once added, the page shows the list with it
   // pick: Add first lists the Discover apps not connected yet, a custom app by its address last (QA TC-189)
   const [dialog, setDialog] = useState<{ existing?: Integration; template?: IntegrationTemplate; connector?: Connector; startAs?: 'team' | 'template'; toList?: boolean; pick?: boolean } | null>(null)
+  /** adding a listed service: one for the team; one that signs in only through the team's own app as a template */
+  const addDialog = (c: Connector) => ({ connector: c, toList: true, ...(connectorTeamApp(c) ? { startAs: 'template' as const } : {}) })
   // Google Drive on this server (an older server has no such address: Drive is then left out)
   const drive = useLoad(async () => { try { return await api.call(API.driveAdminStatus) } catch { return null as DriveAdminStatus | null } })
   const [driveSetup, setDriveSetup] = useState(false)
@@ -119,7 +121,7 @@ export default function AdminIntegrations() {
     if (s === 'google-drive') return setOpen({ kind: 'drive' })
     if (isGoogleApp(s)) return setOpen({ kind: 'gapp', id: s })
     const c = CONNECTORS.find((x) => x.id === s)
-    if (c) setDialog({ connector: c, toList: true })
+    if (c) setDialog(addDialog(c))
   }
   const [ask, setAsk] = useState<{ initial?: RequestForm } | null>(null)
   // Discover's apps with a setup of their own (Google's, Slack) not on yet, as the list below last drew them
@@ -206,11 +208,19 @@ export default function AdminIntegrations() {
                 actions={have ? <span className="flex items-center gap-1 text-xs text-ok" data-testid="connector-detail-added"><Check size={14} aria-hidden />{t('drive.status.connected')}</span> : (
                   // QA TC-134: one click for the team (one shared key, the admin picks who), or a template each member
                   // connects, or the admin's own connection (their Settings › Connectors)
+                  // Asana, HubSpot, Box (connectorTeamApp): the team's own app, as a template first (each member signs in
+                  // with their own account); one shared account for the team second; never the admin's own (it would
+                  // need the app too: a template is how the team's app reaches everyone, the admin included)
+                  connectorTeamApp(c) ? (
+                    <SplitAction label={t('connectors.connectTemplate')} menuLabel={t('connectors.connectMore')} testId="connector-connect" onPrimary={() => setDialog(addDialog(c))}
+                      items={[{ label: t('connectors.connectTeam'), onSelect: () => setDialog({ connector: c, toList: true }), testId: 'connector-connect-team' }]} />
+                  ) : (
                   <SplitAction label={t('connectors.connectTeam')} menuLabel={t('connectors.connectMore')} testId="connector-connect" onPrimary={() => setDialog({ connector: c, toList: true })}
                     items={[
                       { label: t('connectors.connectTemplate'), onSelect: () => setDialog({ connector: c, startAs: 'template', toList: true }), testId: 'connector-connect-template' },
                       ...(personal.data !== false ? [{ label: t('connectors.justForMe'), onSelect: () => navigate(connectorHref(c.id)), testId: 'connector-connect-mine' }] : []),
                     ]} />
+                  )
                 )}
                 about={t(teamAboutKey(c), { name: c.name })} />
             )
@@ -262,7 +272,7 @@ export default function AdminIntegrations() {
           const urls = [...list, ...tpls].map((i) => i.url)
           const listed: DiscoverItem[] = CONNECTORS.filter((c) => !isConnected(c, urls)).map((c) => ({
             id: c.id, name: c.name, line: t(`integrations.catalog.${c.id}`), logo: connectorLogo(c), state: 'available' as const,
-            onOpen: () => setOpen({ kind: 'listed', c }), onAdd: () => setDialog({ connector: c, toList: true }),
+            onOpen: () => setOpen({ kind: 'listed', c }), onAdd: () => setDialog(addDialog(c)),
           }))
           // an admin gets the card only where Add to Slack is offered (the team's own app is the owner's to set up)
           const slackCard: DiscoverItem[] = sl && showSlackCard(sl, { admin: true, owner })

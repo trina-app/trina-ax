@@ -41,7 +41,7 @@ import { gunzipBounded, isGzip, isTar, planGz, planTar } from '../files/tar'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment, instructionFileName } from '../policy/names'
-import { inSkills } from '../skills/guard'
+import { inAnySkills } from '../skills/guard'
 import { assertStorageRoomForAI } from '../system/storage'
 import { componentC } from '../team-files/component'
 import { readersOf } from '../rooms/ai-grants'
@@ -202,7 +202,7 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
   let newFolder: boolean
   if (toFolder !== null) {
     folder = toFolder
-    if (inSkills(folder)) throw new ToolError('files cannot be unzipped into a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
+    if (inAnySkills(folder)) throw new ToolError('files cannot be unzipped into a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
     const t = authorize(fx, rules, c.user, folder, 'write', { mustExist: false, createDirs: true })
     if (t.exists && !t.st!.isDirectory()) throw new ToolError(`'${t.rel}' is a file, not a folder`, 'not_folder')
     folder = t.rel
@@ -219,11 +219,11 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
     folder = [...parent, name].join('/')
     newFolder = true
   }
-  if (inSkills(folder)) throw new ToolError('files cannot be unzipped into a skills folder; pick another folder')
+  if (inAnySkills(folder)) throw new ToolError('files cannot be unzipped into a skills folder; pick another folder')
   const join = (segs: string[]) => [folder, ...segs].filter(Boolean).join('/')
   // nothing of the zip lands in a skills folder (a group's or a project's "skills/" inside the target): what people's AI
   // follows changes only through write / edit on the person's card
-  const skills = (segs: string[]) => inSkills(join(segs))
+  const skills = (segs: string[]) => inAnySkills(join(segs))
   for (const f of plan.files.filter((x) => skills(x.segs))) plan.skipped.push({ name: f.segs.join('/'), why: 'it would land in a skills folder, where files change only through the skill tools' })
   plan.files = plan.files.filter((x) => !skills(x.segs))
   plan.folders = plan.folders.filter((x) => !skills(x))
@@ -282,9 +282,9 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
   const ensure = (segs: string[]): string => {
     const rel = join(segs)
     try {
-      if (inSkills(rel)) return '!it would be a skills folder'
+      if (inAnySkills(rel)) return '!it would be a skills folder'
       const r = svc.ensureFolder(c.user.id, rel)
-      if (inSkills(r.path)) return '!it would be a skills folder'
+      if (inAnySkills(r.path)) return '!it would be a skills folder'
       for (const m of r.created) if (!madeKeys.has(m)) { madeKeys.add(m); made.push(m) }
       return r.path
     } catch (e) { return `!${why(e)}` }

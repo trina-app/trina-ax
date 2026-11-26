@@ -41,6 +41,11 @@
 //      only when Google rotated it).
 //   5. POST {api}/revoke  (signed) { refreshToken: <sealed> } → { revocation: 'revoked' | 'unavailable' }
 //   0. POST {api}/status  (signed) {}                        → { ok: true } when the broker serves this team now.
+//  00. POST {api}/register (signed) { origin }                → { ok: true } (newer control planes): a self-installed
+//      server registers itself, without an operator, by proving its address: the control plane fetches
+//      https://<origin>GOOGLE_BROKER_KEY_PATH and serves the server only when that answers { v: 1, key } with the key
+//      that signed the call. The browser then only ever comes back to that origin. An operator's record (added, or
+//      disabled) is never changed this way. An older control plane answers 404: the server stays off, as before.
 //
 // Token answer: Google's own field names, so the team server reads it like Google's token response:
 //   { access_token, expires_in, scope, token_type, refresh_token? } — refresh_token is the SEALED value.
@@ -61,7 +66,11 @@ export const DRIVE_BROKER_PATHS = {
   redeem: `${DRIVE_BROKER_API_PREFIX}/redeem`,
   refresh: `${DRIVE_BROKER_API_PREFIX}/refresh`,
   revoke: `${DRIVE_BROKER_API_PREFIX}/revoke`,
+  register: `${DRIVE_BROKER_API_PREFIX}/register`,
 } as const
+/** On a self-installed team server, GET: { v: 1, key } (its relay team public key, base64 SPKI), with no session; the
+ * control plane's proof that the key belongs to that address (`register`). */
+export const GOOGLE_BROKER_KEY_PATH = '/api/integrations/google-broker/key'
 export type DriveBrokerOp = keyof typeof DRIVE_BROKER_PATHS
 /** Google's return address on the console host: the ONE address registered at Google */
 export const DRIVE_BROKER_CALLBACK_PATH = '/drive-broker/google/callback'
@@ -78,15 +87,42 @@ export const GOOGLE_APPS_BROKER_TEAM_RETURN_PATH = '/api/integrations/google-app
  * server's Google Workspace MCP server check whose token it is (Google's userinfo). A start or refresh without `app`
  * is Drive, as before: an older team server never sends it, and an older control plane refuses a request with it
  * (invalid_request), which the team server shows as "not available yet".
+ *
+ * Minimum scopes (Google's verification review, 2026-11-25): no scope is asked for next to a broader one that already
+ * includes it. `gmail.modify` covers reading, drafts, sending and labels (Google's API reference lists it for every
+ * such method); `gmail.settings.basic` stays (filters, vacation: only it or a full-mail scope allow them). `calendar`
+ * covers `calendar.readonly`/`calendar.events`, `documents` covers `documents.readonly`, `spreadsheets` covers
+ * `spreadsheets.readonly`. An older grant that also holds the narrower scopes is a superset and still passes.
  */
 const G = 'https://www.googleapis.com/auth/'
 const IDENTITY = ['openid', `${G}userinfo.email`, `${G}userinfo.profile`]
 export const GOOGLE_APP_BROKER_SCOPES = {
-  gmail: [...IDENTITY, `${G}gmail.readonly`, `${G}gmail.send`, `${G}gmail.compose`, `${G}gmail.modify`, `${G}gmail.labels`, `${G}gmail.settings.basic`],
-  calendar: [...IDENTITY, `${G}calendar`, `${G}calendar.readonly`, `${G}calendar.events`],
-  docs: [...IDENTITY, `${G}documents`, `${G}documents.readonly`, `${G}drive.readonly`, `${G}drive.file`],
-  sheets: [...IDENTITY, `${G}spreadsheets`, `${G}spreadsheets.readonly`, `${G}drive.readonly`, `${G}drive.file`],
+  gmail: [...IDENTITY, `${G}gmail.modify`, `${G}gmail.settings.basic`],
+  calendar: [...IDENTITY, `${G}calendar`],
+  docs: [...IDENTITY, `${G}documents`, `${G}drive.readonly`, `${G}drive.file`],
+  sheets: [...IDENTITY, `${G}spreadsheets`, `${G}drive.readonly`, `${G}drive.file`],
 } as const
+/** Every scope any Trina Google sign-in asks for (Drive and the four apps): exactly what the Google Cloud console's
+ * Data Access page of the OAuth client must list, no more (docs/GOOGLE-APPS.md). */
+export const GOOGLE_CONSOLE_SCOPES: readonly string[] = [...new Set<string>([DRIVE_BROKER_SCOPE, ...Object.values(GOOGLE_APP_BROKER_SCOPES).flat()])]
+/** A broader scope Google may grant in place of a narrower one (it folds them together), or that an older sign-in
+ * holds: the narrower counts as granted. Each pair is from Google's API reference ("requires one of the following
+ * OAuth scopes") and matches workspace-mcp's SCOPE_HIERARCHY. */
+const BROADER: Record<string, readonly string[]> = {
+  [`${G}calendar.readonly`]: [`${G}calendar`], [`${G}calendar.events`]: [`${G}calendar`],
+  [`${G}documents.readonly`]: [`${G}documents`], [`${G}spreadsheets.readonly`]: [`${G}spreadsheets`],
+  [`${G}gmail.readonly`]: [`${G}gmail.modify`], [`${G}gmail.send`]: [`${G}gmail.modify`],
+  [`${G}gmail.compose`]: [`${G}gmail.modify`], [`${G}gmail.labels`]: [`${G}gmail.modify`],
+  [`${G}drive.readonly`]: [`${G}drive`], [`${G}drive.file`]: [`${G}drive`],
+}
+/** Google's short names for the identity scopes */
+const SHORT: Record<string, string> = { email: `${G}userinfo.email`, profile: `${G}userinfo.profile` }
+/** THE check of a Google grant (team server and control plane): every scope of `wanted` was granted, itself or through
+ * a broader one (BROADER, SHORT). */
+export function googleScopesCover(granted: readonly string[], wanted: readonly string[]): boolean {
+  const have = new Set(granted.map((s) => SHORT[s] ?? s))
+  return wanted.every((w) => have.has(SHORT[w] ?? w) || (BROADER[w] ?? []).some((b) => have.has(b)))
+}
 export type GoogleBrokerApp = keyof typeof GOOGLE_APP_BROKER_SCOPES
 export const GOOGLE_BROKER_APPS = Object.keys(GOOGLE_APP_BROKER_SCOPES) as GoogleBrokerApp[]
 export const DRIVE_BROKER_MAX_BODY_BYTES = 16_384
@@ -105,6 +141,9 @@ export interface DriveBrokerStart { v: 1; purpose: DriveBrokerPurpose; returnSta
 export interface DriveBrokerRedeem { v: 1; handoff: string; codeVerifier: string }
 export interface DriveBrokerRefresh { v: 1; refreshToken: string; app?: GoogleBrokerApp }
 export interface DriveBrokerStatus { v: 1 }
+/** origin: https://<host> exactly (port 443, no path), the server's own public address */
+export interface DriveBrokerRegister { v: 1; origin: string }
+export interface DriveBrokerKeyAnswer { v: 1; key: string }
 export interface DriveBrokerStartAnswer { authorizationUrl: string; connectUrl?: string; expiresAt: string }
 export interface DriveBrokerTokenAnswer { access_token: string; expires_in: number; scope: string; token_type: string; refresh_token?: string }
 export interface DriveBrokerRevokeAnswer { revocation: 'revoked' | 'unavailable' }
@@ -129,8 +168,12 @@ export const DRIVE_BROKER_ERRORS = {
   /** Google failed or answered something unexpected. 503, not 502: Cloudflare, in front of the console host, replaces
    * an origin's 502 and 504 with its own page, and the team server could not read the code. */
   provider_error: 503,
-  /** the control plane has no Google Drive client */
+  /** the control plane has no Google Drive client (or, for `register`, takes no self-registrations) */
   not_configured: 503,
+  /** `register`: the origin did not answer with the key that signed the call, or is not an address it may serve */
+  origin_unverified: 403,
+  /** `register`: the origin or the key belongs to a record an operator made */
+  conflict: 409,
 } as const
 export type DriveBrokerErrorCode = keyof typeof DRIVE_BROKER_ERRORS
 
@@ -181,6 +224,33 @@ export function parseDriveBrokerRefresh(raw: unknown): DriveBrokerRefresh | null
 export function parseDriveBrokerStatus(raw: unknown): DriveBrokerStatus | null {
   const o = plain(raw)
   return o && exactly(o, ['v']) && o.v === 1 ? { v: 1 } : null
+}
+
+/** `https://<DNS name>` exactly: lower case, port 443, no path, query, fragment, user info, IP literal or trailing dot.
+ * null otherwise. */
+export function brokerSelfOrigin(raw: unknown): string | null {
+  if (typeof raw !== 'string' || raw.length > 300) return null
+  let u: URL
+  try { u = new URL(raw) } catch { return null }
+  if (u.protocol !== 'https:' || u.port || u.username || u.password || u.search || u.hash || (u.pathname !== '/' && u.pathname !== '')) return null
+  const host = u.hostname
+  if (!/^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(host)) return null
+  if (/^\d+$/.test(host.split('.').pop()!)) return null
+  return raw === u.origin || raw === u.origin + '/' ? u.origin : null
+}
+
+export function parseDriveBrokerRegister(raw: unknown): DriveBrokerRegister | null {
+  const o = plain(raw)
+  if (!o || !exactly(o, ['v', 'origin']) || o.v !== 1) return null
+  const origin = brokerSelfOrigin(o.origin)
+  return origin ? { v: 1, origin } : null
+}
+
+/** a key answer ({ v: 1, key }): the key, or null */
+export function parseBrokerKeyAnswer(raw: unknown): string | null {
+  const o = plain(raw)
+  if (!o || !exactly(o, ['v', 'key']) || o.v !== 1 || typeof o.key !== 'string' || !/^[A-Za-z0-9+/=]{40,200}$/.test(o.key)) return null
+  return o.key
 }
 
 /** The UTF-8 string the team key signs. path: one of DRIVE_BROKER_PATHS; bodySha256Hex: lower-case hex sha256 of the

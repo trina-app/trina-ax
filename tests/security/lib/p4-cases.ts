@@ -81,4 +81,7 @@ export const P4_SPECS: Record<string, Spec> = {
 // Callback state/session binding is exercised by c-drive-oauth and p4-route-access (static HTML never reflects input).
 // GO_PATH (the desktop app's page before Google, google-drive/app-return.ts) takes no session and grants nothing: it only
 // names the flow's person for its key. c-drive-app-return covers it and the attacks on the code that follows.
-export const P4_RAW_COVERED = ['RAW GET CALLBACK_PATH', 'RAW GET GO_PATH']
+// GOOGLE_BROKER_KEY_PATH (google-drive/broker.ts self-registration) takes no session on purpose: the hosting service
+// fetches it. It answers only the relay team PUBLIC key, and only on a server that registers itself (404 otherwise);
+// c-drive-broker covers both.
+export const P4_RAW_COVERED = ['RAW GET CALLBACK_PATH', 'RAW GET GO_PATH', 'RAW GET GOOGLE_BROKER_KEY_PATH']

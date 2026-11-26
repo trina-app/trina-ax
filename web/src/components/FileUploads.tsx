@@ -13,17 +13,42 @@ import { Button, IconButton, useMediaQuery } from './ui'
 import { StoragePlansLink } from './StoragePlansLink'
 import { UploadLabel } from './UploadLabel'
 
-export default function FileUploads({ here }: { here: string }) {
+/** Uploads that landed in the person's own folder (내 파일) while only they can see it: one line, "내 파일에 올렸어요 · 나만
+ * 봐요 · 팀과 같이 보려면 [옮기기]" (docs/decisions/20261125-upload-destination.md). 옮기기 opens the Files page's own Move
+ * picker for them; a guest gets the line without it. */
+export interface MineLine { folder: string; guest: boolean; onMove: (paths: string[]) => void }
+
+export default function FileUploads({ here, mine = null }: { here: string; mine?: MineLine | null }) {
   const t = useT()
   const locale = useLocale()
   const words = useFolderWords()
   const items = useFileUploads((s) => s.items)
   const phone = useMediaQuery('(max-width: 767.98px)')
   if (!items.length) return null
-  const done = items.filter((u) => u.status === 'done')
+  const landed = mine ? items.filter((u) => u.status === 'done' && u.folder === mine.folder) : []
+  const rest = landed.length ? items.filter((u) => !landed.includes(u)) : items
+  const done = rest.filter((u) => u.status === 'done')
   const fold = phone && done.length >= 2
+  const closeLanded = () => landed.forEach((u) => dropFileUpload(u.id))
   return (
     <ul className="mx-4 mb-2 space-y-1 rounded-xl border border-line bg-surface p-2 sm:mx-6" aria-label={t('files.uploads')} data-testid="upload-list">
+      {mine && landed.length > 0 && (
+        <li className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" data-status="done" data-testid="upload-mine-line">
+          <span className="text-ok" aria-hidden>✓</span>
+          <span role="status" className="min-w-0 flex-1">
+            {t('files.mineLanded')}
+            {!mine.guest && <span className="text-muted">{' · '}{t('files.mineShareHint')}</span>}
+          </span>
+          {!mine.guest && (
+            <Button size="sm" onClick={() => { const paths = landed.map((u) => u.saved).filter((p): p is string => !!p); closeLanded(); mine.onMove(paths) }} className="max-sm:min-h-11" data-testid="upload-mine-move">
+              {t('files.mineMove')}
+            </Button>
+          )}
+          <IconButton label={t('common.close')} onClick={closeLanded} data-testid="upload-mine-close">
+            <X size={13} />
+          </IconButton>
+        </li>
+      )}
       {fold && (
         <li className="flex items-center gap-2 text-xs" data-status="done" data-testid="upload-done-summary">
           <span className="text-ok" aria-hidden>✓</span>
@@ -33,7 +58,7 @@ export default function FileUploads({ here }: { here: string }) {
           </IconButton>
         </li>
       )}
-      {(fold ? items.filter((u) => u.status !== 'done') : items).map((u) => {
+      {(fold ? rest.filter((u) => u.status !== 'done') : rest).map((u) => {
         // the bar follows the label: empty while hashing, full while the server finishes, kept while it waits for the
         // connection
         const pct = uploadBar(u.progress)

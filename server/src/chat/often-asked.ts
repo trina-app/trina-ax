@@ -10,10 +10,11 @@
 //   A sentence passes for an audience (a group, or the whole team) only when 3+ people of it back it with a real shared
 //   word, every word of it is a fixed generic word or one 3+ people of it typed, and the people behind it are not all
 //   inside one smaller circle (a group, a team project, a group chat) that leaves someone of the audience out;
-// - the lists: per audience, only when 5+ of its members asked something; an item that stops passing stays 3 days;
-// - the read for the caller (GET /api/questions/often-asked).
+// - the lists: per audience and per language people read the app in (docs/decisions/20261125-often-asked-reader-language.md),
+//   only when 5+ of its members asked something; an item that stops passing stays 3 days;
+// - the read for the caller (GET /api/questions/often-asked), in the caller's own language only.
 import type { Database } from 'bun:sqlite'
-import { hideThreadRef, plainRoomRefs, OFTEN_ASKED_ITEMS_MAX, OFTEN_ASKED_TEXT_MAX, type Locale, type OftenAsked } from '@mycel/shared/api'
+import { asLocale, hideThreadRef, plainRoomRefs, OFTEN_ASKED_ITEMS_MAX, OFTEN_ASKED_TEXT_MAX, type Locale, type OftenAsked } from '@mycel/shared/api'
 import { maskSecrets } from '@mycel/shared'
 import { atLeast, type Principal, type RuleSet } from '../policy/access'
 import { getSetting, getTeamSettings, setSetting } from '../admin/settings'
@@ -41,6 +42,9 @@ export const OFTEN_ASKED = {
   materialChars: 60_000,
   /** items read from the AI's answer */
   aiItems: 30,
+  /** languages one run asks the AI in, at most (one call each): the team's first, then by how many people read the app
+   * in it. English, Spanish and Indonesian share one script, so typedIn alone can pass all three */
+  maxLanguages: 3,
 } as const
 
 /** settings: only questions sent from then count (the build's first start; the switch turned on) */
@@ -441,15 +445,18 @@ export function passing(s: Snapshot, a: Audience, items: AiItem[]): Passed[] {
 
 // ---------------------------------------------------------------- the lists
 
-/** Store a run's lists: what passed gets this run's time and its place; what did not keeps its old time and goes once
- * it is older than the hold. Nothing is stored while the switch is off. */
-export function storeLists(db: Database, s: Snapshot, items: AiItem[], now = new Date()): void {
+/** Store a run's lists in one language (`locale`: the language the AI was asked to write in; default the team's): what
+ * passed gets this run's time and its place; what did not keeps its old time and goes once it is older than the hold.
+ * A sentence not written in that language's script is not stored for it (an English line on a Korean screen). Nothing
+ * is stored while the switch is off. */
+export function storeLists(db: Database, s: Snapshot, items: AiItem[], now = new Date(), locale: Locale = sentenceLocale(db)): void {
   // off, or turned off and on again while the AI wrote (its material is from before): nothing is stored
   if (!getTeamSettings(db).oftenAsked || (getSetting<string>(db, SINCE_KEY) ?? null) !== s.since) return
   const at = now.toISOString()
+  const mine = items.filter((x) => writtenIn(x.text, locale))
   db.transaction(() => {
-    const put = db.query('INSERT INTO often_asked_items (audience, group_id, text, position, passed_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (audience, text) DO UPDATE SET position = excluded.position, passed_at = excluded.passed_at')
-    for (const a of s.audiences) passing(s, a, items).forEach((p, i) => put.run(a.key, a.groupId, p.text, i, at))
+    const put = db.query('INSERT INTO often_asked_items (audience, group_id, text, position, passed_at, locale) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (audience, text) DO UPDATE SET position = excluded.position, passed_at = excluded.passed_at, locale = excluded.locale')
+    for (const a of s.audiences) passing(s, a, mine).forEach((p, i) => put.run(a.key, a.groupId, p.text, i, at, locale))
     setSetting(db, LAST_RUN_KEY, at)
   })()
   expireLists(db, now)
@@ -466,24 +473,28 @@ export function oftenAskedSwitched(db: Database, on: boolean, now = new Date()):
   else db.query('DELETE FROM often_asked_items').run()
 }
 
-/** One audience's list as shown: by each item's last place (a held item keeps its own, so the order does not show
- * which ones are fading), at most 10; none under 3 items. */
-function listOf(db: Database, audience: string, now: Date): string[] {
-  const rows = db.query('SELECT text FROM often_asked_items WHERE audience = ? AND passed_at >= ? ORDER BY position, text LIMIT ?')
-    .all(audience, iso(now.getTime() - OFTEN_ASKED.holdDays * DAY), OFTEN_ASKED_ITEMS_MAX) as { text: string }[]
+/** One audience's list in one language as shown: by each item's last place (a held item keeps its own, so the order
+ * does not show which ones are fading), at most 10; none under 3 items. A row from before the language was kept (NULL)
+ * is the team's language's. */
+function listOf(db: Database, audience: string, locale: Locale, now: Date): string[] {
+  const rows = db.query('SELECT text FROM often_asked_items WHERE audience = ? AND COALESCE(locale, ?) = ? AND passed_at >= ? ORDER BY position, text LIMIT ?')
+    .all(audience, sentenceLocale(db), locale, iso(now.getTime() - OFTEN_ASKED.holdDays * DAY), OFTEN_ASKED_ITEMS_MAX) as { text: string }[]
   return rows.length >= OFTEN_ASKED.minItems ? rows.map((r) => r.text) : []
 }
 
 const NONE: OftenAsked = { scope: 'none', items: [] }
 
 /** GET /api/questions/often-asked: the caller's group's list (several groups: taking turns), else the team's, else
- * nothing. Only the caller's own groups, read now. */
+ * nothing; in the caller's own language (the one their app shows), never another language's (owner report 2026-11-25:
+ * English chips on a Korean screen). Only the caller's own groups, read now. */
 export function oftenAskedFor(db: Database, userId: string, now = new Date()): OftenAsked {
   if (!getTeamSettings(db).oftenAsked) return NONE
   // a guest never sees the team's frequent questions (the endpoint is off their allow-list too)
-  if (!db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND guest = 0").get(userId)) return NONE
+  const me = db.query("SELECT locale FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND guest = 0").get(userId) as { locale: string | null } | null
+  if (!me) return NONE
+  const locale = asLocale(me.locale) ?? sentenceLocale(db)
   const groups = db.query('SELECT g.id, g.name FROM group_members gm JOIN groups g ON g.id = gm.group_id WHERE gm.user_id = ? ORDER BY g.name, g.id').all(userId) as { id: string; name: string }[]
-  const lists = groups.map((g) => ({ g, items: listOf(db, g.id, now) })).filter((x) => x.items.length)
+  const lists = groups.map((g) => ({ g, items: listOf(db, g.id, locale, now) })).filter((x) => x.items.length)
   if (lists.length === 1) return { scope: 'group', group: lists[0]!.g.name, items: lists[0]!.items }
   if (lists.length > 1) {
     const out: string[] = []
@@ -491,9 +502,40 @@ export function oftenAskedFor(db: Database, userId: string, now = new Date()): O
       for (const l of lists) { const t = l.items[i]; if (t && !out.includes(t) && out.length < OFTEN_ASKED_ITEMS_MAX) out.push(t) }
     return { scope: 'groups', items: out }
   }
-  const team = listOf(db, 'team', now)
+  const team = listOf(db, 'team', locale, now)
   return team.length ? { scope: 'team', items: team } : NONE
 }
 
-/** The team's language: the sentences are written in it. */
+/** The team's language: a sentence stored without a language is in it. */
 export const sentenceLocale = (db: Database): Locale => getTeamSettings(db).defaultLocale
+
+// ---------------------------------------------------------------- languages
+
+/** The languages people read the app in: the team's, then each active member's own (guests are no audience). The run
+ * writes one list per language, so each person reads suggestions in their own. */
+export function readerLocales(db: Database): Locale[] {
+  const out = new Set<Locale>([sentenceLocale(db)])
+  // most readers first, so the run's cap (OFTEN_ASKED.maxLanguages) leaves out the languages fewest people read
+  for (const r of db.query("SELECT locale FROM users WHERE status = 'active' AND deleted_at IS NULL AND guest = 0 GROUP BY locale ORDER BY COUNT(*) DESC, locale").all() as { locale: string | null }[]) {
+    const l = asLocale(r.locale)
+    if (l) out.add(l)
+  }
+  return [...out]
+}
+
+const HAS_HANGUL = /\p{Script=Hangul}/u, HAS_KANA = /[\p{Script=Hiragana}\p{Script=Katakana}]/u, HAS_HAN = /\p{Script=Han}/u, HAS_LATIN = /\p{Script=Latin}/u
+/** Is this text written in this language's script? Korean: Hangul; Japanese: kana; Chinese: Han without kana or
+ * Hangul; English, Spanish and Indonesian: Latin letters without any of those (the three are told apart by the AI's
+ * instruction and the word check, not here). A name in Latin letters inside a Korean sentence is still Korean. */
+export function writtenIn(text: string, locale: Locale): boolean {
+  if (locale === 'ko') return HAS_HANGUL.test(text)
+  if (locale === 'ja') return HAS_KANA.test(text)
+  if (locale === 'zh') return HAS_HAN.test(text) && !HAS_KANA.test(text) && !HAS_HANGUL.test(text)
+  return HAS_LATIN.test(text) && !HAS_HANGUL.test(text) && !HAS_KANA.test(text) && !HAS_HAN.test(text)
+}
+
+/** Did enough people type lines in this language for a list in it to be possible (every topic word of a sentence must be
+ * one 3+ people typed)? Saves a call that could only write sentences the checks drop. */
+export function typedIn(s: Pick<Snapshot, 'entries'>, locale: Locale): boolean {
+  return new Set(s.entries.filter((e) => writtenIn(e.text, locale)).map((e) => e.user)).size >= OFTEN_ASKED.minPeople
+}

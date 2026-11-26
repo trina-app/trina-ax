@@ -20,7 +20,7 @@ import path from 'node:path'
 import { z } from 'zod'
 import { AskUserInput, TodoWriteInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, MoveSkillInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
 import { MEMORY_TEXT_MAX } from '@mycel/shared/api'
-import type { BrowserToolName, ConfirmDetail, Locale, Step, TurnRequest } from '@mycel/shared/api'
+import type { BrowserResult, BrowserToolName, ConfirmDetail, Locale, Step, TurnRequest } from '@mycel/shared/api'
 import type { McpContent, TurnToolSet } from '../turns'
 import type { ToolCard, TurnTool, TurnToolContext, TurnToolResult } from '../services'
 import { newId } from '../db'
@@ -55,7 +55,7 @@ import { globFolderPrefix, inProjectOnly, noSearchPath, SEARCH_LEFT_OUT, searchL
 import type { StoredStep } from './store'
 import { cardEndShort, endOfText, KEEP_READ_LINE, leftGroupNote, lostAccessNote, regrantLine, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
 import { chatVersionPlace, mayReplace, placeArg, placeWriteRefusal, type TurnFiles } from '../files/service'
-import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
+import { allowSiteFromDevice, extractUrls, gateUrl, namedByPerson, personSites, siteOf, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
 import { callKey } from './schedule-cover'
 import { visionText } from '../files/vision-text'
@@ -103,6 +103,7 @@ import { readRooms, withoutQuoteLines } from './read-rooms'
 import { seenWhy } from './grant-reads'
 import { WEB_ACCESS_CHANGED } from '../admin/settings'
 import { isGuestUser } from '../credentials/guest-ai'
+import { afterSkillWrite, beforeSkillWrite, deletePersonalSkills } from './personal-skills'
 import { GUEST_ROOM_TOOLS, GUEST_TURN_TOOLS, guestToolDescription } from './guest-tools'
 import { guestPlace } from '../auth/guests'
 import type { GuestPlace } from '@mycel/shared/api'
@@ -526,6 +527,11 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // into skills/, …)
     const early = t.refuse?.(args, files)
     if (early) return { ...text(early.text, true), summary: early.summary }
+    // the person's own skills: one the AI made on its own with no card, any other after its card (chat/personal-skills.ts)
+    if (name === 'delete_files' && files === exec.files) {
+      const d = await deletePersonalSkills(exec, args)
+      if (d) return { ...text(d.text, !!d.isError), summary: `delete_files -> ${d.isError ? 'not deleted' : 'deleted'}: personal skill` }
+    }
     // a shared project chat: a search without a path looks in the project folder; then what the call would read that
     // some of the chat's people cannot read waits for the person's yes (chat/turn.ts confirmSharedRead)
     // (a connection's tool names no team path: its own card comes from the tool, integrations/connections/tools.ts
@@ -664,6 +670,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       return state ? { ...out, content: [...out.content, { type: 'text', text: state }] } : out
     },
     afterFileTool: (name, isError, args, text, caller, images) => {
+      // a personal skill saved or fixed: its step says so, with 보기 and 되돌리기 (chat/personal-skills.ts)
+      afterSkillWrite(exec, name, args, isError)
       // a skill save's approval is for that call only, saved or not (skills/guard.ts); so is a scheduled run's claim on
       // a path (chat/schedule-cover.ts)
       exec.dropSkillApproval(name, args)
@@ -756,6 +764,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // so it is refused here, before any card asks the person about it (a room card, a skill card, the widening card)
       // An existing chat file is the exception (P4, chat/chat-file-write.ts): a new version of it, after the same checks
       // here before any card (who may change it in this turn, the file itself), and the cards below as for any save.
+      // a person's own skills folder: one SKILL.md of text, under the auto-memory rules (chat/personal-skills.ts), before
+      // any card
+      const skillNo = await beforeSkillWrite(exec, name, args, !caller || caller.files === exec.files)
+      if (skillNo) return { refusal: skillNo, summary: `${name} -> not saved: personal skill` }
       const writePlace = name === 'write' || name === 'edit' ? placeArg(name, args) : null
       if (writePlace && !chatVersionPlace(writePlace)) return { refusal: `Not done (${name}): ${placeWriteRefusal(writePlace)}`, summary: `${name} -> refused: chat place` }
       if (writePlace) {
@@ -1894,10 +1906,18 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       const person = turnPerson(exec)
       /** null when the address may be opened; otherwise the refusal for the AI */
       let allSites = false
+      // what the person already allowed for this call, told to the desktop app with it so its own site card does not ask
+      // again (one Always per person: docs/decisions/20261125-one-site-always-desktop-browser.md): their sites for good,
+      // an address the server's card or their own message approved, and office addresses they allowed
+      const sites = new Set<string>(personSites(rt.db, spec.chatId, spec.userId, person))
+      const officeHosts = new Set<string>()
       const gate = async (href: string): Promise<string | null> => {
         try {
+          const how = await gateUrl(rt.db, spec.chatId, href, person, { turnId: spec.turnId, userId: spec.userId })
           // an address "Allow all websites" opened is named in the audit line (plan §3)
-          if (await gateUrl(rt.db, spec.chatId, href, person, { turnId: spec.turnId, userId: spec.userId }) === 'all') allSites = true
+          if (how === 'all') allSites = true
+          if (how === 'site' || how === 'all') { const site = siteOf(href); if (site) sites.add(site) }
+          if (how === 'confirmed' || how === 'site' || how === 'all' || namedByPerson(rt.db, spec.chatId, href, person, spec.userId)) { const k = paneSiteKey(href); if (k) sites.add(k) }
           return null
         } catch (e) {
           if (e instanceof ToolError) return e.message
@@ -1909,12 +1929,17 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
         if (!u.ok) return { ...text(`Cannot open ${url.slice(0, 200)}: ${u.reason}.`, true), summary: `${name} -> refused url (${u.reason})` }
         const host = u.host
         if (!host || !u.href) continue
+        // an office grant the person has for this host goes with the call whatever this server's own lookup says (a name
+        // the desktop app's network reads as an office address, such as wiki.corp.example, while this server does not)
+        if (exec.allowedHosts.has(host) || (teamAllowsAlways(rt.db) && rt.siteGranted(spec.userId, host))) { const k = paneSiteKey(u.href); if (k) { officeHosts.add(k); sites.add(k) } }
         const office = async (): Promise<Awaited<ReturnType<Tool['call']>> | 'ok' | 'shown'> => {
           // the team's "Always allow" switch (Admin › Team AI settings), as every other Always: off, a site kept for good
           // does not count (kept, not deleted) and the card offers no Always (an "always" answer counts once)
           const keep = teamAllowsAlways(rt.db)
-          if (exec.allowedHosts.has(host) || (keep && rt.siteGranted(spec.userId, host))) return 'ok'
+          const allowedHere = () => { const k = paneSiteKey(u.href!); if (k) { officeHosts.add(k); sites.add(k) } }
+          if (exec.allowedHosts.has(host) || (keep && rt.siteGranted(spec.userId, host))) { allowedHere(); return 'ok' }
           const decision = await exec.waitForPerson({ kind: 'browser_site', requestId: uuidv7(), url: url.slice(0, 2000), host, reason: tr('browserSite', spec.locale, { host }), ...(keep ? {} : { noAlways: true as const }) }, { window: spec.windowId, timeoutMs: rt.askUserTimeoutMs() })
+          if (decision === 'once' || decision === 'always') allowedHere()
           if (decision === 'always' && keep) rt.grantSite(spec.userId, host)
           else if (decision === 'once' || decision === 'always') exec.allowedHosts.add(host)
           else return { ...text(`The user did not allow opening ${host} (an office-network address). Stop and tell the user what you could not do.`, true), summary: `${name} -> site ${host} not allowed` }
@@ -1943,7 +1968,11 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       }
       // the stored keys and key-like text are hidden before anything sees the result; a page that shows a key gets no
       // screenshot or script, and the AI hands over (chat/browser-keys.ts, docs/decisions/20261124-browser-key-guard.md)
-      const call: BrowserCall = (tool, a) => rt.relay.call({ userId: spec.userId, windowId: spec.windowId!, turnId: spec.turnId, chatId: spec.chatId, tool, args: a, signal: exec.abort.signal })
+      const call: BrowserCall = async (tool, a) => {
+        const r = await rt.relay.call({ userId: spec.userId, windowId: spec.windowId!, turnId: spec.turnId, chatId: spec.chatId, tool, args: a, signal: exec.abort.signal, sites: [...sites], office: [...officeHosts] })
+        keepDeviceAlways(exec, person, r.always)
+        return r
+      }
       const g = await guardedBrowserCall(name, args, call, spec.locale, exec.redactor())
       if (g.refused) return { ...text(g.text, true), summary: g.summary }
       const r = g.result
@@ -1968,6 +1997,26 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       if (!content.length) content.push({ type: 'text', text: r.ok ? 'OK' : 'Error' })
       return { content, isError: !r.ok, summary: `${name} -> ${r.ok ? 'ok' : 'error: ' + (r.error ?? '').slice(0, 200)}${guardSummary(g)}${allSites ? ' (all websites allowed)' : ''}` }
     },
+  }
+}
+
+/** The name the desktop app hears for an allowed address: the host in lower case without "www." and without its port
+ * (a server allowance holds on every port, as the server's own site allowance does). */
+function paneSiteKey(href: string): string | null {
+  try { return new URL(href).hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/^www\./, '') || null } catch { return null }
+}
+
+/** "Always allow" pressed on the desktop app's site cards during a call: kept as the person's own allowance (a site for
+ * good, an office address), so it holds on every computer and on the server's cards too. Never another person's. */
+function keepDeviceAlways(exec: TurnExec, person: TurnPerson, always: BrowserResult['always']) {
+  const { rt, spec } = exec
+  for (const host of always?.sites ?? []) allowSiteFromDevice(rt.db, spec.chatId, spec.userId, person, host, spec.turnId)
+  // as the server's own office card keeps one (browser_site_grants, while the team's Always switch is on)
+  if (always?.office?.length && teamAllowsAlways(rt.db)) {
+    for (const host of always.office) {
+      const h = browserUrl(`https://${host}/`)
+      if (h.ok && h.host) rt.grantSite(spec.userId, h.host)
+    }
   }
 }
 

@@ -34,6 +34,11 @@
 //   the order: ① typed or allowed; a plain address (plainAddress: a site, no random-looking part, no long name before
 //     the site, no user name or password, not an echo) on a site allowed here (①b); a learned link within the link
 //     budget; an echo asks; ①d; else the card;
+//   ①e web_fetch only (`docs`): a page of the app's own public docs, exactly one the docs tool links to (docs-help/data.ts
+//     isDocsPage: https, no query, no user name; docs/decisions/20261125-docs-no-web-fetch-card.md), opens with no card,
+//     before everything else (also while the exit address is unknown, and in a run nobody watches), except in a
+//     confidential chat: a fixed public page from a known list carries nothing out. Not other pages of that site, not
+//     other hosts;
 //   ② any other URL: a confirmation card with the full URL, raised by the server inside the tool call;
 //   ①c save_url only (`connection`): addresses that came back in this chat from an external-service connection the
 //     person can use now (tools/connection-urls.ts), learned links within the same budget, unless the AI had sent the
@@ -51,7 +56,8 @@
 // allow-list of ④.
 import type { Database } from 'bun:sqlite'
 import { domainToUnicode } from 'node:url'
-import { getDomain, parse } from 'tldts'
+import { parse } from 'tldts'
+import { longSubdomainOf, MAX_SITE_SUBDOMAIN, opaqueParts, siteOfHost, siteToKeep } from '@mycel/shared/web-site'
 import { ROOM_REF_RE, type CardAlwaysKind, type ConfirmDetail, type Locale, type PictureAlwaysKey } from '@mycel/shared/api'
 import { ALL_SITES_ANSWER, WEB_ALLOW_ALL_RISK } from '@mycel/shared'
 import { ToolError } from '../policy/errors'
@@ -65,6 +71,7 @@ import type { ResolveOptions } from './web-fetch'
 import { setWebAllowAll, teamAllowsWebAll, webAllowAll } from './web-allow-all'
 import { audit } from '../admin/audit'
 import { getTeamSettings } from '../admin/settings'
+import { isDocsPage } from '../docs-help/data'
 
 /** ③: a query string this long needs a person, wherever the URL came from, unless the person's own site allowance or
  * "Allow all websites" covers it in a turn they watch (a plain address only) */
@@ -440,11 +447,9 @@ export function rememberUrls(db: Database, chatId: string, urls: Iterable<string
  */
 export function siteOf(rawUrl: string): string | null {
   let host: string
-  try { host = new URL(rawUrl).hostname.toLowerCase() } catch { return null }
-  host = host.replace(/\.+$/, '')
-  if (!host || host.startsWith('[') || !host.includes('.') || /^[\d.]+$/.test(host)) return null
-  const d = getDomain(host, { allowPrivateDomains: true, detectIp: true, validateHostname: true, extractHostname: false })
-  return d && d.includes('.') ? d : null
+  try { host = new URL(rawUrl).hostname } catch { return null }
+  // one rule with the desktop app's browser (shared/src/web-site.ts)
+  return siteOfHost(host)
 }
 
 /** The part of a host name before its site that always asks, also on an allowed site: this many characters or more
@@ -452,17 +457,14 @@ export function siteOf(rawUrl: string): string | null {
  * cases), and dots or hyphens cut data into short pieces (a1b2….c3d4….site.example). A name also goes out in the clear
  * to the name servers on the way, before any page opens, so data in it reaches more than the site. Real sites rarely
  * need this much (www, news, m.blog, docs, kr). */
-export const MAX_SITE_SUBDOMAIN = 20
+export { MAX_SITE_SUBDOMAIN }
 
 /** The part of the address's host name before its site (news.example.co.kr: "news") when it is MAX_SITE_SUBDOMAIN
  * characters or longer, as a mark for the card; none when it is shorter or the address has no site. */
 export function longSubdomain(rawUrl: string, site: string | null): string[] {
-  if (!site) return []
   let host: string
-  try { host = new URL(rawUrl).hostname.toLowerCase().replace(/\.+$/, '') } catch { return [] }
-  if (!host.endsWith('.' + site)) return []
-  const sub = host.slice(0, -(site.length + 1))
-  return sub.length >= MAX_SITE_SUBDOMAIN ? [sub] : []
+  try { host = new URL(rawUrl).hostname } catch { return [] }
+  return longSubdomainOf(host, site)
 }
 
 /** A site as shown on a card: ASCII form, and the Unicode form next to it when they differ (예시.한국). */
@@ -543,43 +545,39 @@ export function allowSite(db: Database, chatId: string, userId: string, site: st
   if (r.changes) audit(db, { actor: userId, action: 'ai.always_allow', target: userId, detail: { kind: 'web_site', site, on: true, via: 'card', turnId } })
 }
 
+/** The sites the person allowed for good, as the desktop app's browser hears them with each call (one Always per person:
+ * docs/decisions/20261125-one-site-always-desktop-browser.md). Empty where they do not count (allowedSites). */
+export function personSites(db: Database, chatId: string | null, userId: string | null | undefined, person: TurnPerson | null): string[] {
+  return [...allowedSites(db, chatId, userId, person)]
+}
+
+/** The person themselves named this address in the chat: typed it, or allowed it on a card (gateUrl's 'seen' for those,
+ * never a learned link). */
+export function namedByPerson(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null, userId?: string | null): boolean {
+  const url = normUrl(rawUrl)
+  if (!url) return false
+  const from = originOf(db, chatId, url, person, { userId })
+  return from?.origin === 'typed' || from?.origin === 'allowed'
+}
+
+/**
+ * An "Always allow" the person pressed on the desktop app's site card for `host`: kept as their site for good, the row
+ * the address card's "이 사이트 항상 허용" writes, where a site allowance may be kept (siteScope, sitesForGood). Only
+ * the site the card named (shared siteToKeep: the address card's own rule, so never for a host with a long or
+ * random-looking name before its site, an IP address or a public suffix). Returns the site kept, or null.
+ */
+export function allowSiteFromDevice(db: Database, chatId: string | null, userId: string | null | undefined, person: TurnPerson | null, host: string, turnId: string | null): string | null {
+  const site = siteToKeep(host)
+  if (!site || !siteScope(db, chatId, userId) || !sitesForGood(db, person)) return null
+  allowSite(db, chatId, userId!, site, turnId)
+  return site
+}
+
 /** Long random-looking parts of a text (base32 / hex / base64 of something): an address can carry data in them. 20+
  * characters without separators that mix letters and digits (or both cases) with high character entropy, except
  * letters that read as camelCase words (camelWords: attributesToRetrieve, XMLHttpRequest). Shown highlighted on cards;
  * a hint, not a rule. */
-export function opaqueParts(text: string, max = 50): string[] {
-  const out = new Set<string>()
-  for (const m of text.matchAll(/[A-Za-z0-9+%]{20,}/g)) {
-    if (out.size >= max) break
-    const s = m[0]
-    const mixed = /\d/.test(s) ? /[A-Za-z]/.test(s) : /[a-z]/.test(s) && /[A-Z]/.test(s)
-    if (mixed && entropy(s) >= 3 && !camelWords(s)) out.add(s)
-  }
-  return [...out]
-}
-/** Letters only, in camelCase or PascalCase words (attributesToRetrieve, getElementById, XMLHttpRequest): every piece
- * between case changes is a word ("To", "By", "Retrieve": 2 letters or more, a two-letter one with a vowel) or an
- * acronym in capitals (1 to 5 letters, at most 2 of them: "XML", the "A" of "isAValue"), 3 letters or more a piece on
- * average, and the words are at least 30% vowels (a e i o u y) as English words are. Random letters (base64 without
- * digits: "xKqWzPbNvLmTrYcHdJsF") change case about every other letter, which leaves one-letter pieces, runs of
- * capitals and few vowels: fewer than 1 in 100 random runs of 20 to 40 letters pass all of it. */
-function camelWords(s: string): boolean {
-  if (!/^[A-Za-z]+$/.test(s)) return false
-  const pieces = s.match(/[A-Z]+(?![a-z])|[A-Z]?[a-z]+/g) ?? []
-  const words = pieces.filter((p) => /[a-z]/.test(p))
-  const acronyms = pieces.length - words.length
-  if (acronyms > 2 || pieces.length * 3 > s.length) return false
-  if (!pieces.every((p) => /[a-z]/.test(p) ? p.length > 2 || (p.length === 2 && /[aeiouy]/i.test(p)) : p.length <= 5)) return false
-  const letters = words.join('')
-  return (letters.match(/[aeiouy]/gi)?.length ?? 0) >= letters.length * 0.3
-}
-function entropy(s: string): number {
-  const n = new Map<string, number>()
-  for (const c of s) n.set(c, (n.get(c) ?? 0) + 1)
-  let e = 0
-  for (const k of n.values()) { const p = k / s.length; e -= p * Math.log2(p) }
-  return e
-}
+export { opaqueParts }
 
 /**
  * Does a tool input carry a web address or a long random-looking part? A call that only reads can still take data out
@@ -797,20 +795,22 @@ export const TEXT = {
   deny: { ko: '열지 않기', en: 'Don’t open', id: 'Jangan buka', ja: "開かない", es: "No abrir", zh: "不打开" },
 } satisfies Record<string, Record<Locale, string>>
 
-/** 'seen', 'site' and 'all' opened without a card (①, ①b and ①d), 'confirmed' after one. */
-export type GateResult = 'seen' | 'site' | 'all' | 'confirmed'
+/** 'seen', 'site', 'all' and 'docs' opened without a card (①, ①b, ①d and ①e), 'confirmed' after one. */
+export type GateResult = 'seen' | 'site' | 'all' | 'docs' | 'confirmed'
 
 /**
  * Throws ToolError unless the URL may be fetched. `person` is null outside a chat turn (no one to ask): then only ①
  * URLs pass (learned ones within the link budget). `turnId`: the answer the link budget counts for. `userId`: the
  * person of the turn; the sites they allowed (①b: for good) and their "Allow all websites" (①d) count only for them
- * (none without it). Decides from the address text and the database alone: the caller looks the name up only after a yes.
+ * (none without it). `docs`: web_fetch, where a page of the app's own docs opens with no card (①e). Decides from the address text and the database alone: the caller looks the name up only after a yes.
  */
-export async function gateUrl(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null, o: { egressKnown?: boolean; turnId?: string | null; userId?: string | null; connection?: boolean } = {}): Promise<GateResult> {
+export async function gateUrl(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null, o: { egressKnown?: boolean; turnId?: string | null; userId?: string | null; connection?: boolean; docs?: boolean } = {}): Promise<GateResult> {
   const url = normUrl(rawUrl)
   if (!url) throw new ToolError('only http and https URLs can be fetched')
   const outOfScope = person?.scope?.(url)
   if (outOfScope) throw new ToolError(outOfScope)
+  // ①e: a page of the app's own docs (web_fetch only), never in a confidential chat
+  if (o.docs && isDocsPage(rawUrl) && !(chatId && isConfidentialChat(db, chatId))) return 'docs'
   const parsed = new URL(url)
   const long = parsed.search.slice(1).length > MAX_UNCONFIRMED_QUERY
   // this server's own public exit address is not known yet (tools/egress.ts): no URL opens without the person

@@ -10,7 +10,7 @@
 // (clientMetadata, metadataClient). A service that refuses those too but takes an app on the person's computer (Canva,
 // Intercom, Square: RFC 8252's 127.0.0.1 return address) is signed in at from the desktop app (loopbackClient).
 // preflight opens the sign-in address once to see a clear refusal before the browser does.
-import { PRODUCT } from '@mycel/shared'
+import { PRODUCT, type ServerApp } from '@mycel/shared'
 import { checkHostName } from '../../tools/web-fetch'
 import { jsonRequest, NetError, serviceRequest, type NetOptions } from './net'
 
@@ -20,21 +20,39 @@ export interface OAuthServer { issuer: string | null; authorizationEndpoint: str
 /** `registeredScope`: the scope sent with its registration (RFC 7591 `scope`); absent on an app registered without one
  * (before 2026-11-24) and on an own app or a metadata document */
 export interface OAuthClient { clientId: string; clientSecret: string | null; authMethod: 'none' | 'client_secret_post' | 'client_secret_basic'; redirectUri: string; registeredScope?: string | null }
-export interface OAuthTokens { accessToken: string; refreshToken: string | null; expiresAt: number | null }
+/** `subject`: the account the tokens are for, from the token answer's OpenID Connect id_token (idSubject), when the
+ * service sent one; a refresh without one keeps the earlier one */
+export interface OAuthTokens { accessToken: string; refreshToken: string | null; expiresAt: number | null; subject?: string }
+
+/** The account an OpenID Connect id_token names: Entra's object id (`oid`, the same as Graph's user id), else `sub:` and
+ * its `sub`. Read without checking its signature: it came from the token address itself, over TLS, in answer to this
+ * server's own code (OpenID Connect Core 3.1.3.7, "MAY use the TLS server validation"). Null when unreadable. */
+export function idSubject(idToken: unknown): string | null {
+  if (typeof idToken !== 'string' || idToken.length > 16_384) return null
+  const part = idToken.split('.')[1]
+  if (!part) return null
+  try {
+    const c = JSON.parse(Buffer.from(part, 'base64url').toString('utf8')) as { oid?: unknown; sub?: unknown } | null
+    if (typeof c?.oid === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(c.oid)) return c.oid.toLowerCase()
+    if (typeof c?.sub === 'string' && /^[A-Za-z0-9._-]{1,128}$/.test(c.sub)) return `sub:${c.sub}`
+  } catch {}
+  return null
+}
 /** what a connection keeps (encrypted) once signed in. resource: the MCP server's resource indicator (RFC 8707); null
  * for an HTTP API, which has none. */
 export interface OAuthSecret {
   type: 'oauth'; server: OAuthServer; client: OAuthClient; resource: string | null; scope: string | null; tokens: OAuthTokens
-  /** signed in through the server's GitHub App (service.ts serverApp): refreshed with that app as it is now */
-  serverApp?: 'github'
+  /** signed in through an app the server holds (service.ts serverApp: GitHub's, Microsoft's): refreshed with that app
+   * as it is now */
+  serverApp?: ServerApp
 }
 /** your own app at the service, as stored (docs/INTEGRATIONS.md "Your own app"). foundTokenUrl: the token address the
  * first sign-in that worked found from the server, where its secret may go (service.ts pinFound). clientSecret: null
  * also when the stored one was entered for another address of the connection (store.ts secretHere) */
 export interface OwnClient {
   clientId: string; clientSecret: string | null; authorizationUrl: string | null; tokenUrl: string | null; scope: string | null; foundTokenUrl: string | null
-  /** not an app anyone set on the connection but the server's GitHub App (service.ts serverApp) */
-  serverApp?: 'github'
+  /** not an app anyone set on the connection but one the server holds (service.ts serverApp) */
+  serverApp?: ServerApp
   /** the stored values it was read from (pinFound writes only onto these), and the version of the row that holds them
    * (a template's: a sign-in through it finishes only on the template as it was when it started) */
   stored: { json: string; enc: string | null; version: number }
@@ -355,7 +373,9 @@ export async function tokenRequest(s: { server: OAuthServer; client: OAuthClient
   // user access tokens", "Troubleshooting OAuth app access token request errors"): read as the standard ones
   const error = typeof j?.error === 'string' ? GITHUB_GRANT_ERRORS[j.error] ?? j.error : null
   if (r.status !== 200 || !j || error) {
-    if (error === 'invalid_grant' || error === 'invalid_client' || error === 'unauthorized_client') throw new GrantError(error)
+    // Entra (Microsoft) asks the person again with interaction_required or consent_required (a new MFA rule, a consent
+    // an admin took back): only a new sign-in fixes it
+    if (error === 'invalid_grant' || error === 'invalid_client' || error === 'unauthorized_client' || error === 'interaction_required' || error === 'consent_required') throw new GrantError(error)
     throw new NetError('oauth_failed')
   }
   const access = j.access_token, refresh = typeof j.refresh_token === 'string' ? j.refresh_token : previous?.refreshToken ?? null
@@ -364,7 +384,8 @@ export async function tokenRequest(s: { server: OAuthServer; client: OAuthClient
   // a number, or a number written as text (NAVER WORKS sends "86400")
   const life = typeof j.expires_in === 'string' && /^\d{1,9}$/.test(j.expires_in) ? Number(j.expires_in) : j.expires_in
   const exp = typeof life === 'number' && Number.isFinite(life) && life > 0 ? Math.min(life, 31_536_000) : null
-  return { accessToken: access, refreshToken: refresh, expiresAt: exp ? now + exp * 1000 : null }
+  const subject = idSubject(j.id_token) ?? previous?.subject ?? null
+  return { accessToken: access, refreshToken: refresh, expiresAt: exp ? now + exp * 1000 : null, ...(subject ? { subject } : {}) }
 }
 
 /** GitHub's token-address errors and the standard name each stands for (RFC 6749 5.2) */

@@ -10,6 +10,7 @@ import { integrationsOf, MAX_PERSONAL, type CallbackResult, type FlowFailure } f
 import { requestsOf } from '../integrations/connections/requests'
 import { templatesOf } from '../integrations/connections/templates'
 import { githubAppView } from '../integrations/github/app'
+import { microsoftAppView } from '../integrations/microsoft/app'
 import { afterTeamConnection } from '../integrations/service-requests'
 import { templatesSeen } from '../onboarding/member-welcome'
 import type { AuthInfo } from '../services'
@@ -50,7 +51,7 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
     { client: auth.session.client, loopbackPort: auth.session.client === 'desktop' ? body.loopbackPort ?? null : null }))
   kit.handle(API.integrationFlow, ({ auth, params }) => svc().flow(auth.user.id, auth.session.id, params.id))
   kit.handle(API.cancelIntegrationFlow, ({ auth, params }) => { svc().cancelFlow(auth.user.id, auth.session.id, params.id) })
-  kit.handle(API.listTeamIntegrations, ({ c, auth }) => ({ items: svc().listTeam(viewer(auth), c.get('locale')), github: githubAppView(ctx) }))
+  kit.handle(API.listTeamIntegrations, ({ c, auth }) => ({ items: svc().listTeam(viewer(auth), c.get('locale')), github: githubAppView(ctx), microsoft: microsoftAppView(ctx) }))
   kit.handle(API.createTeamIntegration, async ({ c, auth, body }) => { const i = await svc().create(viewer(auth), body, 'team', c.get('locale')); afterTeamConnection(ctx, i.url); return i })
   // an admin asks a member to connect a service as their own connection (integrations/connections/requests.ts)
   const reqs = () => requestsOf(ctx)
@@ -71,8 +72,9 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
   })
   kit.handle(API.connectIntegrationTemplate, ({ c, auth, params, body }) => tpl().connect(viewer(auth), params.id, body, c.get('locale')))
   kit.handle(API.listTeamIntegrationTemplates, async ({ auth }) => ({ items: await tpl().listTeam(viewer(auth)) }))
-  kit.handle(API.createIntegrationTemplate, ({ c, auth, body }) => tpl().create(viewer(auth), body, c.get('locale')))
-  kit.handle(API.updateIntegrationTemplate, ({ c, auth, params, body }) => tpl().update(viewer(auth), params.id, body, c.get('locale')))
+  // a template for a listed service closes the members' requests for it that it now covers (service-requests.ts)
+  kit.handle(API.createIntegrationTemplate, async ({ c, auth, body }) => { const t = await tpl().create(viewer(auth), body, c.get('locale')); afterTeamConnection(ctx, t.url); return t })
+  kit.handle(API.updateIntegrationTemplate, async ({ c, auth, params, body }) => { const t = await tpl().update(viewer(auth), params.id, body, c.get('locale')); afterTeamConnection(ctx, t.url); return t })
   kit.handle(API.deleteIntegrationTemplate, async ({ auth, params }) => { await tpl().remove(viewer(auth), params.id) })
   kit.handle(API.listIntegrationTemplateMembers, async ({ auth, params }) => ({ items: await tpl().members(viewer(auth), params.id) }))
   // the client metadata document a service fetches when a sign-in uses its address as the client ID (oauth.ts

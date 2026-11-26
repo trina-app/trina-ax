@@ -29,7 +29,7 @@ import { googleDriveOf } from '../integrations/google-drive/oauth'
 import { isSharedChat } from '../chat/shared'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
-import { inSkills } from '../skills/guard'
+import { inAnySkills } from '../skills/guard'
 import { componentC } from '../team-files/component'
 import { privateToMe } from '../files/share-readers'
 import { placeProduced } from './make-file'
@@ -99,7 +99,7 @@ export async function saveConnectorFile(ctx: AppContext, a: Input, t: ToolCtx): 
   const folder = !wanted ? `users/${t.user.id}/downloads` : isFolder ? wanted.replace(/\/+$/, '') : wanted.split('/').slice(0, -1).join('/')
   const place = (name: string) => {
     const target = isFolder ? [folder, name].filter(Boolean).join('/') : wanted
-    if (inSkills(target)) throw new ToolError('files cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
+    if (inAnySkills(target)) throw new ToolError('files cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
     if (INSTRUCTION_NAME.test(target.split('/').pop() ?? '')) throw new ToolError(`'${target}' is named like an instruction file the AI follows (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md), and a connected service's file is not put there. Pick another name`)
     // refused before any card: a place the person cannot write (placeProduced checks again right before the write)
     const r = authorize(files.fx, files.rules(), t.user, target, 'write', { mustExist: false, createDirs: true })

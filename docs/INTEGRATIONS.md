@@ -767,6 +767,84 @@ Code: `server/src/integrations/github/app.ts`, `connections/service.ts` (`server
 (`GITHUB_GRANT_ERRORS`), `shared/src/service-catalog.ts` (`serverAppAt`), `web/src/pages/Connectors.tsx`,
 `web/src/components/integrations/ConnectionPage.tsx`. Tests: `tests/unit/c-integrations-github.test.ts`.
 
+## Microsoft 365
+
+"Microsoft 365" is a Discover card (Outlook mail, Outlook calendar, OneDrive and SharePoint files, Teams chats) that
+signs in like GitHub, through **one Microsoft (Entra) app the server holds**
+([decision](decisions/20261125-m365-connector.md)). Microsoft has no MCP server a third-party app can sign in to, so the
+tools are this server's own over Microsoft Graph v1.0, served by an MCP server inside the team server
+(`server/src/integrations/microsoft/mcp-server.ts`). The connection's address is the reserved
+`https://microsoft-365.invalid/mcp`: it never resolves, and its MCP requests never leave the process (`service.ts
+client`); only Graph is reached, with the person's token. It runs wherever the server runs (Linux, macOS; no child
+process), unlike the Google apps' library.
+
+- **The app file.** `MYCEL_MICROSOFT_APP_FILE`, else `<secrets>/integrations/microsoft/app.json`, read like GitHub's
+  (`server/src/integrations/microsoft/app.ts`): `{ "clientId": "<application (client) ID>", "clientSecret": "…",
+  "tenant": "common" }` (`tenant` optional: `common`, `organizations` or one directory's ID; personal Microsoft accounts are not supported). The lists
+  say only `microsoft: { ready }`. A hosted team server gets it with the tenant command `microsoft-app-set` (stdin
+  only, the server account writes it 0600 in a 0700 folder, the same values again change nothing).
+- **Sign-in.** Microsoft's fixed addresses `https://login.microsoftonline.com/<tenant>/oauth2/v2.0/authorize` and
+  `…/token`, PKCE S256, these delegated scopes: `openid profile email offline_access User.Read Mail.ReadWrite
+  Mail.Send Calendars.ReadWrite Files.ReadWrite.All Sites.Read.All Chat.ReadWrite` (none needs an admin's consent in a
+  tenant that lets people consent to apps), and no `resource` (Microsoft's v2.0 sign-in refuses it). Personal, team
+  (an admin signs in once) and template connections all use it; an own app on the connection wins (Advanced › "Sign in
+  with my own app": the company's Entra app; its client ID and secret are enough for a multitenant app, Microsoft's
+  `common` addresses and these scopes are filled in; a single-tenant app also gives its sign-in and token addresses
+  with its directory ID, since Entra refuses `common` for it).
+- **Where the browser comes back**, by where Connect was pressed:
+
+  All of them go under the **Web** platform: the app has a client secret, and Entra refuses a secret for an address
+  registered as "Mobile and desktop".
+
+  | Where | Return address sent to Microsoft | In the Entra app (Authentication › Web) |
+  |---|---|---|
+  | Desktop app on Windows, Mac or Linux, any server | `http://127.0.0.1:<port>/callback` (the app's one-time listener, which forwards to the team's own return page; `desktop/src/common/sign-in-return.ts`) | `http://127.0.0.1/callback` (Entra ignores a loopback address's port; added in the app's manifest, `replyUrlsWithType`, since the portal refuses http loopback addresses) |
+  | Web, hosted team `https://<team>.<team domain>` | `https://<team>.<team domain>/api/integrations/oauth/callback` | `https://*.<team domain>/api/integrations/oauth/callback` (manifest; Entra allows a wildcard only for an app limited to work and school accounts), or each team address |
+  | Web, a server on its own https address (Linux server, the office Mac's tunnel address) | `https://<host>/api/integrations/oauth/callback` | that address, or the company's own Entra app |
+  | Web, a server opened at `http://localhost:<port>` or `http://127.0.0.1:<port>` (office Mac, development) | that origin + `/api/integrations/oauth/callback` | `http://localhost/api/integrations/oauth/callback`, `http://127.0.0.1/api/integrations/oauth/callback` |
+
+- **Tokens.** About an hour, with a refresh token that Microsoft rotates (the new one is kept); refreshed with the app's
+  secret as the file has it now. A refresh token Microsoft refuses (revoked, password changed) asks to sign in again.
+  Microsoft has no revocation address for these tokens: Disconnect forgets them here, and the person removes the app at
+  `https://myapps.microsoft.com` (or an admin in Entra › Enterprise applications).
+- **Tools** (reads marked read-only; every other one asks on the write card unless Always allow): `mail_search`,
+  `mail_read` (body as text, attachments listed), `mail_draft` (new or reply; a reply keeps its recipients and adds
+  to, cc and bcc), `mail_send_draft`, `mail_send` (new or reply; a reply sends to, cc, bcc and subject as the card
+  showed them), `calendar_events` (a time without an offset is local time in `time_zone`), `calendar_create_event`
+  (attendees, optional Teams meeting; dates alone make an all-day event), `files_search` (Microsoft
+  Search over OneDrive and SharePoint; the person's own OneDrive when the organization has no search), `files_read`
+  (Word, Excel, PowerPoint, PDF, Hangul, text through the team files' readers; the bytes come from Graph's pre-signed
+  download address, without the token), `files_upload` (text, at most 4 MB, a new name when one exists), `teams_chats`,
+  `teams_read_chat`, `teams_send`. The server's `instructions` (the service guide) say how to search.
+- **Errors.** Graph's 401 is the MCP answer's 401: refreshed once, then "sign in again". Any other Graph error is that
+  tool's error with Microsoft's code and words, cleaned (`refusal.ts cleanSaid`), so one forbidden mailbox or chat does
+  not mark the connection "no access"; an account without an Exchange Online mailbox reads "This account has no
+  Exchange Online mailbox".
+- **Without the file** the card says "Not set up yet" (an owner or admin reads that the hosting service turns it on, or
+  a server of their own adds an Entra app), and Connect answers that in words before anything is sent.
+
+The hosting service's app (registered 2026-11-25 in the trinaax.onmicrosoft.com directory, Entra admin center › App
+registrations): name "Trina AX", **Accounts in any organizational directory** (`AzureADMultipleOrgs`: work and
+school accounts only, which the hosted wildcard needs), publisher domain `trina.app`, a client secret, the delegated
+Graph permissions above, and these **Web** redirect addresses:
+
+- `https://*.trina.app/api/integrations/oauth/callback` (hosted teams on the web)
+- `http://127.0.0.1/callback` (the desktop app, any port)
+- `http://localhost/api/integrations/oauth/callback`, `http://127.0.0.1/api/integrations/oauth/callback` (a server
+  opened on this computer)
+- `https://account.trina.app/oauth/microsoft/callback` (kept for a broker on the account host; not used by the team
+  server yet)
+
+A self-installed server on another https address adds `https://<host>/api/integrations/oauth/callback` to an Entra app
+of its own (or uses the desktop app). Until Microsoft verifies the publisher (Entra › Branding & properties › Publisher
+verification, with a Microsoft Partner Network ID), tenants that allow user consent only for verified publishers need an
+admin's consent once (`https://login.microsoftonline.com/<tenant>/adminconsent?client_id=<client ID>`).
+
+Not yet: personal Microsoft accounts (they need the account host's broker, trina-cloud `src/drive-broker/`), mail
+attachments, Teams channels, sending a team file as an attachment. Code: `server/src/integrations/microsoft/`,
+`connections/service.ts` (`serverApp`, `currentClient`, `authorize`, `client`), `shared/src/service-catalog.ts`,
+`native/cmd/mycel-ctl/tenant.go` (`microsoft-app-set`). Tests: `tests/unit/c-integrations-microsoft.test.ts`.
+
 ## HTTP APIs: `api_request`
 
 `{ connection, method: GET|POST|PUT|PATCH|DELETE|HEAD, path, query?, body? }`, offered when the person may use at least
@@ -895,9 +973,42 @@ The services come from the remote servers listed on [mcpservers.org](https://mcp
 with its featured ones and those with a curated logo. A listing is not enough: a service is listed here only if it
 answers the way this server needs, Streamable HTTP and OAuth with dynamic client registration (see above). Checked on
 2026-11-02 with an unauthenticated `initialize` and the public OAuth metadata, not with a real sign-in, so a service can
-still refuse a client it does not know. Left out because they need an app of their own: Slack, Asana, HubSpot,
-Box, Zoom, Docusign, PagerDuty, Granola, Clerk. Google Drive has its own integration. GitHub is listed although it registers
-no apps: it signs in through the server's GitHub App ("GitHub" below).
+still refuse a client it does not know. Left out because they need an app of their own: Slack, Zoom, Docusign,
+PagerDuty, Clerk. Asana, HubSpot and Box need one too and are listed anyway: the team sets them up once with its own app
+("Services that need the team's own app" below). Granola was left out on 2026-11-02; on 2026-11-25 it registered a client
+for a team's https callback (201) and its docs name any MCP client, so it is listed like the others. Google Drive has its
+own integration. GitHub is listed although it registers no apps: it signs in through the server's GitHub App ("GitHub"
+below).
+
+### Services that need the team's own app
+
+Asana, HubSpot and Box register no apps for others and take no Client ID Metadata Document. They are listed with
+`teamApp` (`shared/src/service-catalog.ts`: the service's own guide and, for Asana, the scope `default`; checked on the
+services' pages and with their OAuth metadata on 2026-11-25). None of them asks the team, or Trina, for a business review
+to use an app the team makes for itself:
+
+| Service | Where the app is made | Scope | Notes (2026-11-25) |
+|---|---|---|---|
+| Asana | app.asana.com/0/my-apps › Create new app › **MCP app**; distribution **Any workspace** | `default` (any other is refused) | Enterprise admins can block an app per workspace |
+| HubSpot | Development › **MCP Connectors** › Create MCP connector (public beta) | none: the tools decide | an admin of the HubSpot account connects first |
+| Box | Admin Console › Integrations › **Box MCP server** › Add Integration Credentials | the ones chosen there | needs a Box enterprise and its admin |
+
+- **Discover:** their cards are "not set up" for everyone until an admin sets one up: a member sees "Not set up yet" and
+  its page has **Ask admin to add it** (the existing service request); an owner or admin gets **Set up**, which opens the
+  service's page in Admin (`DiscoverItem.setUpTo`). No Connect, which would end at the service's refusal.
+- **Admin:** the service's page offers **Set up as a template** first (each member it is for signs in with their own
+  account), one shared account for the team second, and never the admin's own. The dialog shows the app's fields up
+  front, not under Advanced and with no switch: the redirect address to copy, the client ID and secret, and the scope
+  filled in from the list, with a line that says what to do and a link to the service's guide (`IntegrationDialog.tsx`
+  `listedForm`, `AppSection` `required`). The app is stored like any own app ("Your own app (client ID)" above).
+- **Sign-in without the app** (a connection added by its address): it stops before anything is looked up, registered or
+  opened, with `oauth_needs_team_app` ("Asana signs in only through an app your team makes there. An admin sets it up
+  once in Admin › Connected apps …"); a member of a template gets `oauth_no_registration_member`. It is not a try at the
+  service, so it counts toward no limit (`service.ts authorize`).
+- **Chat:** the connect card is not shown for them: a member is told to ask an admin ("Ask admin to add it" on its
+  page), an admin where to set it up (`connect-service.ts`).
+- **Left out:** Zoom (paid plans only; its own Marketplace app, and its MCP address is `https://zoom.us/mcp/meeting/streamable`),
+  Slack (its own integration), Docusign, PagerDuty, Clerk. Each is one entry with `teamApp`, a logo and its words.
 
 Logos are files in `web/public/icons/connectors`, because the content security policy loads no image from elsewhere,
 and a connection whose address matches a listed service shows its logo too. Where each file came from is not recorded:

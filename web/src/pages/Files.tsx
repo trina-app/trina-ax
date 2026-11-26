@@ -50,7 +50,8 @@ import { folderProjectAction, isProjectsFolder, isProjectsTop, projectFolderOf, 
 import { openTeamFile, panelExpandedNow, useSidePanel } from '../lib/sidePanel'
 import { useTeamAttach } from '../lib/useTeamAttach'
 import { cancelUpload, uploadFile } from '../lib/upload'
-import { addFileUpload, dropFileUpload, patchFileUpload } from '../lib/fileUploads'
+import { addFileUpload, dropFileUpload, dropHandedUploads, patchFileUpload, takeHandedUploads, useFileUploads } from '../lib/fileUploads'
+import { isGuestMe } from '../lib/guests'
 import { SIGNED_OUT } from '../lib/localData'
 import { markBusy } from '../lib/busy'
 import { useLocale, useT } from '../i18n'
@@ -255,6 +256,8 @@ function Files() {
   const byFolder = useMemo(() => projectsByFolder(projects), [projects])
   // folder sharing (open on this server): the folder on screen, if it is one of mine that can be shared
   const ownShare = useOwnFolderShare(path, me.user.id)
+  // 내 파일, where 파일 opens and an upload with no folder of its own goes (docs/decisions/20261125-upload-destination.md)
+  const mineRoot = `users/${me.user.id}`
   // back from Admin's Share dialog opened with from=files (AccessTree): the folder's Share dialog opens again
   // once the folder is here, where the chip would show; the address loses `access` (a reload does not open it again)
   const accessParam = params.get('access')
@@ -677,9 +680,11 @@ function Files() {
     // a reload would lose the upload (the picked file is gone after it): the page does not reload by itself meanwhile
     const release = markBusy('upload')
     uploadFile(file, target, { client: api, signal: item.abort.signal, onProgress: (progress) => patchFileUpload(item.id, { progress }) }).finally(release).then(
-      () => {
-        patchFileUpload(item.id, { status: 'done' })
-        setTimeout(() => dropFileUpload(item.id), 4000)
+      (r) => {
+        patchFileUpload(item.id, { status: 'done', saved: r.kind === 'path' ? r.entry.path : joinPath(folder, plan.name) })
+        // one into 내 파일 stays as the "올렸어요 · 나만 봐요 · 옮기기" line while that line shows (until closed or the
+        // folder is left); any other goes after 4 s
+        if (!(folder === mineRoot && mineLineOn.current)) setTimeout(() => dropFileUpload(item.id), 4000)
         if (onScreen.current?.path === folder) void onScreen.current.load()
       },
       (e) => {
@@ -719,6 +724,38 @@ function Files() {
   // a phone's ⊕ and an empty folder's 올리기: our sheet's device rows (사진 보관함, 사진 찍기, 파일), never iOS's raw menu
   // of a file input with no type (components/DevicePick.tsx)
   const device = useDevicePick({ onFiles: (list) => startUploads(list), testIds: 'files-add', filesTestId: 'files-add-files-input' })
+  // files picked on 최근 파일 (its Upload goes to 내 파일): uploaded here once 내 파일 is open; 내 파일 not opening, or
+  // another folder opening, drops them (never uploaded on a later visit), and a failure says so
+  useEffect(() => {
+    if (path !== mineRoot) return void dropHandedUploads()
+    if (tree) {
+      const files = takeHandedUploads(mineRoot)
+      if (files) startUploads(files)
+    } else if (error && dropHandedUploads()) toast({ level: 'error', text: t('files.handFailed') })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tree, error, path])
+  /** 옮기기 on that line: the Move picker this page has (one file), or its bulk Move for several, with their 추천 folders */
+  // the picker opens at the team folder's top there (its places), not at 내 파일 where the files already are
+  const [pickFromTop, setPickFromTop] = useState(false)
+  useEffect(() => { if (!moving && bulkPick === null) setPickFromTop(false) }, [moving, bulkPick])
+  const moveLanded = (paths: string[]) => {
+    const entries = tree?.entries.filter((e) => paths.includes(e.path)) ?? []
+    if (entries.length) setPickFromTop(true)
+    if (entries.length === 1) setMoving(entries[0]!)
+    else if (entries.length > 1) {
+      setChecked(new Set(entries.map((e) => e.path)))
+      setBulkPick('move')
+    }
+  }
+  // the line only while only I can see 내 파일 (not shared with anyone)
+  const mineLine = path === mineRoot && !ownShare?.shared ? { folder: mineRoot, guest: isGuestMe(me), onMove: moveLanded } : null
+  const mineLineOn = useRef(false)
+  mineLineOn.current = !!mineLine
+  // no line (another folder, or 내 파일 shared): its finished rows go, as any other upload's do
+  useEffect(() => {
+    if (mineLine) return
+    for (const u of useFileUploads.getState().items) if (u.status === 'done' && u.folder === mineRoot) dropFileUpload(u.id)
+  }, [!!mineLine, mineRoot]) // eslint-disable-line react-hooks/exhaustive-deps
   // a folder upload ended (also one started before this page opened): the new files are listed
   const folderUploadsSettled = useFolderUploadsSettled()
   useEffect(() => {
@@ -1210,7 +1247,7 @@ function Files() {
             </nav>
           )}
           {isSkillsPath(path) && <SkillIssues folder={path} className="mx-4 mb-2 sm:mx-6" />}
-          <FileUploads here={path} />
+          <FileUploads here={path} mine={mineLine} />
           <FolderUploads here={path} />
           <TeamFilesEntry here={path} />
           {/* My files in a Mac or Windows browser: where the app's "Find work files on this computer" would be, one quiet
@@ -1242,6 +1279,8 @@ function Files() {
                 {!tree && !error && <Skeleton lines={8} className="p-4" />}
                 {tree && !tree.entries.length && (
                   <EmptyState screen icon={<Upload size={28} />} title={canAdd ? t(touchPhone ? 'files.emptyTap' : 'files.emptyDrop') : t('files.emptyReadOnly')}>
+                    {/* 내 파일: who sees what goes here, and how to share it later */}
+                    {path === mineRoot && !ownShare?.shared && <p className="mt-1 max-w-sm text-sm text-muted" data-testid="files-mine-empty">{t(isGuestMe(me) ? 'files.mineEmptyGuest' : 'files.mineEmpty')}</p>}
                     {canAdd && (phone ? (
                       <PhonePickButton pick={device} label={t('files.upload')} className={buttonClass({ size: 'sm', className: 'mt-2' })} inputs={false} testId="files-empty-upload">
                         {t('files.upload')}
@@ -1365,13 +1404,14 @@ function Files() {
       )}
       </TabPanel>
       <FolderPicker open={!!sharing} title={t('files.shareTitle', { name: sharing?.name ?? '' })} confirmLabel={t('files.shareHere')} initial="shared" onPick={shareTo} onClose={() => setSharing(null)} />
-      <FolderPicker open={!!moving} title={t('files.moveTitle', { name: moving?.name ?? '' })} confirmLabel={t('files.moveHere')} initial={path} suggestFor={moving ? [moving.path] : undefined} onPick={moveTo} onClose={() => setMoving(null)} />
+      <FolderPicker open={!!moving} title={t('files.moveTitle', { name: moving?.name ?? '' })} confirmLabel={t('files.moveHere')} initial={pickFromTop ? '' : path} suggestFor={moving ? [moving.path] : undefined} suggestWiden={pickFromTop} onPick={moveTo} onClose={() => setMoving(null)} />
       <FolderPicker
         open={bulkPick !== null}
         title={bulkPick === 'share' ? t('files.bulk.shareTitle', { n: shareable.length }) : t('files.bulk.moveTitle', { n: movable.length })}
         confirmLabel={t(bulkPick === 'share' ? 'files.shareHere' : 'files.moveHere')}
-        initial={bulkPick === 'share' ? 'shared' : path}
+        initial={bulkPick === 'share' ? 'shared' : pickFromTop ? '' : path}
         suggestFor={bulkPick === 'move' ? movableSuggest : undefined}
+        suggestWiden={pickFromTop}
         onPick={(folder) => void (bulkPick === 'share' ? bulkShare(folder) : bulkMove(folder))}
         onClose={() => setBulkPick(null)}
       />

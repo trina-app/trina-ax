@@ -11,9 +11,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, t
 import { API } from '@mycel/shared/api'
 import { CHAT_ERROR_MESSAGES } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
-import { estimateTokens, historyBlock, historyTrimmed, HISTORY_MAX_TOKENS, summaryWithin } from '../../server/src/chat/prompt'
+import { estimateTokens, historyBlock, historyTrimmed, HISTORY_MAX_TOKENS, summaryWithin, WEB_FIGURES_RULE } from '../../server/src/chat/prompt'
 import { summaryTarget, uncovered, setSummaryAiForTests, resetSummaryStateForTests } from '../../server/src/chat/history-summary'
-import { ANSWER_ROOM_MIN, historyFit, toolBudgetFor } from '../../server/src/chat/history-fit'
+import { ANSWER_ROOM_MIN, HISTORY_ROOM_MIN, historyFit, toolBudgetFor } from '../../server/src/chat/history-fit'
 import { apiContextSize, blindGuess, OLLAMA_DEFAULT_TOKENS, contextFromRefusal, isLocalApiAddress, LOCAL_GUESS_TOKENS, noteContextRefusal, noteContextUsage, PROBE_BODY_MAX, resetApiContextForTests } from '../../server/src/engine/api-context'
 import { API_GROUNDING_RULES, writeApiEngine, type ApiEngineConf } from '../../server/src/engine/api-agent'
 
@@ -81,10 +81,11 @@ describe('historyFit', () => {
   })
   test('the tool budget: 35% of the context, but never more than the instructions leave (QA TC-5087, 16k)', () => {
     expect(toolBudgetFor({ contextTokens: 200_000, instructions, message: 'hi' })).toBe(70_000)
-    // 16,384 - 3,276 room - 6,902 (6,001 * 1.15) = 6,206, / 1.15
+    // 16,384 - 3,276 room - 6,902 (6,001 * 1.15) - 2,048 for the newest history = 4,158, / 1.15 = 3,615
     const b = toolBudgetFor({ contextTokens: 16_384, instructions, message: 'hi' })
     expect(b).toBeLessThan(Math.floor(16_384 * 0.35))
-    expect(b).toBeGreaterThan(5_000)
+    expect(b).toBe(Math.floor((16_384 - 3_276 - Math.ceil((estimateTokens(instructions) + estimateTokens('hi')) * 1.15) - HISTORY_ROOM_MIN) / 1.15))
+    expect(b).toBeGreaterThan(3_000)
     expect(toolBudgetFor({ contextTokens: 4_096, instructions, message: 'hi' })).toBe(0)
   })
   test('an 8k model the instructions fill: no history, and it overflows', () => {
@@ -446,6 +447,12 @@ describe('a turn on a small local model (fake OpenAI-compatible server)', () => 
       expect(estimateTokens(r.system) + estimateTokens(JSON.stringify(r.tools))).toBeLessThan(16384 - ANSWER_ROOM_MIN)
       expect(r.system).toContain('HERON')
       expect(done.status).toBe('done')
+      // the tools left out for this model are named, and their rules are not sent (web_fetch: WEB_FIGURES_RULE); the
+      // two together had made the instructions too long for a 16k model (batch 20261125e)
+      const sent = (r.tools as { function: { name: string } }[]).map((t) => t.function.name)
+      expect(sent).not.toContain('web_fetch')
+      expect(r.system).toMatch(/these tools were left out: [^\n]*web_fetch/)
+      expect(r.system).not.toContain(WEB_FIGURES_RULE)
     } finally { await h.api('alice').call(API.deleteMemory, { params: { id: mem.id } }) }
   })
 

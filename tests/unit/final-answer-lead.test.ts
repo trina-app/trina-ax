@@ -66,14 +66,16 @@ describe('finalAnswerLead', () => {
     expect(left('Need a venv.\n\nDear Mr. Smith, thank you for your order.')).toBe('Need a venv.\n\nDear Mr. Smith, thank you for your order.')
   })
 
-  test('the person asks for English, writes in English, or the app is in a Latin language: unchanged', () => {
+  test('the person asks for English or writes in English: unchanged', () => {
     const a = `Need a venv.\n\n${KO_ANSWER}`
     for (const msg of ['영어로 써줘', '보고서 in English please', '英語で書いて', '用英文写', 'Write the report and save it in the team folder']) {
       expect(leadScript('ko', msg), msg).toBeNull()
       expect(left(a, msg), msg).toBe(a)
     }
-    expect(leadScript('en', '보고서 만들어 줘')).toBeNull()
-    expect(left(a, '보고서 만들어 줘', 'en')).toBe(a)
+    expect(leadScript('en', 'Write the report')).toBeNull()
+    // a Korean message in an English app gets a Korean answer (answerLanguageLine): its English lead goes (F7, 11-25)
+    expect(leadScript('en', '보고서 만들어 줘')).toBe('ko')
+    expect(left(a, '보고서 만들어 줘', 'en')).toBe(KO_ANSWER)
     // a follow-up to a request for an English draft ("영어 이메일 써줘", then "좀 더 짧게"): the draft stays (review)
     expect(leadScript('ko', '좀 더 짧게 해줘', '거래처에 보낼 영어 이메일 써줘')).toBeNull()
     expect(leadScript('ko', '좀 더 짧게 해줘', '보고서 만들어 줘')).toBe('ko')
@@ -130,8 +132,14 @@ describe('a turn whose final answer opens with an English working note', () => {
     expect(t.stored).toBe('Need a venv.\n\n보고서를 만들었어요.')
   })
 
-  test.skipIf(!native)('English app: unchanged', async () => {
+  // the answer follows the message's language, not the app's (2026-11-25 night figure eval, F7)
+  test.skipIf(!native)('English app, Korean message: the English lead leaves the Korean answer', async () => {
     const t = await turn('en', '보고서 파일을 만들어서 결과를 알려 주세요\n' + fake({ say: 'Need a venv.\n\n보고서를 만들었어요.' }))
-    expect(t.stored).toBe('Need a venv.\n\n보고서를 만들었어요.')
+    expect(t.stored).toBe('보고서를 만들었어요.')
+  })
+
+  test.skipIf(!native)('English app, English message: unchanged', async () => {
+    const t = await turn('en', 'Make the report file and tell me the result\n' + fake({ say: 'Need a venv.\n\nThe report is ready.' }))
+    expect(t.stored).toBe('Need a venv.\n\nThe report is ready.')
   })
 })

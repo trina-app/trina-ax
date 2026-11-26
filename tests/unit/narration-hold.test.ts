@@ -6,7 +6,7 @@ import path from 'node:path'
 import { API } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
-import { NarrationHold, narrationScript } from '../../server/src/chat/narration'
+import { inOwnScript, leadScript, NarrationHold, narrationScript } from '../../server/src/chat/narration'
 import { deliveredArgs } from '../../server/src/chat/turn'
 import { TEAM_TOOL_PREFIX } from '@mycel/shared'
 
@@ -405,7 +405,7 @@ describe('a turn with an English line before a tool call', () => {
     // a reset takes text out from its offset (an interim piece a call ended)
     for (const d of deltas) { if (d.reset) { streamed = streamed.slice(0, d.offset); continue } expect(d.offset).toBe(streamed.length); streamed += d.text }
     const stored = (h.ctx.db.query('SELECT content FROM messages WHERE id = ?').get(id) as { content: string }).content
-    return { streamed, stored, done: doneEv!.ev.data.message.content as string }
+    return { streamed, stored, done: doneEv!.ev.data.message.content as string, steps: doneEv!.ev.data.message.steps as { kind: string; detail?: string; interim?: true }[] }
   }
 
   test.skipIf(!native)('Korean: the English line is neither streamed nor saved; the stream and the saved answer agree', async () => {
@@ -523,6 +523,51 @@ describe('a turn with an English line before a tool call', () => {
     expect(t.stored).toBe('보고서를 만들었어요.')
   })
 
+  // 2026-11-25 (docs/decisions/20261125-interim-text-inline.md): a piece in the person's script is marked interim, so the
+  // chat shows it as text at its place among the steps; a working note in other letters stays a folded thinking step
+  test.skipIf(!native)('Korean: a Korean piece between calls is an interim step (shown at its place), an English one is not', async () => {
+    const t = await turn('ko', '보고서 찾아줘\n' + fake(
+      { say: '관련 파일이 아직 없어요. 범위를 넓혀 볼게요.' },
+      { tool: 'read', args: { file_path: 'shared/없는-파일.txt' } },
+      { say: 'Good result. Saving it.' },
+      { tool: 'read', args: { file_path: 'shared/없는-파일.txt' } },
+      { say: '보고서를 찾았어요.' },
+    ))
+    expect(t.stored).toBe('보고서를 찾았어요.')
+    const notes = t.steps.filter((s) => s.kind === 'thinking')
+    expect(notes.map((s) => [s.detail, !!s.interim])).toEqual([['관련 파일이 아직 없어요. 범위를 넓혀 볼게요.', true], ['Good result. Saving it.', false]])
+  })
+
+  // 2026-11-25 night figure eval (F7): Daniel's app in English, his question in Korean, a Korean answer. The pieces
+  // between calls (one an English note) were saved in the answer: the script came from the app language only.
+  test.skipIf(!native)('An English app, a Korean question: the pieces between calls leave the answer as in a Korean app', async () => {
+    const t = await turn('en', '고령화 현황 조사해서 브리핑으로 정리해줘\n' + fake(
+      { say: '출처 원문을 직접 확인하겠습니다.' },
+      { tool: 'read', args: { file_path: 'shared/없는-파일.txt' } },
+      { say: "The 2026 report exists; I'll read the original press release." },
+      { tool: 'read', args: { file_path: 'shared/없는-파일.txt' } },
+      { say: '브리핑을 저장했습니다.' },
+    ))
+    expect(t.stored).toBe('브리핑을 저장했습니다.')
+    expect(t.streamed).toBe(t.stored)
+    const notes = t.steps.filter((s) => s.kind === 'thinking')
+    expect(notes.map((s) => [s.detail, !!s.interim])).toEqual([['출처 원문을 직접 확인하겠습니다.', true], ["The 2026 report exists; I'll read the original press release.", false]])
+  })
+
+  test.skipIf(!native)('Korean: a piece longer than a step holds stays in the answer whole, never cut on a step', async () => {
+    const long = '가격표 내용을 정리했어요. '.repeat(300).trim()
+    const t = await turn('ko', '가격표 정리해줘\n' + fake({ say: long }, { tool: 'read', args: { file_path: 'shared/없는-파일.txt' } }, { say: '끝.' }))
+    expect(t.stored.startsWith(long)).toBe(true)
+    expect(t.stored.endsWith('끝.')).toBe(true)
+    expect(t.steps.some((s) => s.kind === 'thinking')).toBe(false)
+  })
+
+  test.skipIf(!native)('Korean, no text after the last call: the piece that became the answer is no longer shown as interim', async () => {
+    const t = await turn('ko', '파일 확인해줘\n' + fake({ say: '파일을 확인했고 내용은 비어 있어요.' }, { tool: 'read', args: { file_path: 'shared/없는-파일.txt' } }))
+    expect(t.stored).toBe('파일을 확인했고 내용은 비어 있어요.')
+    expect(t.steps.some((s) => s.interim)).toBe(false)
+  })
+
   test.skipIf(!native)('Korean: a line that says what the next command\'s step label says is narration, not content copied into the call (QA TC-f3-05)', async () => {
     const t = await turn('ko', '할 일 표에 마감일 칸 추가해줘\n' + fake(
       { say: 'Install python-docx in a venv.' },
@@ -539,6 +584,18 @@ describe('a turn with an English line before a tool call', () => {
     const t = await turn('ko', '단가 알려줘\n' + fake({ say: 'A형은 1,200,000원이에요.' }, { tool: 'set_title', args: { title: '단가 확인' } }, { say: ' 더 필요하면 말씀해 주세요.' }))
     expect(t.streamed).toBe(t.stored)
     expect(t.stored.replace(/\s+/g, ' ')).toBe('A형은 1,200,000원이에요. 더 필요하면 말씀해 주세요.')
+  })
+})
+
+describe('inOwnScript (an interim piece shown at its place)', () => {
+  test('mostly the script: names, quotes and paths do not count; one Korean word in English does not make it Korean', () => {
+    expect(inOwnScript('관련 파일이 아직 없어요. 범위를 넓혀 볼게요.', 'ko')).toBe(true)
+    expect(inOwnScript('Bright Data 관련 글을 찾아볼게요.', 'ko')).toBe(true)
+    expect(inOwnScript('`price-list-2026.xlsx` 파일을 읽어 볼게요.', 'ko')).toBe(true)
+    expect(inOwnScript('Grep returned nothing; try 견적 next.', 'ko')).toBe(false)
+    expect(inOwnScript('Now the 견적서.pdf.', 'ko')).toBe(false)
+    expect(inOwnScript('Search "견적서 양식" in shared/영업.', 'ko')).toBe(false)
+    expect(inOwnScript('価格表を確認します。', 'ja')).toBe(true)
   })
 })
 
@@ -573,7 +630,43 @@ describe('naming the answer\'s own language (0.16.0 gate)', () => {
     expect(narrationScript('zh', '用汉语和法语写')).toBeNull()
     for (const m of ['ギリシャ語で', 'ポーランド語で', 'トルコ語で', '多言語で作って', '別の言語で書いて', '他の言語にして', 'スペイン語のメールを書いて', '韓国語の字幕を作って']) expect(narrationScript('ja', m), m).toBeNull()
     for (const m of ['用希腊语写', '用土耳其语写', '用粤语写', '写成西班牙语', '写一封日文邮件', '写一封泰语邮件', '换成韩文']) expect(narrationScript('zh', m), m).toBeNull()
-    expect(narrationScript('en', '자막은 한국어로')).toBeNull()
     expect(narrationScript('ko', 'Please write the subtitles in Korean for this video')).toBeNull()
+  })
+})
+
+describe('the answer script follows the message, whatever the app language (2026-11-25 night figure eval, F7)', () => {
+  const F7 = '한국의 고령화 현황(65세 이상 인구 비중, 초고령사회 진입 시점)을 조사해서 출처 링크가 달린 브리핑으로 정리해줘.'
+  test('a Korean, Japanese or Chinese message in a Latin-letters app', () => {
+    for (const locale of ['en', 'es', 'id'] as const) {
+      expect(narrationScript(locale, F7), locale).toBe('ko')
+      expect(narrationScript(locale, '자막은 한국어로'), locale).toBe('ko')
+      expect(narrationScript(locale, '見積書を作って'), locale).toBe('ja')
+      expect(narrationScript(locale, '帮我写一封邮件'), locale).toBe('zh')
+    }
+    // characters alone: Japanese in a Japanese app; a Korean app keeps its own when Hangul is there
+    expect(narrationScript('ja', '見積書作成')).toBe('ja')
+    expect(narrationScript('ko', '見積書を作って')).toBe('ja')
+  })
+  test('a short message follows the one before it; Latin words, a quote or another language asked for: off', () => {
+    expect(narrationScript('en', '👍', '보고서 만들어 줘')).toBe('ko')
+    expect(narrationScript('en', '', '보고서 만들어 줘')).toBe('ko')
+    expect(narrationScript('ko', 'ok', '見積書を作って')).toBe('ja')
+    // an English word in a Latin-letters app is an English message: unchanged, the hold stays off (review of #608)
+    for (const m of ['ok', 'Yes please', 'Do it']) {
+      expect(narrationScript('en', m, '보고서 만들어 줘'), m).toBeNull()
+      expect(leadScript('en', m, '보고서 만들어 줘'), m).toBeNull()
+    }
+    expect(narrationScript('en', 'ok')).toBeNull()
+    expect(narrationScript('en', 'ok', 'Write the report')).toBeNull()
+    expect(narrationScript('en', 'What did we agree in the room?', '보고서 만들어 줘')).toBeNull()
+    expect(narrationScript('en', '> 회의 내용 요약입니다 길게 정리\nWhat did they decide here?')).toBeNull()
+    expect(narrationScript('en', 'Q3 sales report 파일 찾아줘')).toBeNull()
+    for (const m of ['이 글을 영어로 번역해 줘', '영어 이메일 써줘', '英語で書いて']) expect(narrationScript('en', m), m).toBeNull()
+  })
+  test('an English app with a Korean question: the hold is on, and only a Korean piece is in the answer\'s script', () => {
+    const h = new NarrationHold(narrationScript('en', F7), F7)
+    expect(h.active).toBe(true)
+    expect(h.inOwnScript('출처 원문을 직접 확인하겠습니다.')).toBe(true)
+    expect(h.inOwnScript("The 2026 report exists; I'll read the original press release.")).toBe(false)
   })
 })

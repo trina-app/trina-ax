@@ -201,7 +201,7 @@ describe('translations', () => {
     expect(format("'{folder}'을(를) 볼 수 있음", { folder: '마케팅' }, 'ko')).toBe("'마케팅'을 볼 수 있음")
     expect(format("'{folder}'을(를) 볼 수 있음", { folder: '자료' }, 'ko')).toBe("'자료'를 볼 수 있음")
     expect(format('"{q}"와(과) 맞는 파일', { q: 'Canva' }, 'ko')).toBe('"Canva"와 맞는 파일')
-    expect(translate('ko', 'folderAccess.teamViewsAbove', { team: 'Acme', folder: 'Budget Review' })).toBe("Acme의 모든 사용자가 'Budget Review' 폴더를 볼 수 있음")
+    expect(translate('ko', 'folderAccess.teamViewsAbove', { team: 'Acme', folder: 'Budget Review' })).toBe("Acme의 모든 사용자가 'Budget Review' 폴더를 볼 수 있어요")
     expect(translate('ko', 'projects.trashTitle', { name: 'QA-Budget Review' })).toBe("'QA-Budget Review' 프로젝트를 휴지통으로 옮길까요?")
     // other languages carry no marks; a quote after an unfilled placeholder stays as written
     expect(translate('en', 'connectors.mcp.about', { name: 'Canva' })).toBe('Connect Canva so the AI can use it in your chats with your own account.')

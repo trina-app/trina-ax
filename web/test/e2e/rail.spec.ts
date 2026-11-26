@@ -79,7 +79,8 @@ test('the rail replaces the sidebar; five places in order; each has its list pan
 
   // since phase P3, 파일 and 활동 have their lists too (files-panel.spec.ts, activity-panel.spec.ts)
   await openRail(page, 'files')
-  await expect(page).toHaveURL(/\/files\?view=recent$/)
+  // 파일 opens 내 파일 (docs/decisions/20261125-upload-destination.md)
+  await expect(page).toHaveURL(/\/files\?path=users%2Folga$/)
   await expect(page.getByTestId('files-panel')).toBeVisible()
   await expect(page.getByTestId('chats-panel')).toHaveCount(0)
   await expect(page.getByTestId('trina-panel')).toHaveCount(0)
