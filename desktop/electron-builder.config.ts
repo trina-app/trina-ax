@@ -90,7 +90,7 @@ export default {
     target: [{ target: 'nsis', arch: ['x64'] }],
     signAndEditExecutable: true,
     artifactName: `${A}-\${version}-win-\${arch}.\${ext}`,
-    // Authenticode signing with Microsoft Artifact Signing, only when the release job sets MYCEL_WIN_SIGN_*
+    // Authenticode signing with SSL.com eSigner, only when the release job sets MYCEL_WIN_SIGN_PROVIDER
     // (scripts/win-sign.ts, docs/RELEASE-CI.md 11장); otherwise unsigned as before. No publisherName: electron-updater
     // keeps asking for no Windows signature (updates are checked against the Ed25519-signed release instead).
     ...winSignOptions(),

@@ -4,6 +4,7 @@
 //   bun scripts/release/publish.ts --channel beta|stable [--build] [--version X]
 //       [--office dist/office/<officeBundle>-X-mac.zip]
 //       [--windows desktop/release/<artifactBase>-Setup-Y-win-x64.exe]   (its latest.yml must be next to it)
+//       [--keep-windows]   (instead of --windows: the Windows app the channel's head names, see below)
 //       [--mac desktop/release/<artifactBase>-Y-mac-universal.dmg]       (its .zip and latest-mac.yml next to it)
 //   bun scripts/release/publish.ts --check-linux <dir> --version <v>   (only checks the Linux build, signs nothing)
 //       [--linux desktop/release]   (the folder of the Linux build: the two .deb, the two AppImage files,
@@ -31,6 +32,11 @@
 //      keeps the first one when it names the same files) and <dir>/<channel>.json last, so the manifest never names a
 //      file that is not there
 //   4. reads the manifest back through the feed and verifies it like an office does
+// --keep-windows: a release without a new Windows build (the Windows installer ships about once a week, release.yml
+// prepare, scripts/release/windows-cadence.ts) names the Windows app of the channel's current head again: its files stay
+// where they are (<dir>/<that version>/), so the offices and the Linux servers keep offering it and the desks' Windows
+// apps keep updating from it (system/windows-app.ts, office/update.ts and desktop update-verify.ts go by windows.version,
+// not by the release's version). No head, or a head without one, stops the publish (keptWindows).
 // --out DIR writes the feed into a folder instead (tests: a feed on this Mac, whose address --feed names, served to an
 // install switched to it with `teamax update feed`); --dry-run checks and signs, uploads nothing.
 // The API token (CLOUDFLARE_API_TOKEN or ~/.config/treesoop/secrets.env) and the release key are never printed.
@@ -128,6 +134,21 @@ export function versionManifestAction(existing: string | null, release: OfficeRe
   const adds = (a: App, b: App) => (a ? app(a) === app(b) : true)
   if (office(prev) === office(release) && adds(prev.windows, release.windows) && adds(prev.mac, release.mac) && adds(prev.linux, release.linux)) return 'upload'
   throw new Error(`${key} is already published with other files: publish a new version instead`)
+}
+
+/** --keep-windows: the `windows` of the channel's head `head` (its signed text; null = the feed has none) for the release
+ * `version`. A head that is missing or names no Windows app stops the publish: a release without its own Windows build is
+ * cut only when an earlier one has it (windows-cadence.ts), and dropping it here would drop it from every later release
+ * too. null only for a head whose Windows app is newer than `version` (a beta channel that is ahead: its head stays). */
+export function keptWindows(head: string | null, o: { keys: readonly string[]; channel: Channel; feed: string; version: string; log?: (s: string) => void }): OfficeRelease['windows'] {
+  const log = o.log ?? ((s: string) => console.log(s))
+  if (!head) throw new Error(`--keep-windows: the feed has no ${o.channel} head to take the Windows app from: build the Windows installer for this release ("Windows: yes")`)
+  const r = verifyRelease(head, { keys: o.keys, channel: o.channel, feed: o.feed })
+  const w = r.windows
+  if (!w) throw new Error(`--keep-windows: the ${o.channel} head (${r.version}) names no Windows app: build the Windows installer for this release ("Windows: yes")`)
+  if (compareVersions(w.version, o.version) > 0) { log(`--keep-windows: ${o.channel}'s Windows app ${w.version} is newer than ${o.version}: this version's manifest names none`); return null }
+  log(`--keep-windows: the Windows app stays at ${w.version} (${w.installer.file}, from the ${o.channel} head ${r.version})`)
+  return w
 }
 
 export function describe(feed: string, version: string, file: string, type: string): Artifact {
@@ -310,8 +331,16 @@ async function main() {
   const arts: Artifact[] = [describe(feed, version, zip, 'application/zip')]
 
   let windows: OfficeRelease['windows'] = null
+  const keep = process.argv.includes('--keep-windows')
+  if (keep && arg('--windows')) throw new Error('--keep-windows or --windows, not both')
   const exeArg = arg('--windows') ?? (() => { const d = path.join(REPO, 'desktop', 'release', `${PRODUCT.artifactBase}-Setup-${version}-win-x64.exe`); return fs.existsSync(d) ? d : undefined })()
-  if (exeArg && !process.argv.includes('--no-windows')) {
+  if (keep) {
+    const headKey = `${DIR}/${channel}.json`
+    const head = out
+      ? (fs.existsSync(path.join(out, headKey)) ? fs.readFileSync(path.join(out, headKey), 'utf8') : null)
+      : await feedReader(feed).bytes(headKey).then((b) => (b ? Buffer.from(b).toString('utf8') : null))
+    windows = keptWindows(head, { keys: OFFICE_RELEASE_KEYS, channel, feed, version })
+  } else if (exeArg && !process.argv.includes('--no-windows')) {
     const exe = path.resolve(exeArg)
     const yml = path.join(path.dirname(exe), 'latest.yml')
     if (!fs.existsSync(yml)) throw new Error(`${yml} not found: the Windows build writes it next to the installer (desktop/package.json build.publish)`)
