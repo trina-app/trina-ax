@@ -16,6 +16,12 @@
     `http://127.0.0.1:<port>/console-callback` on a listener of its own (never the connector sign-in's listener), PKCE
     S256 and a `state`; the code becomes a 2-hour bearer token for `/api/app/v1/*` only, kept with the system's secure
     storage. The contract is `shared/src/cloud-protocol/owner-claim.ts` (MIT).
+  - **Two ways to sign in** (the owner, 2026-11-26: people who use e-mail should not have to go to the browser):
+    **Continue with Google** is the browser flow above (Google allows no embedded web view). **E-mail** stays in the
+    app: the address, **Send code**, the 6-digit code (`/api/app/v1/email/start` with a PKCE challenge, `/email/verify`
+    with the verifier → the same token), under the line "By continuing you agree to the Terms and Privacy" with links;
+    the console's mail-code limits and terms consent apply. `email/start` answers the same for any address. A small
+    system sheet for Google on the Mac (`ASWebAuthenticationSession`) is left for a follow-up.
   - The console makes the team on the Free plan only, with its existing rules (one team per account, one free team
     ever, waiting list, free-pool room, network limits). The app shows each refusal as its own line.
   - **Owner claim, two-phase.** When the team is ready, the console gives the app

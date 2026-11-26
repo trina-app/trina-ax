@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'bun:test'
 import crypto from 'node:crypto'
 import {
-  appCallbackUrl, appConnectUrl, isOwnerClaim, OWNER_CLAIM_CONFIRM_PATH, OWNER_CLAIM_RESERVE_PATH, ownerClaimSetupUrl,
+  APP_PATHS, appCallbackUrl, appConnectUrl, isAppEmail, isOwnerClaim, parseAppEmailStart, parseAppEmailVerify, OWNER_CLAIM_CONFIRM_PATH, OWNER_CLAIM_RESERVE_PATH, ownerClaimSetupUrl,
   ownerClaimSigningString, parseAppConnectParams, parseAppCreateTeam, parseAppError, parseAppMe, parseAppTeam,
   parseAppTokenAnswer, parseAppTokenRequest, parseOwnerClaimConfirmAnswer, parseOwnerClaimOwner, parseOwnerClaimRequest,
   readOwnerClaimFragment, suggestTeamSlug, teamSlugOk,
@@ -80,6 +80,17 @@ describe('app and console', () => {
     expect(new URL(O.connect.cancelled).searchParams.get('error')).toBe('cancelled')
     expect(appCallbackUrl(1234, { code: O.claim, state: 's' })).toContain('127.0.0.1')
     expect(appConnectUrl('https://account.treesoop.com/x', { state: 'a', challenge: 'b', port: 2000, locale: 'ko', store: false })).toStartWith('https://account.treesoop.com/app/connect?')
+  })
+
+  test('e-mail sign-in inside the app: start and verify bodies are strict', () => {
+    for (const ok of O.email.start.valid) expect(parseAppEmailStart(ok)).toEqual(ok as never)
+    for (const bad of O.email.start.invalid) expect(parseAppEmailStart(bad.raw), bad.why).toBeNull()
+    for (const ok of O.email.verify.valid) expect(parseAppEmailVerify(ok)).toEqual(ok)
+    for (const bad of O.email.verify.invalid) expect(parseAppEmailVerify(bad.raw), bad.why).toBeNull()
+    expect(APP_PATHS.emailStart).toBe('/api/app/v1/email/start')
+    expect(APP_PATHS.emailVerify).toBe('/api/app/v1/email/verify')
+    expect(isAppEmail('a@b.co')).toBe(true)
+    expect(isAppEmail('a b@c.co')).toBe(false)
   })
 
   test('token request and answer', () => {

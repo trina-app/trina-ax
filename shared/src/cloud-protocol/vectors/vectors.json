@@ -1403,6 +1403,101 @@
    "callback": "http://127.0.0.1:53682/console-callback?code=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&state=BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
    "cancelled": "http://127.0.0.1:53682/console-callback?error=cancelled&state=BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc"
   },
+  "email": {
+   "start": {
+    "valid": [
+     {
+      "email": "owner@example.com",
+      "locale": "en",
+      "challenge": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk"
+     },
+     {
+      "email": "owner@example.com",
+      "locale": "ko",
+      "challenge": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk",
+      "store": true
+     }
+    ],
+    "invalid": [
+     {
+      "raw": {
+       "email": "owner@example.com",
+       "locale": "en",
+       "challenge": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk",
+       "store": false
+      },
+      "why": "store is true or absent"
+     },
+     {
+      "raw": {
+       "email": " owner@example.com",
+       "locale": "en",
+       "challenge": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk"
+      },
+      "why": "surrounding spaces"
+     },
+     {
+      "raw": {
+       "email": "owner@localhost",
+       "locale": "en",
+       "challenge": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk"
+      },
+      "why": "a domain with a dot"
+     },
+     {
+      "raw": {
+       "email": "owner@example.com",
+       "locale": "en"
+      },
+      "why": "challenge is required"
+     },
+     {
+      "raw": {
+       "email": "owner@example.com",
+       "locale": "en",
+       "challenge": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk",
+       "password": "x"
+      },
+      "why": "unknown key"
+     }
+    ]
+   },
+   "verify": {
+    "valid": [
+     {
+      "email": "owner@example.com",
+      "code": "042917",
+      "verifier": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM"
+     }
+    ],
+    "invalid": [
+     {
+      "raw": {
+       "email": "owner@example.com",
+       "code": "42917",
+       "verifier": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM"
+      },
+      "why": "6 digits"
+     },
+     {
+      "raw": {
+       "email": "owner@example.com",
+       "code": "04291a",
+       "verifier": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM"
+      },
+      "why": "digits only"
+     },
+     {
+      "raw": {
+       "email": "owner@example.com",
+       "code": "042917",
+       "verifier": "short"
+      },
+      "why": "verifier"
+     }
+    ]
+   }
+  },
   "slugs": [
    {
     "name": "Acme",
