@@ -9,6 +9,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { FILE_TOOLS, PRODUCT, type LaunchRequest } from '@mycel/shared'
+import type { Effort } from '@mycel/shared/api'
 import { REPO_ROOT } from '../app-config'
 import { engineTimeZone } from '../system/time-zone'
 
@@ -173,7 +174,11 @@ export function codexManagedArgs(m: CodexManaged): string[] {
   ]
 }
 
-export function codexArgs(conf: CodexConf, o: { extraTools?: string[]; model?: string; managed?: CodexManaged; webSearch?: boolean } = {}): string[] {
+/** The depth a person chose (Effort) as Codex's model_reasoning_effort. Always sent once chosen, 보통 too ('medium'):
+ * some Codex models default to low. Not chosen: nothing, Codex's own default as before. */
+export const CODEX_REASONING: Record<Effort, 'low' | 'medium' | 'high'> = { quick: 'low', normal: 'medium', thorough: 'high' }
+
+export function codexArgs(conf: CodexConf, o: { extraTools?: string[]; model?: string; managed?: CodexManaged; webSearch?: boolean; effort?: Effort | null } = {}): string[] {
   return ['exec', '--json', '--skip-git-repo-check', '--ephemeral', '--ignore-rules', '--ignore-user-config',
     '-s', 'read-only',
     '-c', 'approval_policy="never"',
@@ -194,6 +199,7 @@ export function codexArgs(conf: CodexConf, o: { extraTools?: string[]; model?: s
     ...(o.managed && o.webSearch !== false ? ['-c', 'model_providers.teamax.supports_standalone_web_search=true'] : []),
     '-c', `model_catalog_json=${JSON.stringify(conf.catalog)}`,
     '-c', `model=${JSON.stringify(o.model ?? conf.model)}`,
+    ...(o.effort ? ['-c', `model_reasoning_effort="${CODEX_REASONING[o.effort]}"`] : []),
     ...CODEX_DISABLED_FEATURES.flatMap((f) => ['-c', `features.${f}=false`]),
     '-c', 'mcp_servers.team.command="{BRIDGE}"',
     '-c', 'mcp_servers.team.args=["--turn-dir","{CHAT_DIR}","--sock","{TOOLS_SOCK}"]',
@@ -210,7 +216,7 @@ export function codexArgs(conf: CodexConf, o: { extraTools?: string[]; model?: s
 export const codexProxyUrl = (port: number, token: string) => `http://turn:${token}@127.0.0.1:${port}`
 
 export function buildCodexLaunch(i: {
-  turnId: string; chatDir: string; token: string; systemPrompt: string; message: string; timeoutMs: number; extraTools?: string[]; model?: string; webSearch?: boolean
+  turnId: string; chatDir: string; token: string; systemPrompt: string; message: string; timeoutMs: number; extraTools?: string[]; model?: string; webSearch?: boolean; effort?: Effort | null
   /** agent-own (F1): the CONNECT tunnel */
   proxy?: { port: number; token: string }
   /** managed: the provider setup and the placeholder auth.json (credentials/codex-home.ts dummyAuthJson) */
@@ -225,7 +231,7 @@ export function buildCodexLaunch(i: {
   const stdin = `<instructions>\n${i.systemPrompt}\n</instructions>\n\n${i.message}`
   return {
     op: 'run', turnId: i.turnId, chatDir: i.chatDir, cmd: conf.bin,
-    args: codexArgs({ ...conf, catalog: p.catalog }, { extraTools: i.extraTools, model: i.model, webSearch: i.webSearch, ...(i.managed ? { managed: { port: i.managed.port, mode: i.managed.mode, codexVersion: i.managed.codexVersion } } : {}) }),
+    args: codexArgs({ ...conf, catalog: p.catalog }, { extraTools: i.extraTools, model: i.model, webSearch: i.webSearch, effort: i.effort, ...(i.managed ? { managed: { port: i.managed.port, mode: i.managed.mode, codexVersion: i.managed.codexVersion } } : {}) }),
     env: {
       PATH: '/usr/bin:/bin', HOME: p.agentHome, CODEX_HOME: p.codexHome, TMPDIR: tmp, LANG: 'en_US.UTF-8',
       // the team's time zone (system/time-zone.ts): a Linux server itself runs in UTC

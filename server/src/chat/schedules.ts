@@ -553,11 +553,13 @@ export class Schedules {
     // (one notice), and the run saves in the own folder instead (chat/schedule-scope.ts; the run is told why)
     try { checkLapse(this.rt.ctx, s, now) } catch (e) { this.rt.log.warn('schedule save folder check failed', { schedule: s.id, err: String(e) }) }
     // the owner's AI, as for a chat they start now (admin/engine-choice.ts, the same as Slack and rooms): their own
-    // default engine and model when they may pick and it is on, else the team default; decided at each run, so a later
-    // change of either applies. Every run is a new chat, so there is no chat engine to keep.
+    // default engine, model and depth when they may pick and it is on, else the team default; decided at each run, so a
+    // later change of either applies. A run that posts into a shared chat (or its own run chat) answers there as a person
+    // sending there would: with that chat's model and depth (engineFor below, once the chat is decided)
     const person = { id: user.id, role: user.role }
     const fresh = newChatEngine(this.rt.ctx, person, {}, locale)
     const te = turnEngine(this.rt.ctx, person, fresh, {}, locale, (e) => this.rt.defaultModelFor(e))
+    let madeHere = false
     const p = zonedParts(now, this.rt.timeZone)
     const date = `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`
     const id = newId(), ts = now.toISOString()
@@ -581,14 +583,16 @@ export class Schedules {
         const guestNow = (c: ChatRow) => { if (!(s as { quiet?: number }).quiet) return false; try { return new Audiences(this.db, this.rt.files).ofChat(c).some((u) => isGuestUser(this.db, u)) } catch { return true } }
         const into = (shared && !guestNow(shared) ? shared : null) ?? (frequent ? this.ownRunChat(s) : null)
         if (into) { rememberUrls(this.db, into.id, scheduleList(s.allowed_urls), 'allowed'); return into }
-        this.db.query("INSERT INTO chats(id,user_id,project_id,title,title_source,engine,model,created_at,updated_at) VALUES(?,?,?,?,'schedule',?,?,?,?)")
-          .run(id, s.user_id, project ? s.project_id : null, `${s.title} · ${date}`, fresh.engine, fresh.model, ts, ts)
+        this.db.query("INSERT INTO chats(id,user_id,project_id,title,title_source,engine,model,effort,created_at,updated_at) VALUES(?,?,?,?,'schedule',?,?,?,?,?)")
+          .run(id, s.user_id, project ? s.project_id : null, `${s.title} · ${date}`, fresh.engine, fresh.model, fresh.effort ?? null, ts, ts)
+        madeHere = true
         // the run's message is the AI's text (auto_sent): only the addresses the person saw on the schedule's card open
         // without asking (docs/DECISIONS.md "Outbound web channels")
         rememberUrls(this.db, id, scheduleList(s.allowed_urls), 'allowed')
         return this.rt.store.chatRow(id)!
       },
       userId: s.user_id, locale, windowId: null, clientKind: 'schedule', engine: te.engine, model: te.model, ...(te.substitutedFrom ? { substitutedFrom: te.substitutedFrom } : {}),
+      engineFor: (chat) => (madeHere ? te : turnEngine(this.rt.ctx, person, chat, {}, locale, (e) => this.rt.defaultModelFor(e))),
       scheduled: { id: s.id, dueAt: originalDue, commit: (chatId) => {
         commit(chatId)
         if (s.template_id) this.db.query('UPDATE turns SET template_source_path=?,template_output_path=? WHERE schedule_id=? AND scheduled_for=?')

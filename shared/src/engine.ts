@@ -33,7 +33,11 @@ export const EngineEvent = z.discriminatedUnion('type', [
    * provider's id of the request (OpenRouter's generation id), for the log; running: one model call's tokens while
    * the run goes on (Claude Code's stream), an estimate the run's own total replaces when it comes; continues: the run
    * goes on after this call (it asked for a tool, or it was a sub-agent's; Claude Code, the API engine), so a used-up budget may stop it there */
-  z.object({ type: z.literal('usage'), inputTokens: z.number(), outputTokens: z.number(), costUsd: z.number().optional(), costUnknown: z.boolean().optional(), requestId: z.string().optional(), running: z.boolean().optional(), continues: z.boolean().optional() }),
+  z.object({ type: z.literal('usage'), inputTokens: z.number(), outputTokens: z.number(), costUsd: z.number().optional(), costUnknown: z.boolean().optional(), requestId: z.string().optional(), running: z.boolean().optional(), continues: z.boolean().optional(),
+    /** the model that answered (a running call's message_start model; the API engine's model) */
+    model: z.string().max(200).optional(),
+    /** a run's total split by model (Claude Code result.modelUsage; input = input + cache read + cache creation) */
+    byModel: z.array(z.object({ model: z.string().max(200), inputTokens: z.number(), outputTokens: z.number(), costUsd: z.number().optional() })).max(20).optional() }),
   /** status: the provider's HTTP status, when there was one */
   /** retryAt: a limit's reset time as the engine itself told it (Claude Code's rate_limit_event resetsAt, "limit
    * reached|<epoch>"), server/src/chat/turn.ts limitError; weekly: the engine said a weekly (or longer) limit without a

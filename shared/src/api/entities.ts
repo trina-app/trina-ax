@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { RecommendedTools } from './team-tools'
 import { UserId, Uuid7 } from '../ids'
 import { StepShared } from './share-card'
-import { Access, ApiErrorBody, ClientKind, EngineId, IsoTime, Locale, GuestDetail, GuestPlace, RelPath, Role, TeamRole, TextSize, Theme, UserStatus } from './common'
+import { Access, ApiErrorBody, ClientKind, Effort, EngineId, IsoTime, Locale, GuestDetail, GuestPlace, RelPath, Role, TeamRole, TextSize, Theme, UserStatus } from './common'
 
 // ---------------- people ----------------
 /** Minimal person reference (chat authors, audit actors, file authors). */
@@ -44,6 +44,8 @@ export const UserPrefs = z.object({
   /** own default engine/model for new chats ("내 기본 엔진/모델"; only for people who may pick the engine) */
   engine: EngineId.optional(),
   model: z.string().max(100).optional(),
+  /** own default depth for new chats (빠르게 · 보통 · 꼼꼼하게); a value this version does not know reads as absent */
+  effort: Effort.optional().catch(undefined),
   /** set themselves away (the account menu's "자리 비움으로 표시"; docs/DECISIONS.md "접속 상태"): their dot shows away
    * until they change it. Only PUT /api/me/away sets it; PATCH /api/me leaves it as it is. */
   away: z.boolean().optional(),
@@ -301,6 +303,8 @@ export const Chat = z.object({
   title: z.string(),
   engine: EngineId,
   model: z.string().nullable(),
+  /** the chat's depth (Effort); null = not chosen (the team default). Absent from older servers. */
+  effort: Effort.nullable().optional(),
   createdAt: IsoTime,
   updatedAt: IsoTime,
   /** soft delete; purged 7 days later */
@@ -1120,6 +1124,9 @@ export const TeamSettings = z.object({
   defaultLocale: Locale,
   defaultEngine: EngineId,
   defaultModel: z.string().nullable(),
+  /** the team's default depth for new chats (Admin › Team settings › AI defaults); null = 보통 (as before). Older
+   * servers omit it. */
+  defaultEffort: Effort.nullable().optional(),
   /** turns running at the same time across the team */
   concurrency: z.number().int().min(1).max(16),
   updateChannel: z.enum(['stable', 'beta']),

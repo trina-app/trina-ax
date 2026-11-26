@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-26 04:20
 - Branch: `feat/model-effort-choice` (the MVP, one PR; the plan was reviewed on `plan/model-effort-choice`)
-- Status: in progress (owner approved the recommendations 2026-11-26; review changes below)
+- Status: done (owner approved the recommendations 2026-11-26; review changes below; built as one PR)
 - Where: server/ (B: `server/src/chat`, `server/src/engine`, migration; A: `server/src/admin`, `server/src/credentials`),
   shared/src/api, web/. Why: the choice is made per turn by the chat engine, recorded by the model proxy and shown in
   Settings and Admin (docs/REPOSITORY-RULES.md, docs/WORKPLAN.md section 5).
@@ -321,4 +321,16 @@ These live in Admin › Team settings › AI defaults, on existing rows. Nothing
 
 ## Result
 
-(filled in at the end)
+Built as one PR (`feat/model-effort-choice`) with the MVP of "Review changes" above; the cut items are not built.
+
+- Server: migration `456_b_model_effort.sql`; `turn_models` written by `credentials/broker.ts` (proxy) and
+  `chat/turn-models.ts` (engine report, only while the proxy counted nothing); the depth through
+  `admin/engine-choice.ts` (same rule as engine/model), `chat/runtime.ts` createTurn, `engine/claude.ts` `CLAUDE_EFFORT`,
+  `engine/codex.ts` `CODEX_REASONING`; the schedule fix through createTurn's `engineFor`; a new team writes
+  `engines.memberChoice` = everyone at setup; usage lists read `TURN_MODEL_ROWS` and name models with
+  `shared/src/model-names.ts`.
+- Web: the depth row and model hints in the picker, Settings and Admin defaults, model names in the usage lists, six
+  locales.
+- No docs/site page described the picker, so none changed; `docs/CONNECTIONS.md` is unchanged (no connection mode or
+  surface changed: the hint only reads how the person's connection is paid).
+

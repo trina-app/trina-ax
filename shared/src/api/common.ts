@@ -157,6 +157,11 @@ export type Access = z.infer<typeof Access>
 /** Engine ids as stored in chats.engine / turns.engine. */
 export const EngineId = z.enum(['claude-code', 'codex', 'api'])
 export type EngineId = z.infer<typeof EngineId>
+/** How hard the AI thinks (docs/decisions/20261126-model-effort-choice.md): 빠르게 · 보통 · 꼼꼼하게. Claude Code takes
+ * `--effort low` / no flag / `--effort high`; Codex `model_reasoning_effort` low / medium / high. null or absent = not
+ * chosen (보통, the model's own default; Codex then gets no setting either). */
+export const Effort = z.enum(['quick', 'normal', 'thorough'])
+export type Effort = z.infer<typeof Effort>
 export const Theme = z.enum(['system', 'light', 'dark'])
 export type Theme = z.infer<typeof Theme>
 /** The person's text size (Settings > Profile), smallest to largest: the web app's root font size (web/src/lib/textSize.ts). */

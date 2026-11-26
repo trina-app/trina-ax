@@ -10,6 +10,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   defaultLocale: DEFAULT_LOCALE,
   defaultEngine: 'claude-code',
   defaultModel: null,
+  /** 보통 (no flag): what ran before the depth choice (docs/decisions/20261126-model-effort-choice.md) */
+  defaultEffort: null,
   concurrency: 3,
   updateChannel: 'stable',
   updateWindow: null,

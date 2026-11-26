@@ -7,14 +7,14 @@
 // off, e.g. office mode; on for hosted servers, settleHostedFallback, else off until an admin turns it on): the other of
 // Claude Code and Codex answers a turn whose engine has no working AI connection of the person (credentials/access.ts
 // connectionRoute) or, for Claude, hits its limit (chat/turn.ts limitFallback).
-import { MemberEngineChoice, UserPrefs, type EngineId, type EngineStatus, type Locale } from '@mycel/shared/api'
+import { Effort, MemberEngineChoice, UserPrefs, type EngineId, type EngineStatus, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
 import { codexBetaAllowed, codexIsBeta, safeModel, type EngineConfs } from '../chat/engines'
-import { allowedCredentialKinds, isManaged } from '../app-config'
+import { allowedCredentialKinds, anthropicGateway, isManaged } from '../app-config'
 import { isHosted } from '../system/deployment'
 import { audit } from './audit'
-import { hasCredentialFor } from '../credentials/resolve'
+import { resolveCredential } from '../credentials/resolve'
 import { tr } from '../chat/i18n'
 import { enginesEnabled, getSetting, getTeamSettings, setSetting } from './settings'
 import { CLAUDE_MODELS, ENGINE_LABELS, codexModels, engineEnv, engineStatusCache } from './engines'
@@ -30,11 +30,18 @@ const OFF: MemberEngineChoice = { mode: 'off', groupIds: [], userIds: [] }
 
 type Ctx = Pick<AppContext, 'db' | 'config'>
 export interface Person { id: string; role: string }
-export interface EngineModel { engine: EngineId; model: string | null }
+/** effort: the depth (Effort; null = not chosen, 보통). It follows the same who-may-pick rule as the engine and model. */
+export interface EngineModel { engine: EngineId; model: string | null; effort?: Effort | null }
 
 export function memberChoice(ctx: Pick<AppContext, 'db'>): MemberEngineChoice {
   const v = MemberEngineChoice.safeParse(getSetting(ctx.db, MEMBER_CHOICE_KEY))
   return v.success ? v.data : OFF
+}
+/** A team set up from this version on lets everyone pick (owner decision 2026-11-26,
+ * docs/decisions/20261126-model-effort-choice.md): written once when the owner account is made. A team from before
+ * keeps what it has (no key: off). */
+export function settleNewTeamMemberChoice(ctx: Pick<AppContext, 'db'>) {
+  if (getSetting(ctx.db, MEMBER_CHOICE_KEY) === undefined) setMemberChoice(ctx, { mode: 'everyone', groupIds: [], userIds: [] })
 }
 export function setMemberChoice(ctx: Pick<AppContext, 'db'>, v: MemberEngineChoice) {
   setSetting(ctx.db, MEMBER_CHOICE_KEY, { mode: v.mode, groupIds: [...new Set(v.groupIds)], userIds: [...new Set(v.userIds)] })
@@ -97,7 +104,8 @@ export function choosableEngines(ctx: Ctx, p: Person): EngineId[] {
 
 export function teamDefault(ctx: Pick<AppContext, 'db'>): EngineModel {
   const s = getTeamSettings(ctx.db)
-  return { engine: s.defaultEngine, model: s.defaultModel && safeModel(s.defaultModel) ? s.defaultModel : null }
+  const effort = Effort.safeParse(s.defaultEffort)
+  return { engine: s.defaultEngine, model: s.defaultModel && safeModel(s.defaultModel) ? s.defaultModel : null, effort: effort.success ? effort.data : null }
 }
 
 function prefsOf(ctx: Pick<AppContext, 'db'>, userId: string): UserPrefs {
@@ -107,11 +115,14 @@ function prefsOf(ctx: Pick<AppContext, 'db'>, userId: string): UserPrefs {
 
 /** New chats: the person's own default ("내 기본 엔진/모델") when they may pick and it is on, else the team default. */
 export function personalDefault(ctx: Ctx, p: Person): EngineModel {
+  const def = teamDefault(ctx)
   if (canChooseEngine(ctx, p)) {
     const prefs = prefsOf(ctx, p.id)
-    if (prefs.engine && engineOn(ctx, prefs.engine)) return { engine: prefs.engine, model: prefs.model && safeModel(prefs.model) ? prefs.model : null }
+    const effort = prefs.effort ?? def.effort ?? null
+    if (prefs.engine && engineOn(ctx, prefs.engine)) return { engine: prefs.engine, model: prefs.model && safeModel(prefs.model) ? prefs.model : null, effort }
+    return { ...def, effort }
   }
-  return teamDefault(ctx)
+  return def
 }
 
 const checkModel = (model: string | null | undefined) => {
@@ -135,47 +146,55 @@ export interface TurnEngine extends EngineModel {
  * team default when the chat's engine is off. A choice is refused for people who may not pick (unless it names what
  * they would get anyway) and for an engine that is off.
  */
-export function turnEngine(ctx: Ctx, p: Person, chat: { engine: string; model: string | null }, body: { engine?: EngineId; model?: string | null }, locale: Locale, defaultModelFor: (e: EngineId) => string | null): TurnEngine {
+export function turnEngine(ctx: Ctx, p: Person, chat: { engine: string; model: string | null; effort?: string | null }, body: { engine?: EngineId; model?: string | null; effort?: Effort | null }, locale: Locale, defaultModelFor: (e: EngineId) => string | null): TurnEngine {
   checkModel(body.model)
   const chatEngine: EngineId = chat.engine === 'codex' || chat.engine === 'api' ? chat.engine : 'claude-code'
   const def = teamDefault(ctx)
+  // the chat's depth, else the team default (a chat from before, or one nobody chose a depth for)
+  const chatEffort = Effort.safeParse(chat.effort)
+  const baseEffort = chatEffort.success ? chatEffort.data : def.effort ?? null
   const base: TurnEngine = engineOn(ctx, chatEngine)
-    ? { engine: chatEngine, model: chat.model ?? defaultModelFor(chatEngine) }
-    : { ...def, substitutedFrom: chatEngine }
+    ? { engine: chatEngine, model: chat.model ?? defaultModelFor(chatEngine), effort: baseEffort }
+    : { ...def, effort: baseEffort, substitutedFrom: chatEngine }
   if (!canChooseEngine(ctx, p)) {
     if (body.engine !== undefined && body.engine !== base.engine) notAllowed(locale)
     if (body.model !== undefined && (body.model ?? null) !== base.model) notAllowed(locale)
+    if (body.effort !== undefined && (body.effort ?? null) !== base.effort) notAllowed(locale)
     return base
   }
-  if (body.engine === undefined && body.model === undefined) return base
+  const effort = body.effort !== undefined ? body.effort ?? null : base.effort ?? null
+  if (body.engine === undefined && body.model === undefined) return { ...base, effort }
   const engine = body.engine ?? base.engine
   if (!engineOn(ctx, engine)) engineOff(ctx, locale, p, engine)
   const model = body.model !== undefined ? body.model ?? null : engine === base.engine ? base.model : null
-  return { engine, model, ...(base.substitutedFrom && engine === base.engine ? { substitutedFrom: base.substitutedFrom } : {}) }
+  return { engine, model, effort, ...(base.substitutedFrom && engine === base.engine ? { substitutedFrom: base.substitutedFrom } : {}) }
 }
 
 /** A new chat's engine and model (POST /api/chats). */
-export function newChatEngine(ctx: Ctx, p: Person, body: { engine?: EngineId; model?: string | null }, locale: Locale): EngineModel {
+export function newChatEngine(ctx: Ctx, p: Person, body: { engine?: EngineId; model?: string | null; effort?: Effort | null }, locale: Locale): EngineModel {
   checkModel(body.model)
   const mine = personalDefault(ctx, p)
   if (!canChooseEngine(ctx, p)) {
     if (body.engine !== undefined && body.engine !== mine.engine) notAllowed(locale)
     if (body.model !== undefined && (body.model ?? null) !== mine.model) notAllowed(locale)
+    if (body.effort !== undefined && (body.effort ?? null) !== (mine.effort ?? null)) notAllowed(locale)
     return mine
   }
   if (body.engine !== undefined && !engineOn(ctx, body.engine)) engineOff(ctx, locale, p, body.engine)
   const engine = body.engine ?? mine.engine
   const model = body.model !== undefined ? body.model ?? null : body.engine !== undefined && body.engine !== mine.engine ? null : mine.model
-  return { engine, model }
+  const effort = body.effort !== undefined ? body.effort ?? null : mine.effort ?? null
+  return { engine, model, effort }
 }
 
 /** PATCH /api/chats/:id engine / model: refused for people who may not pick (unless unchanged) and for an engine that is off. */
-export function checkChatEngineChange(ctx: Ctx, p: Person, chat: { engine: string; model: string | null }, body: { engine?: EngineId; model?: string | null }, locale: Locale): void {
+export function checkChatEngineChange(ctx: Ctx, p: Person, chat: { engine: string; model: string | null; effort?: string | null }, body: { engine?: EngineId; model?: string | null; effort?: Effort | null }, locale: Locale): void {
   checkModel(body.model)
-  if (body.engine === undefined && body.model === undefined) return
+  if (body.engine === undefined && body.model === undefined && body.effort === undefined) return
   if (!canChooseEngine(ctx, p)) {
     if (body.engine !== undefined && body.engine !== chat.engine) notAllowed(locale)
     if (body.model !== undefined && (body.model ?? null) !== chat.model) notAllowed(locale)
+    if (body.effort !== undefined && (body.effort ?? null) !== (chat.effort ?? null)) notAllowed(locale)
     return
   }
   if (body.engine !== undefined && body.engine !== chat.engine && !engineOn(ctx, body.engine)) engineOff(ctx, locale, p, body.engine)
@@ -205,7 +224,7 @@ export async function readyEngines(ids: EngineId[], problems: EngineConfs['probl
 export async function chatEnginesFor(ctx: AppContext, p: Person, problems: EngineConfs['problems'], locale: Locale) {
   const def = teamDefault(ctx)
   const canChoose = canChooseEngine(ctx, p)
-  if (!canChoose) return { canChoose, defaultEngine: def.engine, defaultModel: def.model, engines: [] }
+  if (!canChoose) return { canChoose, defaultEngine: def.engine, defaultModel: def.model, defaultEffort: def.effort ?? null, engines: [] }
   const env = engineEnv(ctx)
   // the API engine has one model, the one the owner set (its display name is the label)
   const api = readApiEngine(ctx.config.dataDir)
@@ -216,19 +235,30 @@ export async function chatEnginesFor(ctx: AppContext, p: Person, problems: Engin
   const cache = engineStatusCache(ctx)
   const managed = isManaged(ctx.config)
   const allowed = allowedCredentialKinds(ctx.config)
+  // how this person's connection is paid, for the model hints (a subscription's limits or an API key's cost)
+  const billing = new Map<EngineId, 'limit' | 'cost'>()
   const ready = await readyEngines(choosableEngines(ctx, p), problems, async (id) => {
     if (managed && id !== 'api') {
-      return hasCredentialFor(ctx.db, p.id, id, allowed) ? 'ok' : 'not_logged_in'
+      const r = resolveCredential(ctx.db, { userId: p.id, engine: id, allowedKinds: allowed })
+      if (!r.ok) return 'not_logged_in'
+      billing.set(id, r.kind === 'anthropic-api-key' || r.kind === 'openai-api-key' ? 'cost' : 'limit')
+      return 'ok'
     }
     return (await cache.get(id, true, locale)).status
   }, () => ctx.services.realtime.publishEach(() => ENGINE_CHOICE_CHANGED))
-  return { canChoose, defaultEngine: def.engine, defaultModel: def.model, engines: ready.map((id) => ({ id, ...of(id) })) }
+  // a gateway or the API engine is paid per use. The depth: Claude Code (--effort, which the pinned version has; an
+  // engine without it just runs without the flag, engine/claude.ts claudeKnowsEffort) and Codex, not the API engine
+  if (anthropicGateway(ctx.config)) billing.set('claude-code', 'cost')
+  billing.set('api', 'cost')
+  const effortOn = (id: EngineId) => id === 'codex' || id === 'claude-code'
+  return { canChoose, defaultEngine: def.engine, defaultModel: def.model, defaultEffort: def.effort ?? null,
+    engines: ready.map((id) => ({ id, ...of(id), effort: effortOn(id), ...(billing.has(id) ? { billing: billing.get(id)! } : {}) })) }
 }
 
 /** Own default engine / model (PATCH /api/me prefs): only for people who may pick; null clears it. */
-export function filterEnginePrefs(ctx: Pick<AppContext, 'db'>, p: Person, prefs: { engine?: EngineId | null; model?: string | null }): { engine?: EngineId | null; model?: string | null } {
+export function filterEnginePrefs(ctx: Pick<AppContext, 'db'>, p: Person, prefs: { engine?: EngineId | null; model?: string | null; effort?: Effort | null }): { engine?: EngineId | null; model?: string | null; effort?: Effort | null } {
   const out = { ...prefs }
-  if (!canChooseEngine(ctx, p)) { delete out.engine; delete out.model; return out }
+  if (!canChooseEngine(ctx, p)) { delete out.engine; delete out.model; delete out.effort; return out }
   if (out.model !== undefined && out.model !== null && !safeModel(out.model)) fail('validation', undefined, { fields: { 'body.prefs.model': 'not a model name' } })
   return out
 }

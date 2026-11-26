@@ -5,12 +5,12 @@
 import type { Database } from 'bun:sqlite'
 import type { z } from 'zod'
 import { DEMO_LIMIT_REASON, type Budget, type BudgetBody, type Locale, type UsageQuery, type UsageResponse } from '@mycel/shared/api'
-import { ANSWER_AVERAGE_DAYS, DEFAULT_TOKENS_PER_ANSWER, MIN_ANSWERS_FOR_AVERAGE, limitResetText } from '@mycel/shared'
+import { ANSWER_AVERAGE_DAYS, DEFAULT_TOKENS_PER_ANSWER, MIN_ANSWERS_FOR_AVERAGE, limitResetText, modelDisplayName } from '@mycel/shared'
 import { newId } from '../db'
 import { fail } from '../http/errors'
 import { msg } from '../auth/messages'
 import { teamTimeZone } from './settings'
-import { USAGE_AGG, turnAmount, withCounts, type TurnAmountRow } from './usage-amount'
+import { TURN_MODEL_ROWS, USAGE_AGG, turnAmount, withCounts, type TurnAmountRow } from './usage-amount'
 import { zonedDay, zonedParts, zonedToUtc } from '../system/time-zone'
 
 type In<T extends z.ZodType> = z.output<T>
@@ -245,11 +245,11 @@ export function insertGuestBudget(db: Database, userId: string, limitTokens: num
  * Usage per calendar day of the team's time zone (like every date the team sees), not per UTC day: in Seoul a UTC
  * day ends at 09:00. Folded here rather than in SQL, so the day follows the same time zone as the rest of the server.
  */
-function usageByLocalDay(db: Database, where: string, params: string[]): UsageRes['rows'] {
+function usageByLocalDay(db: Database, where: string, params: string[], from = 'turns'): UsageRes['rows'] {
   const tz = teamTimeZone(db)
   const localDay = (d: Date) => zonedDay(d, tz)
   const days = new Map<string, UsageRes['rows'][number]>()
-  const rows = db.query(`SELECT t.started_at, t.input_tokens, t.output_tokens, t.cost_usd, t.est_cost_usd, t.usage_source FROM turns t WHERE ${where}`).all(...params) as ({ started_at: string } & TurnAmountRow)[]
+  const rows = db.query(`SELECT t.started_at, t.input_tokens, t.output_tokens, t.cost_usd, t.est_cost_usd, t.usage_source FROM ${from} t WHERE ${where}`).all(...params) as ({ started_at: string } & TurnAmountRow)[]
   for (const r of rows) {
     const key = localDay(new Date(r.started_at))
     const d = days.get(key) ?? { key, label: key, turns: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 }
@@ -267,7 +267,7 @@ function usageByLocalDay(db: Database, where: string, params: string[]): UsageRe
 
 /** The chart: tokens per day (team time zone) split by the groupBy key. Skill and group keys can overlap, like their rows;
  * groupBy=day has one key, 'all'. */
-function usageSeries(db: Database, groupBy: In<typeof UsageQuery>['groupBy'], where: string, params: string[]): NonNullable<UsageRes['series']> {
+function usageSeries(db: Database, groupBy: In<typeof UsageQuery>['groupBy'], where: string, params: string[], from = 'turns'): NonNullable<UsageRes['series']> {
   const tz = teamTimeZone(db)
   const pick: Record<In<typeof UsageQuery>['groupBy'], { key: string; join?: string; and?: string }> = {
     user: { key: 't.user_id' },
@@ -279,7 +279,7 @@ function usageSeries(db: Database, groupBy: In<typeof UsageQuery>['groupBy'], wh
     skill: { key: 's.skill_path', join: 'JOIN turn_skill_usage s ON s.turn_id = t.id' },
   }
   const p = pick[groupBy ?? 'user']
-  const rows = db.query(`SELECT t.started_at AS at, ${p.key} AS key, t.input_tokens AS i, t.output_tokens AS o FROM turns t ${p.join ?? ''} WHERE ${where}${p.and ?? ''}`).all(...params) as { at: string; key: string; i: number | null; o: number | null }[]
+  const rows = db.query(`SELECT t.started_at AS at, ${p.key} AS key, t.input_tokens AS i, t.output_tokens AS o FROM ${from} t ${p.join ?? ''} WHERE ${where}${p.and ?? ''}`).all(...params) as { at: string; key: string; i: number | null; o: number | null }[]
   const out = new Map<string, NonNullable<UsageRes['series']>[number]>()
   for (const r of rows) {
     const day = zonedDay(new Date(r.at), tz)
@@ -300,7 +300,7 @@ function usageFacets(db: Database, range: string[]): NonNullable<UsageRes['facet
   return {
     users: db.query(`SELECT DISTINCT t.user_id AS key, COALESCE(u.name, t.user_id) AS label FROM turns t LEFT JOIN users u ON u.id = t.user_id WHERE ${w} ORDER BY label`).all(...range) as F[],
     engines: db.query(`SELECT DISTINCT t.engine AS key, t.engine AS label FROM turns t WHERE ${w} ORDER BY key`).all(...range) as F[],
-    models: db.query(`SELECT DISTINCT COALESCE(t.model, '') AS key, COALESCE(t.model, '(default)') AS label FROM turns t WHERE ${w} ORDER BY key`).all(...range) as F[],
+    models: (db.query(`SELECT DISTINCT COALESCE(t.model, '') AS key FROM ${TURN_MODEL_ROWS} t WHERE ${w} ORDER BY key`).all(...range) as { key: string }[]).map((r) => ({ key: r.key, label: r.key ? modelDisplayName(r.key) : '(default)' })),
     credentials: db.query(`SELECT DISTINCT t.credential_id AS key, COALESCE(c.label, '') AS label FROM turns t LEFT JOIN engine_credentials c ON c.id = t.credential_id WHERE ${w} AND t.credential_id IS NOT NULL ORDER BY label`).all(...range) as F[],
     groups: db.query('SELECT id AS key, name AS label FROM groups ORDER BY name').all() as F[],
   }
@@ -321,11 +321,14 @@ export function usage(db: Database, q: In<typeof UsageQuery>, now = new Date()):
   if (q.group) { conds.push('t.user_id IN (SELECT user_id FROM group_members WHERE group_id = ?)'); params.push(q.group) }
   const where = conds.join(' AND ')
   const agg = USAGE_AGG
+  // by model, and any view filtered to one model: the models that really answered (a row per turn and model); the
+  // other views count whole turns
+  const src = q.groupBy === 'model' || q.model !== undefined ? TURN_MODEL_ROWS : 'turns'
   let sql = ''
   switch (q.groupBy) {
     case 'user': sql = `SELECT t.user_id AS key, COALESCE(u.name, t.user_id) AS label, ${agg} FROM turns t LEFT JOIN users u ON u.id = t.user_id WHERE ${where} GROUP BY t.user_id ORDER BY costUsd DESC, turns DESC`; break
     case 'engine': sql = `SELECT t.engine AS key, t.engine AS label, ${agg} FROM turns t WHERE ${where} GROUP BY t.engine ORDER BY turns DESC`; break
-    case 'model': sql = `SELECT COALESCE(t.model, '') AS key, COALESCE(t.model, '(default)') AS label, ${agg} FROM turns t WHERE ${where} GROUP BY COALESCE(t.model, '') ORDER BY turns DESC`; break
+    case 'model': sql = `SELECT COALESCE(t.model, '') AS key, COALESCE(t.model, '(default)') AS label, ${agg} FROM ${src} t WHERE ${where} GROUP BY COALESCE(t.model, '') ORDER BY turns DESC`; break
     // Skill rows attribute the whole turn. A turn using several skills appears in each row; totals below remain
     // the unique turn totals. Latest recorded name in this range labels a path even after its file is renamed.
     case 'skill': sql = `SELECT s.skill_path AS key,
@@ -340,12 +343,15 @@ export function usage(db: Database, q: In<typeof UsageQuery>, now = new Date()):
     // its id, labelled empty here (the screen says "removed connection"); turns without one (local login) are left out
     case 'credential': sql = `SELECT t.credential_id AS key, COALESCE(c.label, '') AS label, ${agg} FROM turns t LEFT JOIN engine_credentials c ON c.id = t.credential_id WHERE ${where} AND t.credential_id IS NOT NULL GROUP BY t.credential_id ORDER BY costUsd DESC, turns DESC`; break
   }
-  const rows = q.groupBy === 'day' ? usageByLocalDay(db, where, params) : (db.query(sql).all(...(q.groupBy === 'skill' ? [...range, ...params] : params)) as UsageRes['rows'])
-  const tot = db.query(`SELECT ${agg} FROM turns t WHERE ${where}`).get(...params) as UsageRes['totals']
+  const raw = q.groupBy === 'day' ? usageByLocalDay(db, where, params, src) : (db.query(sql.replace(/FROM turns t\b/g, `FROM ${src} t`)).all(...(q.groupBy === 'skill' ? [...range, ...params] : params)) as UsageRes['rows'])
+  // a model's name as people read it ("Claude Opus"); its key (and the CSV) keeps the real id
+  const rows = q.groupBy === 'model' ? raw.map((r) => ({ ...r, label: r.key ? modelDisplayName(r.key) : r.label })) : raw
+  // the totals count whole turns, unless the view is filtered to one model
+  const tot = db.query(`SELECT ${agg} FROM ${q.model !== undefined ? TURN_MODEL_ROWS : 'turns'} t WHERE ${where}`).get(...params) as UsageRes['totals']
   // unpricedTurns / estimatedTurns (admin/usage-amount.ts): only when any
   const priced = withCounts
   const res: UsageRes = { from: from.toISOString(), to: to.toISOString(), rows: rows.map(priced), totals: priced(tot) }
-  if (q.series) res.series = usageSeries(db, q.groupBy, where, params)
+  if (q.series) res.series = usageSeries(db, q.groupBy, where, params, src)
   if (q.facets) res.facets = usageFacets(db, range)
   return res
 }

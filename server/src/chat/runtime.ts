@@ -5,10 +5,11 @@
 import { reportTurnEnd } from '../system/error-reports'
 import { dropChatMedia } from '../integrations/connections/media'
 import { chatFilesOf } from './chat-files'
+import { teamDefault } from '../admin/engine-choice'
 import type { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
-import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_LOCALE, type Attachment, type ChatRunState, type ChatQueueSnapshot, type EngineId, type FileChange, type Locale, type TurnStarted } from '@mycel/shared/api'
+import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_LOCALE, type Attachment, type ChatRunState, type ChatQueueSnapshot, type Effort, type EngineId, type FileChange, type Locale, type TurnStarted } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { Running } from '../server'
 import { atLeast, type Principal } from '../policy/access'
@@ -240,6 +241,9 @@ export function readSetting<T>(db: AppContext['db'], key: string, ok: (v: unknow
   } catch { return fallback }
 }
 const isInt = (min: number, max: number) => (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max
+
+/** A stored depth (chats.effort, turns.effort) as Effort; anything else (NULL, a value of a later version) = not chosen. */
+export const effortOf = (v: string | null | undefined): Effort | null => (v === 'quick' || v === 'normal' || v === 'thorough' ? v : null)
 
 export class ChatRuntime {
   readonly store: ChatStore
@@ -929,14 +933,14 @@ export class ChatRuntime {
       if (this.activeTurn(q.chat_id) || this.endingUnconfirmed(q.chat_id)) continue
       const ready = readyAnswers(this.db, q.message_id, q.user_id)
       if (!ready) continue
-      const t = this.db.query('SELECT window_id, client_kind, engine, model FROM turns WHERE id = ?').get(q.turn_id) as { window_id: string | null; client_kind: string | null; engine: EngineId; model: string | null } | null
+      const t = this.db.query('SELECT window_id, client_kind, engine, model, effort FROM turns WHERE id = ?').get(q.turn_id) as { window_id: string | null; client_kind: string | null; engine: EngineId; model: string | null; effort: string | null } | null
       const chat = this.store.chatRow(q.chat_id)
       try {
         if (!chat || chat.deleted_at || !t) throw new Error('the chat is gone')
         const locale = this.userLocale(q.user_id)
         const hidden = labelsHidden(this.db, isSharedRow(chat), q.message_id)
         // a browser site's call runs again in the window whose browser it was for
-        this.createTurn({ chat, userId: q.user_id, locale, windowId: ready.window ?? t.window_id, clientKind: t.client_kind, engine: t.engine, model: t.model,
+        this.createTurn({ chat, userId: q.user_id, locale, windowId: ready.window ?? t.window_id, clientKind: t.client_kind, engine: t.engine, model: t.model, effort: effortOf(t.effort),
           user: { parentId: (chat) => pressParent(this.db, chat.active_leaf_id, q.message_id), content: answerWords(ready.answers, ready.requests, locale, hidden), attachments: [], clientMessageId: `answer-${ready.requests.at(-1)!.requestId}` },
           answered: answersToSave(ready.answers, ready.requests, locale, hidden) })
       } catch (e) {
@@ -1047,6 +1051,11 @@ export class ChatRuntime {
     /** Scheduled runs create their chat inside the admission transaction, after the capacity check. */
     chat: ChatRow | (() => ChatRow); userId: string; locale: Locale; windowId: string | null; clientKind: string | null
     engine: EngineId; model: string | null
+    /** the depth (Effort); absent = the chat's own (null: not chosen) */
+    effort?: Effort | null
+    /** a scheduled run decides its engine, model and depth from the chat it lands in (the shared chat it posts into, or
+     * its new chat), inside the admission transaction; it replaces engine / model / effort / substitutedFrom */
+    engineFor?: (chat: ChatRow) => { engine: EngineId; model: string | null; effort?: Effort | null; substitutedFrom?: EngineId }
     substitutedFrom?: EngineId
     /** the person's device time zone (TurnSpec.timeZone) */
     timeZone?: string
@@ -1079,9 +1088,16 @@ export class ChatRuntime {
     let userMessageId = o.answerTo?.id ?? '', assistantId = '', queueSeq = 0
     let chat!: ChatRow
     let closedQuestions: ReturnType<typeof closeChatQuestions> = []
+    let engine = o.engine, model = o.model, effort: Effort | null = null, substitutedFrom = o.substitutedFrom
     this.db.transaction(() => {
       this.checkQueueRoom(o.userId, o.locale)
       chat = typeof o.chat === 'function' ? o.chat() : o.chat
+      if (o.engineFor) {
+        const te = o.engineFor(chat)
+        engine = te.engine; model = te.model; substitutedFrom = te.substitutedFrom
+        effort = te.effort !== undefined ? te.effort ?? null : effortOf(chat.effort) ?? teamDefault(this.ctx).effort ?? null
+      // no depth named (the server's own turns: drafts, merges, Slack): the chat's, else the team default
+      } else effort = o.effort !== undefined ? o.effort ?? null : effortOf(chat.effort) ?? teamDefault(this.ctx).effort ?? null
       if (this.endingUnconfirmed(chat.id)) throw new HttpError('conflict', tr('earlierAnswerEnding', o.locale), { params: { reason: 'earlier_answer_ending' } })
       if (this.activeTurn(chat.id) || this.db.query("SELECT 1 FROM turns WHERE chat_id=? AND status IN ('queued','running')").get(chat.id))
         throw new HttpError('conflict')
@@ -1096,7 +1112,7 @@ export class ChatRuntime {
       // the AI's questions still open here go: answered ones with this turn, the rest because the chat went on
       closedQuestions = closeChatQuestions(this.db, chat.id, userMessageId || null)
       assistantId = this.store.insertMessage({ chatId: chat.id, parentId: userMessageId, role: 'assistant', authorId: null, content: '', status: 'streaming',
-        turnId, engine: o.engine, model: o.model })
+        turnId, engine, model })
       // a shared chat's answer is recorded from the moment it exists: what it reads, who saw the chat then (an answer
       // without a record is hidden from everyone but its runner: chat/shared-answers.ts)
       if (isSharedRow(chat)) newAnswerRecord(this.db, chat.id, assistantId)
@@ -1104,19 +1120,19 @@ export class ChatRuntime {
       // claim, turns.ts create) or ends it without running it. A queued turn an older build picks up after a rollback
       // runs without the shared chats' gates and keeps 0, so the rollback guards see it (chat/shared.ts
       // unshareUncheckedChats, chat/people-guard.ts unsharePeopleChecked; they pass turns still queued)
-      this.db.query(`INSERT INTO turns (id, chat_id, user_id, engine, model, status, started_at, queued_at, message_id, user_message_id, window_id, client_kind, queue_seq, schedule_id, scheduled_for, shared_checked, people_checked)
-        VALUES (?,?,?,?,?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`).run(turnId, chat.id, o.userId, o.engine, o.model, now, now, assistantId, userMessageId, o.windowId, o.clientKind, queueSeq, o.scheduled?.id ?? null, o.scheduled?.dueAt ?? null)
+      this.db.query(`INSERT INTO turns (id, chat_id, user_id, engine, model, effort, status, started_at, queued_at, message_id, user_message_id, window_id, client_kind, queue_seq, schedule_id, scheduled_for, shared_checked, people_checked)
+        VALUES (?,?,?,?,?,?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`).run(turnId, chat.id, o.userId, engine, model, effort, now, now, assistantId, userMessageId, o.windowId, o.clientKind, queueSeq, o.scheduled?.id ?? null, o.scheduled?.dueAt ?? null)
       // a chat without a title gets a placeholder from this message (title.ts); the AI may name it later (set_title)
       // never a stored connection secret of this person in it (QA INT-13, B-W5-1)
       const title = chat.title || (o.user ? placeholderTitle(o.user.content, o.user.attachments, redactorFor(this.ctx, o.userId).hide, !!chat.side_room_id) : '')
       // a shared chat keeps its creator's engine: another person's turn runs on theirs without changing the chat's
       if (isSharedRow(chat) && chat.user_id !== o.userId) this.db.query('UPDATE chats SET active_leaf_id = ?, title = ?, updated_at = ? WHERE id = ?').run(assistantId, title, now, chat.id)
-      else this.db.query('UPDATE chats SET active_leaf_id = ?, title = ?, engine = ?, model = ?, updated_at = ? WHERE id = ?')
-        .run(assistantId, title, o.engine, o.model, now, chat.id)
+      else this.db.query('UPDATE chats SET active_leaf_id = ?, title = ?, engine = ?, model = ?, effort = ?, updated_at = ? WHERE id = ?')
+        .run(assistantId, title, engine, model, effort, now, chat.id)
       o.scheduled?.commit(chat.id)
     })()
-    const spec: TurnSpec & QueueTiming = { turnId, chatId: chat.id, userId: o.userId, assistantId, userMessageId, windowId: o.windowId, clientKind: o.clientKind, engine: o.engine, model: o.model, locale: o.locale,
-      queueSeq, ...(o.substitutedFrom ? { substitutedFrom: o.substitutedFrom } : {}), ...(o.timeZone ? { timeZone: o.timeZone } : {}) }
+    const spec: TurnSpec & QueueTiming = { turnId, chatId: chat.id, userId: o.userId, assistantId, userMessageId, windowId: o.windowId, clientKind: o.clientKind, engine, model, effort, locale: o.locale,
+      queueSeq, ...(substitutedFrom ? { substitutedFrom } : {}), ...(o.timeZone ? { timeZone: o.timeZone } : {}) }
     // a shared chat: other people's questions this message closed before they answered (QA S-125; turn.ts names them).
     // Not for a scheduled run (nobody watches it to choose) or a regenerate (no new message)
     // Who asked, never the question's words: those are the asker's alone
@@ -1376,9 +1392,9 @@ export class ChatRuntime {
       }
       this.queueStore.repair()
     })()
-    const queued = this.db.query(`SELECT t.id, t.chat_id, t.user_id, t.message_id, t.user_message_id, t.window_id, t.client_kind, t.engine, t.model,t.queue_seq
+    const queued = this.db.query(`SELECT t.id, t.chat_id, t.user_id, t.message_id, t.user_message_id, t.window_id, t.client_kind, t.engine, t.model, t.effort, t.queue_seq
       FROM turns t JOIN chats c ON c.id = t.chat_id WHERE t.status = 'queued' AND c.deleted_at IS NULL ORDER BY t.queue_seq,t.id`).all() as {
-      id: string; chat_id: string; user_id: string; message_id: string | null; user_message_id: string | null; window_id: string | null; client_kind: string | null; engine: string; model: string | null; queue_seq: number }[]
+      id: string; chat_id: string; user_id: string; message_id: string | null; user_message_id: string | null; window_id: string | null; client_kind: string | null; engine: string; model: string | null; effort: string | null; queue_seq: number }[]
     // queued turns of chats in the trash never run (stop would have caught them; a crash between writes may not)
     this.db.query(`UPDATE messages SET status = 'stopped', updated_at = ? WHERE status = 'streaming' AND id IN (SELECT t.message_id FROM turns t JOIN chats c ON c.id = t.chat_id
       WHERE t.status = 'queued' AND c.deleted_at IS NOT NULL)`).run(now)
@@ -1393,7 +1409,7 @@ export class ChatRuntime {
       }
       seen.add(t.chat_id)
       this.queued.push({ turnId: t.id, chatId: t.chat_id, userId: t.user_id, assistantId: t.message_id, userMessageId: t.user_message_id, windowId: t.window_id,
-        clientKind: t.client_kind, engine: t.engine === 'codex' || t.engine === 'api' ? t.engine : 'claude-code', model: t.model, locale: this.userLocale(t.user_id), queueSeq: t.queue_seq })
+        clientKind: t.client_kind, engine: t.engine === 'codex' || t.engine === 'api' ? t.engine : 'claude-code', model: t.model, effort: effortOf(t.effort), locale: this.userLocale(t.user_id), queueSeq: t.queue_seq })
     }
     this.queueStore.repair()
     this.queueRevision++
