@@ -80,7 +80,7 @@ git push origin v0.3.0-beta.1
 | 2 | build-linux | 리눅스 kit amd64(ubuntu-24.04)·arm64(ubuntu-24.04-arm): whisper, native, 웹, `build-bundle.ts --os linux --strict`(서명 없이) | 없음 |
 | 2 | build-mac-whisper | Apple 실리콘 사무실 맥의 whisper-cli(`mac-whisper.yml`, build-office와 같은 러너): 고정한 whisper.cpp를 Metal·OpenMP 없이 빌드, 말한 문장을 받아쓰는지 확인, Developer ID 서명(hardened runtime), Apple 공증(아래 "whisper-cli for the office Mac") | 맥 서명 비밀값 5개 |
 | 2→3 | build-office | 사무실 zip(macos-15, 또는 `mac_runner` 입력·레포 변수 `RELEASE_MAC_RUNNER`, self-hosted 릴리스 맥은 13장; 두 맥 프로세서 universal, `bun run build:office -- --whisper …`). build-mac-whisper를 기다려 그 whisper-cli를 `app/bin/darwin-arm64/`에 넣는다 | 없음 |
-| 2 | build-windows | 윈도우 설치 파일 + `latest.yml`(windows-2025, `desktop dist:win`, 버전은 태그 것). 레포 변수 `WINDOWS_SIGNING_*`가 있으면 Microsoft Artifact Signing으로 서명하고 `signtool verify /pa`로 확인한다(11장), 없으면 서명 없이 | Azure 로그인(OIDC, 저장된 비밀번호 없음; 비밀값은 id 둘뿐) |
+| 2 | build-windows | 윈도우 설치 파일 + `latest.yml`(windows-2025, `desktop dist:win`, 버전은 태그 것). 레포 변수 `WINDOWS_SIGNING_PROVIDER`가 `sslcom`이면 SSL.com eSigner(CodeSignTool)로 서명하고 `signtool verify /pa`로 확인한다(11장), 비어 있으면 서명 없이 | environment `release`의 `SSLCOM_*` 넷(빌드 단계에만) |
 | 2 | build-mac-app | 맥 앱(`mac-app.yml`, build-office와 같은 러너): dmg + 업데이트 zip + `latest-mac.yml`. Developer ID로 서명, hardened runtime, Apple 공증, staple, Gatekeeper 확인(아래 "Mac app") | 맥 서명 비밀값 5개 |
 | 2 | build-linux-desktop | 리눅스 데스크톱 앱(ubuntu-24.04, `desktop dist:linux`, 버전은 태그 것): x64·arm64의 `.deb`와 AppImage, `latest-linux.yml`·`latest-linux-arm64.yml`. 서명 없음. office_only에서도 돈다. 실패해도 릴리스를 막지 않는다(`docs/decisions/20261119-linux-desktop-app.md`) | 없음 |
 | 3 | publish | 리눅스 묶음 서명(manifest.sig) → 사무실 피드(`publish.ts`, 맥 앱이 있으면 `--mac`, 리눅스 데스크톱 앱이 있으면 `--linux`) → 서버 피드(`publish-server.ts`) → `SHA256SUMS` + `.sig` | 키 + Cloudflare 토큰 |
@@ -477,74 +477,62 @@ prepare는 비밀값의 키가 목록에 없으면 멈춘다. 그래서 2를 건
 - 합 **≈ $0.7–1.1 / 빌드**. GitHub 러너는 공개 레포라 무료.
 - 보관: 스냅샷 약 $0.05/GB-월 × 4–6 GB × 3지역 × 최근 5개 릴리스(14일 안에 더 나왔으면 그만큼 더) ≈ **월 $3–4.5**(정리가 그 이상 쌓이지 않게 한다).
 
-## 11. 윈도우 코드 서명 (Microsoft Artifact Signing)
+## 11. 윈도우 코드 서명 (SSL.com eSigner)
 
 Windows installer signing. With a valid Authenticode signature the installer names the publisher (the company's
-validated legal name) instead of "Unknown publisher", and SmartScreen's "Windows protected your PC" stops once the
-signed files have built up download reputation (Microsoft: reputation is earned per file over its downloads, a new
-certificate does not skip it; an EV certificate would not either, and Artifact Signing issues none).
+validated legal name) instead of "Unknown publisher", Smart App Control stops blocking it, and SmartScreen's "Windows
+protected your PC" stops once the signed files have built up download reputation (reputation is earned per file over
+its downloads; a new certificate does not skip it).
 
 ### 무엇을 쓰나
 
-- **Microsoft Artifact Signing**(옛 이름 Trusted Signing), **Basic** 등급: 월 정액(약 $9.99/월; 가격 페이지는 숫자를 스크립트로 채우므로 계정 생성 화면의 금액을 본다), 한 달 5,000번 서명, 인증서 프로필 종류마다 1개. 일할 계산 없음. 유료 구독(종량제)이 필요하고 무료·체험 구독은 안 된다.
-- 인증서는 Microsoft가 보관하고 매일 새로 발급한다(수명 3일). 키를 받지 않으므로 잃어버리거나 샐 키 파일이 없다. 서명에 RFC 3161 타임스탬프(`http://timestamp.acs.microsoft.com`)를 붙여 인증서가 끝난 뒤에도 서명은 유효하다.
-- 공개 신뢰(Public Trust) 조직 확인: 미국·캐나다·EU·영국·호주·뉴질랜드·일본·**대한민국**·싱가포르·스위스·노르웨이·이스라엘의 조직(2026-05 문서). 확인은 Azure 포털에서만 하고 1–20 영업일(서류를 더 달라면 더). 서류는 12개월 안에 발급된 것, 추가 서류 시도는 세 번(모두 Microsoft 문서 2026-05 기준).
+- **SSL.com OV 코드 서명 인증서**(1년, 2026-11-26 발급, 2027-11-26까지; 주문 ref는 SSL.com 계정의 Orders에 있다), **eSigner** 클라우드 서명. 개인 키는 SSL.com의 HSM에 있고 받지 않는다: 잃어버리거나 샐 키 파일이 없다. 서명은 SSL.com 계정(사용자 이름·비밀번호) + eSigner 자격(credential id) + eSigner 일회용 코드(TOTP)로 한다.
+- 도구: SSL.com **CodeSignTool**(Java, https://github.com/SSLcom/CodeSignTool, 문서 https://www.ssl.com/guide/esigner-codesigntool-command-guide/). 서명마다 RFC 3161 타임스탬프(`http://ts.ssl.com`, 도구의 `conf/code_sign_tool.properties`)를 붙여 인증서가 끝난 뒤에도 서명은 유효하다.
+- **비용**(https://www.ssl.com/guide/esigner-pricing-for-code-signing/, 2026-03-25 갱신판): 인증서를 받은 뒤 **처음 30일은 서명 무제한 무료**. 그 뒤 eSigner 서명 요금제가 필요하다. OV 등급 1: 월 $20(한 달 20번) 또는 연 $180(한 해 240번), 넘으면 한 번에 $1. 등급 2: 월 $85(100번)/연 $765(1,200번), 넘으면 $0.85. 안 쓴 횟수는 구독이 이어지는 동안 다음 달로 넘어가고, 구독이 끊기면 사라진다. 한 릴리스는 파일 서너 개(앱 exe, 제거 프로그램, 설치 파일)를 서명한다. **요금제는 대표가 고른다**(결제).
+- Microsoft Artifact Signing은 2026-11-15부터 시도했지만(조직 확인이 끝나지 않았다) 2026-11-26 대표가 해지했다. release.yml에서 그 길은 지웠다.
 
 ### 흐름
 
-1. release.yml `build-windows`(job 환경 `release`, 권한 `id-token: write`; 그래서 서명을 켜지 않아도 이 job에 environment의 배포 대상 규칙이 걸린다. 릴리스 run은 늘 태그에서 돈다)가 레포 변수 셋을 `MYCEL_WIN_SIGN_ENDPOINT`·`_ACCOUNT`·`_PROFILE`로 넘긴다. 셋 다 비면 서명 단계는 모두 건너뛰고 지금처럼 서명 없는 설치 파일을 만든다. 하나라도 비면 빌드가 실패한다(실수로 서명 없이 나가지 않게).
-2. `ArtifactSigning` PowerShell 모듈을 고정 버전(0.1.8, Azure/artifact-signing-action v2.0.0과 같은 것)으로 설치한다. 모듈이 signtool과 서명 dlib(Microsoft.ArtifactSigning.Client)을 받아 쓴다.
-3. `azure/login`(OIDC, `allow-no-subscriptions`: 서명에는 토큰만 필요하다)이 Azure CLI에 로그인한다. 저장된 비밀번호나 client secret은 없다: GitHub이 그 run에 준 토큰을 Entra 앱 등록의 federated credential이 받는다.
-4. electron-builder가 `win.signtoolOptions.sign`(`desktop/scripts/win-sign.ts` → `win-sign.ps1` → `Invoke-ArtifactSigning`)으로 앱 exe, 제거 프로그램, NSIS 설치 파일에 SHA-256 서명 하나씩을 한다. Azure CLI 자격만 쓰고(다른 자격은 모두 제외) 서명마다 `Get-AuthenticodeSignature`가 Valid이고 타임스탬프가 있는지 본다. 실패하면 두 번 더 해 본다(15초, 30초 뒤). `latest.yml`의 sha512는 서명된 파일의 것이다.
-5. 마지막 단계가 설치 파일과 `win-unpacked/*.exe`를 `signtool verify /pa /tw`로 다시 확인하고 서명자 이름을 로그에 남긴다.
+1. release.yml `build-windows`(job 환경 `release`, 권한 `contents: read`만; 서명을 켜지 않아도 이 job에 environment의 배포 대상 규칙이 걸린다. 릴리스 run은 늘 태그에서 돈다)가 레포 변수 `WINDOWS_SIGNING_PROVIDER`를 `MYCEL_WIN_SIGN_PROVIDER`로 넘긴다. 비어 있으면 서명 단계는 모두 건너뛰고 지금처럼 서명 없는 설치 파일을 만든다. `sslcom`이 아닌 값이거나, `sslcom`인데 비밀값 하나라도 없으면 빌드가 실패한다(실수로 서명 없이 나가지 않게).
+2. `actions/setup-java`(커밋 고정, Temurin 17)와 CodeSignTool(`CODESIGNTOOL_VERSION`, zip의 sha256을 `CODESIGNTOOL_SHA256`과 맞춰 본다)을 받아 `$RUNNER_TEMP/codesigntool`에 푼다. JDK가 든 `-windows` zip(200 MB)이 아닌 보통 zip을 쓴다.
+3. electron-builder가 `win.signtoolOptions.sign`(`desktop/scripts/win-sign.ts`)으로 앱 exe, 제거 프로그램, NSIS 설치 파일마다 `java -jar code_sign_tool-<v>.jar sign … -override`를 부른다(셸이나 .bat을 거치지 않는다: 비밀번호의 특수 문자가 그대로 간다). 비밀값 넷은 이 빌드 단계에만 환경 변수로 들어간다. CodeSignTool은 오류를 찍고도 0으로 끝날 수 있어서, 서명마다 `Get-AuthenticodeSignature`가 Valid이고 타임스탬프가 있는지 본다. 실패하면 두 번 더 해 본다(15초, 30초 뒤). `latest.yml`의 sha512는 서명된 파일의 것이다.
+4. 마지막 단계가 설치 파일과 `win-unpacked/*.exe`를 `signtool verify /pa /tw`로 다시 확인하고 서명자 이름을 로그에 남긴다.
 
-`publisherName`은 넣지 않았다: electron-updater는 지금처럼 윈도우 서명을 따로 요구하지 않고, 업데이트는 Ed25519로 서명된 릴리스와 맞는지로 확인한다(`desktop/src/common/update.ts`). 서명된 판이 퍼진 뒤 넣으면 그 뒤 업데이트는 서명자 이름이 맞아야만 설치된다(이름은 확인된 법인 이름 그대로여야 한다).
+`publisherName`은 넣지 않았다: electron-updater는 지금처럼 윈도우 서명을 따로 요구하지 않고, 업데이트는 Ed25519로 서명된 릴리스와 맞는지로 확인한다(`desktop/src/common/update.ts`). 서명된 판이 퍼진 뒤 넣으면 그 뒤 업데이트는 서명자 이름이 맞아야만 설치된다(인증서를 갱신하거나 바꿀 때 이름이 같아야 한다).
 
-### 처음 한 번 (대표)
+### 처음 한 번
 
-1. **Azure 구독**: portal.azure.com에서 contact@trina.app으로 **종량제(Pay-As-You-Go)** 구독을 만든다(나라: 대한민국, 나중에 못 바꾼다). 전화 인증과 카드가 필요하다.
-2. **리소스 공급자** `Microsoft.CodeSigning`을 구독에 등록한다(Subscriptions → Resource providers).
-3. **Artifact Signing 계정**: 리소스 그룹 `rg-trina-signing`, 지역 **Korea Central**(endpoint `https://krc.codesigning.azure.net`), 등급 **Basic**.
-4. **역할**: 확인을 신청하는 사람에게 `Artifact Signing Identity Verifier`를 준다(계정 → Access control).
-5. **조직 확인(Public)**: 계정 → Identity validations → Organization → New identity → Public. 법인 이름은 등기 그대로, 웹사이트, 회사 도메인의 메일 두 개(주·보조, 서로 달라야 한다), 사업자등록번호, 등기 주소, 대표자 이름(신분증 그대로). 그 뒤 "Action Required"가 되면 대표자가 Microsoft Authenticator의 Verified ID(AU10TIX 신분증·얼굴 확인)를 한다. 서류를 더 달라는 메일이 오면 포털에서 올린다(시도 세 번). 메일 링크는 7일 안에 눌러야 한다.
-6. **인증서 프로필**(확인이 Completed가 된 뒤): 계정 → Certificate profiles → Create → **Public Trust**, Verified CN and O에 그 확인을 고른다.
-7. **앱 등록과 OIDC**: Entra ID → App registrations → New(예: `trina-ax-release-signing`). 비밀값은 만들지 않는다. 이 레포의 OIDC subject에는 태그가 들어가므로(`job_workflow_ref`, 10장 "처음 한 번" 3) 보통 federated credential(정확히 같은 subject)로는 매 태그마다 하나가 필요하다. 그래서 **flexible federated credential**(미리보기, Graph beta)을 하나 만든다:
+1. **eSigner 등록**: secure.ssl.com → Orders → 그 코드 서명 주문 → eSigner PIN을 정하고 QR 코드(=TOTP 비밀값)를 받는다. 사람이 쓰는 인증 앱에 이미 등록했다면 같은 비밀값을 CI에도 넣는다. **QR을 다시 만들면(reset) 예전 인증 앱의 코드는 더 이상 맞지 않는다.**
+2. **credential id**: `CodeSignTool get_credential_ids -username=… -password=…`(또는 주문 화면의 signing credential).
+3. **GitHub에 넣는다**(environment `release`의 비밀값 넷; 값은 파이프로 넣고 화면·파일에 남기지 않는다):
    ```sh
-   cat > fic.json <<'JSON'
-   { "name": "release-yml-v-tags", "issuer": "https://token.actions.githubusercontent.com", "audiences": ["api://AzureADTokenExchange"],
-     "claimsMatchingExpression": { "languageVersion": 1,
-       "value": "claims['sub'] matches 'repo:trina-app@349611973/trina-ax@1436599521:environment:release:job_workflow_ref:trina-app/trina-ax/.github/workflows/release.yml@refs/tags/v*' and claims['repository_id'] eq '1436599521' and claims['repository_owner_id'] eq '349611973'" } }
-   JSON
-   az rest --method post --url "https://graph.microsoft.com/beta/applications/<앱 object id>/federatedIdentityCredentials" --body @fic.json
+   for n in SSLCOM_USERNAME SSLCOM_PASSWORD SSLCOM_CREDENTIAL_ID SSLCOM_TOTP_SECRET; do
+     <값을 내보내는 명령> | GH_TOKEN=$(gh auth token -u trina-app-admin) gh secret set "$n" --repo trina-app/trina-ax --env release
+   done
    ```
-   즉 environment `release`에서 `v*` 태그의 release.yml만 서명할 수 있다(태그 ruleset·environment 대상 제한과 함께, 10장). 미리보기가 막히면 대안은 태그마다 정확한 subject의 credential을 하나씩 더하는 것(앱당 20개 한도)이다. client secret은 쓰지 않는다.
-8. **서명 권한**: 그 앱의 서비스 주체에 `Artifact Signing Certificate Profile Signer`를 인증서 프로필(또는 계정)에 준다.
-9. **GitHub에 넣는다** (id는 비밀이 아니지만 비밀값으로 둔다: 공개 레포의 로그에 가려진다. 구독 id는 필요 없다):
+4. **켠다**(이 변경이 dev와 main에 들어간 뒤, 그리고 30일 무료가 끝나기 전에는 요금제를 정한 뒤):
    ```sh
-   GH_TOKEN=$(gh auth token -u trina-app-admin) gh secret set AZURE_CLIENT_ID       --repo trina-app/trina-ax --env release
-   GH_TOKEN=$(gh auth token -u trina-app-admin) gh secret set AZURE_TENANT_ID       --repo trina-app/trina-ax --env release
-   GH_TOKEN=$(gh auth token -u trina-app-admin) gh variable set WINDOWS_SIGNING_ENDPOINT --repo trina-app/trina-ax --body https://krc.codesigning.azure.net
-   GH_TOKEN=$(gh auth token -u trina-app-admin) gh variable set WINDOWS_SIGNING_ACCOUNT  --repo trina-app/trina-ax --body <계정 이름>
-   GH_TOKEN=$(gh auth token -u trina-app-admin) gh variable set WINDOWS_SIGNING_PROFILE  --repo trina-app/trina-ax --body <프로필 이름>
+   GH_TOKEN=$(gh auth token -u trina-app-admin) gh variable set WINDOWS_SIGNING_PROVIDER --repo trina-app/trina-ax --body sslcom
    ```
-   **세 변수는 인증서 프로필이 생긴 뒤에 넣는다.** 넣는 순간부터 모든 릴리스가 서명을 시도하고, 서명이 안 되면 윈도우 설치 파일이 빠진다(6장 "Desktop builds missing").
-10. **첫 확인**: 다음 태그의 Windows installer job 로그에서 "signed: … (CN=…)"와 `signtool verify` 성공을 본다. 받은 설치 파일을 깨끗한 윈도우에서 열어 게시자 이름을 본다(QA 행).
+   넣는 순간부터 모든 릴리스가 서명을 시도하고, 서명이 안 되면 윈도우 설치 파일이 빠진다(6장 "Desktop builds missing"). 끄려면 `gh variable delete WINDOWS_SIGNING_PROVIDER --repo trina-app/trina-ax`.
+5. **첫 확인**: 다음 태그의 Windows installer job 로그에서 "signed: … (CN=…)"와 `signtool verify` 성공을 본다. 받은 설치 파일을 깨끗한 윈도우에서 열어 게시자 이름을 본다(QA 행).
 
 ### 실패했을 때
 
 | 어디서 | 뜻 | 할 일 |
 |---|---|---|
-| `Windows signing is half set up` | 레포 변수 셋 중 일부만 있다 | 셋 다 넣거나 셋 다 지운다 |
-| azure/login: `AADSTS70021` / no matching federated identity record | 토큰의 subject가 credential과 다르다 | 로그의 subject를 7의 식과 비교한다(environment `release`, 태그 run인지) |
-| 서명 403 | 서명 역할이 없거나, 확인이 Completed가 아니거나, 프로필이 비활성 | 8을 확인하고 포털에서 확인·프로필 상태를 본다 |
-| 서명 후 Status가 Valid가 아님 | 체인이나 타임스탬프 문제 | 다시 돌려 본다(Re-run failed jobs). 계속되면 timestamp 상태(`curl http://timestamp.acs.microsoft.com` → 200)를 본다 |
+| `Windows signing is switched on but half set up` | 변수는 `sslcom`인데 비밀값이 빠졌다 | 처음 한 번 3을 다시 하거나 변수를 지운다 |
+| `not a known signing provider` | 변수 값이 `sslcom`이 아니다 | 값을 고치거나 지운다 |
+| `Error: invalid otp` | TOTP 비밀값이 틀리거나 QR이 다시 만들어졌다 | 주문 화면의 비밀값으로 `SSLCOM_TOTP_SECRET`을 다시 넣는다 |
+| `invalid_grant` / 로그인 실패 | 사용자 이름·비밀번호가 틀리거나 비밀번호가 바뀌었다 | `SSLCOM_USERNAME`·`SSLCOM_PASSWORD`를 다시 넣는다 |
+| 서명 거절, 횟수·구독 관련 오류 | 30일 무료가 끝났고 요금제가 없거나 횟수를 다 썼다 | 대표가 요금제를 고른다. 그동안은 변수를 지워 서명 없이 낸다 |
+| 서명 후 Status가 Valid가 아님 / 타임스탬프 없음 | 체인이나 `ts.ssl.com` 문제 | 다시 돌려 본다(Re-run failed jobs) |
 
 서명 job이 실패해도 리눅스 서버 릴리스는 나간다. 고친 뒤 같은 run에서 "Re-run failed jobs"(6장).
 
-### 비용
+### 갱신
 
-- Basic 월 정액 하나(위). 서명은 한 릴리스에 파일 서너 개라 한도(5,000)에 닿지 않는다. 앱 등록·OIDC는 무료. 다른 Azure 리소스는 만들지 않는다.
-- 해지: 계정을 지우면 청구가 멈춘다(이미 서명한 파일은 그대로 유효). 조직 확인은 구독에 남으니 따로 지운다.
+인증서는 2027-11-26에 끝난다. 이미 타임스탬프가 붙은 서명은 그 뒤에도 유효하다. 갱신하면 credential id가 바뀔 수 있다(`get_credential_ids`로 보고 `SSLCOM_CREDENTIAL_ID`를 바꾼다).
 
 ## 12. 데스크톱 검사 (PR, desktop.yml)
 
