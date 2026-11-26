@@ -1272,11 +1272,12 @@ export class Rooms {
       })
       // a reply in a thread I follow that does not mention me, with "Replies in threads I'm part of" turned off (on by
       // default, docs/decisions/20261123-thread-replies-default-on.md):
-      // still a row in Mentions & threads, as a quiet notice (one per unread run, never pushed, rung or told)
+      // still a row in Activity's Threads, as a quiet notice (one per unread run, never pushed, rung or told) that never
+      // counts: the person turned these off (docs/AGENTS/plan/20261126-0835-one-activity-followups.md)
       const silentReply = !alert && !!row.thread_root_id && !!followers?.has(m.user_id) && level !== 'off'
       if (!alert && !silentReply) continue
       const event: RoomNoticeEvent = alert === 'mention' ? 'room.mention' : 'room.dm'
-      try { if (n.roomNotice(m.user_id, event, row.id, row.room_id, row.created_at, row.thread_root_id, silentReply || inQuietHours(p.quietHours, tz, at), row.seq, !!row.app_id)) out.set(m.user_id, event) }
+      try { if (n.roomNotice(m.user_id, event, row.id, row.room_id, row.created_at, row.thread_root_id, silentReply || inQuietHours(p.quietHours, tz, at), row.seq, !!row.app_id, silentReply)) out.set(m.user_id, event) }
       catch (e) { this.ctx.log.warn('room notice not recorded', { err: e }) }
     }
     return out

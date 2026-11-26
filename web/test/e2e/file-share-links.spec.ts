@@ -316,9 +316,10 @@ test('folder Share dialog: narrowing a folder with files shared by link offers "
   await page.getByTestId('toast').getByRole('button', { name: t['common.close'] }).click()
   await expect(page.getByTestId('toast')).toHaveCount(0)
 
-  // Bob removed: a new change, the box ticked again; the save sends removeFileLinks and the link grant goes
+  // Bob removed: a new change, no confirm step (the dialog's footer says what will happen); the box shows ticked again;
+  // the save sends removeFileLinks and the link grant goes
   await level.selectOption('remove')
-  await page.getByTestId('dialog-confirm').click()
+  await expect(page.getByTestId('dialog-confirm')).toHaveCount(0)
   await expect(line).toContainText(tr('folderAccess.linkPeople', { n: 1 }))
   await expect(box).toBeChecked()
   await shots(page, 'folder-link-people')

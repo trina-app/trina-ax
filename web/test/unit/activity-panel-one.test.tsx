@@ -3,7 +3,7 @@
 // 스레드 · 트리나 (요청 for admins); a link's ?tab= picks a chip; "Mark all as read" reads the chip's tab on the server and
 // is not offered under the client's own chips; a conversation row stays selected once its room drops ?m=.
 import { afterAll, afterEach, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { activityTabHas, InboxNotification, uuidv7, type ActivityTab, type Me } from '@mycel/shared/api'
 import { useLocaleStore } from '../../src/i18n'
 import { useSession } from '../../src/store/session'
@@ -102,6 +102,25 @@ test('?tab=mentions picks 멘션: only the mention; Mark all as read reads that 
     expect(sent).toEqual([{ tab: 'mentions' }])
     // the app's own notices stay unread
     expect(inbox.filter((x) => !x.readAt).map((x) => x.code)).toEqual(['connection.reconnect', 'schedule.success'])
+  } finally { await m.unmount() }
+})
+
+function Where() {
+  const { pathname, search } = useLocation()
+  return <output data-testid="where">{`${pathname}${search}`}</output>
+}
+
+test('a chip picked on /activity writes the address (so Back finds it, not the chip the link named)', async () => {
+  inbox = [mention(), reconnect(), scheduled()]
+  useSession.setState({ status: { kind: 'signed-in', me } } as never)
+  const m = await mount(<MemoryRouter initialEntries={['/activity?tab=mentions']}><ActivityPanel /><Where /></MemoryRouter>)
+  try {
+    await m.until(() => rowsOf(m).length === 1, 'the mention alone')
+    await m.click('activity-chip-threads')
+    await m.until(() => m.get('where').textContent === '/activity?tab=threads', 'the address follows the chip')
+    expect(m.get('activity-chip-threads').getAttribute('aria-pressed')).toBe('true')
+    await m.click('activity-chip-all')
+    await m.until(() => m.get('where').textContent === '/activity', '전체 drops tab')
   } finally { await m.unmount() }
 })
 

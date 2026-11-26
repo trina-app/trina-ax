@@ -214,6 +214,22 @@ test('"Mark all as read" reads every notice; an old ?tab=mentions or ?in=chats l
   await expect(page.getByTestId('activity-panel-empty')).toHaveText(t['feed.dmsEmpty'])
 })
 
+test('a chip picked after a link stays on Back: the address follows the chip, Back never puts the link\'s chip back', async ({ page }) => {
+  const chatId = await start(page)
+  await routeNotices(page, week(chatId))
+  await page.goto('/activity?tab=threads')
+  await expect(page.getByTestId('activity-chip-threads')).toHaveAttribute('aria-pressed', 'true')
+  await page.getByTestId('activity-chip-trina').click()
+  await expect(page).toHaveURL(/\/activity\?tab=trina$/)
+  // a notice opens on the right; Back: 활동 with 트리나 still picked
+  await rows(page).first().click()
+  await expect(page).toHaveURL(new RegExp(`/c/${chatId}$`))
+  await page.goBack()
+  await expect(page).toHaveURL(/\/activity\?tab=trina$/)
+  await expect(page.getByTestId('activity-chip-trina')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('activity-chip-threads')).toHaveAttribute('aria-pressed', 'false')
+})
+
 // Two people joined one project: both notices open that project. Only the one opened is selected (a fill, semibold),
 // the other stays read-looking; 활동 reopened from the rail keeps it; on a phone (no panel) the
 // list never shows a read notice in bold.

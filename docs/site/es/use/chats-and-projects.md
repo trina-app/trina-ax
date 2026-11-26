@@ -204,7 +204,7 @@ Para escribir a una sola persona, haga clic en su foto o en su nombre junto a un
 
 Para traer a alguien de fuera del equipo, elija **Invitar a un invitado** al añadir personas a un canal privado, a un chat de grupo o a un proyecto. [Más información sobre los invitados](guests.md).
 
-![La lista Chats: Menciones e hilos, Canales con Todos (Everyone) y Marketing, y Mensajes directos con una conversación de grupo y un mensaje directo](../../images/chats/rooms-list.webp "La lista Chats")
+![La lista Chats: Canales con Todos (Everyone), el canal privado Launch email y Marketing, y Mensajes directos con un mensaje directo](../../images/chats/rooms-list.webp "La lista Chats")
 
 #### Preguntar a Trina junto a una conversación
 
@@ -238,7 +238,7 @@ antes de enviar: **Mostrar solo el enlace** (la opción predeterminada) envía s
 marcada como compartida por usted. La copia desaparece si se elimina el original. Para quitar una tarjeta de su propio mensaje, señálela
 y haga clic en **✕** (o elija **Quitar vista previa** en el menú del mensaje).
 
-![Chats en un teléfono: Menciones e hilos, canales, un chat de grupo y un mensaje directo, con las cinco pestañas abajo](../../images/chats/rooms-phone.webp "Chats en un teléfono")
+![Chats en un teléfono: Canales con Todos (Everyone), un canal privado y Marketing, y un mensaje directo, con las cinco pestañas abajo](../../images/chats/rooms-phone.webp "Chats en un teléfono")
 
 ### Dónde aparecen sus conversaciones
 

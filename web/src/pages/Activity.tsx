@@ -292,7 +292,7 @@ function ActivityPage() {
     // shown read at once; a failure puts the rows back with a toast (store/inbox.ts)
     const marked = new Set(itemsRef.current?.filter((x) => !x.readAt && shows(x, tab)).map((x) => x.id))
     const was = serverUnread
-    const r = await markAllNoticesRead(tab, undefined, (readAt) => {
+    const r = await markAllNoticesRead(tab, (readAt) => {
       if (generation !== life.current) return
       setList(itemsRef.current?.map((x) => (marked.has(x.id) && !x.readAt === !!readAt ? { ...x, readAt } : x)) ?? null)
       // All read: nothing is left beyond the loaded rows either (the button goes)
