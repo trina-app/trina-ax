@@ -3591,6 +3591,8 @@ export const ja: Record<MessageKey, string> = {
   "plan.seatLimitStore": "プランのメンバー上限（{limit}）に達しました。使われていないアカウントを無効にしてください。プランはチームオーナーがウェブで管理します。",
   "plan.membersFullStore": "プランのメンバー上限に達しました。追加するには、使われていないアカウントを無効にしてください。プランはチームオーナーがウェブで管理します。",
   'plan.manage': "プランを管理",
+  "plan.choose": "プランを選ぶ",
+  "plan.freeSleeps": "無料プラン・使っていないときは休止します",
   'plan.status': "サービス稼働状況",
   'plan.support': "サポート",
   'notices.more': "詳細",

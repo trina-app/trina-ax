@@ -3591,6 +3591,8 @@ export const es: Record<MessageKey, string> = {
   "plan.seatLimitStore": "Se alcanzó el límite de miembros del plan ({limit}). Deshabilite una cuenta que ya no se use. El propietario del equipo administra el plan en la web.",
   "plan.membersFullStore": "Se alcanzó el límite de miembros del plan. Para añadir a alguien, deshabilite una cuenta que ya no se use. El propietario del equipo administra el plan en la web.",
   'plan.manage': "Administrar plan",
+  "plan.choose": "Elegir un plan",
+  "plan.freeSleeps": "Plan gratuito · se duerme cuando no se usa",
   'plan.status': "Estado del servicio",
   'plan.support': "Soporte",
   'notices.more': "Más",

@@ -3586,6 +3586,8 @@ export const zh: Record<MessageKey, string> = {
   "plan.seatLimitStore": "已达到套餐的成员上限（{limit}）。请停用不再使用的账号。团队所有者可在网页上管理套餐。",
   "plan.membersFullStore": "套餐的成员席位已满。要添加新成员，请停用不再使用的账号。团队所有者可在网页上管理套餐。",
   "plan.manage": "管理套餐",
+  "plan.choose": "选择套餐",
+  "plan.freeSleeps": "免费套餐 · 闲置时会休眠",
   "plan.status": "服务状态",
   "plan.support": "支持",
   "notices.more": "更多",

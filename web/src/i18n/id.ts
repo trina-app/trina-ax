@@ -3633,6 +3633,8 @@ export const id: Record<MessageKey, string> = {
   "plan.seatLimitStore": "Batas anggota paket ({limit}) sudah tercapai. Nonaktifkan akun yang tidak dipakai lagi. Owner tim mengelola paket di web.",
   "plan.membersFullStore": "Kuota anggota paket sudah penuh. Untuk menambah orang, nonaktifkan akun yang tidak dipakai lagi. Owner tim mengelola paket di web.",
   'plan.manage': 'Kelola paket',
+  "plan.choose": "Pilih paket",
+  "plan.freeSleeps": "Paket Gratis · tertidur saat tidak dipakai",
   'plan.status': 'Status layanan',
   'plan.support': 'Dukungan',
   'notices.more': 'Selengkapnya',

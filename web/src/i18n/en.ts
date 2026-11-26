@@ -3635,6 +3635,8 @@ export const en: Record<MessageKey, string> = {
   "plan.seatLimitStore": "The plan's member limit ({limit}) is reached. Turn off an account that is no longer used. The team owner manages the plan on the web.",
   "plan.membersFullStore": "The plan's member seats are all taken. To add someone, turn off an account that is no longer used. The team owner manages the plan on the web.",
   'plan.manage': 'Manage plan',
+  "plan.choose": "Choose a plan",
+  "plan.freeSleeps": "Free plan · sleeps when idle",
   'plan.status': 'Service status',
   'plan.support': 'Support',
   'notices.more': 'More',

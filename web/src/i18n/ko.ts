@@ -3633,6 +3633,8 @@ export const ko = {
   "plan.seatLimitStore": "요금제의 인원 한도({limit}명)에 도달했어요. 쓰지 않는 계정을 끄세요. 요금제는 팀장이 웹에서 관리해요.",
   "plan.membersFullStore": "요금제 인원이 다 찼어요. 새 사람을 들이려면 쓰지 않는 계정을 끄세요. 요금제는 팀장이 웹에서 관리해요.",
   'plan.manage': '요금제 관리',
+  "plan.choose": "요금제 고르기",
+  "plan.freeSleeps": "무료 요금제 · 쓰지 않으면 잠들어요",
   'plan.status': '서비스 상태',
   'plan.support': '지원',
   'notices.more': '자세히',

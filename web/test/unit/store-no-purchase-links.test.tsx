@@ -65,6 +65,26 @@ describe('Admin › System, the plan card', () => {
     expect(html).toContain('href="https://status.acme.example/"')
     expect(html).toContain('href="mailto:support@acme.example"')
   })
+  // a team made from the desktop app (docs/decisions/20261126-desktop-create-team.md): Free sleeps when idle; only the
+  // owner gets "Choose a plan", never in a store app
+  const free = (store: boolean, owner: boolean) => renderToStaticMarkup(<MemoryRouter><PlanDetails plan={plan({ id: 'free', name: 'Free' })} store={store} owner={owner} /></MemoryRouter>)
+  test('the Free plan: "sleeps when idle", and "Choose a plan" for the owner only, never in a store app', () => {
+    const owner = free(false, true)
+    expect(owner).toContain(translate('en', 'plan.freeSleeps'))
+    expect(owner).toContain('data-testid="plan-choose"')
+    expect(owner).toContain(translate('en', 'plan.choose'))
+    expect(owner).toContain(`href="${ACCOUNT}"`)
+    expect(owner).not.toContain(translate('en', 'plan.manage'))
+    const admin = free(false, false)
+    expect(admin).toContain(translate('en', 'plan.freeSleeps'))
+    expect(admin).not.toContain(ACCOUNT)
+    expect(admin).not.toContain(translate('en', 'plan.choose'))
+    const store = free(true, true)
+    expect(store).not.toContain(ACCOUNT)
+    expect(store).not.toContain(translate('en', 'plan.choose'))
+    // a paid plan: an admin keeps Manage plan as before
+    expect(renderToStaticMarkup(<MemoryRouter><PlanDetails plan={plan({ id: 'team' })} store={false} owner={false} /></MemoryRouter>)).toContain(translate('en', 'plan.manage'))
+  })
 })
 
 describe('the team link with no seats left', () => {
