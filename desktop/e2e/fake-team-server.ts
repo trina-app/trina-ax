@@ -371,6 +371,34 @@ document.getElementById('send').addEventListener('click', async () => {
     }
     // an allowed page that embeds another site's frame (pane-upload-frames.spec.ts); two fields of its own, so the frame
     // has no single field near it
+    // the attacker frame one level down: inside a same-origin frame, and inside a srcdoc frame (pane-upload-frames.spec.ts)
+    if (p === '/upload-nested.html') {
+      const inner = '<body style=margin:0><iframe src=http://attacker.test:19158/frame-upload.html style=width:400px;height:200px;border:0></iframe></body>'
+      return page(
+        'Nested frames',
+        `<h1>메일 쓰기</h1>
+<section><iframe id="same" src="/nest-inner.html" style="width:420px;height:220px;border:6px solid #888;padding:4px"></iframe></section>
+<section><iframe id="sdoc" srcdoc="${esc(inner)}" style="width:420px;height:220px;border:0"></iframe></section>
+<section><input type="file" id="own1"><input type="file" id="own2"></section>`,
+      )
+    }
+    if (p === '/nest-inner.html') return page('inner', '<iframe src="http://attacker.test:19158/frame-upload.html" style="width:400px;height:200px;border:0"></iframe>')
+    // a frame of another site the page moves under the pointer once a drag starts (pane-upload-frames.spec.ts)
+    if (p === '/upload-moving.html') {
+      return page(
+        'Moving frame',
+        `<h1>메일 쓰기</h1>
+<div id="zone" role="region" aria-label="여기에 놓기" style="position:relative;width:420px;height:220px;border:2px dashed #888">여기에 놓기
+<iframe id="evil" src="http://attacker.test:19158/frame-upload.html" style="position:absolute;left:-2000px;top:0;width:420px;height:220px;border:0"></iframe></div>
+<script>
+window.dropped = 0
+const z = document.getElementById('zone')
+z.addEventListener('dragenter', () => { document.getElementById('evil').style.left = '0px' })
+z.addEventListener('dragover', (e) => e.preventDefault())
+z.addEventListener('drop', (e) => { e.preventDefault(); window.dropped = e.dataTransfer.files.length })
+</script>`,
+      )
+    }
     if (p === '/upload-frame.html') {
       return page(
         'Frame page',

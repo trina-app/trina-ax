@@ -39,7 +39,8 @@
   field and many files is an error. Never into another origin's frame (security review of #652): the field's document
   must be the page's own origin, the picker's frame the top frame or one of its origin, and the point of a click or a
   drop must not be over a frame of another origin or a plug-in (the top document's elementFromPoint, read in an
-  isolated world); the page must still be the site allowed for the call right before the files go in. Pickers in
+  isolated world, followed into frames of the top's origin and srcdoc frames, minus their position, border and
+  padding, down to the element itself; checked again between dragOver and drop, which is cancelled if it changed); the page must still be the site allowed for the call right before the files go in. Pickers in
   other sites' out-of-process frames are intercepted too while the AI drives (auto-attach), so no system window opens. A computer click that opens a picker gets it closed and the AI is told to use
   file_upload. The files stay on disk while the page may still upload them (a web mail uploads on Send) and go when the
   tab closes or moves to another site, the person signed in changes, the app quits or starts again, and over 500 MB the

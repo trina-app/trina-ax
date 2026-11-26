@@ -183,16 +183,34 @@ const sleep = (ms: number, signal?: AbortSignal) =>
 /** file_upload's chooser step: the click's file picker comes this soon or not at all */
 const CHOOSER_WAIT_MS = 3000
 const FRAME_CHOOSER_SUPPRESSED = 'A file picker opened inside a frame of another site on this page and was closed without choosing anything: files are only attached to the page itself, never to an embedded frame of another site.'
-/** what is at a point of the top document (isolated world): a frame of another origin, an embed, or nothing in the way */
-const POINT_OWNER = `((x, y) => {
-  let el = document.elementFromPoint(x, y);
-  while (el && el.shadowRoot) { const i = el.shadowRoot.elementFromPoint(x, y); if (!i || i === el) break; el = i; }
-  if (!el) return 'none';
-  const t = el.tagName;
-  if (t === 'EMBED' || t === 'OBJECT') return 'embed';
-  if (t === 'IFRAME' || t === 'FRAME') {
-    try { const d = el.contentDocument; return d && d.location.origin === location.origin && location.origin !== 'null' ? 'same-frame' : 'frame'; } catch (e) { return 'frame'; }
+/**
+ * What a point of the top document lands on (isolated world), followed into frames of the top's own origin (srcdoc
+ * too) with the point moved by the frame's position, border and padding, down to the element that would get a click
+ * or a drop: 'ok', or 'frame' (a frame of another origin, an opaque one, or deeper than 8), 'embed' (a plug-in), 'none'.
+ * `mark` 'set' keeps that element (window.__uploadPoint, this world only); 'same' says 'moved' when it is not the one
+ * kept (the page moved something under the point between dragOver and drop).
+ */
+const POINT_OWNER = `((x, y, mark) => {
+  const top = location.origin;
+  if (top === 'null') return 'frame';
+  let doc = document, el = null;
+  for (let depth = 0; ; depth++) {
+    if (depth > 8) return 'frame';
+    el = doc.elementFromPoint(x, y);
+    while (el && el.shadowRoot) { const i = el.shadowRoot.elementFromPoint(x, y); if (!i || i === el) break; el = i; }
+    if (!el) return 'none';
+    const t = el.tagName;
+    if (t === 'EMBED' || t === 'OBJECT') return 'embed';
+    if (t !== 'IFRAME' && t !== 'FRAME') break;
+    let inner = null;
+    try { inner = el.contentDocument; if (!inner || inner.location.origin !== top) return 'frame'; } catch (e) { return 'frame'; }
+    const r = el.getBoundingClientRect(), cs = el.ownerDocument.defaultView.getComputedStyle(el);
+    x -= r.left + parseFloat(cs.borderLeftWidth || '0') + parseFloat(cs.paddingLeft || '0');
+    y -= r.top + parseFloat(cs.borderTopWidth || '0') + parseFloat(cs.paddingTop || '0');
+    doc = inner;
   }
+  if (mark === 'set') window.__uploadPoint = el;
+  if (mark === 'same' && window.__uploadPoint !== el) return 'moved';
   return 'ok';
 })`
 const CHOOSER_SUPPRESSED = 'A file picker opened on this page and was closed without choosing anything: the AI does not pick files in a picker. To attach files, call file_upload with the ref of that button or file field.'
@@ -1552,8 +1570,9 @@ export class BrowserPane {
     if (secret) await this.refusePassword(tab, secret)
     // a click or a drop goes to whatever frame is under the point: never one of another origin (security review of
     // #652: a drop on an allowed page reached an embedded attacker.test frame)
-    const owner = await tab.wc.executeJavaScriptInIsolatedWorld(CHECK_WORLD, [{ code: `${POINT_OWNER}(${Number(p.x)}, ${Number(p.y)})` }]).catch(() => 'frame')
-    if (owner === 'frame' || owner === 'embed') throw new ToolError(otherFrame)
+    const ownerAt = (mark: 'set' | 'same') => tab.wc.executeJavaScriptInIsolatedWorld(CHECK_WORLD, [{ code: `${POINT_OWNER}(${Number(p.x)}, ${Number(p.y)}, ${JSON.stringify(mark)})` }]).catch(() => 'frame')
+    const owner = await ownerAt('set')
+    if (owner !== 'ok' && owner !== 'none') throw new ToolError(otherFrame)
     if (owner === 'none') return 'nothing is at that spot'
     if (way === 'chooser') {
       await this.intercept(tab)
@@ -1581,7 +1600,15 @@ export class BrowserPane {
     }
     samePage()
     const data = { items: [], files: paths, dragOperationsMask: 1 }
-    for (const type of ['dragEnter', 'dragOver', 'drop'] as const) await this.cdp(tab, 'Input.dispatchDragEvent', { type, x: p.x, y: p.y, data })
+    for (const type of ['dragEnter', 'dragOver'] as const) await this.cdp(tab, 'Input.dispatchDragEvent', { type, x: p.x, y: p.y, data })
+    // the page may move a frame under the point once the drag starts: the drop only onto the element checked above
+    const still = await ownerAt('same')
+    if (still !== 'ok') {
+      await this.cdp(tab, 'Input.dispatchDragEvent', { type: 'dragCancel', x: p.x, y: p.y, data }).catch(() => {})
+      throw new ToolError(still === 'moved' ? 'Nothing was attached: the page moved something under that spot while the files were being dropped. Take a screenshot and try again.' : otherFrame)
+    }
+    samePage()
+    await this.cdp(tab, 'Input.dispatchDragEvent', { type: 'drop', x: p.x, y: p.y, data })
     return true
   }
 

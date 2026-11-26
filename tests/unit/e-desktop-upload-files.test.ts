@@ -130,7 +130,12 @@ describe('upload target order', () => {
     // never another origin's frame (security review of #652): the point owner before a click or a drop, the picker's
     // frame, the field's document; the site allowed for the call right before the files go in; pickers in other
     // sites' frames intercepted too; the files under the app's own data folder
-    expect(pane).toContain("if (owner === 'frame' || owner === 'embed') throw new ToolError(otherFrame)")
+    expect(pane).toContain("if (owner !== 'ok' && owner !== 'none') throw new ToolError(otherFrame)")
+    // the point is followed into same-origin frames (re-review of #652), and checked again between dragOver and drop
+    expect(pane).toContain("if (t !== 'IFRAME' && t !== 'FRAME') break;")
+    expect(pane).toContain("x -= r.left + parseFloat(cs.borderLeftWidth || '0') + parseFloat(cs.paddingLeft || '0');")
+    const drag = pane.slice(pane.indexOf("for (const type of ['dragEnter', 'dragOver'] as const)"))
+    expect(drag.indexOf("await ownerAt('same')")).toBeLessThan(drag.indexOf("{ type: 'drop'"))
     expect(pane).toContain('if (c.child || !(await this.sameOriginFrame(tab, c.frameId, topOrigin))) throw new ToolError(otherFrame)')
     expect(pane).toContain('if (!v.file || !topOrigin || v.origin !== topOrigin) throw new ToolError(otherFrame)')
     expect(pane.indexOf('samePage()')).toBeLessThan(pane.indexOf("'DOM.setFileInputFiles'"))

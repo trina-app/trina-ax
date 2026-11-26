@@ -54,4 +54,38 @@ test.describe('file_upload and frames of another site', () => {
     expect(ok.result.ok, text(ok)).toBe(true)
     expect(await tab.evaluate(() => (document.getElementById('own1') as HTMLInputElement).files!.length)).toBe(1)
   })
+
+  test('the attacker frame one level down, in a same-origin frame (border and padding) and in a srcdoc frame: refused, nothing reaches it', async () => {
+    newTurn()
+    const { callId } = await call(ACME, 'navigate', { url: `${SHOP}/upload-nested.html` })
+    await answer(app, '이번만 허용', 'site')
+    expect((await result(ACME, callId)).result.ok).toBe(true)
+    const page = await tabPage(app, (u) => u.startsWith(`${SHOP}/upload-nested.html`))
+    await expect.poll(async () => (await attackerLog()).filter((u) => u.includes('/frame-loaded')).length).toBeGreaterThanOrEqual(3)
+    for (const id of ['same', 'sdoc']) {
+      const c = (await page.evaluate((i) => { const b = document.getElementById(i)!.getBoundingClientRect(); return [Math.round(b.x + b.width / 2), Math.round(b.y + b.height / 2)] }, id)) as [number, number]
+      for (const how of ['drop', 'chooser', 'auto'] as const) {
+        const r = await run(ACME, 'file_upload', { coordinate: c, how, files: [await ticket('secret.pdf', `nested ${id} ${how}`)] })
+        expect(r.result.ok, `${id} ${how}: ${text(r)}`).toBe(false)
+        expect(text(r)).toContain('inside a frame of another site')
+      }
+    }
+    await new Promise((res) => setTimeout(res, 500))
+    expect(await got()).toEqual([])
+  })
+
+  test('a frame of another site the page moves under the point once the drag starts: the drop is cancelled', async () => {
+    newTurn()
+    const { callId } = await call(ACME, 'navigate', { url: `${SHOP}/upload-moving.html` })
+    await answer(app, '이번만 허용', 'site')
+    expect((await result(ACME, callId)).result.ok).toBe(true)
+    const page = await tabPage(app, (u) => u.startsWith(`${SHOP}/upload-moving.html`))
+    const ref = /\[(ref_\d+)\]/.exec(text(await run(ACME, 'find', { query: '여기에 놓기' })))![1]
+    const r = await run(ACME, 'file_upload', { ref, how: 'drop', files: [await ticket('secret.pdf', 'moving')] })
+    expect(r.result.ok, text(r)).toBe(false)
+    expect(text(r)).toMatch(/moved something under that spot|inside a frame of another site/)
+    await new Promise((res) => setTimeout(res, 500))
+    expect(await got()).toEqual([])
+    expect(await page.evaluate(() => (window as any).dropped)).toBe(0)
+  })
 })
