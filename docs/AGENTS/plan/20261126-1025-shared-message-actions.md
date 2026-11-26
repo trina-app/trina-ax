@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-26 10:25
 - Branch: `feat/shared-message-actions`
-- Status: in progress
+- Status: done
 - Where: trina-ax `web/src/components/messages/` (new, the one place), callers in `web/src/components/chat/` and
   `web/src/components/rooms/`. Why: the AI chat, a room's side chat, rooms and threads each built their own message
   actions; the owner asked for shared components managed in one place ("컴포넌트화, 공통관리"), UX audit package B.
@@ -146,4 +146,11 @@ test/unit`, `bun run build` then e2e: `message-actions`, `room-hover-bar`, `room
 
 ## Result
 
-(at the end)
+Built as planned after the review: `web/src/components/messages/MessageActions.tsx` (registry, `useMessagePress`,
+`MessageActionSheet`, `MessageActions` float/row, shared copy), `web/src/lib/messageFiles.ts`; every message surface
+moved onto them; `MessageHoverBar.tsx`, `PressSheet`, `usePhonePress` and `rooms.copied` removed. Differences: the
+side chat's send keeps its words (review item 7); a few non-message icons on the surfaces (the error box's Try again,
+a room reply's "in a thread" mark) also use `ActionIcon`, because the guard bans a surface's own copy of an action
+icon. Checks: typecheck, check:prepush, check:i18n, check:docs, web unit suite (4,640+), the new and related e2e. The
+e2e failures left in the related specs (answer-to-room ×2, image-viewer 20 MB copy, room-files-open HWP,
+shared-project-chats ×6, side-chat-send ×3, chat.spec edit branch) fail the same way on origin/dev 7c3bb966d.

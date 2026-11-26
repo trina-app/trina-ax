@@ -188,7 +188,7 @@ test('a file sent with a message is a small card with its name, type and size', 
   await expect(card.locator('svg')).toHaveCount(0)
 })
 
-test('on a phone the newest answer shows its actions, an older answer or my message after a tap, and the chat fits a phone', async ({ browser }) => {
+test('on a phone the newest answer shows its actions, an older answer or my message by a long press, and the chat fits a phone', async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: 'ko-KR', baseURL: test.info().project.use.baseURL })
   const page = await ctx.newPage()
   await reset(page)
@@ -205,14 +205,17 @@ test('on a phone the newest answer shows its actions, an older answer or my mess
   await expect(mine.getByTestId('message-actions')).toHaveCSS('clip-path', 'inset(50%)')
   expect(await answers.first().ariaSnapshot()).toContain('button "다시 생성"')
   expect(await mine.ariaSnapshot()).toContain('button "메시지 수정"')
+  // a tap shows nothing: the long press opens the sheet (components/messages/MessageActions.tsx)
   await answers.first().getByText('first question').tap()
-  await expect(answers.first().getByTestId('answer-actions')).toHaveCSS('clip-path', 'none')
-  await expect(answers.first().getByTestId('answer-actions-tap')).toHaveCSS('clip-path', 'none')
-  await expect(answers.first().getByTestId('regenerate')).toBeVisible()
-  await mine.getByTestId('user-text').tap()
-  await expect(mine.getByTestId('message-actions-tap')).toHaveCSS('clip-path', 'none')
-  // the branch switch ("‹ 2 / 2 ›") always shows; the other actions still wait for the tap
-  await mine.getByTestId('edit-message').tap()
+  await expect(answers.first().getByTestId('answer-actions')).toHaveCSS('clip-path', 'inset(50%)')
+  const box = (await mine.getByTestId('user-text').boundingBox())!
+  const at = { pointerType: 'touch', isPrimary: true, clientX: box.x + 12, clientY: box.y + 10, bubbles: true }
+  await mine.getByTestId('user-text').dispatchEvent('pointerdown', at)
+  await page.waitForTimeout(650)
+  await mine.getByTestId('user-text').dispatchEvent('pointerup', at)
+  await page.waitForTimeout(450)
+  await page.getByRole('menu', { name: '메시지 메뉴' }).getByRole('menuitem', { name: '메시지 수정' }).click()
+  // the branch switch ("‹ 2 / 2 ›") always shows; the other actions stay in the sheet
   await page.getByTestId('edit-input').fill('first question, again')
   await page.getByTestId('edit-send').tap()
   await expect(page.locator('[data-testid="assistant-message"][data-status="done"]')).toHaveCount(1)
