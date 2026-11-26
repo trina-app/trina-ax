@@ -27,8 +27,9 @@ import { webAllowAll } from '../tools/web-allow-all'
 import { ownFolderUndoable } from '../devenv/track'
 import { GUEST_ANSWER_STEP_LIMIT, UNATTENDED_ANSWER_STEP_LIMIT } from '@mycel/shared/api'
 import { FILE_SUMMARY_LIST_MAX } from '@mycel/shared/api'
-import type { ApiErrorBody, Attachment, ConfirmDetail as ConfirmDetailT, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, OpenTurnRequest, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
-import { buildClaudeLaunch, SUBSCRIPTION_DEFAULT_MODEL, type ClaudeConf } from '../engine/claude'
+import type { ApiErrorBody, Attachment, ConfirmDetail as ConfirmDetailT, Effort, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, OpenTurnRequest, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
+import { writeEngineModelUsage } from './turn-models'
+import { buildClaudeLaunch, CLAUDE_EFFORT, SUBSCRIPTION_DEFAULT_MODEL, type ClaudeConf } from '../engine/claude'
 import { buildCodexLaunch, CODEX_VERSION, prepareCodexTurn, type CodexConf } from '../engine/codex'
 import { ClaudeStreamParser, hitList } from '../engine/claude-parse'
 import { Utf8Lines, Utf8Text } from '../engine/lines'
@@ -242,6 +243,8 @@ export interface TurnSpec extends QueueTiming {
   clientKind: string | null
   engine: EngineId
   model: string | null
+  /** the depth chosen for this turn (Effort; null or absent = not chosen: no flag) */
+  effort?: Effort | null
   locale: Locale
   /** the person's device time zone sent with the turn (a known IANA name; routes/chats.ts turnZone): the AI gives its
    * times in it, the screen shows them in it (QA TC-4549). None: the team's (a scheduled run, an older app). */
@@ -561,6 +564,11 @@ export class TurnExec {
   private usage = { i: 0, o: 0, c: 0, seen: false, unknown: false, ids: [] as string[] }
   /** tokens of the model calls of the run under way (Claude Code's running usage), until its own total replaces them */
   private runningUsage = { i: 0, o: 0 }
+  /** the same usage by model (turn_models, source 'engine'; recordModelUsage): the runs' totals and the calls of the
+   * run under way. A call or total that names no model counts for launchModel, the model the engine was started with */
+  private modelUsage = new Map<string, { i: number; o: number; c: number }>()
+  private runningModelUsage = new Map<string, { i: number; o: number }>()
+  private launchModel: string | null = null
   /** the person's "block" budget ran out during this answer: the answer ends with this (the budget message) */
   private budgetHit: ApiErrorBody | null = null
   private dirty = false
@@ -1633,11 +1641,13 @@ export class TurnExec {
           this.files.carriedImages = carried.count
           this.files.carriedBytes = carried.bytes
         }
+        this.launchModel = model ?? null
         const lr = buildClaudeLaunch({ webSearch, subagents: subagentLaunch(),
           turnId: spec.turnId, chatDir, token, systemPrompt: continuePrompt(!resume, sid), message: continueNote ?? (recoveries && !resume ? `${answerSoFar()}\n\n${claudeMessage(false, sid)}` : claudeMessage(resume, sid)), sessionId: sid, resume,
           stash: resumedStash, model, maxTurns: turnsLeft, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
-          // a pick of work files from names (not the folder plan, which reads files): low effort, quick
-          ...(this.fileRank && !('kind' in this.fileRank.material) ? { effort: 'low' as const } : {}),
+          // a pick of work files from names (not the folder plan, which reads files): low effort, quick; else the depth
+          // the person chose (보통 and nothing chosen: no flag)
+          ...(this.fileRank && !('kind' in this.fileRank.material) ? { effort: 'low' as const } : spec.effort && CLAUDE_EFFORT[spec.effort] ? { effort: CLAUDE_EFFORT[spec.effort] } : {}),
           ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken, caPem: core.proxy?.refreshCaPem ?? null } } : {}),
         }, claude)
         const { exit, stderr } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
@@ -1761,6 +1771,7 @@ export class TurnExec {
       try {
         // the answer's tool rounds, capped as Claude Code's --max-turns is (guests, unattended runs; limits audit 1 #31:
         // it was a fixed 30)
+        this.launchModel = api.model
         await runApiAgent({ conf: api, systemPrompt: prompt(true, true, null, true), message: `${apiTime}\n\n${message}`, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins, locale: spec.locale,
           maxSteps: answerStepCap(rt.maxEngineTurns, { guest: isGuestUser(rt.db, spec.userId), unattended: spec.clientKind === 'schedule' || this.slackChat }),
           beforeRound: () => this.checkBudget(), toolsChanged: () => this.toolsChanged(), activity: () => this.sign(), toolBudget: apiToolBudget,
@@ -1871,7 +1882,8 @@ export class TurnExec {
           m = { port: core.proxy!.port, mode: kind === 'chatgpt' ? 'chatgpt' : 'openai', codexVersion: CODEX_VERSION,
             authJson: dummyAuthJson({ credentialId: c.credentialId, kind, planType: meta.planType ?? null, fedramp: meta.fedramp === true }, t) }
         }
-        const lr = buildCodexLaunch({ webSearch, turnId: spec.turnId, chatDir, token, systemPrompt: o.systemPrompt, message: recovered ? `${contextRecoverBlock(this.writtenText, this.steps.filter((x) => x.kind !== 'thinking' && !x.parentId && x.tool !== 'context').map((x) => ({ label: x.sv?.label ?? x.label, status: x.status })))}\n\n${o.message}` : o.message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools: o.extraTools, model, proxy, ...(m ? { managed: m } : {}) }, codex)
+        this.launchModel = model ?? codex.model ?? null
+        const lr = buildCodexLaunch({ webSearch, turnId: spec.turnId, chatDir, token, systemPrompt: o.systemPrompt, message: recovered ? `${contextRecoverBlock(this.writtenText, this.steps.filter((x) => x.kind !== 'thinking' && !x.parentId && x.tool !== 'context').map((x) => ({ label: x.sv?.label ?? x.label, status: x.status })))}\n\n${o.message}` : o.message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools: o.extraTools, model, proxy, effort: spec.effort ?? 'normal', ...(m ? { managed: m } : {}) }, codex)
         const { exit, stderr, notes } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
         this.closeThinking()
         try { prepareCodexTurn(codex, chatDir) } catch (e) { rt.log.warn('codex home restore failed', { err: e }) } // a refreshed login goes back to its place
@@ -2013,6 +2025,43 @@ export class TurnExec {
   private foldRunningUsage() {
     this.usage.i += this.runningUsage.i; this.usage.o += this.runningUsage.o
     this.runningUsage = { i: 0, o: 0 }
+    for (const [m, r] of this.runningModelUsage) this.addModelUsage(m, r.i, r.o, 0)
+    this.runningModelUsage.clear()
+  }
+
+  private addModelUsage(model: string, i: number, o: number, c: number) {
+    const u = this.modelUsage.get(model) ?? { i: 0, o: 0, c: 0 }
+    u.i += i; u.o += o; u.c += c
+    this.modelUsage.set(model, u)
+  }
+
+  /** A usage event by model: Claude Code's run total split by model (result.modelUsage), else the event's model, else
+   * the model the engine was started with. Nothing is kept for a usage that names no model at all. */
+  private noteModelUsage(e: Extract<EngineEvent, { type: 'usage' }>) {
+    if (e.running) {
+      const m = e.model ?? this.launchModel
+      if (!m) return
+      const r = this.runningModelUsage.get(m) ?? { i: 0, o: 0 }
+      r.i += e.inputTokens; r.o += e.outputTokens
+      this.runningModelUsage.set(m, r)
+      return
+    }
+    this.runningModelUsage.clear()
+    if (e.byModel?.length) { for (const b of e.byModel) this.addModelUsage(b.model, b.inputTokens, b.outputTokens, b.costUsd ?? 0); return }
+    const m = e.model ?? this.launchModel
+    if (m) this.addModelUsage(m, e.inputTokens, e.outputTokens, e.costUsd ?? 0)
+  }
+
+  /**
+   * The engine's usage by model on turn_models (source 'engine'), written as recordUsage writes the turn row: only while
+   * the model proxy counted nothing of this turn. Its first proxied request replaces these rows (credentials/broker.ts),
+   * and from then on the proxy's rows stand: no token is counted twice.
+   */
+  private recordModelUsage() {
+    const rows = new Map<string, { i: number; o: number; c: number }>()
+    for (const [m, u] of this.modelUsage) rows.set(m, { ...u })
+    for (const [m, r] of this.runningModelUsage) { const u = rows.get(m) ?? { i: 0, o: 0, c: 0 }; u.i += r.i; u.o += r.o; rows.set(m, u) }
+    try { writeEngineModelUsage(this.rt.db, this.id, rows) } catch (e) { this.rt.log.warn('recording the usage by model failed', { err: e, turn: this.id }) }
   }
 
   /**
@@ -2029,6 +2078,7 @@ export class TurnExec {
       this.rt.db.query("UPDATE turns SET input_tokens = ?, output_tokens = ?, cost_usd = ?, usage_source = ? WHERE id = ? AND (usage_source IS NULL OR usage_source <> 'proxy')")
         .run(u.i + r.i, u.o + r.o, u.c, u.unknown ? 'engine_unpriced' : 'engine', this.id)
     } catch (e) { this.rt.log.warn('recording the usage failed', { err: e, turn: this.id }) }
+    this.recordModelUsage()
   }
 
   /** connect_service connected a service on its card (chat/connect-service.ts): noted for the engine that runs now;
@@ -2354,6 +2404,7 @@ export class TurnExec {
         // a running usage is one model call of the run under way; the run's total replaces those estimates
         if (e.running) { this.runningUsage.i += e.inputTokens; this.runningUsage.o += e.outputTokens }
         else { this.runningUsage = { i: 0, o: 0 }; this.usage.i += e.inputTokens; this.usage.o += e.outputTokens; this.usage.c += e.costUsd ?? 0 }
+        this.noteModelUsage(e)
         this.usage.seen = true
         if (e.costUnknown) this.usage.unknown = true
         if (e.requestId && this.usage.ids.length < 50) this.usage.ids.push(e.requestId)

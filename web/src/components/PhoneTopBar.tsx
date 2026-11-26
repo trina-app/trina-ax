@@ -23,7 +23,7 @@ import { FILES_SHARED } from '../lib/nav'
 import { useT } from '../i18n'
 import { useGoBack } from '../lib/back'
 import { useBackLabel } from '../lib/backStack'
-import { activityInChats, parentOf, rootTab } from '../lib/screens'
+import { parentOf, rootTab } from '../lib/screens'
 import { stackNow } from '../lib/screenHistory'
 import { aiName, hidesTabs, pageTitleKey, START_TAB, TAB_ROOT, tabOf } from '../lib/tabs'
 import { useAttention } from '../store/sessionMarkers'
@@ -77,8 +77,7 @@ export function PhoneTopBar() {
       </div>
     )
   const rooms = path === '/rooms'
-  // Activity opened from 대화's 멘션·스레드 row is that row's page (lib/screens.ts CHATS_ACTIVITY)
-  const titleKey = path === '/activity' && activityInChats(search) ? 'feed.chats' : pageTitleKey(path)
+  const titleKey = pageTitleKey(path)
   const title = path === '/' ? aiName(t) : rooms ? t('tabs.chats') : titleKey ? t(titleKey) : ''
   // a tab's own list at the bottom of its stack: no ‹, it is where the tab starts (the list opened on top of another
   // tab's screens, from search, keeps its ‹ back there)

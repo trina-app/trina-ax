@@ -2,7 +2,7 @@
 // admin's choice (Admin > AI providers): owner and admins always pick; other people only when the admin allows them.
 // Everyone else never sees a picker and never sends an engine or model (the server would refuse it).
 import { create } from 'zustand'
-import type { EngineId } from '@mycel/shared/api'
+import type { Effort, EngineId } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 
 type Models = { id: string; label: string }[]
@@ -15,6 +15,12 @@ interface EnginesState {
   models: Partial<Record<EngineId, Models>>
   defaultEngine: EngineId
   defaultModel: string | null
+  /** the team's default depth (null = 보통) */
+  defaultEffort: Effort | null
+  /** the engines that take a depth (빠르게 · 보통 · 꼼꼼하게: Claude Code, Codex; not the API engine) */
+  effort: Partial<Record<EngineId, boolean>>
+  /** how this person's connection of an engine is paid, for the model hints: a subscription's limits or an API key's cost */
+  billing: Partial<Record<EngineId, 'limit' | 'cost'>>
   load: (force?: boolean) => Promise<void>
   /** signed out, or another person signed in in this window: nothing of the last person's list stays */
   reset: () => void
@@ -27,7 +33,7 @@ let failed = false
 /** bumped by reset: an answer to a request made before it (the last person's) is dropped */
 let generation = 0
 
-const EMPTY = { loaded: false, canChoose: false, engines: [] as EngineId[], models: {}, defaultEngine: 'claude-code' as EngineId, defaultModel: null }
+const EMPTY = { loaded: false, canChoose: false, engines: [] as EngineId[], models: {}, defaultEngine: 'claude-code' as EngineId, defaultModel: null, defaultEffort: null, effort: {}, billing: {} }
 
 export const useEngines = create<EnginesState>((set, get) => ({
   ...EMPTY,
@@ -38,13 +44,19 @@ export const useEngines = create<EnginesState>((set, get) => ({
     const run: Promise<void> = api.call(API.chatEngines).then((r) => {
       if (gen !== generation) return
       const models: EnginesState['models'] = {}
-      for (const e of r.engines) models[e.id] = e.models
+      const effort: EnginesState['effort'] = {}
+      const billing: EnginesState['billing'] = {}
+      for (const e of r.engines) {
+        models[e.id] = e.models
+        if (e.effort) effort[e.id] = true
+        if (e.billing) billing[e.id] = e.billing
+      }
       failed = false
-      set({ loaded: true, canChoose: r.canChoose, engines: r.engines.map((e) => e.id), models, defaultEngine: r.defaultEngine, defaultModel: r.defaultModel })
+      set({ loaded: true, canChoose: r.canChoose, engines: r.engines.map((e) => e.id), models, defaultEngine: r.defaultEngine, defaultModel: r.defaultModel, defaultEffort: r.defaultEffort ?? null, effort, billing })
     }, () => {
       if (gen !== generation) return
       failed = true
-      set({ loaded: true, canChoose: false, engines: [], models: {} })
+      set({ loaded: true, canChoose: false, engines: [], models: {}, effort: {}, billing: {} })
     }).finally(() => {
       if (loading === run) loading = null
     })

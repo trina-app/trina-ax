@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { CLAUDE_AGENT_TOOL, ENGINE_BUILTIN_ALLOWED, FILE_TOOLS, TEAM_TOOL_PREFIX, type AuthMode, type LaunchRequest } from '@mycel/shared'
+import type { Effort } from '@mycel/shared/api'
 import { engineTimeZone } from '../system/time-zone'
 
 /** sub-agents running at the same time in one answer (Claude Code: 20; docs/DECISIONS.md "Sub-agents"). One answer's
@@ -117,6 +118,10 @@ export function sessionLocation(conf: ClaudeConf, chatDir: string) {
  * personal model still wins; company-key mode keeps Claude Code's own default (API pricing). */
 export const SUBSCRIPTION_DEFAULT_MODEL = 'opus'
 
+/** The depth a person chose (Effort) as Claude Code's --effort: 보통 (and nothing chosen) sends no flag, so the model
+ * keeps its own default (medium on the 5.5 models). xhigh and max are never offered (they burn the limits). */
+export const CLAUDE_EFFORT: Record<Effort, 'low' | 'high' | undefined> = { quick: 'low', normal: undefined, thorough: 'high' }
+
 /** Claude Code gives up on an MCP tool call after this (ask_user / browser site confirmations wait up to 15 minutes). */
 export const MCP_TOOL_TIMEOUT_MS = 1_800_000
 
@@ -176,9 +181,10 @@ export function buildClaudeLaunch(i: {
   /** Claude Code's Agent tool for this turn (docs/DECISIONS.md "Sub-agents"): the `--agents` definitions
    * (chat/subagents.ts) and the instructions every sub-agent gets (prompt.ts buildSubagentPrompt); absent = none */
   subagents?: { agents: Record<string, unknown>; prompt: string }
-  /** a quick one-turn pick (Find work files' pick from names): `--effort low`, when this engine knows the flag
-   * (claudeKnowsEffort); measured 2026-11-15, it cut Haiku's thinking about a third */
-  effort?: 'low'
+  /** `--effort`, when this engine knows the flag (claudeKnowsEffort): the depth a person chose (CLAUDE_EFFORT: 빠르게
+   * low, 꼼꼼하게 high, 보통 none), or low for a quick one-turn pick (Find work files' pick from names; measured
+   * 2026-11-15, it cut Haiku's thinking about a third) */
+  effort?: 'low' | 'high'
 }, conf: ClaudeConf): LaunchRequest {
   const web = i.webSearch !== false
   const sub = !!i.subagents

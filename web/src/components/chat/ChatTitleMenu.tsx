@@ -41,9 +41,10 @@ export function ChatTitleMenu({ chat, title, compact, onPin, onMute, onRename, o
   // the one list's order (components/menus/entityMenu.tsx), as the row's "···"
   const items = orderMenu([
     ...(chat.id && onPin ? [menuItem(t, chat.pinnedAt ? 'unpin' : 'pin', { onSelect: onPin, testId: chat.pinnedAt ? 'chat-unpin' : 'chat-pin' })] : []),
-    // a shared chat is a conversation: "Mute this chat" / "Unmute this chat", as the row's "···" (chat/message-notices.ts;
-    // a project chat I never wrote in has no row of mine but its project's)
-    ...(chat.id && chat.shared && !chat.deletedAt && onMute ? [menuItem(t, chat.muted ? 'unmute' : 'mute', { onSelect: onMute, testId: chat.muted ? 'chat-unmute' : 'chat-mute' })] : []),
+    // a chat shared with people is a conversation: "Mute this chat" / "Unmute this chat", as the row's "···"
+    // (chat/message-notices.ts); a project's shared chat tells nothing but a mention, so it has no Mute (docs/decisions/
+    // 20261126-project-chat-mention-only.md)
+    ...(chat.id && chat.shared && !chat.projectId && !chat.deletedAt && onMute ? [menuItem(t, chat.muted ? 'unmute' : 'mute', { onSelect: onMute, testId: chat.muted ? 'chat-unmute' : 'chat-mute' })] : []),
     ...(chat.id ? [menuItem(t, 'copyLink', { onSelect: () => void copyLink({ id: chat.id!, shared: chat.shared, projectId: chat.projectId, confidential: chat.confidential, deletedAt: chat.deletedAt, sideRoomId: chat.sideRoomId }), testId: 'chat-copy-link' })] : []),
     ...(appHref ? [menuItem(t, 'openInApp', { onSelect: () => { location.href = appHref }, testId: 'chat-open-in-app' })] : []),
     ...(onRename ? [menuItem(t, 'rename', { onSelect: onRename, testId: 'chat-rename' })] : []),

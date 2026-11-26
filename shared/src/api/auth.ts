@@ -1,7 +1,7 @@
 // Sign-in, the signed-in person, invites, first-run setup. Owner: A (server/src/routes/auth.ts).
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { ClientKind, DEFAULT_LOCALE, GuestDetail, EngineId, IsoTime, Locale, Ok, ReauthFields, Role, TextSize } from './common'
+import { ClientKind, DEFAULT_LOCALE, Effort, GuestDetail, EngineId, IsoTime, Locale, Ok, ReauthFields, Role, TextSize } from './common'
 import { endpoint, empty } from './endpoint'
 import { TEAM_ICON_VERSION_RE } from '../team-icon'
 import { NAME_FORBIDDEN, NAME_FORBIDDEN_FIELD } from '../name-chars'
@@ -94,6 +94,9 @@ export const Me = z.object({
      * at (over the office network that is the office's own address). Signed-in people only (this answer); absent =
      * none known or an older server. */
     address: z.string().max(300).optional(),
+    /** I may send a problem report (Settings › About "문제 신고", 👎 under an answer): this server can send them and the
+     * team switch is on (Admin › Team settings problemReports); never for a guest. Absent: no entry points. */
+    problemReports: z.literal(true).optional(),
   }),
   session: z.object({
     id: Uuid7, client: ClientKind, expiresAt: IsoTime,
@@ -138,6 +141,10 @@ export const Me = z.object({
     /** Always true: folder sharing is always on (owner 2026-11-17). Kept only for web and app builds from before, which
      * show folder sharing only when it is true; current clients do not read it. */
     folderShares: z.literal(true).optional(),
+    /** this server can send problem reports to the <app> team (server/src/system/problem-reports.ts): 'hosted' (a team
+     * the hosting service runs) or 'self' (a self-installed server: the sheet says the report leaves it). Admin › Team
+     * settings shows the switch only then. Absent: none (an edition without a hosted service, MYCEL_PROBLEM_REPORTS=off). */
+    problemReports: z.enum(['hosted', 'self']).optional(),
   }),
   /** last password reset by an admin / owner recovery: settings shows "last reset: who, when" (tab 5). by null = owner recovery on the server Mac */
   passwordReset: z.object({ by: UserRef.nullable(), at: IsoTime }).nullable().optional(),
@@ -354,7 +361,7 @@ export const UpdateMeBody = z.object({
   email: z.email().nullable().optional(),
   /** engine / model null = back to the team default ("내 기본 엔진/모델"); ignored for people who may not pick */
   /** `away` is not set here (PUT /api/me/away tells the team at once); one sent is dropped */
-  prefs: UserPrefs.omit({ away: true }).extend({ textSize: TextSize.optional(), engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional(), listFolds: ListFolds.nullable().optional(), historyView: HistoryView.nullable().optional(), mentionAllAsk: z.literal('off').nullable().optional(), goalCard: z.literal('hidden').nullable().optional(), preparedCard: z.literal('hidden').nullable().optional(), autoMemory: z.literal('off').nullable().optional() }).optional(),
+  prefs: UserPrefs.omit({ away: true }).extend({ textSize: TextSize.optional(), engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional(), effort: Effort.nullable().optional(), listFolds: ListFolds.nullable().optional(), historyView: HistoryView.nullable().optional(), mentionAllAsk: z.literal('off').nullable().optional(), goalCard: z.literal('hidden').nullable().optional(), preparedCard: z.literal('hidden').nullable().optional(), autoMemory: z.literal('off').nullable().optional() }).optional(),
 })
 
 /** PUT /api/me/web-access: my "Allow all websites" for the AI's web reads. Turning it on needs the version of the risk

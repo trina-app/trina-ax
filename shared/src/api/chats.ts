@@ -1,7 +1,7 @@
 // Chats, messages, turn control, projects, ask_user answers. Owner: B (server/src/routes/chats.ts).
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { Access, EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common'
+import { Access, Effort, EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common'
 import { endpoint, empty, stream } from './endpoint'
 import { SealedSecret } from './credentials'
 import { AudienceSplit, Chat, type Step, ChatFileVersion, ChatThreadReply, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
@@ -247,6 +247,8 @@ export const CreateChatBody = z.object({
   title: z.string().max(200).optional(),
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),
+  /** the depth (Effort); null = not chosen. Same rule as engine and model: only people who may pick */
+  effort: Effort.nullable().optional(),
   /** "Only me" (docs/DECISIONS.md "Team project chats shared by default"): a chat in a team project starts shared with
    * its members unless this is true; then it is its creator's alone until they share it (POST /api/chats/:id/share).
    * Ignored outside team projects (every other chat is one person's anyway). */
@@ -257,6 +259,8 @@ export const UpdateChatBody = z.object({
   projectId: Uuid7.nullable().optional(),
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),
+  /** the depth (Effort); null = not chosen. Same rule as engine and model: only people who may pick */
+  effort: Effort.nullable().optional(),
 })
 /** What the composer may offer this person (GET /api/engines). */
 export const ChatEngines = z.object({
@@ -265,8 +269,12 @@ export const ChatEngines = z.object({
   /** the team default (new chats of people who may not pick, and of people without their own default) */
   defaultEngine: EngineId,
   defaultModel: z.string().nullable(),
-  /** engines this person may pick, with their models; empty when canChoose is false */
-  engines: z.array(z.object({ id: EngineId, label: z.string(), models: z.array(z.object({ id: z.string(), label: z.string() })) })),
+  /** the team's default depth (null = 보통). Absent from older servers. */
+  defaultEffort: Effort.nullable().optional(),
+  /** engines this person may pick, with their models; empty when canChoose is false. `effort`: the engine takes a depth
+   * (Claude Code with --effort, Codex; not the API engine). `billing`: how this person's connection of the engine is
+   * paid, for the model hints: 'limit' = a subscription with usage limits, 'cost' = an API key paid per use. */
+  engines: z.array(z.object({ id: EngineId, label: z.string(), models: z.array(z.object({ id: z.string(), label: z.string() })), effort: z.boolean().optional(), billing: z.enum(['limit', 'cost']).optional() })),
 })
 export type ChatEngines = z.infer<typeof ChatEngines>
 export const DeletedChat = z.object({ id: Uuid7, deletedAt: IsoTime, purgeAt: IsoTime })
@@ -325,6 +333,8 @@ export const SendMessageBody = z.object({
    * than the chat's gets 403 */
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),
+  /** the depth (Effort); null = not chosen. Same rule as engine and model: only people who may pick */
+  effort: Effort.nullable().optional(),
   /** client-generated id; resending the same clientMessageId after a reconnect returns the first result (idempotent) */
   clientMessageId: z.string().min(8).max(64),
   /** ignored: the box of an AI chat mentions nobody, a person is mentioned in a thread under an AI answer
@@ -357,6 +367,8 @@ export type ChatQueueSnapshot = z.infer<typeof ChatQueueSnapshot>
 export const RegenerateBody = z.object({
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),
+  /** the depth (Effort); null = not chosen. Same rule as engine and model: only people who may pick */
+  effort: Effort.nullable().optional(),
   timeZone: TurnTimeZone,
 })
 /** Edit a user message: adds a sibling user message (same parent) and answers it. Team-folder file changes of the
@@ -366,6 +378,8 @@ export const EditMessageBody = z.object({
   attachmentIds: z.array(Uuid7).max(MESSAGE_ATTACHMENTS_MAX).default([]),
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),
+  /** the depth (Effort); null = not chosen. Same rule as engine and model: only people who may pick */
+  effort: Effort.nullable().optional(),
   clientMessageId: z.string().min(8).max(64),
   timeZone: TurnTimeZone,
 })

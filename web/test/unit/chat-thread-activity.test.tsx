@@ -1,7 +1,7 @@
 // A reply in a thread under a shared AI chat's answer is a conversation row (QA: the owner's "@test" in a two-person
-// shared chat reached nobody): 대화's 멘션·스레드 (pages/Activity.tsx `?in=chats`, GET /api/notifications only=rooms) shows
-// it with who and the chat, under Mentions while it mentions me and under Threads, and opens the thread
-// (/c/<chat>/t/<answer>); the counts (store/inbox.ts) put it on 대화, not on 활동.
+// shared chat reached nobody): the one Activity (pages/Activity.tsx, docs/decisions/20261126-one-activity.md) shows it
+// with who and the chat, under Mentions while it mentions me and under Threads, and opens the thread
+// (/c/<chat>/t/<answer>); the app's own notices are listed beside it.
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import { activityTabHas, InboxNotification, uuidv7, type ActivityTab, type Me } from '@mycel/shared/api'
@@ -85,9 +85,9 @@ test('the tab rule: a mention under Mentions and Threads, a plain reply under Th
   expect(tabs(appNotice())).toEqual(['all'])
 })
 
-test('대화\'s 멘션·스레드: the mention is a row with who and the chat that opens the thread; the app\'s notice is not there', async () => {
+test('Activity: the mention is a row with who and the chat that opens the thread; the app\'s notice is listed too', async () => {
   inbox = [threadRow(1, ROOT, true), threadRow(2, ROOT2, false), appNotice()]
-  const m = await open('?in=chats')
+  const m = await open('')
   try {
     expect(rows(m)).toHaveLength(2)
     const [mention, plain] = rows(m)
@@ -96,7 +96,7 @@ test('대화\'s 멘션·스레드: the mention is a row with who and the chat th
     expect(mention!.textContent).toContain('Sincere 베이커리 견적서')
     expect(mention!.textContent).toContain('나를 언급했어요')
     expect(plain!.getAttribute('href')).toBe(`/c/${CHAT}/t/${ROOT2}`)
-    expect(m.container.ownerDocument!.body.textContent).not.toContain('연결')
+    expect(m.container.ownerDocument!.body.querySelectorAll('[data-testid="notification-item"]')).toHaveLength(3)
     // both tabs have their dot
     expect(m.find('activity-tab-mentions-unread')).not.toBeNull()
     expect(m.find('activity-tab-threads-unread')).not.toBeNull()
@@ -105,12 +105,12 @@ test('대화\'s 멘션·스레드: the mention is a row with who and the chat th
 
 test('Mentions: only the mention; "Mark all as read" there reads it and leaves the plain reply', async () => {
   inbox = [threadRow(1, ROOT, true), threadRow(2, ROOT2, false), appNotice()]
-  const m = await open('?in=chats&tab=mentions')
+  const m = await open('?tab=mentions')
   try {
     expect(rows(m).map((a) => a.getAttribute('href'))).toEqual([`/c/${CHAT}/t/${ROOT}`])
     await m.click('activity-mark-all-read')
     await m.until(() => !m.find('activity-tab-mentions-unread'), 'the Mentions dot gone')
-    expect(sent).toEqual([{ tab: 'mentions', only: 'rooms' }])
+    expect(sent).toEqual([{ tab: 'mentions' }])
     expect(inbox.filter((x) => !x.readAt).map((x) => x.chatThread?.rootId ?? x.code)).toEqual([ROOT2, 'connection.reconnect'])
     expect(m.find('activity-tab-threads-unread')).not.toBeNull()
   } finally { await m.unmount() }

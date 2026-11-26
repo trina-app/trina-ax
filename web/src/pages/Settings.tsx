@@ -17,12 +17,13 @@
 import { HomeCardsShowAgain, MySetupShowAgain } from '../components/onboarding/CardHide'
 import clsx from 'clsx'
 import { rowName } from '../components/list/List'
-import { Brain, KeyRound, Laptop, Loader2, LogOut, Monitor, Pencil, Plus, Send, ShieldAlert, Smartphone, Tablet, Trash2 } from 'lucide-react'
+import { Brain, KeyRound, Laptop, Loader2, LogOut, MessageSquareWarning, Monitor, Pencil, Plus, Send, ShieldAlert, Smartphone, Tablet, Trash2 } from 'lucide-react'
 import { lazy, useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { type EngineId, type Memory, type Session, type TextSize, type Theme } from '@mycel/shared/api'
+import { type Effort, type EngineId, type Memory, type Session, type TextSize, type Theme } from '@mycel/shared/api'
 import { APP_DOWNLOADS, PROFILE_TITLE_MAX } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../lib/api'
+import ProblemReportSheet from '../components/ProblemReportSheet'
 import { formatDateTime } from '../lib/format'
 import { optimistic, optimisticPending } from '../lib/optimistic'
 import { deviceKind, deviceLabel } from '../lib/userAgent'
@@ -31,12 +32,12 @@ import { phoneApps, type AppClient } from '../lib/apps'
 import { browser, canInstallIn, installGuideShown, isStandalone, platform } from '../lib/pwa'
 import { LOCALES, useLocale, useT } from '../i18n'
 import { memoryChanged } from '../store/live'
-import { canChooseEngine, useMeStrict, useSession } from '../store/session'
+import { canChooseEngine, useMe, useMeStrict, useSession } from '../store/session'
 import { useFreeRoam } from '../store/demo'
 import { isGuestMe, meGuest } from '../lib/guests'
 import { peekCached, rememberCached } from '../store/listCache'
 import { useEngines } from '../store/engines'
-import { ENGINE_LABEL } from '../components/chat/EngineMenu'
+import { EFFORTS, EFFORT_KEY, ENGINE_LABEL } from '../components/chat/EngineMenu'
 import { PhoneChoiceRow } from '../components/phone/PhoneChoice'
 import { LanguageSelect } from '../components/LanguageSelect'
 import { toast } from '../store/ui'
@@ -548,8 +549,19 @@ function MyEngine() {
   const locale = useLocale()
   const me = useMeStrict()
   const updatePrefs = useSession((s) => s.updatePrefs)
-  const { loaded, engines, models, defaultEngine, defaultModel, load } = useEngines()
+  const { loaded, engines, models, defaultEngine, defaultModel, defaultEffort, effort: takesEffort, load } = useEngines()
   useEffect(() => void load(), [load])
+  // the depth of new chats (빠르게 · 보통 · 꼼꼼하게): empty = the team's; only when the engine new chats start on takes one
+  const myEffort = me.user.prefs.effort ?? null
+  const effortShown = !!takesEffort[(me.user.prefs.engine && engines.includes(me.user.prefs.engine) ? me.user.prefs.engine : null) ?? defaultEngine]
+  const effortOptions = [{ value: '', label: t('settings.myEngine.team', { engine: t(EFFORT_KEY[defaultEffort ?? 'normal']) }) }, ...EFFORTS.map((e) => ({ value: e, label: t(EFFORT_KEY[e]) }))]
+  const saveEffort = async (v: string) => {
+    try {
+      if (await updatePrefs({ effort: (v || null) as Effort | null })) toast({ level: 'success', text: t('common.saved') })
+    } catch (err) {
+      toast({ level: 'error', text: errorText(err, locale, t('error.network')) })
+    }
+  }
   const engine = me.user.prefs.engine && engines.includes(me.user.prefs.engine) ? me.user.prefs.engine : null
   const model = engine ? me.user.prefs.model ?? null : null
   const save = async (e: EngineId | null, m: string | null) => {
@@ -573,6 +585,9 @@ function MyEngine() {
             <PhoneChoiceRow list title={t('settings.myEngine.model')} value={model ?? ''} testId="my-model-select"
               options={[{ value: '', label: t('composer.defaultModel') }, ...(models[engine] ?? []).map((x) => ({ value: x.id, label: x.label }))]}
               onChange={(v) => void save(engine, v || null)} />
+          )}
+          {effortShown && (
+            <PhoneChoiceRow list title={t('composer.effort')} value={myEffort ?? ''} testId="my-effort-select" options={effortOptions} onChange={(v) => void saveEffort(v)} />
           )}
         </PhoneListGroup>
       </PhoneSection>
@@ -602,6 +617,13 @@ function MyEngine() {
                     {x.label}
                   </option>
                 ))}
+              </select>
+            </Field>
+          )}
+          {effortShown && (
+            <Field label={t('composer.effort')}>
+              <select className={inputCls} value={myEffort ?? ''} onChange={(e) => void saveEffort(e.target.value)} data-testid="my-effort-select">
+                {effortOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </Field>
           )}
@@ -1019,10 +1041,23 @@ function About() {
   const { version } = info
   // the phone app: its own version and build first, then the team server's, so the two are told apart (QA TC-8071)
   const app = mobileApp()
+  const me = useMe()
+  const [reporting, setReporting] = useState(false)
   return (
     <Section title={t('settings.about')} page>
       {app && <p className="text-sm" data-testid="about-app-version">{app.appBuild ? t('about.appVersionBuild', { version: app.appVersion, build: app.appBuild }) : t('about.appVersion', { version: app.appVersion })}</p>}
       {version && <p className={app ? 'mt-1 text-sm' : 'text-sm'} data-testid="about-version">{app ? t('about.serverVersion', { version }) : t('about.version', { version })}</p>}
+      {/* "문제 신고" (docs/decisions/20261126-problem-reports.md): under the version line, where people look when something
+          is wrong; only where this server sends reports and the team allows it (Me.team.problemReports) */}
+      {me?.team.problemReports && (
+        <div className="mt-3" data-testid="about-problem-report">
+          <Button size="sm" variant="secondary" onClick={() => setReporting(true)} data-testid="about-problem-report-open">
+            <MessageSquareWarning size={14} aria-hidden /> {t('problemReport.open')}
+          </Button>
+          <p className="mt-1 text-xs text-muted">{t('problemReport.rowDesc')}</p>
+        </div>
+      )}
+      {reporting && <ProblemReportSheet onClose={() => setReporting(false)} />}
       <p className="mt-2 text-sm text-muted">{t('about.license')}</p>
       <SourceCodeLinks info={info} className="mt-3 inline-block text-sm text-accent-text underline" />
     </Section>

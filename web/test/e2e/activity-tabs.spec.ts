@@ -33,8 +33,8 @@ async function routeInbox(page: Page) {
 test.use({ launchOptions: { ignoreDefaultArgs: ['--hide-scrollbars'] } })
 
 const PHONE_TABS = ['all', 'dms', 'mentions', 'threads'] as const
-const COMPUTER_TABS = ['all', 'mentions', 'threads'] as const
-const SIZES = [['1440', { width: 1440, height: 900 }, false], ['390', { width: 390, height: 844 }, true]] as const
+// the page with its tabs is a phone's: a computer has 활동's list beside the rail with its chips (activity-panel.spec.ts)
+const SIZES = [['390', { width: 390, height: 844 }, true], ['360', { width: 360, height: 740 }, true]] as const
 
 for (const [name, viewport, mobile] of SIZES) {
   test(`${name} wide: every tab keeps the tabs and the list at the same x`, async ({ browser }) => {
@@ -43,8 +43,8 @@ for (const [name, viewport, mobile] of SIZES) {
     await reset(page)
     await signIn(page)
     await routeInbox(page)
-    const TABS = mobile ? PHONE_TABS : COMPUTER_TABS
-    await page.goto(mobile ? '/activity' : '/activity?in=chats')
+    const TABS = PHONE_TABS
+    await page.goto('/activity')
     await expect(page.getByTestId('notification-item').first()).toBeVisible()
     // scroll bars that take room, as on Windows or a Mac with a mouse (with the launch option above; CSSOM, since the
     // page's CSP refuses a style tag)

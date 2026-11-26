@@ -299,7 +299,7 @@ function tellThread(chatId: string, rootId: string, why: 'mention' | 'reply') {
   if (why === 'reply' && useRooms.getState().alerts?.threadReplies === false) return
   const c = useChats.getState().chats.find((x) => x.id === chatId)
   const title = plainLabel(c?.confidential ? t('sidebar.filter.confidential') : c?.title || t('chat.untitled'), 120)
-  // the Inbox's generic words: never who or the reply's text (the row in 멘션·스레드 says who)
+  // the Inbox's generic words: never who or the reply's text (the row in 활동 says who)
   const body = t(why === 'mention' ? 'notifications.event.chat.thread_mention' : 'notifications.event.chat.thread_reply')
   desktop()?.notify({ title, body, tag: `chat-thread-${rootId}`, open: `/c/${chatId}/t/${rootId}` })
 }

@@ -198,14 +198,14 @@ Obrolan langsung dengan seseorang yang sudah keluar dari tim menampilkan "<nama>
 ## Obrolan tim
 
 **Obrolan** di bilah kiri (di ponsel, tab **Obrolan**) adalah tempat orang saling berbicara: **Saluran**
-(satu untuk semua orang di tim, satu per grup, dan saluran privat tempat Anda bergabung) dan **Pesan langsung** (obrolan 1:1 dan obrolan grup). **Mention & thread**
-di bagian atas mengumpulkan pesan yang menyebut nama Anda dan utas yang Anda ikuti.
+(satu untuk semua orang di tim, satu per grup, dan saluran privat tempat Anda bergabung) dan **Pesan langsung** (obrolan 1:1 dan obrolan grup).
+Pesan yang menyebut nama Anda dan balasan baru di utas yang Anda ikuti ada di **Aktivitas**, bersama pemberitahuan Anda yang lain.
 
 Untuk mengirim pesan ke satu orang, klik foto atau namanya di samping pesan (@mention orang itu, atau barisnya di daftar anggota percakapan, juga bisa). Sebuah kartu kecil terbuka dengan nama dan jabatannya: **Kirim pesan** membuka obrolan 1:1 Anda dengan orang itu. Di ponsel, kartu terbuka dari bawah layar. Kartu Anda sendiri berisi **Edit profil**. Aplikasi dan orang yang sudah tidak ada di tim tidak punya kartu; tamu hanya bisa mengirim pesan ke orang di obrolan grup atau proyeknya.
 
 Untuk mengajak orang dari luar tim, pilih **Undang tamu** saat Anda menambahkan orang ke saluran privat, obrolan grup, atau proyek. [Baca tentang tamu](guests.md).
 
-![Daftar Obrolan: Mentions & threads, Saluran dengan Everyone dan Marketing, lalu Pesan langsung dengan satu obrolan grup dan satu pesan langsung](../../images/chats/rooms-list.webp "Daftar Obrolan")
+![Daftar Obrolan: Saluran dengan Everyone, saluran privat Launch email dan Marketing, lalu Pesan langsung dengan satu pesan langsung](../../images/chats/rooms-list.webp "Daftar Obrolan")
 
 #### Bertanya ke Trina di samping percakapan
 
@@ -240,7 +240,7 @@ sebelum Anda mengirim: **Tampilkan tautan saja** (bawaan) hanya mengirim tautann
 dengan tanda bahwa Anda yang membagikannya. Salinan hilang jika pesan aslinya dihapus. Untuk menghapus kartu dari pesan Anda sendiri, arahkan kursor ke kartu
 lalu klik **✕** (atau pilih **Hapus pratinjau** di menu pesan).
 
-![Obrolan di ponsel: Mentions & threads, saluran, obrolan grup, dan pesan langsung, dengan lima tab di bagian bawah](../../images/chats/rooms-phone.webp "Obrolan di ponsel")
+![Obrolan di ponsel: Saluran dengan Everyone, satu saluran privat dan Marketing, lalu satu pesan langsung, dengan lima tab di bagian bawah](../../images/chats/rooms-phone.webp "Obrolan di ponsel")
 
 ### Tempat percakapan Anda tercantum
 

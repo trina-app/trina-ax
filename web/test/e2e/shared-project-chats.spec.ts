@@ -268,7 +268,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       // 링크 복사, and "Continue in a chat only you see" (a new "Only me" chat of the project with his last question:
       // docs/DECISIONS.md "Team project chats shared by default"); no edit, no "regenerate", no engine
       await b.getByTestId('chat-menu').click()
-      await expect(b.getByRole('menuitem')).toHaveText(['상단에 고정', '이 채팅 알림 끄기', '링크 복사', '나만 보는 채팅에서 이어 하기'])
+      await expect(b.getByRole('menuitem')).toHaveText(['상단에 고정', '링크 복사', '나만 보는 채팅에서 이어 하기'])
       await b.keyboard.press('Escape')
       await expect(b.getByTestId('chat-title')).toHaveText(/출시 일정/)
       await expect(b.getByTestId('edit-message')).toHaveCount(0)

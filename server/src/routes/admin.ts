@@ -66,7 +66,7 @@ async function enginesResponse(ctx: AppContext, cache: EngineStatusCache, locale
   const engines = await Promise.all(EngineId.options.map((id) => cache.get(id, enabled[id], locale)))
   return {
     // company keys are AI connections now (Admin > AI connections); the field stays empty until the next release
-    engines, defaultEngine: s.defaultEngine, defaultModel: s.defaultModel, concurrency: s.concurrency, concurrencyMax: concurrencyMax(), accounts: [],
+    engines, defaultEngine: s.defaultEngine, defaultModel: s.defaultModel, defaultEffort: s.defaultEffort ?? null, concurrency: s.concurrency, concurrencyMax: concurrencyMax(), accounts: [],
     memberChoice: memberChoice(ctx), limitFallback: limitFallbackOn(ctx), limitFallbackAvailable: limitFallbackAvailable(ctx),
   }
 }
@@ -320,7 +320,7 @@ export const adminRoutes: RouteModule = {
       const codexOn = enabled.codex && !codexOffHere(ctx)
       if (body.limitFallback === true && !codexOn) fail('conflict', msg('limitFallbackNeedsCodex', locale))
       // "다른 AI로 대신 답하기" decides who has AI too (credentials/access.ts): a change of it is told like the others
-      const before = { enabled: enginesEnabled(ctx.db), memberChoice: memberChoice(ctx), defaultEngine: s.defaultEngine, defaultModel: s.defaultModel, limitFallback: limitFallbackOn(ctx) }
+      const before = { enabled: enginesEnabled(ctx.db), memberChoice: memberChoice(ctx), defaultEngine: s.defaultEngine, defaultModel: s.defaultModel, defaultEffort: s.defaultEffort ?? null, limitFallback: limitFallbackOn(ctx) }
       ctx.db.transaction(() => {
         if (body.enabled) setEnginesEnabled(ctx.db, body.enabled)
         if (body.memberChoice) setMemberChoice(ctx, body.memberChoice)
@@ -332,10 +332,11 @@ export const adminRoutes: RouteModule = {
         ...(body.defaultEngine !== undefined ? { defaultEngine: body.defaultEngine } : {}),
         ...(body.defaultModel !== undefined ? { defaultModel: body.defaultModel } : body.defaultEngine !== undefined && body.defaultEngine !== s.defaultEngine ? { defaultModel: null } : {}),
         ...(body.concurrency !== undefined ? { concurrency: body.concurrency } : {}),
+        ...(body.defaultEffort !== undefined ? { defaultEffort: body.defaultEffort } : {}),
       })
       audit(ctx.db, { actor: auth.user.id, action: 'engines.update', target: null, detail: body as Record<string, unknown> })
       const after = getTeamSettings(ctx.db)
-      if (JSON.stringify(before) !== JSON.stringify({ enabled: enginesEnabled(ctx.db), memberChoice: memberChoice(ctx), defaultEngine: after.defaultEngine, defaultModel: after.defaultModel, limitFallback: limitFallbackOn(ctx) }))
+      if (JSON.stringify(before) !== JSON.stringify({ enabled: enginesEnabled(ctx.db), memberChoice: memberChoice(ctx), defaultEngine: after.defaultEngine, defaultModel: after.defaultModel, defaultEffort: after.defaultEffort ?? null, limitFallback: limitFallbackOn(ctx) }))
         ctx.services.realtime.publishEach(() => ENGINE_CHOICE_CHANGED)
       return enginesResponse(ctx, engineCache, locale)
     })

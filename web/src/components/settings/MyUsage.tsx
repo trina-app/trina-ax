@@ -4,6 +4,7 @@
 // Admin > Usage (pages/admin/Usage.tsx). A phone (below 768 px; docs/DECISIONS.md "Admin and Settings on phones"): the
 // bar says "Usage", so the title is for screen readers; the period and Refresh go under the line instead of squeezing it
 // to four lines; the numbers (answers and the estimate) share one row; nothing is framed.
+import { claudeFamily, modelDisplayName } from '@mycel/shared'
 import { RefreshCw } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -133,7 +134,7 @@ export default function MyUsage() {
                   <li key={r.key} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 gap-y-1.5 py-3 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto]">
                     <span className="truncate text-sm">
                       {ENGINE_LABEL[r.engine as keyof typeof ENGINE_LABEL] ?? r.engine}
-                      <span className="text-muted"> · {r.model ?? t('composer.defaultModel')}</span>
+                      <span className="text-muted"> · {r.model ? modelDisplayName(r.model) : t('composer.defaultModel')}</span>
                     </span>
                     <UsageBar pct={shares[i] ?? 0} className="order-3 col-span-2 sm:order-none sm:col-span-1" />
                     <span className="text-sm text-muted tabular-nums">{formatNumber((shares[i] ?? 0) / 100, locale, { style: 'percent', maximumFractionDigits: 0 })}</span>
@@ -142,6 +143,8 @@ export default function MyUsage() {
               </ul>
             )}
           </section>
+          {/* Claude Code answers small side tasks (titles, summaries) on Haiku by itself: that row is real use, said plainly */}
+          {d.byModel.some((r) => r.model && claudeFamily(r.model) === 'haiku') && <p className="mt-3 text-xs text-faint" data-testid="my-usage-haiku-note">{t('myUsage.haikuNote')}</p>}
           <p className="mt-3 text-xs text-faint">{t('myUsage.costNote')}</p>
           {!!d.totals.estimatedTurns && <p className="mt-1 text-xs text-faint" data-testid="my-usage-estimated-note">{t('usage.estimated', { n: d.totals.estimatedTurns })}</p>}
           {!!d.totals.unpricedTurns && <p className="mt-1 text-xs text-warn" data-testid="my-usage-unpriced-note">{t('usage.unpriced', { n: d.totals.unpricedTurns })}</p>}

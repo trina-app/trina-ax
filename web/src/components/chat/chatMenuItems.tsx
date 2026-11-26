@@ -53,9 +53,9 @@ export function useChatMenuItems(chat: Chat, { testId, more, select = (fn) => ()
   return orderMenu([
     menuItem(t, chat.pinnedAt ? 'unpin' : 'pin', { onSelect: select(pin), testId: `${testId}-${chat.pinnedAt ? 'unpin' : 'pin'}` }),
     ...extra,
-    // a chat shared with people, or a project's shared chat, is a conversation: its new messages tell me unless I mute it
-    // (chat/message-notices.ts)
-    ...(chat.shared && !chat.deletedAt ? [menuItem(t, chat.muted ? 'unmute' : 'mute', { onSelect: select(mute), testId: `${testId}-${chat.muted ? 'unmute' : 'mute'}` })] : []),
+    // a chat shared with people is a conversation: its new messages tell me unless I mute it (chat/message-notices.ts). A
+    // project's shared chat tells nothing but a mention (docs/decisions/20261126-project-chat-mention-only.md): no Mute
+    ...(chat.shared && !chat.projectId && !chat.deletedAt ? [menuItem(t, chat.muted ? 'unmute' : 'mute', { onSelect: select(mute), testId: `${testId}-${chat.muted ? 'unmute' : 'mute'}` })] : []),
     menuItem(t, 'copyLink', { onSelect: select(() => copyLink(chat)), testId: `${testId}-copy-link` }),
     ...(rights.creator ? [menuItem(t, 'rename', { onSelect: select(() => actions.rename(chat, onChanged)), testId: `${testId}-rename` })] : []),
     // the item goes with the menu: the dialog gives the keyboard back to "···" when it closes

@@ -188,7 +188,7 @@ describe('stream parser: sub-agent messages (review M2)', () => {
     expect(failed.agent).toBeUndefined()
     expect(ev.filter((e) => e.type === 'agent_progress')).toEqual([{ type: 'agent_progress', id: 'A1', stats: { toolUses: 1, ms: 79, tokens: 110 } }])
     // tokens of the whole run, the children's included (modelUsage, every model)
-    expect(ev.find((e) => e.type === 'usage')).toEqual({ type: 'usage', inputTokens: 735, outputTokens: 71, costUsd: 0.0042 })
+    expect(ev.find((e) => e.type === 'usage')).toEqual({ type: 'usage', inputTokens: 735, outputTokens: 71, costUsd: 0.0042, byModel: [{ model: 'claude-opus-5-5', inputTokens: 730, outputTokens: 70 }, { model: 'claude-haiku-4-5', inputTokens: 5, outputTokens: 1 }] })
   })
   test('a child\'s WebSearch result: the structured hits as sources (never the search model\'s text), with its parent', () => {
     const p = new ClaudeStreamParser()

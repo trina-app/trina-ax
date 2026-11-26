@@ -4,6 +4,9 @@ import { USER_OF, type Who } from './world'
 /** Configured OAuth flows have separate synthetic-provider tests. This permanent matrix also covers disabled setup. */
 export const P4_SPECS: Record<string, Spec> = {
   oftenAsked: { build: c => c.get('/api/questions/often-asked?userId=alice&groupId=marketing'), scope: 'self' },
+  // a problem report (system/problem-reports.ts): the matrix server has no intake, so nobody can send one (404); an answer
+  // the caller cannot open is refused as not found either way (tests/unit/problem-reports.test.ts)
+  sendProblemReport: { build: c => c.post('/api/problem-reports', { text: 'matrix', screen: 'chat', client: { kind: 'web', version: null, os: 'other' }, answer: { messageId: '00000000-0000-7000-8000-000000000000', withConversation: true } }), scope: 'nobody' },
   popularSkills: { build: c => c.get('/api/skills/popular'), scope: 'self' },
   listScheduleTemplates: { build: c => c.get('/api/schedule-templates'), scope: 'self' },
   createScheduleFromTemplate: {

@@ -5,7 +5,8 @@ import type { Database } from 'bun:sqlite'
 import type { MyUsage, MyUsageLimit } from '@mycel/shared/api'
 import { checkBudgets, periodEnd, periodStart } from './budgets'
 import { teamTimeZone } from './settings'
-import { USAGE_AGG, withCounts } from './usage-amount'
+import { TURN_MODEL_ROWS, USAGE_AGG, withCounts } from './usage-amount'
+import { modelDisplayName } from '@mycel/shared'
 import { zonedParts, zonedToUtc } from '../system/time-zone'
 
 type Period = MyUsage['period']
@@ -29,9 +30,19 @@ export function myUsage(db: Database, userId: string, period: Period, now = new 
   const from = myPeriodStart(period, now, tz)
   const since = from.toISOString()
   const totals = priced(db.query(`SELECT ${AGG} FROM turns t WHERE t.user_id = ? AND t.started_at >= ?`).get(userId, since) as MyUsage['totals'])
-  const rows = db.query(`SELECT t.engine AS engine, t.model AS model, ${AGG} FROM turns t WHERE t.user_id = ? AND t.started_at >= ?
+  // by the model that really answered (turn_models), Claude Code's own background calls on Haiku included; ids with one
+  // name ("opus" asked for, "claude-opus-5-5-…" answered) are one row
+  const rows = db.query(`SELECT t.engine AS engine, t.model AS model, ${AGG} FROM ${TURN_MODEL_ROWS} t WHERE t.user_id = ? AND t.started_at >= ?
     GROUP BY t.engine, COALESCE(t.model, '') ORDER BY turns DESC, costUsd DESC`).all(userId, since) as Omit<MyUsage['byModel'][number], 'key'>[]
-  const byModel = rows.map((r) => priced({ ...r, key: `${r.engine}:${r.model ?? ''}` }))
+  const merged = new Map<string, MyUsage['byModel'][number]>()
+  for (const r of rows) {
+    const key = `${r.engine}:${r.model ? modelDisplayName(r.model) : ''}`
+    const m = merged.get(key)
+    if (!m) { merged.set(key, { ...r, key }); continue }
+    m.turns += r.turns; m.inputTokens += r.inputTokens; m.outputTokens += r.outputTokens; m.costUsd += r.costUsd
+    m.unpricedTurns = (m.unpricedTurns ?? 0) + (r.unpricedTurns ?? 0); m.estimatedTurns = (m.estimatedTurns ?? 0) + (r.estimatedTurns ?? 0)
+  }
+  const byModel = [...merged.values()].sort((a, b) => b.turns - a.turns || b.costUsd - a.costUsd).map(priced)
   const groupName = (id: string | null) => (id ? ((db.query('SELECT name FROM groups WHERE id = ?').get(id) as { name: string } | null)?.name ?? null) : null)
   const limits: MyUsageLimit[] = []
   for (const { budget: b, exceeded } of checkBudgets(db, userId, now)) {
