@@ -7,6 +7,9 @@
 #                           ap-northeast-2, ami-manifest-v2.sh --copy-to for each AMI_COPY_TO region, a short signing step,
 #                           publish-ami.ts, then ami-prune.sh removes the CI's old images per region (keeps the newest 5
 #                           releases, anything younger than 14 days, anything tagged ax:keep or still in use)
+#   qcow2 (here)            after build-ami: the AMI's root snapshot as a signed qcow2 beside the AMI manifest, for the
+#                           control plane's Proxmox hosts (scripts/image/snapshot-to-qcow2.ts, publish-qcow2.ts). Its
+#                           failure never fails the AMI
 #
 # Its own workflow, not a job of release.yml: an image takes up to three hours, and release.yml's concurrency group is
 # also the one of feed.yml (hold, promote). A hold must never wait for an image. GitHub keeps one pending run per
@@ -268,3 +271,132 @@ jobs:
           path: dist/image/*.state
           if-no-files-found: ignore
           retention-days: 7
+
+  # The Proxmox twin of the AMI (trina-cloud DECISIONS FS-11): the root snapshot of the AMI in AMI_REGION as a qcow2,
+  # signed with the release key, beside the AMI manifest (scripts/image/snapshot-to-qcow2.ts,
+  # scripts/release/publish-qcow2.ts). The same bytes and the same template version as the AMI, so the control plane
+  # installs it on its Proxmox hosts (the free host) with the AMI. Its own job: a failure here never fails or delays the
+  # AMI, and it reads the feed itself (not the AMI job's outputs), so a re-run of a failed qcow2 makes only the qcow2.
+  # Settings: as build-ami, and the CI role needs "QcowFromCiSnapshots" (docs/runbooks/team-image-iam-policy.json).
+  qcow2:
+    name: Proxmox image (qcow2 of the AMI)
+    needs: build-ami
+    if: ${{ !cancelled() && needs.build-ami.result == 'success' }}
+    runs-on: ubuntu-24.04
+    environment: release
+    # download ~20 min (EBS direct APIs, 16 in parallel), compress ~20 min, upload ~10 min
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ inputs.tag }}
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+    steps:
+      - name: Settings
+        id: go
+        env:
+          HAVE_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+          HAVE_KEY: ${{ secrets.RELEASE_SIGNING_KEY != '' }}
+        run: |
+          missing=()
+          [ -n "$AWS_ROLE_ARN" ] || missing+=("repository variable AWS_ROLE_ARN")
+          [ "$HAVE_TOKEN" = true ] || missing+=("secret CLOUDFLARE_API_TOKEN")
+          [ "$HAVE_KEY" = true ] || missing+=("secret RELEASE_SIGNING_KEY")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::notice::no qcow2 for $TAG: not set up ($(IFS=,; echo "${missing[*]}")); docs/RELEASE-CI.md"
+            echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: steps.go.outputs.run == 'true'
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        if: steps.go.outputs.run == 'true'
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      # no package's install script runs in the job that holds the key
+      - if: steps.go.outputs.run == 'true'
+        run: bun install --frozen-lockfile --ignore-scripts
+      # the AMI manifest from the feed, checked as hostd checks it (signature included): its root snapshot in AMI_REGION
+      # is what becomes the qcow2. A qcow2 manifest on the feed already ends the run.
+      - name: The AMI manifest and the qcow2 on the feed
+        id: feed
+        if: steps.go.outputs.run == 'true'
+        run: |
+          out=$(bun scripts/release/release-ci.ts tag "$TAG")
+          version=$(sed -n 's/^version=//p' <<<"$out")
+          feed=$(bun -e 'import { RELEASE_CHANNEL } from "./shared/src/release-channel"; console.log(RELEASE_CHANNEL.feed)')
+          dir="$feed/server/$version"
+          if ! ptr=$(curl -sf "$dir/team-image.json?t=$(date +%s)"); then echo "::notice::$version has no team image on the feed: no qcow2"; echo "build=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          tv=$(jq -r .templateVersion <<<"$ptr"); name=$(jq -r .manifest <<<"$ptr")
+          [[ "$tv" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?-d13-[0-9]{8}$ && "$name" == "teamax-$tv.v2.ami.json" ]] || { echo "::error::team-image.json names $tv / $name"; exit 1; }
+          if curl -sf -o /dev/null "$dir/teamax-$tv.qcow2.json?t=$(date +%s)"; then echo "::notice::teamax-$tv.qcow2 is on the feed already"; echo "build=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          mkdir -p dist/ami dist/image
+          for x in "" .sha256 .sig; do curl -sf -o "dist/ami/$name$x" "$dir/$name$x?t=$(date +%s)" || { echo "::error::$name$x is not on the feed"; exit 1; }; done
+          V="$version" M="dist/ami/$name" bun -e 'import { checkManifest } from "./scripts/release/publish-ami"; checkManifest(process.env.V!, process.env.M!)'
+          snap=$(jq -r --arg r "$AMI_REGION" '.images[$r].rootSnapshotId // ""' "dist/ami/$name")
+          [[ "$snap" =~ ^snap-[0-9a-f]+$ ]] || { echo "::error::$name has no root snapshot in $AMI_REGION"; exit 1; }
+          { echo "build=true"; echo "version=$version"; echo "template=$tv"; echo "snapshot=$snap"; } | tee -a "$GITHUB_OUTPUT"
+      - name: qemu-img
+        if: steps.feed.outputs.build == 'true'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends qemu-utils
+          # the raw file is the volume's size (sparse): on /mnt, the runner's big disk
+          sudo mkdir -p /mnt/qcow2-work && sudo chown "$(id -u):$(id -g)" /mnt/qcow2-work
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        if: steps.feed.outputs.build == 'true'
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AMI_REGION }}
+          role-session-name: team-image-qcow2-${{ github.run_id }}
+          role-duration-seconds: 7200
+          # this job only reads one snapshot: the session is cut down to the EBS direct reads and the KMS decrypt of the
+          # encrypted snapshot (the role's own policy still applies on top; STS GetCallerIdentity is always allowed)
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ebs:ListSnapshotBlocks","ebs:GetSnapshotBlock"],"Resource":"arn:aws:ec2:ap-northeast-2::snapshot/*"},{"Effect":"Allow","Action":"kms:Decrypt","Resource":"*"}]}
+      - name: The root snapshot as a qcow2
+        if: steps.feed.outputs.build == 'true'
+        env:
+          TEMPLATE: ${{ steps.feed.outputs.template }}
+          SNAPSHOT: ${{ steps.feed.outputs.snapshot }}
+        run: bun scripts/image/snapshot-to-qcow2.ts --region "$AMI_REGION" --snapshot "$SNAPSHOT" --template-version "$TEMPLATE" --out dist/image --work /mnt/qcow2-work
+      # what hostd installTemplate checks: "ax-template-v1\n<templateVersion>\n<sha256 of the qcow2>", base64 Ed25519
+      - name: Sign the qcow2
+        if: steps.feed.outputs.build == 'true'
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          TEMPLATE: ${{ steps.feed.outputs.template }}
+        run: |
+          key="$RUNNER_TEMP/release-key.pem"
+          trap 'rm -f "$key"' EXIT
+          q="dist/image/teamax-$TEMPLATE.qcow2"
+          sha=$(sha256sum "$q" | cut -d' ' -f1)
+          [ "$(cat "$q.sha256")" = "$sha  $(basename "$q")" ] || { echo "::error::$q.sha256 does not match"; exit 1; }
+          umask 077
+          printf '%s\n' "$RELEASE_SIGNING_KEY" > "$key"
+          bun scripts/release/release-ci.ts check-key "$key"
+          printf 'ax-template-v1\n%s\n%s' "$TEMPLATE" "$sha" > "$RUNNER_TEMP/sigmsg"
+          openssl pkeyutl -sign -inkey "$key" -rawin -in "$RUNNER_TEMP/sigmsg" -out "$RUNNER_TEMP/sig.bin"
+          rm -f "$key"
+          umask 022
+          base64 -w0 < "$RUNNER_TEMP/sig.bin" > "$q.sig"
+          rm -f "$RUNNER_TEMP/sigmsg" "$RUNNER_TEMP/sig.bin"
+      - name: Remove the release key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release-key.pem"
+      # publish-qcow2 checks the signature against this product's keys before anything goes up; the image goes up in
+      # parts through R2's S3 API (the same Cloudflare token), the manifest last
+      - name: Publish the qcow2 on the feed
+        if: steps.feed.outputs.build == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          VERSION: ${{ steps.feed.outputs.version }}
+          TEMPLATE: ${{ steps.feed.outputs.template }}
+          SNAPSHOT: ${{ steps.feed.outputs.snapshot }}
+        run: |
+          m=$(bun scripts/release/publish-qcow2.ts manifest --version "$VERSION" --qcow2 "dist/image/teamax-$TEMPLATE.qcow2" --snapshot "$AMI_REGION=$SNAPSHOT")
+          bun scripts/release/publish-qcow2.ts publish --version "$VERSION" --manifest "$m"

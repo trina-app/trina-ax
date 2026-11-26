@@ -305,6 +305,29 @@ every image younger than 14 days, the newest release older than that, and any im
 launch template or whose `ax:template` a tenant instance or volume carries (`ami-prune-select.ts`; `--dry-run` previews). AWS access is a
 GitHub OIDC role, no stored key. Setup, IAM policy, network and cost: `docs/RELEASE-CI.md` section 10.
 
+### The Proxmox twin: a qcow2 of the AMI
+
+After the AMI, the job `qcow2` of the same workflow makes the qcow2 that a Proxmox host (the free host, trina-cloud
+DECISIONS FS-11) installs for the same template version:
+
+```sh
+bun scripts/image/snapshot-to-qcow2.ts --region ap-northeast-2 --snapshot snap-… --template-version <tv> --out dist/image
+bun scripts/release/publish-qcow2.ts manifest --version <v> --qcow2 dist/image/teamax-<tv>.qcow2 --snapshot ap-northeast-2=snap-…
+bun scripts/release/publish-qcow2.ts publish  --version <v> --manifest dist/image/teamax-<tv>.qcow2.json
+```
+
+- Source: the AMI's root snapshot in `AMI_REGION`, read through the EBS direct APIs (no volume, no instance), then
+  `qemu-img convert -c`. The same bytes as the AMI, so the template version is the AMI's. `build.sh` is not used here:
+  it would give another build date and other package versions. The image is platform-neutral (NoCloud first in
+  `99-ax.cfg`, both time sources in `chrony.conf`, `mycel-link` only with `/etc/ax/link.json`).
+- Signature: the one of "Signing and installTemplate", over the sha256 of the qcow2 (`.qcow2.sig`).
+- Manifest `teamax-<tv>.qcow2.json`: `{"v":1,"kind":"qcow2","templateVersion","kitVersion","architecture":"x86_64","file","size","sha256","sig","source":{"region","snapshotId"},"builtAt"}`.
+  The `sig` inside binds the version and the sha256, so the json has no signature of its own. The control plane makes the
+  URL from the feed folder and `file`, and sends `installTemplate {templateVersion, url, sha256, sig}`.
+- Upload: in 100 MiB parts through R2's S3 API (`scripts/release/r2-s3.ts`), the json last. Never replaced.
+
+Local test without AWS and R2: `bun test tests/unit/image-qcow2.test.ts`.
+
 ### Several regions: the v2 manifest
 
 `build-ami.sh` builds the AMI in one region and writes a v1 manifest (one `region`, one `imageId`). An ax-hostd that
