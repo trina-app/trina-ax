@@ -1398,3 +1398,76 @@ test('a phone (QA TC-4963): a waiting message alone does not cover the room with
     localStorage.clear()
   }
 })
+
+test('while my answer runs, the box has Stop (답변 멈추기) as the full chat\'s box: it stops the turn, then send is back', async () => {
+  signIn()
+  const { made } = serve(null, [], { turns: true })
+  // the server's Stop (POST /api/chats/:id/stop): the chat's running turn stops
+  const served = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const u = new URL(String(input), 'http://team.localhost')
+    if (init?.method === 'POST' && u.pathname === `/api/chats/${made}/stop`) {
+      calls.push({ method: 'POST', path: u.pathname, search: '', body: undefined })
+      return new Response(JSON.stringify({ stopped: true, turnId: turns[made]!.at(-1)!.turnId }), { status: 200, headers: { 'content-type': 'application/json' } })
+    }
+    return served(input, init)
+  }) as typeof fetch
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    await m.until(() => !!m.find('side-chat-empty'), 'the empty line')
+    // no answer running: no Stop
+    expect(m.find('side-chat-stop')).toBeNull()
+    await m.type('side-chat-input', 'summarize this room')
+    await m.click('side-chat-send')
+    await m.until(() => !!m.find('side-chat-stop'), 'Stop while the answer runs')
+    const stop = m.get('side-chat-stop')
+    expect(stop.getAttribute('aria-label')).toBe(en('composer.stop'))
+    expect(stop.querySelector('svg')!.getAttribute('class')).toContain('lucide-square')
+    // nothing typed: only Stop at the end of the row (no greyed send); typed, the clock that waits for the answer too
+    expect(m.find('side-chat-send')).toBeNull()
+    const order = [...m.get('side-chat-tools').querySelectorAll('[data-testid]')].map((e) => e.getAttribute('data-testid'))
+    expect(order.at(-1)).toBe('side-chat-stop')
+    await m.type('side-chat-input', 'and the files?')
+    expect(m.get('side-chat-send').getAttribute('aria-label')).toBe(en('outbox.sendLater'))
+    expect(m.find('side-chat-stop')).not.toBeNull()
+    await m.type('side-chat-input', '')
+    await m.click('side-chat-stop')
+    await m.until(() => calls.some((c) => c.method === 'POST' && c.path === `/api/chats/${made}/stop`), 'the stop sent')
+    // the turn ends as stopped (message.done): Stop goes, send is back
+    const a = turns[made]!.at(-1)!
+    const stopped = { ...a, status: 'stopped' as const }
+    turns[made] = [...turns[made]!.slice(0, -1), stopped]
+    act(() => useChats.getState().handleEvent({ type: 'message.done', seq: 1, at: 0, data: { chatId: made, messageId: a.id, status: 'stopped', message: stopped } } as ServerEvent))
+    await m.until(() => !m.find('side-chat-stop'), 'Stop gone once stopped')
+    expect(m.get('side-chat-send').getAttribute('aria-label')).toBe(en('sideChat.send'))
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('Stop that fails: the reason as the panel\'s other errors, and Stop stays to press again', async () => {
+  signIn()
+  const { made } = serve(null, [], { turns: true })
+  const served = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const u = new URL(String(input), 'http://team.localhost')
+    if (init?.method === 'POST' && u.pathname === `/api/chats/${made}/stop`) {
+      calls.push({ method: 'POST', path: u.pathname, search: '', body: undefined })
+      return new Response(JSON.stringify({ error: { code: 'forbidden', message: 'Not yours to stop' } }), { status: 403, headers: { 'content-type': 'application/json' } })
+    }
+    return served(input, init)
+  }) as typeof fetch
+  useUi.setState({ toasts: [] })
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    await m.until(() => !!m.find('side-chat-empty'), 'the empty line')
+    await m.type('side-chat-input', 'summarize this room')
+    await m.click('side-chat-send')
+    await m.until(() => !!m.find('side-chat-stop'), 'Stop while the answer runs')
+    await m.click('side-chat-stop')
+    await m.until(() => useUi.getState().toasts.some((x) => x.text === 'Not yours to stop'), 'the error said')
+    await m.until(() => m.get('side-chat-stop').hasAttribute('disabled') === false, 'Stop again')
+  } finally {
+    await m.unmount()
+  }
+})
