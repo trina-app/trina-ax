@@ -7,7 +7,9 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import crypto from 'node:crypto'
 import { SERVICE_HOSTS } from '../../shared/src/service-hosts'
+import { TEAM_TOOL_PREFIX } from '../../shared/src/product'
 import { addMember, harness, withOwner } from './a-lib'
+import { addGuest, teamProject } from './guest-lib'
 import { makeCApp, jsonBody, type CApp } from '../lib/c-app'
 import { DRIVE_BROKER_PATHS, driveBrokerSigningString, parseDriveBrokerAuthorization } from '../../shared/src/cloud-protocol/drive-broker'
 import { TEAM_NAME_PATH } from '../../shared/src/cloud-protocol/team-name'
@@ -66,6 +68,10 @@ function answer(chatId: string, o: { error?: unknown; user?: string } = {}) {
     { id: 's2', kind: 'tool', tool: 'mcp__acme-crm__search', label: 'Search "CANARY-STEP-Customer Ltd"', status: 'ok', startedAt: new Date().toISOString(), endedAt: null },
     { id: 's3', kind: 'tool', tool: 'Read', label: 'Read CANARY-STEP-2', status: 'ok', startedAt: new Date().toISOString(), endedAt: null },
     { id: 's4', kind: 'tool', tool: 'bad tool name with spaces', label: 'x', status: 'ok', startedAt: new Date().toISOString(), endedAt: null },
+    // a team connection's tool names the connection (people chose its name); the product's own team tools do not
+    { id: 's5', kind: 'tool', tool: `${TEAM_TOOL_PREFIX}team_canaryclient-crm__search`, label: 'x', status: 'ok', startedAt: new Date().toISOString(), endedAt: null },
+    { id: 's6', kind: 'tool', tool: `${TEAM_TOOL_PREFIX}my_canarylaw__list`, label: 'x', status: 'ok', startedAt: new Date().toISOString(), endedAt: null },
+    { id: 's7', kind: 'tool', tool: `${TEAM_TOOL_PREFIX}find_files`, label: 'x', status: 'ok', startedAt: new Date().toISOString(), endedAt: null },
   ]
   db.query("INSERT INTO messages (id, chat_id, role, content, steps, status, error, turn_id, engine, parent_id) VALUES (?, ?, 'assistant', ?, ?, ?, ?, ?, 'claude-code', ?)")
     .run(m, chatId, 'CANARY-ANSWER: the salary memo says …', JSON.stringify(steps), o.error ? 'error' : 'done', o.error ? JSON.stringify(o.error) : null, turn, q)
@@ -97,10 +103,10 @@ test('allow-list canary: from 👎 only the turn id, failure code and tool ids l
   await settle()
   expect(cp.bodies).toHaveLength(1)
   const body = cp.bodies[0]!
-  for (const canary of ['CANARY', 'Bob', 'bob@', '급여', 'notes.md', 'Customer', 'salary', 'alice', 'Alice', 'test chat', 'marketing', 'finance'])
+  for (const canary of ['CANARY', 'canary', 'acme', 'Bob', 'bob@', '급여', 'notes.md', 'Customer', 'salary', 'alice', 'Alice', 'test chat', 'marketing', 'finance'])
     expect([canary, body.includes(canary)]).toEqual([canary, false])
   const sent = JSON.parse(body) as ProblemReport
-  expect(sent).toMatchObject({ text: 'The answer stopped', turnId: turn, failure: 'stalled', tools: ['Read', 'mcp__acme-crm__search'], conversation: null, screen: 'chat', engine: { kind: 'claude-code' } })
+  expect(sent).toMatchObject({ text: 'The answer stopped', turnId: turn, failure: 'stalled', tools: ['Read', 'mcp__other', `${TEAM_TOOL_PREFIX}connection`, `${TEAM_TOOL_PREFIX}find_files`], conversation: null, screen: 'chat', engine: { kind: 'claude-code' } })
   expect(Object.keys(sent).sort()).toEqual(['client', 'conversation', 'engine', 'failure', 'id', 'locale', 'screen', 'server', 'text', 'tools', 'turnId', 'v'])
   // once sent, only the id, person, times and state stay
   expect(problemReportRow(a.ctx.db, sent.id)).toMatchObject({ status: 'sent', body: null })
@@ -181,12 +187,19 @@ test('the admin switch, the env and the intake address; Me says it', async () =>
     let me = await member.call('GET', '/api/me')
     expect(me.team.problemReports).toBe(true)
     expect(me.server.problemReports).toBe('self')
+    // a member sends; a guest never (403), whatever the switch
+    expect((await member.raw('POST', '/api/problem-reports', { text: 'member', screen: 'home', client: CLIENT })).status).toBe(202)
+    const p = await teamProject(owner, 'With a client')
+    const gus = await addGuest(h, owner, { username: 'gus', place: { kind: 'project', id: p.id } })
+    expect((await gus.client.call('GET', '/api/me')).team.problemReports).toBeUndefined()
+    expect((await gus.client.raw('POST', '/api/problem-reports', { text: 'guest', screen: 'home', client: CLIENT })).status).toBe(403)
     await owner.call('PATCH', '/api/admin/settings', { problemReports: false })
     me = await member.call('GET', '/api/me')
     expect(me.team.problemReports).toBeUndefined()
     expect(me.server.problemReports).toBe('self') // the admin still sees the switch
+    const before = cp.bodies.length
     expect((await member.raw('POST', '/api/problem-reports', { text: 'off', screen: 'home', client: CLIENT })).status).toBe(404)
-    expect(cp.bodies).toHaveLength(0)
+    expect(cp.bodies).toHaveLength(before)
     // no intake: no entry points at all
     setProblemReportSink(h.ctx, null)
     expect((await owner.call('GET', '/api/me')).server.problemReports).toBeUndefined()

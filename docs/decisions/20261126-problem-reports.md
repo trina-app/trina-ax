@@ -18,8 +18,9 @@ to the hosting service.
   함께 보내기" with a preview, Send, "받았어요".
 - **Rule: an allow-list, not a filter.** By default a report holds the person's words, the client kind, version and OS
   family, the server version and run kind, the engine and its pinned version, the locale, the kind of screen (a fixed
-  word) and, from 👎, the turn id, the failure code (the codes error reports use) and the tool ids of the answer, never a
-  step label (labels name files and items). The question and the answer only with the tick, only from the person's own
+  word) and, from 👎, the turn id, the failure code (the codes error reports use) and the tool ids of the answer (a
+  connection's tool and another MCP server's tool only as their kind, `mcp__team__connection` / `mcp__other`: their
+  ids carry names people chose), never a step label (labels name files and items). The question and the answer only with the tick, only from the person's own
   chat of one person (shared, project and side chats: no tick in v1), each capped. No person's name, mail, team name,
   file or room name. A canary test plants them.
 - **Rule: outbox, signed like the Drive broker.** The server stores the report (migration 703) and answers at once; a

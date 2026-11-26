@@ -5,7 +5,8 @@
 // What leaves is an allow-list, built here (buildProblemReport): the person's words; the client kind, version and OS
 // family; this server's version and run kind; the engine and its pinned version; the locale; the kind of screen (a
 // fixed word); from 👎 the turn id, the failure code (the codes error reports use) and the ids of the tools the answer
-// used. Never a step label (labels name files and items), a name, a mail address, the team's name or a file name. The
+// used (a connection's or another MCP server's tool only as its kind, reportedTool: their ids carry names people chose).
+// Never a step label (labels name files and items), a name, a mail address, the team's name or a file name. The
 // question and the answer go only when the person ticked it for this one report, and only from their own chat of one
 // person (not a shared, project or side chat), each cut to the contract's cap.
 // tests/unit/problem-reports.test.ts plants names and file names and checks no body holds them.
@@ -30,6 +31,7 @@ import {
   PROBLEM_REPORT_TOOLS_MAX, problemReportCut, problemReportSigningString,
   type ProblemReport, type ProblemReportClient, type ProblemReportOs, type ProblemReportScreen,
 } from '@mycel/shared/cloud-protocol/problem-report'
+import { TEAM_TOOL_PREFIX } from '@mycel/shared/product'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { REPO_ROOT } from '../app-config'
 import type { AppContext } from '../context'
@@ -127,6 +129,16 @@ const VERSION_RE = /^[0-9A-Za-z][0-9A-Za-z.+-]{0,39}$/
 const TOOL_RE = /^[A-Za-z][A-Za-z0-9_.:-]{0,95}$/
 const LOCALE_RE = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$/
 
+/** A tool id as it may leave: a built-in tool (Read, WebSearch) and this product's own team tools (mcp__team__find_files)
+ * as they are. A connection's tool carries the connection's name, which people chose ("mcp__team__team_<slug>__search"),
+ * and another MCP server's tool its server's name ("mcp__acme-crm__search"): those leave only as their kind. */
+export function reportedTool(tool: string): string | null {
+  if (!TOOL_RE.test(tool)) return null
+  if (!tool.startsWith('mcp__')) return tool
+  if (tool.startsWith(TEAM_TOOL_PREFIX)) return tool.slice(TEAM_TOOL_PREFIX.length).includes('__') ? `${TEAM_TOOL_PREFIX}connection` : tool
+  return 'mcp__other'
+}
+
 let pins: Record<string, unknown> | null | undefined
 /** the engine version this build pins (versions.json), never a call to the CLI */
 function engineVersion(engine: string): string | null {
@@ -165,7 +177,8 @@ export function buildProblemReport(ctx: AppContext, userId: string, input: Probl
     try {
       const steps = JSON.parse(msg.steps) as { tool?: unknown }[]
       for (const s of Array.isArray(steps) ? steps : []) {
-        if (typeof s?.tool === 'string' && TOOL_RE.test(s.tool) && !tools.includes(s.tool)) tools.push(s.tool)
+        const tool = typeof s?.tool === 'string' ? reportedTool(s.tool) : null
+        if (tool && !tools.includes(tool)) tools.push(tool)
         if (tools.length >= PROBLEM_REPORT_TOOLS_MAX) break
       }
     } catch { tools = [] }
