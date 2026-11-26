@@ -4794,7 +4794,6 @@ export const ko = {
   "sideChat.threadChip": "이 스레드를 보는 중",
   "sideChat.threadChipOff": "대화 전체에 대해 묻기",
   "sideChat.placeholderThread": "이 스레드에 대해 {name}에게 묻기…",
-  "sideChat.disclaimer": "{name}는 AI라서 실수할 수 있어요.",
   "sideChat.starterLabel.catchUp": "따라잡기",
   "sideChat.starterLabel.forMe": "나를 위한 내용이 있어?",
   "sideChat.starterLabel.summarize": "요약",

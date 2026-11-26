@@ -4794,7 +4794,6 @@ export const id: Record<MessageKey, string> = {
   "sideChat.threadChip": "Melihat utas ini",
   "sideChat.threadChipOff": "Tanya tentang seluruh percakapan saja",
   "sideChat.placeholderThread": "Tanya {name} tentang utas ini…",
-  "sideChat.disclaimer": "{name} adalah AI dan bisa salah.",
   "sideChat.starterLabel.catchUp": "Kejar ketinggalan",
   "sideChat.starterLabel.forMe": "Ada untuk saya?",
   "sideChat.starterLabel.summarize": "Ringkas",

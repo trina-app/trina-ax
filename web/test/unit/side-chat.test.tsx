@@ -197,8 +197,10 @@ test('no side chat yet: the empty line; the first question makes a side chat of 
   const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
   try {
     await m.until(() => !!m.find('side-chat-empty'), 'the empty line')
-    expect(calls[0]).toMatchObject({ method: 'GET', path: '/api/chats' })
-    expect(calls[0]!.search).toContain(`sideRoomId=${team.id}`)
+    // (the box's "no usable AI" line asks GET /api/me/ai-access beside it)
+    const first = calls.find((c) => c.path !== '/api/me/ai-access')
+    expect(first).toMatchObject({ method: 'GET', path: '/api/chats' })
+    expect(first!.search).toContain(`sideRoomId=${team.id}`)
     expect(m.get('side-chat-room').textContent).toBe('Marketing')
     // no "only you see this" under the box (the empty line says it), and send is the room box's round ↑, named
     expect(m.find('side-chat-private')).toBeNull()
@@ -556,7 +558,7 @@ test('an empty side chat says what it looks at, offers Catch up / Anything for m
   try {
     await m.until(() => !!m.find('side-chat-empty'), 'the panel')
     expect(m.get('side-chat-context').textContent).toBe(en('sideChat.context', { room: 'Marketing' }))
-    expect(m.get('side-chat-disclaimer').textContent).toBe(en('sideChat.disclaimer', { name: aiName((k) => en(k)) }))
+    expect(m.get('side-chat-disclaimer').textContent).toBe(en('chat.footerAi'))
     expect(['catchUp', 'forMe', 'summarize'].map((k) => m.get(`side-chat-starter-${k}`).textContent)).toEqual([en('sideChat.starterLabel.catchUp'), en('sideChat.starterLabel.forMe'), en('sideChat.starterLabel.summarize')])
     await m.click('side-chat-starter-forMe')
     await m.until(() => calls.some((c) => c.path === `/api/chats/${made}/messages`), 'the question sent')

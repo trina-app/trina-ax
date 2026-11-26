@@ -4796,7 +4796,6 @@ export const en: Record<MessageKey, string> = {
   "sideChat.threadChip": "Looking at this thread",
   "sideChat.threadChipOff": "Ask about the whole conversation instead",
   "sideChat.placeholderThread": "Ask {name} about this thread…",
-  "sideChat.disclaimer": "{name} is AI and can make mistakes.",
   "sideChat.starterLabel.catchUp": "Catch up",
   "sideChat.starterLabel.forMe": "Anything for me?",
   "sideChat.starterLabel.summarize": "Summarize",

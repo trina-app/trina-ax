@@ -4736,7 +4736,6 @@ export const zh: Record<MessageKey, string> = {
   "sideChat.threadChip": "正在查看这个话题",
   "sideChat.threadChipOff": "改为询问整个聊天",
   "sideChat.placeholderThread": "向{name}询问这个话题…",
-  "sideChat.disclaimer": "{name}是 AI，可能会出错。",
   "sideChat.starterLabel.catchUp": "补看消息",
   "sideChat.starterLabel.forMe": "有我的事吗？",
   "sideChat.starterLabel.summarize": "总结",
