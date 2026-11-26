@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -587,16 +588,32 @@ func TestRestoreMode(t *testing.T) {
 	h.useCP(cp)
 	h.writeEnroll("restore", cp.srv.URL)
 	h.mounted = true
-	var sawStaging string
+	// a fresh VM: an empty database and team folder that the restore replaces
+	must(t, os.MkdirAll(filepath.Join(h.e.P.Base, "data"), 0o700))
+	must(t, os.MkdirAll(filepath.Join(h.e.P.Base, "team", ".system"), 0o700))
+	must(t, os.WriteFile(filepath.Join(h.e.P.Base, "data", "app.db"), []byte("EMPTY-DB"), 0o600))
+	must(t, os.WriteFile(filepath.Join(h.e.P.Base, "data", "app.db-wal"), []byte("WAL"), 0o600))
+	var sawStaging, sawOut string
 	h.run.adminFn = func(args []string) ([]byte, error) {
-		// runuser -u axserver -- env -i … bun admin.js restore-artifacts --dir D --to BASE
+		// runuser -u axserver -- env -i … bun admin.js restore-artifacts --dir D --to <dataDir>/.restore-out
 		if args[0] != "-u" || args[1] != "axserver" || args[2] != "--" || args[3] != "env" || args[4] != "-i" {
 			t.Fatalf("not run as the server account: %v", args)
 		}
 		i := indexOf(args, "restore-artifacts")
-		if i < 0 || !strings.HasSuffix(args[i-1], "admin.js") || args[i+1] != "--dir" || args[i+3] != "--to" || args[i+4] != h.e.P.Base {
+		if i < 0 || !strings.HasSuffix(args[i-1], "admin.js") || args[i+1] != "--dir" || args[i+3] != "--to" {
 			t.Fatalf("admin args %v", args)
 		}
+		// as the real command (server/src/system/cloud-admin.ts restoreArtifacts): the target must not exist, and
+		// it holds db/app.sqlite + team/ when it succeeds
+		out := args[i+4]
+		if exists(out) {
+			return nil, fmt.Errorf("%s already exists", out)
+		}
+		must(t, os.MkdirAll(filepath.Join(out, "db"), 0o700))
+		must(t, os.MkdirAll(filepath.Join(out, "team", "Docs"), 0o700))
+		must(t, os.WriteFile(filepath.Join(out, "db", "app.sqlite"), []byte("RESTORED-DB"), 0o600))
+		must(t, os.WriteFile(filepath.Join(out, "team", "Docs", "a.md"), []byte("RESTORED-TEAM"), 0o600))
+		sawOut = out
 		sawStaging = args[i+2]
 		db, err := os.ReadFile(filepath.Join(sawStaging, "bk_0001", "db.sqlite"))
 		if err != nil || string(db) != "SQLITE-DB" {
@@ -604,8 +621,9 @@ func TestRestoreMode(t *testing.T) {
 		}
 		team, _ := os.ReadFile(filepath.Join(sawStaging, "bk_0001", "team.tar.zst"))
 		chain, _ := os.ReadFile(filepath.Join(sawStaging, "chain.json"))
-		if string(team) != "TEAM" || !strings.Contains(string(chain), `"bk_0001"`) {
-			t.Fatalf("team %q chain %s", team, chain)
+		var ids []string
+		if string(team) != "TEAM" || json.Unmarshal(chain, &ids) != nil || len(ids) != 1 || ids[0] != "bk_0001" {
+			t.Fatalf("team %q chain %s (want the JSON array the server reads)", team, chain)
 		}
 		if h.chowned[filepath.Join(sawStaging, "bk_0001", "db.sqlite")] != [2]int{990, 990} {
 			t.Fatal("staging not given to the server account")
@@ -627,6 +645,18 @@ func TestRestoreMode(t *testing.T) {
 	}
 	if sawStaging == "" || exists(sawStaging) {
 		t.Fatal("restore-artifacts not called or staging left behind")
+	}
+	if sawOut == "" || exists(sawOut) {
+		t.Fatal("restore-artifacts output left behind")
+	}
+	if h.read("data/app.db") != "RESTORED-DB" || h.read("team/Docs/a.md") != "RESTORED-TEAM" || exists(filepath.Join(h.e.P.Base, "data", "app.db-wal")) {
+		t.Fatal("restored database or team folder not put in place")
+	}
+	if m, _ := filepath.Glob(filepath.Join(h.e.P.Base, "data", "app.db.before-restore-*")); len(m) != 1 {
+		t.Fatalf("old database not kept aside: %v", m)
+	}
+	if m, _ := filepath.Glob(filepath.Join(h.e.P.Base, "team.before-restore-*")); len(m) != 1 {
+		t.Fatalf("old team folder not kept aside: %v", m)
 	}
 	key := filepath.Join(h.e.P.Base, "secrets", "credentials.key")
 	if h.read("secrets/credentials.key") != base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))+"\n" || modeOf(t, key) != 0o600 || h.chowned[key] != [2]int{990, 990} {
@@ -910,5 +940,47 @@ func TestCredentialsKeyFile(t *testing.T) {
 		if _, _, err := credentialsKeyFile([]byte(bad)); err == nil {
 			t.Fatalf("%q accepted", bad)
 		}
+	}
+}
+
+func TestRestoreServerDirs(t *testing.T) {
+	h := newHarness(t)
+	cfg := filepath.Join(h.e.P.Base, "config", "server.json")
+	must(t, os.MkdirAll(filepath.Dir(cfg), 0o700))
+	// no server.json: BASE/data and BASE/team
+	_ = os.Remove(cfg)
+	if d, tr, err := h.e.serverDirs(); err != nil || d != filepath.Join(h.e.P.Base, "data") || tr != filepath.Join(h.e.P.Base, "team") {
+		t.Fatalf("default dirs %q %q %v", d, tr, err)
+	}
+	must(t, os.WriteFile(cfg, []byte(`{"dataDir":"/srv/x/data","teamRoot":"/srv/x/team","listen":{}}`), 0o600))
+	if d, tr, err := h.e.serverDirs(); err != nil || d != "/srv/x/data" || tr != "/srv/x/team" {
+		t.Fatalf("dirs from server.json %q %q %v", d, tr, err)
+	}
+	// a broken server.json is an error, not a guess
+	must(t, os.WriteFile(cfg, []byte(`{"dataDir":`), 0o600))
+	if _, _, err := h.e.serverDirs(); err == nil {
+		t.Fatal("broken server.json accepted")
+	}
+}
+
+func TestSwapInRestoredUndoesTheDatabase(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the read-only folder this test uses")
+	}
+	base := t.TempDir()
+	data, team, out := filepath.Join(base, "data"), filepath.Join(base, "team"), filepath.Join(base, "data", ".restore-out")
+	must(t, os.MkdirAll(filepath.Join(out, "db"), 0o700))
+	must(t, os.MkdirAll(filepath.Join(out, "team"), 0o700))
+	must(t, os.WriteFile(filepath.Join(out, "db", "app.sqlite"), []byte("NEW"), 0o600))
+	must(t, os.WriteFile(filepath.Join(data, "app.db"), []byte("OLD"), 0o600))
+	must(t, os.MkdirAll(filepath.Join(team, "Docs"), 0o700))
+	// BASE read-only (as root-owned BASE for a non-root process): the team folder cannot move after the database swap
+	must(t, os.Chmod(base, 0o555))
+	defer os.Chmod(base, 0o755)
+	if err := swapInRestored(out, data, team, "T"); err == nil {
+		t.Fatal("swap in a read-only BASE succeeded")
+	}
+	if b, _ := os.ReadFile(filepath.Join(data, "app.db")); string(b) != "OLD" || !exists(filepath.Join(team, "Docs")) {
+		t.Fatalf("old database or team folder not back: %q", b)
 	}
 }
