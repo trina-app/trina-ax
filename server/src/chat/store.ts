@@ -36,6 +36,9 @@ export interface ChatRow {
   fork_at?: string | null
   fork_title?: string | null
   fork_pending?: number
+  /** migration 460: the chat this fork sits under in its person's list (a tree, chat/fork.ts forkParentsOf); NULL: a
+   * top-level row ("Detach to top level" clears it; a purged parent hands it its own) */
+  fork_parent?: string | null
 }
 export interface MessageRow {
   id: string; chat_id: string; parent_id: string | null; role: 'user' | 'assistant'; author_id: string | null; content: string
@@ -67,7 +70,7 @@ export interface ProjectRow {
   folder_made?: number
 }
 
-export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source, room_id, seen_at, shared_at, side_room_id, people_shared_at, fork_of, fork_at, fork_title, fork_pending'
+export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source, room_id, seen_at, shared_at, side_room_id, people_shared_at, fork_of, fork_at, fork_title, fork_pending, fork_parent'
 export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason, history_trimmed, history_small_model, stopped_for, fork_copy, withheld_copy'
 export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, trashed_with, share_chats, folder_made'
 

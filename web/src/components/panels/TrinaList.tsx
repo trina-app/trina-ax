@@ -140,7 +140,7 @@ export function TrinaList({ peek, viewState }: { peek: ChatPeek; viewState: Rece
         </PanelSection>
       )}
 
-      <HistorySections state={sections} row={(c) => <ChatItem key={c.id} chat={live(c)} onNavigate={noop} peek={peek} onMove={setMoving} projectTag />} filtered={filtered} className="mb-0 [&>section]:mt-4 [&>section:first-child]:mt-4" />
+      <HistorySections state={sections} row={(c, tree) => <ChatItem key={c.id} chat={live(c)} onNavigate={noop} peek={peek} onMove={setMoving} projectTag {...(tree ? { tree } : {})} />} filtered={filtered} className="mb-0 [&>section]:mt-4 [&>section:first-child]:mt-4" />
 
       {/* always there once read, empty or not: its header has the filter and the "⋯", its "더 보기" the next page (the first
           page may be all pinned chats). One tree with or without a filter, so the filter's open menu survives a choice */}
@@ -157,7 +157,7 @@ export function TrinaList({ peek, viewState }: { peek: ChatPeek; viewState: Rece
           {empty && <p className="px-3 py-2 text-sm text-faint" data-testid="trina-empty">{t('sidebar.noChats')}</p>}
           {/* by date, each date folding, as the menu's default "Group by: Date" (the owner, 2026-11-22); the runs of one
               scheduled task are one row that opens the task (nav/TaskRunsRow.tsx) */}
-          <DateGroups chats={recent} row={(c) => <ChatItem key={c.id} chat={live(c)} onNavigate={noop} peek={peek} onMove={setMoving} projectTag />} by="date" created={false} projectTag />
+          <DateGroups chats={recent} row={(c, tree) => <ChatItem key={c.id} chat={live(c)} onNavigate={noop} peek={peek} onMove={setMoving} projectTag {...(tree ? { tree } : {})} />} by="date" created={false} projectTag />
           {cursor && (
             <button
               type="button"

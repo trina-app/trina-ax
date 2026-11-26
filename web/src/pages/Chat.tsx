@@ -71,7 +71,6 @@ import type { EnginePick } from '../components/chat/EngineMenu'
 import { ChatTitleMenu } from '../components/chat/ChatTitleMenu'
 import { PrivateChatMark, SharedByLine, SharedChatMark, SharedReadOnly, sharedByOf } from '../components/chat/SharedChat'
 import { WhoSeesLine } from '../components/chat/WhoSees'
-import { askPrivately, askPrivatelyHome, lastOwnQuestion } from '../components/chat/privateAsk'
 import { openChatShare, startShare, useSharedWithNames } from '../components/chat/ChatShareDialog'
 import { HeaderShare, WhoSeesWords } from '../components/HeaderShare'
 import { ProjectRoomButton } from '../components/rooms/ProjectRoomButton'
@@ -226,25 +225,9 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   // a shared project chat: what this person may do in it, whose question is being answered (not mine), and read-only
   // while safe operations are on
   const shared = chat?.shared
-  // "Continue in a chat only you see" (POST /api/chats/:id/fork): one at a time
-  const forking = useRef(false)
-  const forkHere = async (c: Chat) => {
-    if (forking.current) return
-    forking.current = true
-    const fallback = () => (c.projectId ? askPrivately(navigate, c.projectId, lastOwnQuestion(c.id, me?.user.id)) : askPrivatelyHome(navigate, lastOwnQuestion(c.id, me?.user.id)))
-    // the end of the branch on screen (my own unsent messages left out)
-    const leafId = (useChats.getState().threads[c.id]?.messages ?? []).filter((m) => !m.local).at(-1)?.id
-    try {
-      const made = await api.call(API.forkChat, { params: { id: c.id }, body: leafId ? { leafId } : {} })
-      upsertChat(made)
-      navigate(`/c/${made.id}`, { state: { chat: made } })
-    } catch (e) {
-      // (an older server has no such route: not_found; a guest outside their project: forbidden)
-      const reason = isApiError(e) ? e.body.params?.reason : null
-      if (isApiError(e, 'not_found') || isApiError(e, 'forbidden') || reason === 'fork_not_shared' || reason === 'fork_not_here') fallback()
-      else toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    } finally { forking.current = false }
-  }
+  // Fork / "Continue in a chat only you see" (POST /api/chats/:id/fork; components/chat/chatActions.ts fork): from the
+  // end of the branch on screen (my own unsent messages left out)
+  const forkHere = (c: Chat) => void actions.fork(c, (useChats.getState().threads[c.id]?.messages ?? []).filter((m) => !m.local).at(-1)?.id)
   const rights = sharedRights(chat, me.user.id)
   const othersTurn = shared?.answering ?? null
   const sharedLine = sharedNote(chat)
@@ -298,6 +281,8 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
       // everyone in it opens the Share dialog: its creator to change it, anyone else its read-only list (QA TC-7265)
       onOpen={people ? (!chat.deletedAt ? () => openChatShare(chat) : undefined) : shared && project?.membersEditable ? () => setMembers(true) : undefined}
       openLabel={people ? t(rights.creator ? 'chat.share.changeWho' : 'chat.share.seeWho') : undefined}
+      // a chat made with "Continue in a new chat": only mine, where it came from, the original unchanged
+      {...(chat.forkedFrom ? { forkedFrom: chat.forkedFrom } : {})}
     />
   ) : undefined
   // Share at the top right of the header (docs/DECISIONS.md "Share in the title row"; components/HeaderShare.tsx), the
@@ -813,10 +798,13 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
               onRename={rights.creator ? () => void actions.rename(chat, setChat) : undefined}
               onMove={rights.canMove ? () => setMovingProject(true) : undefined}
               onDelete={rights.canDelete ? () => void actions.remove(chat) : undefined}
-              // a shared chat: a chat only I see with this conversation so far, in its project (a chat shared with people:
-              // outside projects), the AI going on from it (POST /api/chats/:id/fork). Refused (an older server, a guest
-              // where they may not start one): the old way, my last question in a new chat's box
-              onPrivately={shared ? () => void forkHere(chat) : undefined}
+              // a fork of this chat, only mine, with the conversation so far (a shared chat: "Continue in a chat only you
+              // see", in its project; a chat shared with people: outside projects), the AI going on from it. Refused for
+              // a shared chat (an older server, a guest where they may not start one): the old way, my last question in a
+              // new chat's box. Not before an answer has finished here
+              onFork={messages.some((m) => m.role === 'assistant' && m.status === 'done') ? () => forkHere(chat) : undefined}
+              // a fork under a chat in my history: to the top of it (its "이어 왔어요" line stays)
+              onDetach={rights.creator ? () => void actions.detachFork(chat, setChat) : undefined}
               onHide={() => void actions.hide(chat)}
               onLeave={() => void actions.leave(chat)}
             />

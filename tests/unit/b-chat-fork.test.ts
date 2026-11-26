@@ -61,8 +61,10 @@ describe('what a fork copies', () => {
     const f = await fork('bob', chat.id)
     expect(f.projectId).toBe(projectId)
     expect(f.shared).toBeUndefined()
-    expect(f.title).toBe((await h.api('bob').call(API.getChat, { params: { id: chat.id } })).title)
-    expect(f.forkedFrom).toEqual({ title: f.title, chatId: chat.id })
+    // "<title> (continued)" (docs/decisions/20261126-chat-fork-tree.md); the line back says the original's title
+    const orig = (await h.api('bob').call(API.getChat, { params: { id: chat.id } })).title
+    expect([`${orig} (continued)`, `${orig} (이어서)`]).toContain(f.title)
+    expect(f.forkedFrom).toEqual({ title: orig, chatId: chat.id })
     const got = await messages('bob', f.id)
     expect(got.map((m) => [m.role, m.author?.id ?? null, m.content.split('\n')[0]])).toEqual([
       ['user', 'alice', 'Plan the launch'], ['assistant', null, 'ALICE-ANSWER'], ['user', 'bob', 'Add a budget'], ['assistant', null, 'BOB-ANSWER'],
@@ -335,11 +337,11 @@ describe('chat files by reference', () => {
 })
 
 describe('refusals', () => {
-  test('a chat of one person, nothing finished yet, someone who does not see it, a guest outside their place', async () => {
+  test('another person\'s chat of one person, nothing finished yet, someone who does not see it, a guest outside their place', async () => {
+    // a chat of one person forks for that person ("Fork", tests/unit/b-chat-fork-tree.test.ts), never for anyone else
     const mine = await h.api('alice').call(API.createChat, { body: { projectId, private: true } })
     await ask('alice', mine.id, `Private\n${fake({ say: 'p' })}`)
-    const one = await errOf(fork('alice', mine.id))
-    expect([one.status, one.body.params?.reason]).toEqual([409, 'fork_not_shared'])
+    expect((await errOf(fork('bob', mine.id))).status).toBe(404)
     const empty = await newShared('alice')
     const none = await errOf(fork('alice', empty.id))
     expect([none.status, none.body.params?.reason]).toEqual([409, 'fork_nothing'])

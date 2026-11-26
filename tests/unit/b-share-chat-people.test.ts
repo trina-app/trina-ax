@@ -374,7 +374,7 @@ describe('QA scenario findings (TC-7041, TC-7042, TC-7047)', () => {
   test('TC-7041: the people chat lines say the own folder works by its path; the menu is named by its exact label', () => {
     const s = sharedSection({ project: null, audience: 3, asker: 'Bob Lee' }, 'ko')
     expect(s).toContain("Bob Lee's own folder (users/<Bob Lee's id>/) works here too")
-    expect(s).toContain('"나만 보는 채팅에서 이어 하기" in the menu that opens from this chat\'s title')
+    expect(s).toContain('"나만 보는 새 채팅에서 이어 하기" in the menu that opens from this chat\'s title')
     expect(s).toContain('untranslated')
     expect(s).not.toContain("this chat's menu at the top")
   })

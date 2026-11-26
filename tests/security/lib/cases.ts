@@ -304,12 +304,12 @@ export const SPECS: Record<string, Spec> = {
       if (r.status < 300 && r.json?.status === 'shared') throw new Error('alice\'s chat was shared without a project that shares chats')
       if (r.status < 300 && r.json?.status === 'confirm' && /bob|carol|dana|erin|Bob|Carol|Dana|Erin/.test(r.text)) throw new Error(`the confirm answer names a person: ${r.text}`)
     } },
-  // "Continue in a chat only you see" (chat/fork.ts): alice's private chat. Only she reaches it (everyone else, admins and
-  // the owner too, the 404 of a missing chat); it is not shared, so even she is refused (409 fork_not_shared) and no chat
-  // is made. The roles x states of a fork of a shared chat: tests/unit/b-chat-fork.test.ts
+  // "Fork" (chat/fork.ts): alice's private chat. Only she reaches it and may fork it (everyone else, admins and the owner
+  // too, the 404 of a missing chat, and no chat is made). The roles x states: tests/unit/b-chat-fork.test.ts (a shared
+  // chat), tests/unit/b-chat-fork-tree.test.ts (my own chat, a fork of a fork)
   forkChat: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/fork`, {}), scope: 'own-alice-chat',
     check: (r, _w, who) => {
-      if (r.status < 300) throw new Error(`${who} forked alice's private chat`)
+      if (r.status < 300 && who !== 'memberIn') throw new Error(`${who} forked alice's private chat`)
       if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
     } },
   // Share for a chat outside projects (chat/people-share.ts): alice's private chat. Only she reaches it (everyone else,

@@ -5,6 +5,12 @@
 // (Codex, the API engine, no session of theirs, a check that fails). The shared chat is not changed, nobody is told, and
 // nobody else ever sees the fork.
 //
+// "Fork" on a chat of the person's own, or on a fork of theirs (docs/decisions/20261126-chat-fork-tree.md): the same
+// copy, with the person as its only audience (everything on the branch; copies stay copies), in the chat's project while
+// they still see it. Each fork sits under the chat it came from in its person's history (chats.fork_parent, migration
+// 460; shared.ts forkParentsOf); their own computer uploads get rows of the fork's own (kept after the original is
+// purged); the first answer of a fork of their own chat resumes the copied session as any chat of theirs (turn.ts).
+//
 // What is copied, and how (one transaction, then the session file):
 //   - each finished message of the branch as the person sees it (ChatStore.toMessage with the shared chat's view for
 //     them): other people's words keep their names; an answer hidden from them is one row with withheld_copy = 1 and
@@ -40,6 +46,7 @@ import { Audiences, chatFor, messageView, ownSessionOn } from './shared'
 import { answerHiddenFrom } from './shared-answers'
 import { othersNotesFor, parseNotes } from './step-record'
 import { tr } from './i18n'
+import { canSeeProject } from './projects'
 
 /** Why this chat cannot be forked by this person (a 409 or 403 with its reason), or null. */
 function refusal(rt: ChatRuntime, userId: string, r: ChatRow, projectId: string | null): { code: 'conflict' | 'forbidden'; reason: string } | null {
@@ -50,6 +57,14 @@ function refusal(rt: ChatRuntime, userId: string, r: ChatRow, projectId: string 
   // only what they were invited to")
   if (isGuest(rt.db, userId) && (!projectId || heldProject(rt.db, userId, rt.files.rules()) !== projectId || guestAi(rt.db, userId) === 'none')) return { code: 'forbidden', reason: 'fork_guest' }
   return null
+}
+
+/** My own chat's project for its fork: while I see it and it is not in the trash (createChat's check), else none. */
+function ownProject(rt: ChatRuntime, userId: string, projectId: string | null): string | null {
+  if (!projectId) return null
+  const p = rt.store.projectRow(projectId)
+  const me = loadPrincipal(rt.db, userId)
+  return p && me && p.trashed_with === null && canSeeProject(rt.files, me, p) ? p.id : null
 }
 
 /** The messages a fork copies: the branch up to `leafId`, finished ones only (a running answer, and the question it
@@ -67,16 +82,20 @@ function finishedPath(rt: ChatRuntime, chatId: string, leafId: string | null): M
 export interface ForkOptions { leafId?: string; engine: string; model: string | null; locale: Locale; title: (src: ChatRow) => string }
 
 /**
- * Fork the shared chat `chatId` for `userId` (POST /api/chats/:id/fork): the new chat's row. 404 as the chat routes
- * (chatFor 'view'); 409 fork_not_shared (a chat of one person: nothing new there), safe_ops, fork_not_here, fork_nothing
+ * Fork the chat `chatId` for `userId`, a shared one or their own (POST /api/chats/:id/fork): the new chat's row. 404 as the chat routes
+ * (chatFor 'view'; another person's chat of one person); 409 safe_ops, fork_not_here, fork_nothing
  * (no finished answer on the branch yet); 403 fork_guest.
  */
 export function forkChat(rt: ChatRuntime, userId: string, chatId: string, o: ForkOptions): ChatRow {
   const L = o.locale
   const a = chatFor(rt, userId, chatId, 'view', { locale: L })
-  if (!a.shared) fail('conflict', tr('forkNotHere', L), { params: { reason: 'fork_not_shared' } })
+  // a chat of one person forks for that person only (another person's private chat is never theirs to open: chatFor
+  // says 404 already; said again here)
+  if (!a.shared && a.row.user_id !== userId) fail('not_found')
   const src = a.row
-  const projectId = a.kind === 'project' ? a.project!.id : null
+  // a shared project chat: its project; one shared with people: outside projects; my own chat: its project while I
+  // still see it (else outside projects, as its own page names none)
+  const projectId = a.kind === 'project' ? a.project!.id : a.shared ? null : ownProject(rt, userId, src.project_id)
   const no = refusal(rt, userId, src, projectId)
   if (no) fail(no.code, no.reason === 'safe_ops' ? tr('sharedChatSafeOps', L) : tr('forkNotHere', L), { params: { reason: no.reason } })
   const leaf = o.leafId ?? src.active_leaf_id
@@ -101,15 +120,42 @@ export function forkChat(rt: ChatRuntime, userId: string, chatId: string, o: For
   const now = new Date().toISOString()
   const others = msgs.some((m) => m.role === 'user' && m.author_id !== userId)
   const c = db.query('SELECT session_tainted, others_words, room_outside, session_read_scope FROM chats WHERE id = ?').get(src.id) as { session_tainted: number; others_words: number; room_outside: number; session_read_scope: string | null }
-  const title = o.title(src)
+  // the line back says the original's title; the fork itself is "<title> (이어서)" (once: a fork of a fork keeps one), a
+  // name the person changes as any other
+  const fromTitle = o.title(src)
+  const suffix = tr('forkTitleSuffix', L)
+  const title = !fromTitle.trim() || fromTitle.endsWith(suffix) ? fromTitle : `${fromTitle.slice(0, 200 - suffix.length)}${suffix}`
+
+  // my own computer uploads on the branch (uploads/attachments.ts rows, kept with their chat): a row of the fork's own
+  // for each, the same file in my folder, so the fork's pictures, an edit and a send again keep them after the original
+  // is purged from the trash (its rows go with it). Another person's upload is never copied (as I see it, if at all)
+  const uploads = new Map<string, string>()
+  const thumbs: { from: string; to: string; id: string }[] = []
+  const upRow = db.query('SELECT id, user_id, chat_id, path, name, size, mime, kind, width, height, sha256, thumb_path, created_at FROM attachments WHERE id = ? AND chat_id = ? AND user_id = ?')
+  const upIns = db.query('INSERT INTO attachments (id, user_id, chat_id, path, name, size, mime, kind, width, height, sha256, thumb_path, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+  const ownUpload = (id: string): string => {
+    const had = uploads.get(id)
+    if (had) return had
+    const r = upRow.get(id, src.id, userId) as { id: string; user_id: string; chat_id: string; path: string; name: string; size: number; mime: string; kind: string; width: number | null; height: number | null; sha256: string; thumb_path: string | null; created_at: string } | null
+    if (!r) return id
+    const nid = newId()
+    // thumbs/<id>.<ext>: the sweep keeps a thumbnail while a row of its id is there (uploads/attachments.ts sweep)
+    const thumb = r.thumb_path ? `thumbs/${nid}${path.extname(r.thumb_path)}` : null
+    upIns.run(nid, r.user_id, forkId, r.path, r.name, r.size, r.mime, r.kind, r.width, r.height, r.sha256, thumb, r.created_at)
+    if (thumb) thumbs.push({ from: r.thumb_path!, to: thumb, id: nid })
+    uploads.set(id, nid)
+    return nid
+  }
 
   db.transaction(() => {
     db.query(`INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at, seen_at, active_leaf_id,
-        session_tainted, others_words, room_outside, session_read_scope, fork_of, fork_at, fork_title, fork_pending) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`)
+        session_tainted, others_words, room_outside, session_read_scope, fork_of, fork_at, fork_title, fork_pending, fork_parent) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)`)
       .run(forkId, userId, projectId, title, src.title_source === 'auto' ? 'ai' : src.title_source, o.engine, o.model, now, now, now, ids.get(msgs[msgs.length - 1]!.id)!,
         // another person's words in it: the mark that keeps the person's Always for sends to what their own message names
         // (chat/shared-actions.ts othersWordsIn), as in the shared chat
-        c.session_tainted || (others ? 1 : 0), c.others_words || (others ? 1 : 0), c.room_outside, c.session_read_scope, src.id, msgs[msgs.length - 1]!.id, title)
+        c.session_tainted || (others ? 1 : 0), c.others_words || (others ? 1 : 0), c.room_outside, c.session_read_scope, src.id, msgs[msgs.length - 1]!.id, fromTitle,
+        // it sits under the chat it came from in my list (migration 460; "Detach to top level" clears it)
+        src.id)
     const insMsg = db.query(`INSERT INTO messages (id, chat_id, parent_id, role, author_id, content, attachments, steps, step_notes, status, error, turn_id, engine, model, files,
         created_at, updated_at, stop_reason, history_trimmed, history_small_model, stopped_for, fork_copy, withheld_copy) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)`)
     const insTurn = db.query(`INSERT INTO turns (id, chat_id, user_id, engine, model, status, started_at, ended_at, message_id, user_message_id, shared_checked, people_checked, stop_reason)
@@ -129,7 +175,7 @@ export function forkChat(rt: ChatRuntime, userId: string, chatId: string, o: For
       const parent = m.parent_id ? ids.get(m.parent_id) ?? null : null
       // attachments as this person sees them (a computer upload of someone else's not there, a team file they may not
       // open "unavailable"); a chat file by reference to the chat that keeps it
-      const atts: Attachment[] = withheld ? [] : shown.attachments.map((x) => (x.source === 'chat' ? { ...x, fromChat: x.fromChat ?? src.id } : x))
+      const atts: Attachment[] = withheld ? [] : shown.attachments.map((x) => (x.source === 'chat' ? { ...x, fromChat: x.fromChat ?? src.id } : !x.source || x.source === 'upload' ? { ...x, id: ownUpload(x.id) } : x))
       let steps = '[]'
       let notes: string | null = null
       let files: string | null = null
@@ -168,8 +214,14 @@ export function forkChat(rt: ChatRuntime, userId: string, chatId: string, o: For
         if (!withheld) insSrc.run(id, m.id)
       }
     }
-    audit(db, { actor: userId, action: 'chat.fork', target: forkId, detail: { from: src.id, messages: msgs.length, projectId } })
+    audit(db, { actor: userId, action: 'chat.fork', target: forkId, detail: { from: src.id, messages: msgs.length, projectId, ...(a.shared ? {} : { own: true }) } })
   })()
+
+  // the copied uploads' thumbnails (a failure: none, the picture's own file is shown or its tile)
+  for (const x of thumbs) {
+    try { fs.copyFileSync(path.join(rt.ctx.config.dataDir, ...x.from.split('/')), path.join(rt.ctx.config.dataDir, ...x.to.split('/'))) }
+    catch { try { db.query('UPDATE attachments SET thumb_path = NULL WHERE id = ?').run(x.id) } catch { /* the tile shows */ } }
+  }
 
   // the person's own Claude Code session of this branch, after the commit: copied into the fork's own folder, then
   // pointed at. Any failure: no session (the first answer starts fresh from the copied words), never a stray file
@@ -202,4 +254,12 @@ export function forkChat(rt: ChatRuntime, userId: string, chatId: string, o: For
 export function forkCopiesOnly(rt: Pick<ChatRuntime, 'db'>, chat: Pick<ChatRow, 'id' | 'user_id' | 'fork_of' | 'shared_at' | 'people_shared_at'>): boolean {
   if (!chat.fork_of || chat.shared_at || chat.people_shared_at) return false
   return !rt.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? AND fork_copy = 0 LIMIT 1").get(chat.id, chat.user_id)
+}
+
+/** The first answer of a fork (chat/turn.ts forkNote): was it made from its person's own chat ("Fork"), not from a
+ * shared one? The chat it came from as it is now; gone, by whether the copy holds anyone else's words (`others`). */
+export function forkOfOwn(db: ChatRuntime['db'], sourceId: string, others: boolean): { others: boolean } | null {
+  const r = db.query('SELECT shared_at, people_shared_at FROM chats WHERE id = ?').get(sourceId) as { shared_at: string | null; people_shared_at: string | null } | null
+  if (!r) return others ? null : { others }
+  return r.shared_at || r.people_shared_at ? null : { others }
 }

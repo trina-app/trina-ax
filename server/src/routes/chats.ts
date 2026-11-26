@@ -651,13 +651,20 @@ export const chatsRoutes: RouteModule = {
       if (body.engine !== undefined) { sets.push('engine = ?'); args.push(body.engine) }
       if (body.model !== undefined) { sets.push('model = ?'); args.push(body.model) }
       else if (body.engine !== undefined && body.engine !== chat.engine) sets.push('model = NULL')
+      // "Detach to top level": a fork of mine leaves the chat it sits under in my history (chat/fork.ts; migration 460).
+      // Only where it rows: not its last activity (the list keeps its place by date)
+      const detach = body.forkParent === null && !!chat.fork_parent && chat.user_id === auth.user.id
+      if (detach) {
+        ctx.db.query('UPDATE chats SET fork_parent = NULL WHERE id = ?').run(chat.id)
+        audit(ctx.db, { actor: auth.user.id, action: 'chat.fork_detach', target: chat.id, detail: { from: chat.fork_parent } })
+      }
       if (sets.length) {
         sets.push('updated_at = ?'); args.push(new Date().toISOString())
         // into a project or out of one, the chat stays in its history section (chat/nav-folders.ts: a section shows a
         // chat while it is in its person's history; owner decision 2026-11-22)
         ctx.db.query(`UPDATE chats SET ${sets.join(', ')} WHERE id = ?`).run(...args, chat.id)
-        rt.publishChat(auth.user.id, chat.id, 'updated')
       }
+      if (sets.length || detach) rt.publishChat(auth.user.id, chat.id, 'updated')
       return chatOut(rt, auth.user.id, rt.store.chatRow(chat.id)!)
     })
 

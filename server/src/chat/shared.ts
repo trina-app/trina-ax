@@ -407,6 +407,25 @@ export function forkedFromOf(rt: ChatRuntime, viewer: string, r: Pick<ChatRow, '
   } catch { return { title: redactorFor(rt.ctx, r.user_id).hide(r.fork_title ?? '') } }
 }
 
+/** How far up a fork's chain its person's list looks (Chat.forkParents) */
+export const FORK_PARENTS_MAX = 8
+/** A fork's ancestors in its person's list (Chat.forkParents, migration 460 chats.fork_parent), nearest first: the list
+ * puts the row under the nearest one that is a row of the same list (web lib/forkTree.ts), so a parent deleted, hidden,
+ * pinned, filtered out or no longer open to them hands its forks up a level without any change here. Ids only, and only
+ * of chats that are `viewer`'s own, plus the first one that is not (the shared chat a fork came from): the chain never
+ * goes past a chat of someone else's, whose own parents are theirs (a fork they shared later). Empty: a top-level row. */
+export function forkParentsOf(db: Database, r: Pick<ChatRow, 'id' | 'fork_parent'>, viewer: string): string[] {
+  const out: string[] = []
+  const up = db.query('SELECT user_id, fork_parent FROM chats WHERE id = ?')
+  for (let p = r.fork_parent ?? null; p && out.length < FORK_PARENTS_MAX && p !== r.id && !out.includes(p);) {
+    out.push(p)
+    const x = up.get(p) as { user_id: string; fork_parent: string | null } | null
+    if (!x || x.user_id !== viewer) break
+    p = x.fork_parent
+  }
+  return out
+}
+
 /** Chat.shared.waiting: how many messages of the others wait there (shared-waiting.ts), only when some do */
 const othersWaiting = (rt: ChatRuntime, chatId: string, viewer: string): { waiting?: number } => {
   const n = rt.sharedWaiting.othersCount(chatId, viewer)
@@ -478,7 +497,8 @@ export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?:
     // a chat that stopped being shared after others wrote in it: its marker and last outcome are its creator's answers'
     const c = rt.store.toChat(r, rt.runState(r.id), rt.waitsForPerson(r.id), { ...(severalAuthors(rt.db, r.id) ? { answersOf: r.user_id } : {}), viewer, ending: rt.endingUnconfirmed(r.id), waitingForPlace: rt.waitsForPlace(r.id) })
     const forked = viewer === r.user_id ? forkedFromOf(rt, viewer, r) : undefined
-    return { ...c, title: hide(c.title), ...(forked ? { forkedFrom: forked } : {}) }
+    const parents = viewer === r.user_id ? forkParentsOf(rt.db, r, viewer) : []
+    return { ...c, title: hide(c.title), ...(forked ? { forkedFrom: forked } : {}), ...(parents.length ? { forkParents: parents } : {}) }
   }
   const runner = rt.activeTurnUser(r.id)
   const c = rt.store.toChat(r, rt.runState(r.id), rt.waitsForPerson(r.id, viewer), { answersOf: r.user_id === viewer ? viewer : null, viewer, ending: rt.endingUnconfirmed(r.id), waitingForPlace: runner === viewer && rt.waitsForPlace(r.id) })
@@ -499,7 +519,8 @@ export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?:
   const muted = !!unread?.muted
   // a fork its creator shared later: the line back to the chat it came from is theirs alone
   const forked = viewer === r.user_id ? forkedFromOf(rt, viewer, r) : undefined
-  return { ...c, title: hide(c.title), shared, ...(forked ? { forkedFrom: forked } : {}), ...waitsForOf(rt, viewer, r, aud, runner), ...(unread?.n ? { unseen: true as const, unreadCount: unread.n } : {}), ...(muted ? { muted: true as const } : {}) }
+  const parents = viewer === r.user_id ? forkParentsOf(rt.db, r, viewer) : []
+  return { ...c, title: hide(c.title), shared, ...(forked ? { forkedFrom: forked } : {}), ...(parents.length ? { forkParents: parents } : {}), ...waitsForOf(rt, viewer, r, aud, runner), ...(unread?.n ? { unseen: true as const, unreadCount: unread.n } : {}), ...(muted ? { muted: true as const } : {}) }
 }
 
 /** Was this shared chat shared after it was made (chat/share-chat.ts marks the turns it had then SHARED_LATER)? An answer

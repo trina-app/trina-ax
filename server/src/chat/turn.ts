@@ -173,8 +173,8 @@ import { wouldSeeFrom } from '../rooms/history'
 import { isOwnerOrAdmin, roomRow } from '../rooms/store'
 import { ext } from '../files/extract'
 import { CONTENT_KINDS, fileTimelineWalk, selfAndAbove } from '../files/timeline'
-import { audienceOf, chatAudienceOf, isSharedRow, messageFor, othersSessionFiles, ownSessionOn, stashWrittenBy } from './shared'
-import { forkCopiesOnly } from './fork'
+import { audienceOf, chatAudienceOf, forkHoldsOthers, isSharedRow, messageFor, othersSessionFiles, ownSessionOn, stashWrittenBy } from './shared'
+import { forkCopiesOnly, forkOfOwn } from './fork'
 import { LiveAnswer, publishDoneToOthers } from './live-answer'
 import { mapCopyText } from './copy-paths'
 import { afterCutover, answerHiddenFrom, answerRecord, answerRecords, hiddenAnswersCutover, setAnswerReads, setLeftOut, withheldFrom, type ReadGroup } from './shared-answers'
@@ -995,6 +995,11 @@ export class TurnExec {
     this.forkCopy = !this.shared && !!chat.fork_of
     this.forkOnly = this.forkCopy && forkCopiesOnly(rt, chat)
     const forkFirst = this.forkCopy && chat.fork_pending === 1
+    // a fork of the person's own chat, or of a fork of theirs ("Fork", docs/decisions/20261126-chat-fork-tree.md): the
+    // copied session is theirs alone and was never a shared chat's, so its first answer resumes it as any chat of theirs
+    // does (no answer records there to check, chat/shared-answers.ts); the checks for this person below still run
+    const forkOwn = forkFirst ? forkOfOwn(rt.db, chat.fork_of!, othersWrote || forkHoldsOthers(rt.db, spec.chatId)) : null
+    let forkPlain = false
     const toolSet = buildToolSet(this)
     this.toolSet = toolSet
     // let: a service connected on a card during the answer builds the set again (refreshTools, continueAfterConnect)
@@ -1030,7 +1035,7 @@ export class TurnExec {
     // (Codex and the API engine always start fresh; so does the first message)
     // a fork's first answer: the person's own session of the shared chat, copied into the fork (chat/fork.ts), goes on
     // the same way, with what others wrote after its last answer; its checks are for this person alone (below)
-    if (this.shared || (forkFirst && claude)) {
+    if (this.shared || (forkFirst && claude && !forkOwn)) {
       const own = claude && userMsg.parent_id ? ownSessionOn(rt.db, spec.chatId, spec.userId, rt.store.pathTo(userMsg.parent_id).map((m) => m.id), (x) => rt.sessionStash(spec.chatId, x), (f) => fs.existsSync(f)) : null
       const h = own ? this.sessionHeld(own.answers) : null
       if (own && h) {
@@ -1052,6 +1057,7 @@ export class TurnExec {
       resume = !!claude && !!sid && chat.engine_session_leaf_id === userMsg.parent_id && fs.existsSync(stash)
         // a chat several people wrote in that is no longer shared: only a session this person's own turn wrote
         && (!othersWrote || stashWrittenBy(rt.db, chat, spec.userId))
+      forkPlain = resume && forkFirst
     }
     // a team file attached earlier on this branch that the person can no longer open: the stashed session still holds
     // its content and answered from it (security round 4). Start from the DB history, where it is blanked. Moves and
@@ -1445,7 +1451,9 @@ export class TurnExec {
     if (toolSet.has('artifact') && !this.restricted) { try { pages = componentC(rt.ctx).artifacts.pagesBlock(spec.userId, spec.chatId) } catch (e) { rt.log.warn('chat pages block failed', { err: e, turn: this.id }) } }
     // a fork's first answer (chat/fork.ts): this chat is now the person's own copy of the shared chat (said once)
     const forkTitle = chat.fork_title ?? ''
-    const forkLine = (resumed: boolean) => forkFirst ? `${forkNote({ title: forkTitle, name: this.principal?.name ?? '', resumed, ...(resumed ? { skills: skillList.lines } : {}) })}\n\n` : ''
+    // a fork of the person's own chat ("Fork"): its note says so, not a shared chat's (the chat it came from as it is
+    // now; gone: by whether the copy holds anyone else's words)
+    const forkLine = (resumed: boolean) => forkFirst ? `${forkNote({ title: forkTitle, name: this.principal?.name ?? '', resumed, ...(resumed ? { skills: skillList.lines } : {}), ...(forkOwn ? { own: forkOwn } : {}) })}\n\n` : ''
     const message = (claude ? '' : forkLine(false)) + skillNotShared + scheduled + continued + answered + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invokedBlock ? `${invokedBlock}\n\n` : '') + (switched ? `${switched}\n\n` : '') + (pages ? `${pages}\n\n` : '') + composeMessage(asSent, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them
@@ -1456,7 +1464,7 @@ export class TurnExec {
       const since = ownSince && sessionId === ownSid ? `${ownSince}\n\n` : ''
       // a fork's first answer on the copied session: the person's whole skill list now (the session's was the shared
       // chat's), recorded for this session so later turns compare with it (skill-list.ts listedFor)
-      const forkSkills = forkFirst && sessionId === ownSid && !guestTurn
+      const forkSkills = forkFirst && (sessionId === ownSid || (forkPlain && sessionId === chat.engine_session_id)) && !guestTurn
       if (forkSkills) { try { recordListed(rt.db, spec.chatId, skills, sessionId) } catch (e) { rt.log.warn('skill list record failed', { err: e, turn: this.id }) } }
       const before = forkSkills ? null : listedFor(rt.db, spec.chatId, sessionId, spec.userId)
       const changes = before === null ? '' : skillChangesText(before === 'stale' ? 'stale' : skillChanges(before, skills), neutralizeTags)

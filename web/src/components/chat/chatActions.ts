@@ -5,7 +5,8 @@
 // project, list folder), `trashChat` for the trash and back.
 import { useNavigate, useParams } from 'react-router-dom'
 import type { Chat } from '@mycel/shared/api'
-import { api, API, errorText } from '../../lib/api'
+import { api, API, errorText, isApiError } from '../../lib/api'
+import { askPrivately, askPrivatelyHome, lastOwnQuestion } from './privateAsk'
 import { useLocale, useT } from '../../i18n'
 import { chatTrashDays } from '../../lib/chat-trash'
 import { openHome } from '../../lib/screenHistory'
@@ -16,6 +17,9 @@ import { useChats } from '../../store/chats'
 import { useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
 import { confirmDialog, promptDialog } from '../ui'
+
+/** a fork on its way (POST /api/chats/:id/fork): one at a time, from any menu */
+let forking = false
 
 /** the chat as this window has it now (a reply or an event may have changed it since the menu opened) */
 const currentChat = (c: Chat): Chat => {
@@ -37,7 +41,7 @@ const showChat = (c: Chat) => {
 }
 
 /** what of a chat changes (the `chat:<id>:<field>` key; store/chats.ts keeps it on screen while it is on its way) */
-export type ChatField = 'title' | 'engine' | 'project' | 'folder'
+export type ChatField = 'title' | 'engine' | 'project' | 'folder' | 'fork'
 
 /**
  * Change a value of a chat at once on every list of this window (the chats store, 고정) and in `onShown` (a page's own
@@ -276,7 +280,49 @@ export function useChatActions() {
     return true
   }
 
-  return { rename, remove, togglePin, hide, leave, toggleMute }
+  /** "Fork" (my own chat) and "Continue in a chat only you see" (a shared one): POST /api/chats/:id/fork, then the new
+   * chat on screen with an empty box (docs/decisions/20261126-chat-fork-tree.md). `leafId`: the end of the branch on
+   * screen (the chat page); without it the chat's current branch. A shared chat refused where the server has no fork for
+   * it (an older server, a guest outside their place): the old way, my last question in a new chat's box. One at a time. */
+  const fork = async (chat: Chat, leafId?: string): Promise<Chat | null> => {
+    if (forking) return null
+    forking = true
+    try {
+      const made = await api.call(API.forkChat, { params: { id: chat.id }, body: leafId ? { leafId } : {} })
+      useChats.getState().upsertChat(made)
+      chatGroupsChanged()
+      navigate(`/c/${made.id}`, { state: { chat: made } })
+      return made
+    } catch (e) {
+      const reason = isApiError(e) ? e.body.params?.reason : null
+      if (chat.shared && (isApiError(e, 'not_found') || isApiError(e, 'forbidden') || reason === 'fork_not_shared' || reason === 'fork_not_here')) {
+        const text = lastOwnQuestion(chat.id, me.user.id)
+        if (chat.projectId) askPrivately(navigate, chat.projectId, text)
+        else askPrivatelyHome(navigate, text)
+      } else toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+      return null
+    } finally { forking = false }
+  }
+
+  /** "Detach to top level": a fork of mine stands at the top of my history (PATCH forkParent: null). On screen at once
+   * (the list puts it at the top), back with a toast when refused. Its last activity does not change. */
+  const detachFork = async (chat: Chat, onShown?: (c: Chat) => void): Promise<Chat | null> => {
+    const was = currentChat(chat)
+    if (!was.forkParents?.length) return was
+    const r = await changeChat<string[] | undefined>({
+      chat: was,
+      field: 'fork',
+      from: was.forkParents,
+      to: undefined,
+      apply: (c, v) => { const { forkParents: _p, ...rest } = c; return v?.length ? { ...rest, forkParents: v } : rest },
+      send: () => api.call(API.updateChat, { params: { id: chat.id }, body: { forkParent: null } }),
+      confirmed: (c) => c.forkParents,
+      onShown,
+    })
+    return r.ok && r.newest ? r.reply : null
+  }
+
+  return { rename, remove, togglePin, hide, leave, toggleMute, fork, detachFork }
 }
 
 /** How many names the delete confirm lists before "and N others". */

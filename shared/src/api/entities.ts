@@ -331,6 +331,10 @@ export const Chat = z.object({
    * from ‹title›" above its copied messages. chatId while I may still open that chat (a link), else its title at the
    * copy alone. Absent = not a fork. */
   forkedFrom: z.object({ title: z.string(), chatId: Uuid7.optional() }).optional(),
+  /** a fork's place in my history (a tree, like the Claude app's session list): the chats it sits under, nearest first
+   * (at most 8; ids only, for the chat's own person). The list draws it under the nearest one that is a row of the same
+   * list, else at the top; "Detach to top level" (PATCH forkParent: null) empties it. Absent: a top-level row. */
+  forkParents: z.array(Uuid7).max(8).optional(),
   /** an answer finished here after I last had the chat on screen (POST /api/chats/:id/seen; migration 252). Absent = no. */
   unseen: z.literal(true).optional(),
   /** a chat shared with people: the messages of others (and Trina's answers to them) I have not read here yet
