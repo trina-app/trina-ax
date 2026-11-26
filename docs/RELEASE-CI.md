@@ -508,16 +508,16 @@ certificate does not skip it; an EV certificate would not either, and Artifact S
 4. **역할**: 확인을 신청하는 사람에게 `Artifact Signing Identity Verifier`를 준다(계정 → Access control).
 5. **조직 확인(Public)**: 계정 → Identity validations → Organization → New identity → Public. 법인 이름은 등기 그대로, 웹사이트, 회사 도메인의 메일 두 개(주·보조, 서로 달라야 한다), 사업자등록번호, 등기 주소, 대표자 이름(신분증 그대로). 그 뒤 "Action Required"가 되면 대표자가 Microsoft Authenticator의 Verified ID(AU10TIX 신분증·얼굴 확인)를 한다. 서류를 더 달라는 메일이 오면 포털에서 올린다(시도 세 번). 메일 링크는 7일 안에 눌러야 한다.
 6. **인증서 프로필**(확인이 Completed가 된 뒤): 계정 → Certificate profiles → Create → **Public Trust**, Verified CN and O에 그 확인을 고른다.
-7. **앱 등록과 OIDC**: Entra ID → App registrations → New(예: `trina-ax-release-signing`). 비밀값은 만들지 않는다. 이 레포의 OIDC subject에는 태그가 들어가므로(`job_workflow_ref`, 10장 "처음 한 번" 3) 보통 federated credential(정확히 같은 subject)로는 매 태그마다 하나가 필요하다. 그래서 **flexible federated credential**(미리보기, Graph beta)을 하나 만든다:
+7. **앱 등록과 OIDC**: Entra ID → App registrations → New. 비밀값은 만들지 않는다. **2026-11-26에 만들어 두었다**: 앱 `trina-ax-release-signing`(client id `46c157f3-5a1b-4d18-bceb-87ed56b6cb46`, object id `c7afa619-6173-479a-9644-6e1609f17d63`, 테넌트 `b1b8bf91-89de-4a9c-84ec-29c16b01623d`), 서비스 주체, credential `release-yml-v-tags`. 이 레포의 OIDC subject에는 태그가 들어가므로(`job_workflow_ref`, 10장 "처음 한 번" 3) 보통 federated credential(정확히 같은 subject)로는 매 태그마다 하나가 필요하다. 그래서 **flexible federated credential**(미리보기, Graph beta)을 하나 만든다:
    ```sh
    cat > fic.json <<'JSON'
    { "name": "release-yml-v-tags", "issuer": "https://token.actions.githubusercontent.com", "audiences": ["api://AzureADTokenExchange"],
      "claimsMatchingExpression": { "languageVersion": 1,
-       "value": "claims['sub'] matches 'repo:trina-app@349611973/trina-ax@1436599521:environment:release:job_workflow_ref:trina-app/trina-ax/.github/workflows/release.yml@refs/tags/v*' and claims['repository_id'] eq '1436599521' and claims['repository_owner_id'] eq '349611973'" } }
+       "value": "claims['sub'] matches 'repo:trina-app@349611973/trina-ax@1198583140:environment:release:*/workflows/release.yml@refs/tags/v*'" } }
    JSON
    az rest --method post --url "https://graph.microsoft.com/beta/applications/<앱 object id>/federatedIdentityCredentials" --body @fic.json
    ```
-   즉 environment `release`에서 `v*` 태그의 release.yml만 서명할 수 있다(태그 ruleset·environment 대상 제한과 함께, 10장). 미리보기가 막히면 대안은 태그마다 정확한 subject의 credential을 하나씩 더하는 것(앱당 20개 한도)이다. client secret은 쓰지 않는다.
+   즉 environment `release`에서 `v*` 태그의 release.yml만 서명할 수 있다(태그 ruleset·environment 대상 제한과 함께, 10장). Entra가 거절한 것(2026-11-26): 식은 **128자까지**라 `job_workflow_ref:trina-app/trina-ax/.github` 부분을 `*`로 줄였다(`repository_id`·`repository_owner_id` 조건을 따로 붙일 자리도 없다. subject의 앞부분이 이미 그 id다). 이름 꼴 subject(`repo:trina-app/trina-ax:…`)는 "The 'sub' claim is not immutable"로 거절되므로 credential은 immutable 꼴 하나다. 레포 id는 11-19 레포 교체 뒤의 **1198583140**이다(`gh api repos/trina-app/trina-ax --jq .id`, 실제 subject 앞부분은 `gh api repos/trina-app/trina-ax/actions/oidc/customization/sub`의 `sub_claim_prefix`). 미리보기가 막히면 대안은 태그마다 정확한 subject의 credential을 하나씩 더하는 것(앱당 20개 한도)이다. client secret은 쓰지 않는다.
 8. **서명 권한**: 그 앱의 서비스 주체에 `Artifact Signing Certificate Profile Signer`를 인증서 프로필(또는 계정)에 준다.
 9. **GitHub에 넣는다** (id는 비밀이 아니지만 비밀값으로 둔다: 공개 레포의 로그에 가려진다. 구독 id는 필요 없다):
    ```sh
