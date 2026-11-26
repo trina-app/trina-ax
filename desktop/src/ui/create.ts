@@ -137,7 +137,7 @@ function signIn(v: Extract<CreateView, { screen: 'signin' }>) {
 /** S3: one field, the address small under it ("acme.trina.app · Change"), the Free plan's rules, one agree box */
 function nameTeam(v: Extract<CreateView, { screen: 'name' }>, ctx: Ctx) {
   // back from a failed setup over its address (slug_conflict): the name the person typed, to keep
-  if (v.name && !form.name) form.name = v.name
+  if (v.name && (!form.name || v.nameLocked)) form.name = v.name
   const slugOk = () => teamSlugOk(slugNow())
   const ready = () => form.name.trim() !== '' && form.agreed && slugOk() && !v.busy
   const submit = h('button', { type: 'submit', class: 'primary', 'data-testid': 'create-submit', disabled: !ready() }, v.busy ? tr('create.creating') : tr('create.submit'))
@@ -147,7 +147,7 @@ function nameTeam(v: Extract<CreateView, { screen: 'name' }>, ctx: Ctx) {
     ;(submit as HTMLButtonElement).disabled = !ready()
   }
   const nameInput = h('input', {
-    id: 'team-name', type: 'text', autocomplete: 'organization', spellcheck: 'false', maxlength: 60, placeholder: tr('create.namePlaceholder'), value: form.name, disabled: v.busy,
+    id: 'team-name', type: 'text', autocomplete: 'organization', spellcheck: 'false', maxlength: 60, placeholder: tr('create.namePlaceholder'), value: form.name, disabled: v.busy || v.nameLocked === true,
     oninput: (e: Event) => { form.name = (e.target as HTMLInputElement).value; refresh() },
   })
   const slugLine = form.editing

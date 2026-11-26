@@ -161,7 +161,8 @@ export async function startFakeConsole() {
           const b = body as { slug?: unknown } | null
           sc.retries.push(b)
           sc.provisionError = null
-          if (typeof b?.slug === 'string') sc.team = { ...sc.team, slug: b.slug, url: sc.team.url }
+          // a new address: the team answers there now (its owner claim names that address too)
+          if (typeof b?.slug === 'string') sc.team = { ...sc.team, slug: b.slug, url: `http://${b.slug}.localhost:${teamPort}` }
         }
         sc.team = { ...sc.team, state: 'provisioning', provisioning: { step: 1, error: null, waitingCapacity: false } }
         polls = 0
@@ -172,7 +173,7 @@ export async function startFakeConsole() {
         if (sc.team.setUp) return fail(res, 409, 'already_set_up')
         const claim = randomBytes(32).toString('base64url')
         claims.add(claim)
-        return send(res, 200, { url: `${teamUrl}/app-setup#c=${claim}` })
+        return send(res, 200, { url: `${sc.team.url}/app-setup#c=${claim}` })
       }
     }
     if (p === '/api/app/v1/waitlist' && req.method === 'POST') {

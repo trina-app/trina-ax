@@ -417,7 +417,9 @@ test('a setup that fails while the team still reads as being made: never a wait 
     await signInBrowser(app, 1)
     await nameTeam(w)
     await expect(w.getByTestId('slug-error')).not.toBeEmpty()
+    // the retry changes only the address: the name is the one the team was made with, and cannot be changed here
     await expect(w.getByLabel('Team name')).toHaveValue('Acme Cafe')
+    await expect(w.getByLabel('Team name')).toBeDisabled()
     await w.locator('#team-slug').fill('acme-cafe-2')
     await w.getByTestId('agree').check()
     await w.getByTestId('create-submit').click()
@@ -425,7 +427,9 @@ test('a setup that fails while the team still reads as being made: never a wait 
     expect(fake.sc.retries[0]).toEqual({ v: 1, slug: 'acme-cafe-2' })
     // one team only: no second POST /teams
     expect(fake.log.filter((l) => l.method === 'POST' && l.path === '/api/app/v1/teams').length).toBe(1)
-    const page = await teamView(app, '/app-setup')
+    // the team opens at its new address
+    const newUrl = fake.teamUrl.replace('//cafe.', '//acme-cafe-2.')
+    const page = await view(app, (u) => u.startsWith(`${newUrl}/app-setup`))
     await expect(page.locator('#welcome')).toHaveText('Welcome to Acme Cafe, owner')
   } finally {
     await close(app)
