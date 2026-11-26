@@ -182,7 +182,11 @@ jobs:
           SIGNING: ${{ vars.WINDOWS_SIGNING_PROVIDER }}
           LIMIT: ${{ vars.WINDOWS_SIGNING_MONTHLY_LIMIT }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
+          # 3 tries; still no answer: windows-cadence.ts leaves Windows out with a warning, the rest of the release goes on
+          for i in 1 2 3; do
+            gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json" && break
+            rm -f "$RUNNER_TEMP/releases.json"; sleep 10
+          done
           bun scripts/release/windows-cadence.ts decide --tag "$TAG" --notes notes/notes.md --releases "$RUNNER_TEMP/releases.json" --input "$INPUT_WINDOWS" --signing "$SIGNING" --limit "$LIMIT" | tee -a "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

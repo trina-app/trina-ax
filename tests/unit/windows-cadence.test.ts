@@ -217,8 +217,19 @@ describe('the command release.yml runs', () => {
     const f = files('x', [])
     await expect(main(['decide', '--tag', 'v1.0.0', '--notes', f.notes])).rejects.toThrow(/usage/)
     await expect(main(['decide', '--tag', 'v1.0.0', '--notes', f.notes, '--releases', f.releases, '--limit', 'lots'], { err: () => {}, out: () => {} })).rejects.toThrow(/--limit/)
-    fs.writeFileSync(f.releases, '{"message":"Bad credentials"}')
-    await expect(main(['decide', '--tag', 'v1.0.0', '--notes', f.notes, '--releases', f.releases], { err: () => {}, out: () => {} })).rejects.toThrow(/not a list/)
+  })
+  test('releases that cannot be read (an API hiccup) leave Windows out with a warning, never stop the release', async () => {
+    for (const body of ['{"message":"Bad credentials"}', '[{"tag_na', null]) {
+      const f = files('Windows: yes\n\nA fix.\n', [])
+      if (body === null) fs.rmSync(f.releases)
+      else fs.writeFileSync(f.releases, body)
+      const out: string[] = [], err: string[] = []
+      const d = await main(['decide', '--tag', 'v1.0.0', '--notes', f.notes, '--releases', f.releases], { out: (s) => out.push(s), err: (s) => err.push(s), fetch: noFetch, now: NOW })
+      expect(d.windows).toBe(false)
+      expect(out.join('')).toBe('windows=false\nwindows_last=\n')
+      expect(err.join('')).toStartWith('::warning::No Windows installer in this release: the GitHub Releases could not be read')
+      expect(fs.readFileSync(f.notes, 'utf8')).toBe('A fix.\n')
+    }
   })
 })
 

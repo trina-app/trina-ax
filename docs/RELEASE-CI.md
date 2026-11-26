@@ -509,6 +509,7 @@ day: `prepare` decides from the GitHub Releases, with no state of its own (`scri
 - **다시 돌릴 때**: GitHub Release가 이미 있는 태그는 처음 run이 한 대로 한다(설치 파일이 있거나, 노트의 `**Windows:** no new Windows installer` 줄). 한 버전의 사무실 목록은 윈도우 앱을 바꾸지 않기 때문이다(`publish.ts` `versionManifestAction`). 다르게 하려면 새 버전으로 태그한다. "Re-run failed jobs"는 prepare를 다시 돌리지 않으므로 처음 결정을 그대로 쓴다.
 - **요금제 난간**: 서명을 켰을 때, 지난 30일의 서명된 윈도우 릴리스 × 4(파일 셋 + 재시도 하나) + 이번 4가 한 달 한도를 넘으면 자동으로는 윈도우를 빼고(warning), `Windows: yes`면 prepare가 빌드 전에 멈춘다. 한도는 레포 변수 `WINDOWS_SIGNING_MONTHLY_LIMIT`(없으면 20, 등급 1). 요금제를 올리면 그 값도 올린다.
 - **윈도우가 없는 날**: `build-windows`는 돌지 않는다(서명 0번). `publish.ts --keep-windows`가 사무실 피드(사무실 zip, 맥 앱, 리눅스 데스크톱 앱)를 채널 머리의 `windows` 그대로 낸다: 파일은 마지막 윈도우 버전의 폴더(`<officeDir>/<그 버전>/`)에 있던 것이다. 그래서 사무실 맥·리눅스 서버는 그 설치 파일을 계속 내주고(`system/windows-app.ts`), 팀원의 윈도우 앱은 그것으로 업데이트한다(`windows.version`으로 보며 릴리스 버전과 같을 필요가 없다). GitHub Release에는 설치 파일이 없고 노트 첫 줄이 `**Windows:** no new Windows installer in this release (it is published about once a week); the current Windows installer is the one of vX.`이다. "Downloads not in this release yet"에 윈도우를 넣지 않는다. 웹사이트의 다운로드 링크는 "윈도우 설치 파일이 든 가장 새 릴리스"를 고르므로 그대로 마지막 윈도우 빌드를 가리킨다(웹사이트 레포 `src/windows-release.ts`).
+- **GitHub API가 답하지 않으면**(세 번 시도): 그 릴리스는 윈도우 없이 나간다(warning). 맥·서버·휴대폰 릴리스를 막지 않는다. 윈도우가 그 빌드를 꼭 받아야 하면 `Windows: yes`로 다음 버전을 낸다.
 - 채널 머리에 이어 줄 윈도우 앱이 없으면(그럴 일은 없다: 윈도우가 든 릴리스가 있을 때만 뺀다) `--keep-windows`가 멈춘다. 지우고 넘어가면 그 뒤 모든 릴리스에서 윈도우가 사라지기 때문이다(6장 표).
 
 ### 흐름

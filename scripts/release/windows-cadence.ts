@@ -19,7 +19,8 @@
 //   - otherwise it ships when the last release on this channel with the installer (a stable tag: the last stable one;
 //     a beta tag: any, a stable release is also the beta channel's) is 7 or more days old (calendar days in Korea), when
 //     there is none, or when signing is on and that installer is unsigned (the first signed build goes out at once)
-// The line is taken out of the notes file (it becomes the release notes), like `Rollout: all`. Prints windows=true|false
+// The line is taken out of the notes file (it becomes the release notes), like `Rollout: all`. Releases that cannot be read
+// (the API did not answer) leave Windows out with a warning: they never stop the Mac, server and phone release. Prints windows=true|false
 // and windows_last=<tag> (the release whose installer stays on the feed on a skip day) for $GITHUB_OUTPUT; the reason
 // goes to stderr as a ::notice:: or ::warning::.
 import fs from 'node:fs'
@@ -239,8 +240,18 @@ export async function main(argv: string[], o: { out?: (s: string) => void; err?:
   if (!Number.isInteger(limit) || limit < 0) throw new Error(`--limit ${limitArg}: a whole number of signings a month`)
   const notesPath = path.resolve(notesFile)
   const parsed = windowsLineOf(fs.readFileSync(notesPath, 'utf8'))
-  const releases = JSON.parse(fs.readFileSync(path.resolve(releasesFile), 'utf8')) as GhRelease[]
-  if (!Array.isArray(releases)) throw new Error(`${releasesFile} is not a list of releases`)
+  // the GitHub API did not answer (release.yml tries 3 times): no Windows today, the rest of the release goes on
+  let releases: GhRelease[]
+  try {
+    releases = JSON.parse(fs.readFileSync(path.resolve(releasesFile), 'utf8')) as GhRelease[]
+    if (!Array.isArray(releases)) throw new Error('not a list of releases')
+  } catch (e) {
+    if (parsed.windows) fs.writeFileSync(notesPath, parsed.notes)
+    const d: WindowsDecision = { windows: false, last: null, warn: true, reason: `the GitHub Releases could not be read (${releasesFile}: ${(e as Error).message.slice(0, 200)}), so it cannot tell when the last Windows installer went out; the office feed keeps the last one. Run a "Windows: yes" release later if Windows needs this one` }
+    err(`::warning::No Windows installer in this release: ${d.reason}\n`)
+    out(`windows=false\nwindows_last=\n`)
+    return d
+  }
   const signing = !!arg(a, '--signing')?.trim()
   const now = o.now ?? new Date()
   // the installers whose signature the rule may ask about: the last one on this channel and those of the last 30 days
