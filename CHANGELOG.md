@@ -5,6 +5,16 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+## 0.19.1 — 2026-11-26
+
+- Admin notes: 0.19.1 is an app update. No root file and no system package changed since 0.19.0, so a Linux server on 0.19.0 installs it by itself in its update window (a server older than 0.19.0 takes 0.19.0's root update with it). There is no new migration and the reader level stays 9: going back to 0.19.0 needs no backup.
+- This is the first release with a signed Windows installer: the installer and the app are signed by Trina Inc. (SSL.com code signing certificate), so Windows names Trina Inc. as the publisher instead of "Unknown publisher". SmartScreen may still warn for a while until the signed files build up download reputation.
+
+- A connected app's step now names the item it acts on, not the kind of action: a Google Calendar event reads `Google Calendar · Manage an event · "Team lunch"`, not `· "create"`. An argument that only picks an action, a mode or a type is never shown there, for every connection.
+- Dates and times on a confirmation card read as dates in your app language ("Fri, Nov 27, 2026, 3:00 PM"), not as `2026-11-27T15:00:00`. The time is shown as written, with its offset when it has one; the exact call is unchanged.
+- One "Always allow" on a site in the in-app browser shows as one row in the allowed-sites list (with one Delete), not two (`naver.com` and `news.naver.com`).
+- The Windows installer now comes out about once a week; the Mac app, the office zip, the Linux server and the phone apps still come with every release. In between, Windows computers keep the last Windows version and its updates and downloads keep working.
+
 ## 0.19.0 — 2026-11-26
 
 - Admin notes: 0.19.0 changes root files (`mycel-ctl` gains the hosted service's `microsoft-app-set` command for the Microsoft 365 connector), so every Linux server takes it through the root update: the update timer installs it in the team's update window, or run `sudo mycel-ctl update`. The system package list is unchanged, so nothing new is installed. No backup is needed: the new migration (454, the reader's language for "what your team often asks") only adds, and the reader level stays 9. Going back to 0.18.x needs no backup.
