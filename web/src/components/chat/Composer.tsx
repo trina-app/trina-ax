@@ -36,7 +36,7 @@
 // alone: send waits and a quiet line under the box says what to add.
 import { composerRadius } from './composerBox'
 import clsx from 'clsx'
-import { ArrowUp, Camera, CirclePause, Clock, FolderOpen, Hourglass, Loader2, Monitor, Plus, Smartphone, Square, ChevronDown, WifiOff } from 'lucide-react'
+import { ArrowUp, Camera, CirclePause, Clock, FolderOpen, Hourglass, Loader2, Monitor, Plus, Smartphone, ChevronDown, WifiOff } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
 import { isUuid7, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, type Attachment, type Effort, type EngineId, type FileEntry } from '@mycel/shared/api'
 import { errorText, isApiError, isConnectionError } from '../../lib/api'
@@ -64,6 +64,7 @@ import { CalmNotice, useSaysConnection } from '../LoadError'
 import { useSkillMenu } from './SkillMenu'
 import TeamFilePicker from './TeamFilePicker'
 import { AttachSheet } from './AttachSheet'
+import { StopButton } from './StopButton'
 import { EngineSheet } from './EngineSheet'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import { SkillChip } from './SkillChip'
@@ -219,7 +220,6 @@ export default function Composer({
   const [sending, setSending] = useState(false)
   /** the text looks like a key: sending waits for "Send anyway" or "Edit" (a changed text asks again) */
   const secret = useSecretHold(text)
-  const [stopping, setStopping] = useState(false)
   // files from this computer dropped anywhere on the chat's page, Home or a project's page (their FileDropZone) come here,
   // with the box's own checks: none for someone who may not write a shared chat's project folder, no more in a full box.
   // Outside such a page the box takes them on itself, and refuses them in the same case (the not-allowed cursor, no
@@ -432,15 +432,8 @@ export default function Composer({
   }, [unsent])
 
   const stop = async () => {
-    setStopping(true)
     setError(null)
-    try {
-      await onStop()
-    } catch (e) {
-      setError(errorText(e, locale, t('error.network')))
-    } finally {
-      setStopping(false)
-    }
+    await onStop()
   }
 
   // the API engine has one model (the owner's): its name shows even when none was picked
@@ -625,11 +618,7 @@ export default function Composer({
             </Tooltip>
           )}
       {running ? (
-        <Tooltip label={t('composer.stop')}>
-          <button type="button" onClick={stop} disabled={stopping} aria-label={t('composer.stop')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-full bg-ink text-canvas transition hover:opacity-80 disabled:opacity-40" data-testid="stop">
-            {stopping ? <Loader2 size={17} className="animate-spin" /> : <Square size={14} className="fill-current" />}
-          </button>
-        </Tooltip>
+        <StopButton onStop={stop} onError={(e) => setError(errorText(e, locale, t('error.network')))} />
       ) : (
         !answering && !later && (
           <Tooltip label={t('chat.send')}>
