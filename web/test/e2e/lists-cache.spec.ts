@@ -62,6 +62,9 @@ for (const vp of [{ w: 1440, h: 900 }, { w: 390, h: 844 }]) {
       await settled(page)
     }
     if (!phone) {
+      // (out of the Settings dialog, the last place, which covers the rail)
+      await go(page, '/')
+      await settled(page)
       await openPlace(page, 'activity')
       await expect(page.getByTestId('activity-panel')).toBeVisible()
       await settled(page)
@@ -78,7 +81,9 @@ for (const vp of [{ w: 1440, h: 900 }, { w: 390, h: 844 }]) {
       for (const re of p.lists) expect(reads.filter((u) => re.test(u)).length, `${p.name}: ${re} read at most once`).toBeLessThanOrEqual(1)
     }
     if (!phone) {
-      // 활동 beside the rail: its list at once
+      // 활동 beside the rail: its list at once (out of the Settings dialog first, the last place, which covers the rail)
+      await go(page, '/')
+      await settled(page)
       await openPlace(page, 'trina')
       await settled(page)
       await watchSkeleton(page)

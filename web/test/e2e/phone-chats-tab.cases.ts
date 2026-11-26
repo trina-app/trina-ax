@@ -239,19 +239,19 @@ export function chatsTabCases() {
       await expect(rows).toHaveCount(1)
       await expect(page.getByText(t['feed.emptyFiltered'])).toHaveCount(0)
       expect(asked.filter((q) => q.includes('cursor=30')).length).toBeGreaterThanOrEqual(1)
-      expect(asked.some((q) => q.includes('only=rooms'))).toBe(false)
+      // the page reads every notice (store/chatMentions.ts reads only=rooms on its own)
+      expect(asked.some((q) => q.includes('cursor=30') && !q.includes('only='))).toBe(true)
     })
 
-    test('Settings › 알림: no way to Activity with the whole count on a phone (나\'s 활동 row has the split)', async ({ page }) => {
+    test('Settings › 알림: no way to Activity on a phone; its count is the 나 tab\'s, every notice (the one Activity)', async ({ page }) => {
       await startBusy(page)
       await tab(page, 'me').click()
-      await expect(page.getByTestId('settings-inbox-unread')).toContainText('35')
+      await expect(page.getByTestId('settings-inbox-unread')).toContainText('36')
       await page.getByTestId('settings-row-notifications').click()
       await expect(page.getByTestId('notifications')).toBeVisible()
-      // its way to Activity is the computer's (hidden here); its count is the 나 tab's all the same, never the whole 36
+      // its way to Activity is the computer's (hidden here); its count is the 나 tab's all the same
       await expect(page.getByTestId('notifications-activity')).toBeHidden()
-      await expect(page.getByTestId('notifications-activity')).toContainText('35')
-      await expect(page.getByTestId('notifications')).not.toContainText('36')
+      await expect(page.getByTestId('notifications-activity')).toContainText('36')
     })
   })
 

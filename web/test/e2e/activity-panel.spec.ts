@@ -69,8 +69,9 @@ test('owner: the notices on the left, unread first; chips 전체 · DM · 멘션
   await page.getByTestId('rail-activity').click()
   await expect(page.getByTestId('activity-panel')).toBeVisible()
   await expect(page.getByTestId('rail-activity')).toHaveAttribute('aria-current', 'page')
-  expect(asked.length).toBeGreaterThan(0)
-  expect(asked.every((x) => x === '')).toBe(true)
+  // the list asks for every notice (store/chatMentions.ts reads its conversation rows with only=rooms on its own)
+  expect(asked).toContain('')
+  expect(asked).not.toContain('notices')
   // unread first (newest first), the read one under 읽음
   await expect(rows(page)).toHaveCount(5)
   expect(await rows(page).evaluateAll((els) => els.map((e) => e.hasAttribute('data-unread')))).toEqual([true, true, true, true, false])
@@ -149,12 +150,12 @@ test('a job\'s notice opens the chat 트리나 showed last: every rail place sti
   }
 })
 
-test('member: 전체 · 트리나 only (요청 is for the owner and admins)', async ({ page }) => {
+test('member: no 요청 (it is for the owner and admins)', async ({ page }) => {
   const chatId = await start(page, MEMBER)
   await routeNotices(page, week(chatId))
   await page.reload()
   await page.getByTestId('rail-activity').click()
-  await expect(page.getByTestId('activity-panel-chips').getByRole('button')).toHaveText([t['feed.tab.all'], '트리나'])
+  await expect(page.getByTestId('activity-panel-chips').getByRole('button')).toHaveText([t['feed.tab.all'], t['feed.tab.dms'], t['feed.tab.mentions'], t['feed.tab.threads'], '트리나'])
   await expect(page.getByTestId('activity-chip-requests')).toHaveCount(0)
 })
 
