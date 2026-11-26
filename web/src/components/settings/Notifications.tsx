@@ -147,6 +147,14 @@ export function templateText(item: Pick<InboxNotification, 'code' | 'template' |
   return t(tp.signIn ? 'notifications.event.integration.templateNamedSignIn' : 'notifications.event.integration.templateNamed', { name: tp.name })
 }
 
+/** A chat thread notice as a conversation row's line (Activity, the 활동 panel): the row shows who above or before it
+ * and the chat beside it, so the line names neither ("Replied in a thread."), never "QA Member: QA Member replied …". */
+export function chatThreadRowLine(item: Pick<InboxNotification, 'chatThread'>, t: T): string {
+  const th = item.chatThread
+  if (!th || th.gone) return t('notifications.event.chat.thread_replyGone')
+  return t(th.mention ? 'notifications.event.chat.thread_mentionLine' : 'notifications.event.chat.thread_replyLine')
+}
+
 /** The words of a notice of the app's own. A scheduled run names its task while the task is there (the person's own
  * words, in <bdi>); without it, "a scheduled task" as before. */
 export function noticeText(item: InboxNotification, t: T, locale: Locale): ReactNode {

@@ -28,7 +28,7 @@ import { useRooms } from '../../store/rooms'
 import { unreadRooms } from '../rail/railBadges'
 import { isAdmin, useMe } from '../../store/session'
 import { SetupRow } from '../onboarding/SetupRow'
-import { noticeLink, noticeText } from '../settings/Notifications'
+import { chatThreadRowLine, noticeLink, noticeText } from '../settings/Notifications'
 import { isRoomRow, roomRowText } from '../settings/RoomNoticeRow'
 import { useRoomTitle } from '../rooms/RoomIcon'
 import { Avatar } from '../Avatar'
@@ -366,7 +366,8 @@ function ConversationRow({ item, open, onOpen }: { item: InboxNotification; open
     const th = item.chatThread
     face = <RowFace id={th?.byId} name={th?.name} />
     who = th?.name ?? aiName(t)
-    line = noticeText(item, t, locale)
+    // who is before the line and the chat under it: the line names neither
+    line = chatThreadRowLine(item, t)
     mention = !!th?.mention && !th.gone
     where = th?.title && !th.gone ? th.title : null
   }

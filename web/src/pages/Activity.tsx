@@ -31,7 +31,7 @@ import { unreadRooms } from '../components/rail/railBadges'
 import { Button, EmptyState, ErrorNote, IconButton, Skeleton, inputCls, pageColumn, stickyCls, useMediaQuery } from '../components/ui'
 import { PhoneBarAction } from '../components/phone/PhoneBarAction'
 import { Face, isRoomRow, roomNoticeLink, roomRowText, RoomRowFile, type RoomNotice } from '../components/settings/RoomNoticeRow'
-import { noticeLink, noticeText } from '../components/settings/Notifications'
+import { chatThreadRowLine, noticeLink, noticeText } from '../components/settings/Notifications'
 import { HandoverNoticeExtras } from '../components/handover/HandoverNotice'
 import { FileRequestExtras } from '../components/FileRequestNotice'
 import { AccessRequestExtras } from '../components/AccessRequestNotice'
@@ -501,10 +501,10 @@ function RoomRow({ item, onOpen }: { item: RoomNotice; onOpen: () => void }) {
 }
 
 /** A reply in a thread under a shared AI chat's answer that I follow (a conversation row, as a room thread's): who
- * replied or mentioned me with their photo, the Inbox's line (mentioned you / replied in a thread in "<chat>"), the
- * thread. Opens the thread (/c/<chat>/t/<answer>); one I no longer see says so and opens nothing. */
+ * replied or mentioned me with their photo, a line that names neither (Mentioned you / Replied in a thread), the
+ * chat. Opens the thread (/c/<chat>/t/<answer>); one I no longer see says so and opens nothing. */
 function ChatThreadRow({ item, onOpen }: { item: InboxNotification; onOpen: () => void }) {
-  const t = useT(), locale = useLocale()
+  const t = useT()
   const th = item.chatThread
   const unread = !item.readAt
   const link = noticeLink(item)
@@ -516,7 +516,7 @@ function ChatThreadRow({ item, onOpen }: { item: InboxNotification; onOpen: () =
     unread={unread}
     line={<span className="line-clamp-2" data-testid="notification-text">
       {th?.mention && !th.gone && <span aria-hidden className="mr-1 font-semibold text-accent-text">@</span>}
-      {noticeText(item, t, locale)}
+      {chatThreadRowLine(item, t)}
     </span>}
     context={th?.title && !th.gone ? <><MessagesSquare size={13} aria-hidden className="shrink-0" /><bdi className="truncate">{th.title}</bdi></> : null}
   />

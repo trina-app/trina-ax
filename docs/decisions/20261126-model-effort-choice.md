@@ -16,8 +16,9 @@
   - **Names.** Real model names (Claude Opus, Sonnet, Haiku and the Codex catalog's names), each with one plain hint
     line. On a subscription the hint talks about the limit ("가장 똑똑해요, 한도를 빨리 써요"), on an API key about cost.
   - **Depth.** Three words: 빠르게 · 보통 · 꼼꼼하게 (en Quick · Normal · Thorough), one row under the models in the
-    composer's picker, kept for the chat and starting the next new chat. Settings › Profile "AI for new chats" holds the
-    person's default, Admin › Team settings › AI defaults the team's.
+    composer's picker, kept for that chat only. A new chat starts from the person's default (Settings › Profile "AI for
+    new chats") or, without one, the team's (Admin › Team settings › AI defaults); a pick in one chat never carries to
+    the next.
     - Claude Code: `--effort low`, no flag, `--effort high` (the pinned 2.1.305 has it; the `--help` check stays).
     - Codex: `model_reasoning_effort` low / medium / high, always sent: 보통 and nothing chosen are `medium`, so a run
       matches the 보통 the picker shows (some Codex models default to low).

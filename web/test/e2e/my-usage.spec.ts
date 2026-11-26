@@ -35,7 +35,7 @@ test('the owner sees their own limits, answers by model and totals, can change t
   await expect(limits.nth(0)).toContainText(t['myUsage.limit.you.month'])
   await expect(limits.nth(0)).toContainText('42% used')
   await expect(limits.nth(1)).toContainText('Design group · daily')
-  await expect(page.getByTestId('my-usage-models').getByRole('listitem')).toHaveText([/Claude · sonnet\s*75%/, /ChatGPT · Default model\s*25%/])
+  await expect(page.getByTestId('my-usage-models').getByRole('listitem')).toHaveText([/Claude · Claude Sonnet\s*75%/, /ChatGPT · Default model\s*25%/])
   await expect(page.getByTestId('my-usage-totals')).toContainText('12')
   // no tokens here (Admin › Usage has them)
   await expect(page.getByTestId('my-usage-totals')).not.toContainText('15,400')
