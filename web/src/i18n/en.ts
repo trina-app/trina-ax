@@ -38,6 +38,8 @@ export const en: Record<MessageKey, string> = {
   "appSetup.goneTitle": "This link has expired",
   "appSetup.gone": "Go back to the app and try again.",
   "appSetup.doneTitle": "This team is already set up",
+  "appSetup.errorTitle": "Couldn't finish setting up your team",
+  "appSetup.retry": "Try again",
   'devEnv.title': "Dev environment",
   'devEnv.experiment': "Experiment",
   'devEnv.unavailable': "This server cannot run dev environments.",

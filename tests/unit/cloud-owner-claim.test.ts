@@ -101,6 +101,8 @@ describe('app and console', () => {
     const token = crypto.randomBytes(32).toString('base64url')
     expect(parseAppTokenAnswer({ token, expiresAt: '2026-11-26T12:00:00Z', store: false })).toEqual({ token, expiresAt: '2026-11-26T12:00:00Z', store: false })
     expect(parseAppTokenAnswer({ token: 'x', expiresAt: '2026-11-26T12:00:00Z', store: false })).toBeNull()
+    expect(parseAppTokenAnswer({ token, expiresAt: '2026-11-26T12:00:00Z', store: false, scope: 'all' })).toBeNull()
+    expect(parseOwnerClaimConfirmAnswer({ ok: true, spent: true, extra: 1 })).toBeNull()
   })
 
   const team = { id: 't_1', name: 'Acme', slug: 'acme', url: 'https://acme.treesoop.com', state: 'provisioning', setUp: false, planId: 'free', comeback: false, provisioning: { step: 1, error: null, waitingCapacity: false } }
@@ -109,12 +111,15 @@ describe('app and console', () => {
     expect(parseAppTeam({ ...team, url: 'http://evil.example' })).toBeNull()
     expect(parseAppTeam({ ...team, url: 'http://acme.localhost:19100' })).not.toBeNull()
     expect(parseAppTeam({ ...team, state: 'gone' })).toBeNull()
+    expect(parseAppTeam({ ...team, name: 'Acme​' })).toBeNull()
+    expect(parseAppTeam({ ...team, name: '' })).toBeNull()
     expect(parseAppTeam({ ...team, provisioning: { step: 9, error: null, waitingCapacity: false } })).toBeNull()
     const freePlan = { maxActiveMembers: 3, maxConcurrency: 1, diskGB: 5, termsUrl: 'https://ax.trina.app/terms', privacyUrl: 'https://ax.trina.app/privacy', termsVersion: '2026-11-01' }
     const me = { accountId: 'a_1', email: 'owner@example.com', team: null, freeLeft: true, waitlist: false, freePlan, store: false }
     expect(parseAppMe(me)).toEqual(me)
     expect(parseAppMe({ ...me, team })!.team!.slug).toBe('acme')
     expect(parseAppMe({ ...me, team: { ...team, slug: 'A' } })).toBeNull()
+    expect(parseAppMe({ ...me, email: 'not an address' })).toBeNull()
     expect(parseAppMe({ ...me, freePlan: { ...freePlan, termsUrl: 'http://x' } })).toBeNull()
     expect(parseAppError({ error: { code: 'capacity_full', message: 'x', fields: { pool: 'free' } } })).toEqual({ code: 'capacity_full', fields: { pool: 'free' } })
     expect(parseAppError({ error: { code: 'Bad Code' } })).toBeNull()

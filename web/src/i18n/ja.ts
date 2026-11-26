@@ -38,6 +38,8 @@ export const ja: Record<MessageKey, string> = {
   "appSetup.goneTitle": "このリンクは期限切れです",
   "appSetup.gone": "アプリに戻って、もう一度お試しください。",
   "appSetup.doneTitle": "このチームは設定済みです",
+  "appSetup.errorTitle": "チームの設定を完了できませんでした",
+  "appSetup.retry": "もう一度試す",
   'devEnv.title': "開発環境",
   'devEnv.experiment': "実験機能",
   'devEnv.unavailable': "このサーバーでは開発環境を実行できません。",
