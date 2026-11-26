@@ -225,7 +225,7 @@ test('notices: replies in threads I follow (and the switch for them), mentions i
   // unreadCount; docs/AGENTS/plan/20261126-0835-one-activity-followups.md)
   const inbox = async () => (await nora.client.call('GET', '/api/notifications')) as { items: { code: string; room?: { id: string; thread?: string | null } }[]; unreadCount: number; roomUnreadCount: number }
   const off = await inbox()
-  expect(off.items.some((x) => x.room?.id === team.id && x.room.thread === root.id)).toBe(true)
+  expect(off.items.some((x) => x.room?.id === team.id && x.room?.thread === root.id)).toBe(true)
   expect(off.unreadCount).toBe(0)
   expect(off.roomUnreadCount).toBe(0)
   await reply(mia.client, team.id, root.id, '@NORA look', { mentions: [nora.id] })

@@ -1,5 +1,5 @@
 -- min_compatible_reader: 1
--- Component B: a room notice the person turned off (docs/AGENTS/plan/20261126-0835-one-activity-followups.md). A reply
+-- Component B (458: 455-457 are taken by open PRs #586, #631, #634, #636): a room notice the person turned off (docs/AGENTS/plan/20261126-0835-one-activity-followups.md). A reply
 -- in a thread they follow that does not mention them, with "Replies in threads I'm part of" off, is still recorded as a
 -- quiet notice (listed in Activity's Threads), but since Activity is one place with every notice
 -- (docs/decisions/20261126-one-activity.md) it must not raise the unread number they silenced. silent = 1: listed, never

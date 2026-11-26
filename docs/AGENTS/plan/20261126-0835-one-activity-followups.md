@@ -34,8 +34,8 @@ These are the review notes on #635 (docs/decisions/20261126-one-activity.md), ap
 
 ## Steps
 
-1. Add migration `457_b_room_notice_silent.sql`: `room_notices.silent` (0/1). It is 457 because the B numbers
-   455 and 456 are taken by open PRs #586, #631 and #634.
+1. Add migration `458_b_room_notice_silent.sql`: `room_notices.silent` (0/1). It is 458 because the B numbers
+   455, 456 and 457 are taken by open PRs #586, #631, #634 and #636.
 2. `NotificationService.roomNotice` takes `silent`. `rooms/service.ts` passes it for `silentReply`.
    `rooms/inbox.ts` `COUNTED_SQL` leaves silent notices out.
 3. Server unit test (`tests/unit/`): with thread replies off, a followed reply is listed but not counted. With them
@@ -48,7 +48,7 @@ These are the review notes on #635 (docs/decisions/20261126-one-activity.md), ap
 
 ## Risks
 
-- **Migration number:** 457, checked against dev and the open PRs. It is additive (`ALTER TABLE … ADD COLUMN`
+- **Migration number:** 458, checked against dev and the open PRs. It is additive (`ALTER TABLE … ADD COLUMN`
   with a default), so older readers are fine.
 - **Older notices:** a quiet notice recorded before this change (`quiet=1`, `silent=0`) still counts until it is
   read. A quiet-hours notice must still count, and the two can't be told apart.
@@ -62,7 +62,7 @@ notifications, and the e2e for activity-panel and file-share-links.
 ## Result
 
 Built as planned:
-- **Silenced replies.** Migration `457_b_room_notice_silent.sql`. `roomNotice(…, silent)` keeps runs of silent notices
+- **Silenced replies.** Migration `458_b_room_notice_silent.sql`. `roomNotice(…, silent)` keeps runs of silent notices
   apart from counted ones. `COUNTED_SQL` leaves them out.
   - Test: `tests/unit/b-rooms-notify.test.ts`. A silenced reply is listed and counts 0; a mention in a reply counts 1.
 - **The chip.** A chip click writes `?tab=` (a replace), and Back/Forward (POP) never puts an older chip back.
