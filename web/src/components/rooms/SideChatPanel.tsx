@@ -85,7 +85,7 @@ import { ComposerFileList, useComposerFiles, type Pending } from '../chat/Compos
 import { AttachMenu } from '../composer/AttachMenu'
 import { ComposerField } from '../composer/ComposerField'
 import { ComposerShell } from '../composer/ComposerShell'
-import { composerHint } from '../composer/drafts'
+import { composerHint } from '../composer/hint'
 import type { Unsent } from '../composer/ComposerNotices'
 import { FileDropZone, type DropTarget } from '../FileDropZone'
 import { AssistantMessage, UserMessage } from '../chat/Messages'

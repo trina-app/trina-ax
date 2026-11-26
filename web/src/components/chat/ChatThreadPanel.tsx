@@ -14,12 +14,16 @@
 // mentions.md) with the rooms' mention box (components/TokenTextarea.tsx, rooms/useMentionMenu.tsx; no "@everyone");
 // a reply shows its mentions as the rooms do (rooms/MessageText.tsx MentionedText).
 import clsx from 'clsx'
-import { ArrowUp, Copy, Loader2, Trash2 } from 'lucide-react'
+import { Copy, Loader2, Trash2 } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { CHAT_THREAD_REPLY_MAX, type Chat, type ChatThreadReply, type UserRef } from '@mycel/shared/api'
 import { errorText, isApiError } from '../../lib/api'
 import { lookingAt, onWindowFocus } from '../../lib/attention'
-import { useAutoGrow } from '../../lib/autoGrow'
+import { useEndAfterRecording } from '../../lib/autoGrow'
+import { useConfidentialChat } from '../../lib/confidential'
+import { readDraft, writeDraft } from '../../lib/localData'
+import { useVoiceInput } from '../../lib/useVoiceInput'
+import { micState, voiceBlockedHere } from '../../lib/voice'
 import { useServerUpdating } from '../../lib/serverUpdating'
 import { groupRuns, localDayKey } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
@@ -33,19 +37,29 @@ import { useMe } from '../../store/session'
 import { Markdown } from '../LazyMarkdown'
 import { MentionedText } from '../rooms/MessageText'
 import { useMentionMenu } from '../rooms/useMentionMenu'
-import { TokenTextarea } from '../TokenTextarea'
 import { MenuButton, useLongPress, type MenuItem } from '../rooms/MenuButton'
 import { MessageHoverBar } from '../rooms/MessageHoverBar'
 import { DayLine, messageRowClass, RunFace, RunName, RunShell, sameTimeAsAbove, timeOf, WORDS } from '../rooms/MessageRun'
 import { ThreadCountLine, ThreadHead } from '../rooms/ThreadParts'
-import { Tooltip } from '../Tooltip'
-import { ErrorNote, Skeleton, confirmDialog, useCopy } from '../ui'
-import { ComposerToolbar } from './ComposerToolbar'
-import { composerInset, composerRadius } from './composerBox'
+import { ErrorNote, Skeleton, confirmDialog, useCopy, useMediaQuery } from '../ui'
+import { composerInset } from './composerBox'
+import { ComposerField } from '../composer/ComposerField'
+import { ComposerShell } from '../composer/ComposerShell'
 import { SharedReadOnly } from './SharedChat'
 import { capBlankLines } from '../../lib/blankLines'
 
 const NO_PEOPLE: UserRef[] = []
+
+/** a thread's kept reply (`thread:<chat id>:<answer id>`): its words and the people it mentions */
+function parseKeptReply(raw: string): { text: string; mentions: string[] } | null {
+  try {
+    const v = JSON.parse(raw) as { text?: unknown; mentions?: unknown }
+    if (typeof v.text !== 'string' || !v.text) return null
+    return { text: v.text, mentions: Array.isArray(v.mentions) ? v.mentions.filter((x): x is string => typeof x === 'string') : [] }
+  } catch {
+    return null
+  }
+}
 const NO_PENDING: PendingReply[] = []
 
 /** The names a reply's mentions are looked for by: each person's name now (the directory) and as the thread's list has
@@ -329,17 +343,55 @@ function PendingRow({ chatId, rootId, p, people, meId }: { chatId: string; rootI
   )
 }
 
-/** The reply box: words and "@" mentions of the people who see the thread (`people`; no files), Enter sends on a
- * keyboard (a touch screen: a new line), off while empty or past the length; it counts down near the end. */
+/** The reply box (the composer shell every message box has: composer/ComposerShell.tsx): words and "@" mentions of
+ * the people who see the thread (`people`; no files: a reply has none), voice input as in every box (the recording names
+ * the chat: the server takes a shared chat I see), Enter sends on a keyboard (a touch screen: a new line), off while
+ * empty or past the length; it counts down near the end. What is typed is kept on this device with its mentions
+ * (`thread:<chat id>:<answer id>`) until it is sent, also after closing the thread or a reload. */
 function ReplyBox({ chatId, rootId, people, meId, autoFocus, onSent }: { chatId: string; rootId: string; people: UserRef[]; meId: string; autoFocus: boolean; onSent: () => void }) {
   const t = useT()
+  const me = useMe()
   const [text, setText] = useState('')
   const ta = useRef<HTMLTextAreaElement>(null)
-  useAutoGrow(ta, [text], 200)
+  const root = useRef<HTMLDivElement>(null)
+  const phone = useMediaQuery('(max-width: 767.98px)')
   useEffect(() => { if (autoFocus) ta.current?.focus() }, [autoFocus])
   const mention = useMentionMenu({ text, setText, input: ta, members: people, meId, everyone: null })
   const mentionNow = useRef(mention)
   mentionNow.current = mention
+  // voice input as in every message box, under the team's switch (no mic for a guest); a confidential chat's recording
+  // never goes to an outside speech service (the note instead)
+  const mic = micState(me)
+  const confidential = useConfidentialChat(chatId)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
+  const voice = useVoiceInput({
+    input: ta,
+    root,
+    text,
+    replace: mention.inputProps.onTextChange,
+    append: (said) => setText((cur) => (cur.trim() ? `${cur.trimEnd()} ${said}` : said)),
+    chatId,
+    blocked: voiceBlockedHere(me, confidential),
+    enabled: mic === 'on',
+    menuOpen: mention.open,
+    onError: setVoiceError,
+    afterFocus: mention.inputProps.onSelect,
+  })
+  useEndAfterRecording(ta, voice.recording, voice.busy, text)
+  // the kept draft: read once for this thread, written as it changes (with the people it mentions)
+  const userId = me?.user.id ?? '-'
+  const keptKey = `thread:${chatId}:${rootId}`
+  const keptRead = useRef<string | null>(null)
+  useEffect(() => {
+    if (keptRead.current === keptKey) return
+    keptRead.current = keptKey
+    const kept = parseKeptReply(readDraft(userId, keptKey))
+    if (kept) mentionNow.current.putBack(kept.text, kept.mentions)
+  }, [userId, keptKey])
+  useEffect(() => {
+    if (keptRead.current !== keptKey) return
+    writeDraft(userId, keptKey, text.trim() ? JSON.stringify({ text, mentions: mentionNow.current.mentions() }) : '')
+  }, [userId, keptKey, text, mention.picked])
   // a reply the server refused (too long, full, read-only now): its words come back here, with the people it mentioned
   const returned = useChatThreads((s) => s.returned[threadKey(chatId, rootId)])
   useEffect(() => {
@@ -349,7 +401,7 @@ function ReplyBox({ chatId, rootId, people, meId, autoFocus, onSent }: { chatId:
     if (back) mentionNow.current.putBack(back, ids)
   }, [returned, chatId, rootId])
   const tooLong = text.length > CHAT_THREAD_REPLY_MAX
-  const canSend = text.trim().length > 0 && !tooLong
+  const canSend = text.trim().length > 0 && !tooLong && !voice.busy
   const send = () => {
     if (!canSend) return
     const body = text
@@ -360,39 +412,41 @@ function ReplyBox({ chatId, rootId, people, meId, autoFocus, onSent }: { chatId:
     void useChatThreads.getState().send(chatId, rootId, body, mentions)
   }
   const left = CHAT_THREAD_REPLY_MAX - text.length
+  const count = text.length >= COUNT_FROM ? <span role="status" className={clsx('px-1 text-xs tabular-nums', tooLong ? 'text-danger' : 'text-faint')} data-testid="chat-thread-count-left">{tooLong ? t('chat.thread.tooLong') : left.toLocaleString()}</span> : null
+  const hint = voice.transcribing ? voice.transcribingText : t('rooms.threadPlaceholder')
   return (
-    <div className={clsx('relative', composerRadius, 'border border-field-border bg-surface transition focus-within:border-faint')} data-testid="chat-thread-box">
-      {/* a phone: the "@" list floats over the newest replies, right above the box, as in a room's box */}
-      {mention.list && <div className="max-md:absolute max-md:inset-x-0 max-md:bottom-full max-md:z-10 max-md:border-t max-md:border-line max-md:bg-canvas max-md:pb-1 max-md:shadow-[0_-4px_12px_rgb(0_0_0/0.06)]">{mention.list}</div>}
-      <TokenTextarea
-        ref={ta}
-        rows={1}
-        value={text}
-        {...mention.inputProps}
-        placeholder={t('rooms.threadPlaceholder')}
-        aria-label={t('rooms.threadPlaceholder')}
-        aria-invalid={tooLong || undefined}
-        className="block max-h-[200px] w-full resize-none bg-transparent px-4 pt-3 pb-1 text-reading leading-reading text-ink outline-none placeholder:text-faint max-md:max-h-[min(200px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-5rem)))]"
-        onKeyDown={(e) => {
-          if (mention.onKeyDown(e)) return
-          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
-            if (window.matchMedia?.('(pointer: coarse)').matches) return
-            e.preventDefault()
-            send()
-          }
-        }}
-        data-testid="chat-thread-input"
-      />
-      <ComposerToolbar
-        start={text.length >= COUNT_FROM ? <span role="status" className={clsx('px-1 text-xs tabular-nums', tooLong ? 'text-danger' : 'text-faint')} data-testid="chat-thread-count-left">{tooLong ? t('chat.thread.tooLong') : left.toLocaleString()}</span> : undefined}
-        end={
-          <Tooltip label={t('chat.send')}>
-            <button type="button" onClick={send} disabled={!canSend} aria-label={t('chat.send')} className={clsx('touch-hit flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')} data-testid="chat-thread-send">
-              <ArrowUp size={18} aria-hidden />
-            </button>
-          </Tooltip>
-        }
-      />
-    </div>
+    <ComposerShell
+      rootRef={root}
+      testId="chat-thread-box"
+      line={phone}
+      text={text}
+      hint={hint}
+      heldTestId="chat-thread-text-held"
+      voice={voice}
+      mic={mic}
+      // a phone: the "@" list floats over the newest replies, right above the box, as in a room's box
+      top={!voice.recording && mention.list && <div className="max-md:absolute max-md:inset-x-0 max-md:bottom-full max-md:z-10 max-md:border-t max-md:border-line max-md:bg-canvas max-md:pb-1 max-md:shadow-[0_-4px_12px_rgb(0_0_0/0.06)]">{mention.list}</div>}
+      field={
+        <ComposerField
+          ref={ta}
+          value={text}
+          tokens={mention.inputProps}
+          keys={mention.onKeyDown}
+          voice={voice}
+          onSend={send}
+          placeholder={hint}
+          aria-label={t('rooms.threadPlaceholder')}
+          aria-invalid={tooLong || undefined}
+          readOnly={voice.busy}
+          aria-busy={voice.transcribing || undefined}
+          data-testid="chat-thread-input"
+        />
+      }
+      // the countdown in the row on a computer; under the box in a phone's one line
+      start={phone ? undefined : count ?? undefined}
+      send={{ can: canSend, onSend: send, testId: 'chat-thread-send' }}
+      below={phone && count ? <p className="px-2 pt-1 text-right">{count}</p> : null}
+      notices={{ prefix: 'chat-thread', voiceError }}
+    />
   )
 }

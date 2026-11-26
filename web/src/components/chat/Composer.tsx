@@ -65,7 +65,7 @@ import { fromWire } from '../../lib/roomRefs'
 import { AttachMenu } from '../composer/AttachMenu'
 import { ComposerField } from '../composer/ComposerField'
 import { ComposerShell, fieldPad } from '../composer/ComposerShell'
-import { composerHint } from '../composer/drafts'
+import { composerHint } from '../composer/hint'
 import type { Unsent } from '../composer/ComposerNotices'
 import { useDemoOut } from '../../store/demo'
 
