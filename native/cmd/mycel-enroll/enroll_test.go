@@ -941,3 +941,45 @@ func TestCredentialsKeyFile(t *testing.T) {
 		}
 	}
 }
+
+func TestRestoreServerDirs(t *testing.T) {
+	h := newHarness(t)
+	cfg := filepath.Join(h.e.P.Base, "config", "server.json")
+	must(t, os.MkdirAll(filepath.Dir(cfg), 0o700))
+	// no server.json: BASE/data and BASE/team
+	_ = os.Remove(cfg)
+	if d, tr, err := h.e.serverDirs(); err != nil || d != filepath.Join(h.e.P.Base, "data") || tr != filepath.Join(h.e.P.Base, "team") {
+		t.Fatalf("default dirs %q %q %v", d, tr, err)
+	}
+	must(t, os.WriteFile(cfg, []byte(`{"dataDir":"/srv/x/data","teamRoot":"/srv/x/team","listen":{}}`), 0o600))
+	if d, tr, err := h.e.serverDirs(); err != nil || d != "/srv/x/data" || tr != "/srv/x/team" {
+		t.Fatalf("dirs from server.json %q %q %v", d, tr, err)
+	}
+	// a broken server.json is an error, not a guess
+	must(t, os.WriteFile(cfg, []byte(`{"dataDir":`), 0o600))
+	if _, _, err := h.e.serverDirs(); err == nil {
+		t.Fatal("broken server.json accepted")
+	}
+}
+
+func TestSwapInRestoredUndoesTheDatabase(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the read-only folder this test uses")
+	}
+	base := t.TempDir()
+	data, team, out := filepath.Join(base, "data"), filepath.Join(base, "team"), filepath.Join(base, "data", ".restore-out")
+	must(t, os.MkdirAll(filepath.Join(out, "db"), 0o700))
+	must(t, os.MkdirAll(filepath.Join(out, "team"), 0o700))
+	must(t, os.WriteFile(filepath.Join(out, "db", "app.sqlite"), []byte("NEW"), 0o600))
+	must(t, os.WriteFile(filepath.Join(data, "app.db"), []byte("OLD"), 0o600))
+	must(t, os.MkdirAll(filepath.Join(team, "Docs"), 0o700))
+	// BASE read-only (as root-owned BASE for a non-root process): the team folder cannot move after the database swap
+	must(t, os.Chmod(base, 0o555))
+	defer os.Chmod(base, 0o755)
+	if err := swapInRestored(out, data, team, "T"); err == nil {
+		t.Fatal("swap in a read-only BASE succeeded")
+	}
+	if b, _ := os.ReadFile(filepath.Join(data, "app.db")); string(b) != "OLD" || !exists(filepath.Join(team, "Docs")) {
+		t.Fatalf("old database or team folder not back: %q", b)
+	}
+}
