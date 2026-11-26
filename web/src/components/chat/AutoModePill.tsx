@@ -22,8 +22,8 @@ export function AutoModePill({ hidden }: { hidden?: boolean }) {
   const locale = useLocale()
   const me = useMe()
   const [busy, setBusy] = useState(false)
-  if (hidden || !me?.team.autoMode) return null
-  const on = me.user.autoMode === true
+  if (hidden || !me?.team?.autoMode) return null
+  const on = me.user?.autoMode === true
   const change = async () => {
     if (busy) return
     if (!on && !seen()) {

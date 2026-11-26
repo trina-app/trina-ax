@@ -454,7 +454,7 @@ export default function Composer({
   // than + and send (Home's card, the engine picker, a team project's who-sees chip). A phone's plain chat box keeps
   // one line (+ · text · mic · send), with nothing under or beside it either
   // the auto mode pill (AutoModePill): while the team lets this person use it, never in a confidential chat
-  const autoPill = me?.team.autoMode && confidential !== true ? <AutoModePill /> : null
+  const autoPill = me?.team?.autoMode && confidential !== true ? <AutoModePill /> : null
   const stacked = !phone || !!card || !!pick || !!tools || !!autoPill
 
   // attach: under the box with its small menu on a computer; inside the box on a phone, as the attach sheet every
