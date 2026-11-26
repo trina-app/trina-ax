@@ -83,9 +83,9 @@ describe('SHR-01: a file named without the date or number at its end', () => {
 
 describe('SWM-01 and FIND-01: what a shared project chat tells the AI', () => {
   const section = (L: 'ko' | 'en' = 'en') => sharedSection({ project: 'Lamaba', audience: 4, asker: 'Hana Choi' }, L, true)
-  test('files shared with the person one by one are not available here, with where they are', () => {
-    expect(section()).toContain('files and folders teammates shared with Hana Choi one by one (Files › Shared with me ("Files › Shared with me"): they are Hana Choi\'s alone, so do not search Hana Choi\'s own folder for them or suggest attaching them here)')
-    expect(section('ko')).toContain('Files \u203A Shared with me ("\uD30C\uC77C \u203A \uB098\uC5D0\uAC8C \uACF5\uC720\uB41C \uD30C\uC77C")')
+  test('files shared with the person one by one work here, behind the read card (docs/decisions/20261126-shared-chat-everything.md)', () => {
+    expect(section()).toContain('files and folders teammates shared with Hana Choi one by one (shared_with_me, then read by their links)')
+    expect(section()).not.toContain('they are Hana Choi\'s alone')
   })
   test('a search without a path stays in the project folder; "/" alone looks through every folder, behind the card', () => {
     expect(section()).toContain('grep and glob without a path look in the project folder only. Give a path to look in one other place, or path "/" to look through every team folder Hana Choi can open (either may ask first).')

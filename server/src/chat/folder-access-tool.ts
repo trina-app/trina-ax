@@ -5,11 +5,12 @@
 // the owner and admins, written by the server); nothing else.
 //
 // The rules:
-// - Where: the person's own chat with them there. Not offered, and refused when reached anyway, in a scheduled run, a
-//   question from Slack, a confidential chat, an approved template's or a restricted run, a shared chat, a chat other
-//   people wrote in, a guest's turn; refused for a sub-agent (PARENT_ONLY_TOOLS). The person's own "Always allow" for
-//   folder access lifts the scheduled run, the shared chat and the chat others wrote in (Rule A, docs/decisions/
-//   20261123-ask-registry-findings.md); the who and the folder checks below stay.
+// - Where: the person's own chat, a shared chat and a chat other people wrote in, with them there (a shared chat: only
+//   a folder everyone in it can open, and after other people's words the person's own message names the folder and
+//   who; docs/decisions/20261126-shared-chat-everything.md). Not offered, and refused when reached anyway, in a
+//   scheduled run, a question from Slack, a confidential chat, an approved template's or a restricted run, a guest's
+//   turn; refused for a sub-agent (PARENT_ONLY_TOOLS). The person's own "Always allow" for folder access lifts the
+//   scheduled run (Rule A, docs/decisions/20261123-ask-registry-findings.md); the who and the folder checks below stay.
 // - Who: the role is re-read at the call (livePrincipal), again when the card is answered, and saveFolderAccess runs
 //   only for the owner or an admin. For anyone else the folder is resolved first as they may see it: a folder they
 //   cannot list answers exactly like a missing one (the same words, the same audit reason); only for a folder they can
@@ -133,7 +134,8 @@ export function folderAccessOff(exec: Pick<FolderExec, 'spec' | 'rt' | 'shared' 
   const no = (reason: string, mode: string, next: string) => ({ reason, text: refusal({ done: NONE, why: { kind: 'mode', mode }, next }) })
   const own = 'the user can ask in a chat of their own (a new AI chat)'
   const off = actionOff(exec, null)
-  // the person's own Always for folder access holds in their scheduled run, a shared chat and a chat others wrote in
+  // a shared chat and a chat others wrote in: the card as in the person's own chat (docs/decisions/
+  // 20261126-shared-chat-everything.md); the person's own Always for folder access holds in their scheduled run too
   // (Rule A, decision 2 of docs/decisions/20261123-ask-registry-findings.md); every check of who may change what stays
   // (an owner or admin, the folder as they see it, the person or group named: run() below)
   // a task made without its card (schedules.quiet) changes nobody's access, whatever the person's Always (it opens
@@ -144,8 +146,6 @@ export function folderAccessOff(exec: Pick<FolderExec, 'spec' | 'rt' | 'shared' 
   if (off === 'confidential' || confidentialChat(exec.rt.db, exec.spec.chatId)) return no('confidential chat', 'a confidential chat (safe operations)', `the user can change it on ${SCREEN}`)
   if (off === 'slack' || exec.fromSlack) return no('slack', 'a question from Slack or a Slack thread\'s chat', `the user can ask in the app's AI chat, or change it on ${SCREEN}`)
   if (off === 'restricted' || exec.restricted || exec.templateRun) return no('limited run', 'a run limited to one task', `${own}, or change it on ${SCREEN}`)
-  if (exec.shared && !always) return no('shared chat', 'a shared chat', `${own}, or change it on ${SCREEN}`)
-  if (exec.otherAuthors && !always) return no('other authors', 'a chat other people wrote in', `${own}, or change it on ${SCREEN}`)
   if (isGuestUser(exec.rt.db, exec.spec.userId)) return no('guest', 'a guest\'s chat', 'a team admin can change it')
   return null
 }
@@ -523,7 +523,7 @@ export function folderAccessToolFor(exec: FolderExec): Tool {
     if (segs[0] === 'users') return { reason: 'personal_folder', path, text: refusal({ done: NONE, why: { kind: 'mode', mode: 'a folder in someone\'s own files', why: 'folder access rules apply to team folders only' }, next: 'a folder in the user\'s own files is shared from Share on the folder in Files' }) }
     if (inZone(path) || (segs.length === 1 && isProjectsName(segs[0]!))) return { reason: 'project', path, text: refusal({ done: NONE, why: { kind: 'mode', mode: 'a project\'s folder', why: 'its members are changed on the project\'s page' }, next: 'use change_project_members, or the user changes them on the project\'s page' }) }
     if (segs[0]!.toLowerCase() === 'skills') return { reason: 'skills', path, text: refusal({ done: NONE, why: { kind: 'mode', mode: 'the team skills folder', why: 'who may change the team\'s skills is picked on Admin › Members (skill managers)' }, next: 'the user can pick skill managers on Admin › Members' }) }
-    // a shared chat (only under the person's own Always, folderAccessOff): its result names the folder and who gains or
+    // a shared chat: its result names the folder and who gains or
     // loses it for everyone here, so only a folder everyone here can open (fails closed; independent review)
     if (exec.shared && !everyoneHereSees(path)) return { reason: 'shared_hidden', text: refusal({ done: NONE, why: { kind: 'mode', mode: 'a shared chat', why: 'some people in this chat cannot open that folder, and they would see the change' }, next: 'the user can ask in a chat of their own, or change it on ' + SCREEN }) }
     return { path }

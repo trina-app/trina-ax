@@ -101,8 +101,9 @@ describe('a shared project chat', () => {
     expect(done.data.message.content.split(',').map((t: string) => t.replace(/^mcp__team__/, ''))).toContain('box_shell')
     const on = sharedSection({ project: 'Proj S', audience: 2, asker: 'Alice Kim' }, 'en', false, false, false, true)
     const off = sharedSection({ project: 'Proj S', audience: 2, asker: 'Alice Kim' }, 'en')
-    expect(off).toContain('the dev environment.')
-    expect(on).not.toContain('the dev environment.')
+    // a turn without box_shell lists nothing as off (docs/decisions/20261126-shared-chat-everything.md), as an own chat
+    expect(off).not.toContain('Not available in a shared chat')
+    expect(off).not.toContain('box_shell commands here')
     expect(on).toContain('box_shell commands here see only the team folders everyone in this chat may open inside the project folder')
   })
 

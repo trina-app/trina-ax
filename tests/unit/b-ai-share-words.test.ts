@@ -120,7 +120,7 @@ describe('where the rules are', () => {
     expect(buildTurnPrompt(h.ctx.files, input({ tools: ['share_with_person'] }))).toContain(sendNotConnectedRule('en', false))
   })
 
-  test('a shared chat: the comments line, the refusal rule; no rule about connected services (none there)', () => {
+  test('a shared chat: the comments line, the refusal rule, and the not-connected rule as in an own chat (connecting works there: docs/decisions/20261126-shared-chat-everything.md)', () => {
     const shared = { project: 'Atlas', audience: 3, asker: 'Alice Kim' }
     const p = buildTurnPrompt(h.ctx.files, input({ shared, roomReadable: () => true, tools: ['ask_user', 'post_to_room', 'share_with_person', 'answer_comments'] }))
     expect(p).toContain(answerCommentsLine('Alice Kim', true))
@@ -129,7 +129,7 @@ describe('where the rules are', () => {
     expect(buildTurnPrompt(h.ctx.files, input({ shared, roomReadable: () => true, tools: ['ask_user'] }))).toContain(answerCommentsLine('Alice Kim', false))
     expect(p).toContain(REFUSAL_NEXT_RULE)
     expect(p).toContain(CARD_WORDS_RULE)
-    expect(p).not.toContain('Asked to send something by Gmail')
+    expect(p).toContain('Asked to send something by Gmail')
     // a chat shared with people (no project), in Korean: no button is named
     expect(sharedSection({ project: null, audience: 2, asker: 'Bob Lee' }, 'ko', true)).not.toContain('트리나에게 보내기')
     // an own chat has no such line

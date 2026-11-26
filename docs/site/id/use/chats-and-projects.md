@@ -169,6 +169,13 @@ Tekan **Bagikan** (**Simpan** jika chat sudah pernah dibagikan). Jika Anda kelua
   **Lanjutkan**. Mengirim email atau berkas tetap menanyai Anda di kartunya, dan berkas tim yang tidak bisa dibuka
   sebagian orang di chat menanyai Anda lebih dulu. Pesan orang lain tidak pernah bisa memakai alat Anda. Memori Anda dari
   chat lain tetap di luar.
+- **Semua yang lain juga bisa di sini.** AI bisa memberi nama chat, memindahkan atau mengganti nama skill, memindahkan
+  berkas tim ke tempat sampah, mengubah anggota proyek atau siapa yang bisa membuka folder (masing-masing di kartu
+  biasanya, yang hanya Anda lihat), membaca ruang obrolan tim Anda, berkas yang dibagikan rekan kepada Anda, apa yang
+  sedang Anda buka, folder Anda, Google Drive dan Slack Anda, dan menghubungkan layanan baru di kartunya. Saat AI akan
+  mengambil sesuatu yang tidak bisa dibuka sebagian orang di chat (ruang yang tidak mereka ikuti, berkas yang hanya
+  dibagikan kepada Anda), AI menanyai Anda lebih dulu. Berkas yang Anda lampirkan sebelum chat dibagikan bisa dilampirkan
+  lagi, sebagai berkas folder Anda sendiri.
 - Chat di proyek pribadi tetap milik Anda: **Bagikan** menawarkan untuk memindahkannya keluar lebih dulu. Chat di proyek tim dibagikan
   ke anggota proyek (lihat [Proyek](#proyek)).
 

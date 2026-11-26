@@ -192,12 +192,12 @@ describe('where it is offered', () => {
     expect((await turn('bob', fake({ echo: 'message' }))).content).not.toContain('quote.md')
   })
 
-  test('off: a shared chat, a template or restricted run, Slack, a scheduled run, a confidential chat, a guest', async () => {
+  test('off: a template or restricted run, Slack, a scheduled run, a confidential chat, a guest (a shared chat has it behind the read card: docs/decisions/20261126-shared-chat-everything.md)', async () => {
     const base = { rt: h.rt(), spec: { userId: 'bob', chatId: 'none', clientKind: 'web' }, shared: null, restricted: false, templateRun: false, fromSlack: false }
     const off = (over: Record<string, unknown>) => sharedWithMeOff({ ...base, ...over } as never)
     expect(off({})).toBeNull()
     expect(off({ spec: { ...base.spec, clientKind: 'schedule' } })).toBe('a scheduled run')
-    expect(off({ shared: { kind: 'project' } })).toBe('a shared chat')
+    expect(off({ shared: { kind: 'project' } })).toBeNull()
     expect(off({ restricted: true })).toBe('a run limited to one task')
     expect(off({ templateRun: true })).toBe('a run limited to one task')
     expect(off({ fromSlack: true })).toBe('a question from Slack')
@@ -208,9 +208,9 @@ describe('where it is offered', () => {
     expect(off({ spec: { ...base.spec, userId: 'gus' } })).toBe('a guest')
   })
 
-  test('never a sub-agent\'s, a shared chat\'s or a guest\'s tool; after a room read it goes on without the room card', () => {
+  test('never a sub-agent\'s or a guest\'s tool (a shared chat\'s behind the read card); after a room read it goes on without the room card', () => {
     expect(PARENT_ONLY_TOOLS.has('shared_with_me')).toBe(true)
-    expect(SHARED_TOOLS.has('shared_with_me')).toBe(false)
+    expect(SHARED_TOOLS.has('shared_with_me')).toBe(true)
     expect(GUEST_TURN_TOOLS.has('shared_with_me')).toBe(false)
     expect(ROOMS_SEEN_READ_ONLY_TOOLS.has('shared_with_me')).toBe(true)
   })

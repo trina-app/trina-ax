@@ -6,6 +6,9 @@
 // connection's notice is kept, needs one), so no migration. Settings › Allowed for Trina lists it beside the
 // connections' notices and can reset it (the notice then shows again). Not an Always: the team's "Always allow" switch
 // does not end it, and listAlways never shows it (its kind is not a card's).
+//
+// The asker's own Google Drive and Slack keep their notice here too (docs/decisions/20261126-shared-chat-everything.md):
+// they have no connection row either. Their kind is `seen:<service>:<place>`, their Settings id `oseen:<service>:<place>`.
 import type { Database } from 'bun:sqlite'
 import type { ConnectorToolAllowance, Locale } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
@@ -17,32 +20,54 @@ export const BROWSER_NOTICE = '\u0000browser'
 /** card_always_allow.kind of a kept notice: this prefix and the place */
 const KIND = 'seen:browser:'
 const PLACE = /^[pc]:[^\s]{1,200}$/
+/** the asker's own services with a notice of their own (no connection row): Google Drive, Slack */
+export type OwnService = 'drive' | 'slack'
+const OWN_SERVICES: readonly OwnService[] = ['drive', 'slack']
+const kindOf = (what: 'browser' | OwnService) => `seen:${what}:`
 
-/** The person went on from the browser's notice in this place (an active account) */
-export function browserWarnSeen(db: Database, userId: string, place: string): boolean {
-  return !!db.query("SELECT 1 FROM card_always_allow c JOIN users u ON u.id = c.user_id WHERE c.user_id = ? AND c.kind = ? AND u.status = 'active' AND u.deleted_at IS NULL").get(userId, KIND + place)
+/** The person went on from the browser's notice (or that of their own `what`) in this place (an active account) */
+export function browserWarnSeen(db: Database, userId: string, place: string, what: 'browser' | OwnService = 'browser'): boolean {
+  return !!db.query("SELECT 1 FROM card_always_allow c JOIN users u ON u.id = c.user_id WHERE c.user_id = ? AND c.kind = ? AND u.status = 'active' AND u.deleted_at IS NULL").get(userId, kindOf(what) + place)
 }
 
 /** Keep that the person went on from it (their own press). Audited. */
-export function keepBrowserWarnSeen(db: Database, userId: string, place: string, turnId: string | null): void {
+export function keepBrowserWarnSeen(db: Database, userId: string, place: string, turnId: string | null, what: 'browser' | OwnService = 'browser'): void {
   if (!PLACE.test(place)) return
-  const r = db.query('INSERT INTO card_always_allow (user_id, kind, created_at) VALUES (?, ?, ?) ON CONFLICT(user_id, kind) DO NOTHING').run(userId, KIND + place, new Date().toISOString())
-  if (r.changes) audit(db, { actor: userId, action: 'ai.always_allow', target: userId, detail: { kind: 'browser_warned', place, on: true, via: 'card', turnId } })
+  const r = db.query('INSERT INTO card_always_allow (user_id, kind, created_at) VALUES (?, ?, ?) ON CONFLICT(user_id, kind) DO NOTHING').run(userId, kindOf(what) + place, new Date().toISOString())
+  if (r.changes) audit(db, { actor: userId, action: 'ai.always_allow', target: userId, detail: { kind: what === 'browser' ? 'browser_warned' : `${what}_warned`, place, on: true, via: 'card', turnId } })
 }
+
+/** The service's name as Settings lists it */
+const serviceName = (what: OwnService) => (what === 'drive' ? 'Google Drive' : 'Slack')
 
 /** The person's kept browser notices, as Settings lists a connection's (ConnectorToolAllowance with `warned`): id
  * `bseen:<place>` */
 export function listBrowserWarned(db: Database, userId: string, locale: Locale): ConnectorToolAllowance[] {
   const rows = db.query('SELECT kind, created_at FROM card_always_allow WHERE user_id = ? AND substr(kind, 1, ?) = ? ORDER BY created_at DESC').all(userId, KIND.length, KIND) as { kind: string; created_at: string }[]
   const name = tr('browserName', locale)
-  return rows.map((r) => {
+  const own = OWN_SERVICES.flatMap((what) => {
+    const k = kindOf(what)
+    return (db.query('SELECT kind, created_at FROM card_always_allow WHERE user_id = ? AND substr(kind, 1, ?) = ? ORDER BY created_at DESC').all(userId, k.length, k) as { kind: string; created_at: string }[])
+      .map((r) => { const place = r.kind.slice(k.length); return { kind: 'connector_tool' as const, id: `oseen:${what}:${place}`, connection: serviceName(what), tool: '', shared: true as const, warned: placeName(db, place), createdAt: r.created_at } })
+  })
+  return [...rows.map((r) => {
     const place = r.kind.slice(KIND.length)
     return { kind: 'connector_tool' as const, id: `bseen:${place}`, connection: name, tool: '', shared: true as const, warned: placeName(db, place), createdAt: r.created_at }
-  })
+  }), ...own]
 }
 
-/** Take one back by its id (`bseen:<place>`); false when it is not this person's or not there. Audited. */
+/** Take one back by its id (`bseen:<place>`, or `oseen:<service>:<place>`); false when it is not this person's or not
+ * there. Audited. */
 export function dropBrowserWarned(db: Database, userId: string, id: string): boolean {
+  if (id.startsWith('oseen:')) {
+    const at = id.indexOf(':', 6)
+    const what = id.slice(6, at) as OwnService
+    const place = at > 0 ? id.slice(at + 1) : ''
+    if (!OWN_SERVICES.includes(what) || !PLACE.test(place)) return false
+    const n = db.query('DELETE FROM card_always_allow WHERE user_id = ? AND kind = ?').run(userId, kindOf(what) + place).changes
+    if (n) audit(db, { actor: userId, action: 'ai.always_allow', target: userId, detail: { kind: `${what}_warned`, place, on: false, via: 'settings' } })
+    return n > 0
+  }
   if (!id.startsWith('bseen:')) return false
   const place = id.slice(6)
   if (!PLACE.test(place)) return false

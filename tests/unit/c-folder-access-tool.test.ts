@@ -104,7 +104,7 @@ async function turn(who: string, content: string, o: { chat?: string; answer?: s
 }
 
 describe('where it runs', () => {
-  test('not offered in a scheduled run, Slack, a confidential chat, a template or restricted run, a shared chat, a chat others wrote in, a guest\'s turn', () => {
+  test('not offered in a scheduled run, Slack, a confidential chat, a template or restricted run, a guest\'s turn (a shared chat and one others wrote in: the card, docs/decisions/20261126-shared-chat-everything.md)', () => {
     const base = { spec: { clientKind: 'web', chatId: 'no-such-chat', userId: 'carol' }, rt: { db: h.ctx.db }, shared: null, restricted: false, templateRun: false, otherAuthors: false, fromSlack: false } as any
     expect(folderAccessOff(base)).toBeNull()
     expect(folderAccessOff({ ...base, spec: { ...base.spec, clientKind: 'schedule' } })?.reason).toBe('scheduled run')
@@ -112,15 +112,15 @@ describe('where it runs', () => {
     expect(folderAccessOff({ ...base, fromSlack: true })?.reason).toBe('slack')
     expect(folderAccessOff({ ...base, restricted: true })?.reason).toBe('limited run')
     expect(folderAccessOff({ ...base, templateRun: true })?.reason).toBe('limited run')
-    expect(folderAccessOff({ ...base, shared: { kind: 'project' } })?.reason).toBe('shared chat')
-    expect(folderAccessOff({ ...base, otherAuthors: true })?.reason).toBe('other authors')
+    expect(folderAccessOff({ ...base, shared: { kind: 'project' } })).toBeNull()
+    expect(folderAccessOff({ ...base, otherAuthors: true })).toBeNull()
     h.ctx.db.query("INSERT OR IGNORE INTO users (id, username, name, role, guest) VALUES ('gina', 'gina', 'Gina Guest', 'member', 1)").run()
     expect(folderAccessOff({ ...base, spec: { ...base.spec, userId: 'gina' } })?.reason).toBe('guest')
   })
 
-  test('parent only, never in a shared chat\'s tools or FILE_TOOLS; its own card is the only one after a room read; the prompt rule names the card', () => {
+  test('parent only, in a shared chat\'s tools (behind its card), never in FILE_TOOLS; its own card is the only one after a room read; the prompt rule names the card', () => {
     expect(PARENT_ONLY_TOOLS.has(FOLDER_ACCESS_TOOL)).toBe(true)
-    expect(SHARED_TOOLS.has(FOLDER_ACCESS_TOOL)).toBe(false)
+    expect(SHARED_TOOLS.has(FOLDER_ACCESS_TOOL)).toBe(true)
     expect(FOLDER_ACCESS_TOOL in FILE_TOOLS).toBe(false)
     expect(ROOMS_SEEN_READ_ONLY_TOOLS.has(FOLDER_ACCESS_TOOL)).toBe(true)
     expect(OWN_WORDS_TOOLS.has(FOLDER_ACCESS_TOOL)).toBe(true)

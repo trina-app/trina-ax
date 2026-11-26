@@ -261,12 +261,15 @@ describe('Google Drive files', () => {
     fake.blobs.get('alice-file')!.canDownload = true
     // bob has no Drive of his own
     expect((await save({ file: 'drive:alice-file' }, 'bob').result).isError).toBe(true)
-    // a chat shared with people: Drive is not used there
+    // a chat shared with people: only behind the asker's Drive notice (ToolCtx.sharedService, docs/decisions/
+    // 20261126-shared-chat-everything.md); a call without it, or a no on it, writes nothing
     const chat = A.chat('alice'), turn = A.turn('alice', chat)
     A.ctx.db.query("UPDATE chats SET people_shared_at=datetime('now') WHERE id=?").run(chat)
     const shared = await toolRegistry(A.ctx.files).call('save_connector_file', { file: 'drive:alice-file' }, ctxOf(A, 'alice', turn, () => null))
     expect(shared.isError).toBe(true)
-    expect(shared.text).toContain('shared chat')
+    const declined = await toolRegistry(A.ctx.files).call('save_connector_file', { file: 'drive:alice-file' }, { ...ctxOf(A, 'alice', turn, () => null), sharedService: async () => 'Nothing was fetched from Google Drive.' })
+    expect(declined.isError).toBe(true)
+    expect(declined.text).toContain('Nothing was fetched from Google Drive')
     expect(fs.existsSync(path.join(A.team, 'users', 'alice', 'downloads'))).toBe(false)
   })
 
