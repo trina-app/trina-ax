@@ -20,6 +20,8 @@ import { answerRecord, lateHides, type ParsedGroup } from '../../server/src/chat
 import { sharedSection } from '../../server/src/chat/prompt'
 import type { SharedConnections } from '../../server/src/services'
 import { TurnExec } from '../../server/src/chat/turn'
+import type { TurnToolProvider } from '../../server/src/services'
+import { keepBrowserWarnSeen } from '../../server/src/chat/browser-notice'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -510,5 +512,39 @@ describe('step details stay the asker\'s', () => {
       expect(leaks(listedSteps(forBob))).toBe(false)
       expect(leaks(listedSteps(await h.api('alice').call(API.listMessages, { params: { id: chat.id }, query: {} })))).toBe(true)
     } finally { delete svc.results.search_tasks }
+  })
+})
+
+// Slack reads with the team's Slack app (integrations/slack/read.ts): a team connection, so not while a guest sees the
+// shared chat, whatever notice the asker kept there (security review of #662, round 2)
+describe('the team\'s Slack app with a guest in the shared chat', () => {
+  test('not offered and nothing read, even with the Slack notice kept for the place', async () => {
+    let slackCalls = 0
+    const saved = h.ctx.services.turnToolProviders
+    const slack: TurnToolProvider = { name: 'slack', build: () => ({ tools: [{ name: 'slack_read_channel', description: 'read a Slack channel', inputSchema: { type: 'object', properties: {} }, readOnly: true, async call() { slackCalls++; return { content: [{ type: 'text', text: 'SLACK-CANARY-6' }] } } }] }) }
+    h.ctx.services.turnToolProviders = [...(saved ?? []).filter((p) => p.name !== 'slack'), slack]
+    const READ = fake({ tool: 'slack_read_channel', args: {}, sayResult: true })
+    keepBrowserWarnSeen(db(), 'alice', `p:${projectId}`, null, 'slack')
+    try {
+      // without a guest: offered, and the kept notice lets it read (the fake provider works)
+      const plain = await newShared()
+      expect((await ask('alice', plain.id, READ)).done.content).toContain('SLACK-CANARY-6')
+      const n = slackCalls
+      const chat = await newShared('bob')
+      db().query("UPDATE users SET guest = 1 WHERE id = 'bob'").run()
+      db().query("INSERT INTO guests (user_id, place_kind, place_id, project_id, created_at) VALUES ('bob', 'project', ?, ?, ?)").run(projectId, projectId, new Date().toISOString())
+      db().query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('slack-guest', 'f_projects_falcon', 'user', 'bob', 'read')").run()
+      try {
+        const tools = (await ask('alice', chat.id, fake({ echo: 'tools' }))).done.content
+        expect(tools).not.toContain('slack_read_channel')
+        expect(tools).toContain('room_read')
+        const r = await ask('alice', chat.id, READ)
+        expect(r.done.content).not.toContain('SLACK-CANARY-6')
+        expect(slackCalls).toBe(n)
+      } finally { db().query("UPDATE users SET guest = 0 WHERE id = 'bob'").run(); db().query("DELETE FROM folder_rules WHERE id = 'slack-guest'").run(); db().query("DELETE FROM guests WHERE user_id = 'bob'").run() }
+    } finally {
+      h.ctx.services.turnToolProviders = saved
+      db().query("DELETE FROM card_always_allow WHERE user_id = 'alice' AND kind LIKE 'seen:slack:%'").run()
+    }
   })
 })

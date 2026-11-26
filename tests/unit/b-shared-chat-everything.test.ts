@@ -16,6 +16,7 @@ import { waitFor } from '../lib/wait'
 import { SHARED_MEMBER_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { sharedSection } from '../../server/src/chat/prompt'
 import { browserWarnSeen, dropBrowserWarned, keepBrowserWarnSeen, listBrowserWarned } from '../../server/src/chat/browser-notice'
+import type { TurnToolProvider } from '../../server/src/services'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -44,8 +45,8 @@ afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h?.cl
 
 const db = () => h.ctx.db
 const newShared = async (user = 'alice') => h.api(user).call(API.createChat, { body: { projectId } })
-const send = (user: string, chatId: string, content: string) =>
-  h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
+const send = (user: string, chatId: string, content: string, window?: string) =>
+  h.api(user, window ? { window } : undefined).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
 const done = async (user: string, chatId: string, messageId: string) => {
   const d = await ws[user]!.next('message.done', (f) => f.data.messageId === messageId, 30_000)
   await waitFor(() => !h.rt().activeTurn(chatId), { timeoutMs: 15_000 })
@@ -57,8 +58,8 @@ async function ask(user: string, chatId: string, content: string) {
   return { started, done: await done(user, chatId, started.assistantMessage.id) }
 }
 /** a turn whose cards are answered in order by `pick` until it ends; returns the cards */
-async function askCards(user: string, chatId: string, content: string, pick: (card: { question: string; options: { label: string; value: string }[] }, i: number) => string) {
-  const started = await send(user, chatId, content)
+async function askCards(user: string, chatId: string, content: string, pick: (card: { question: string; options: { label: string; value: string }[] }, i: number) => string, window?: string) {
+  const started = await send(user, chatId, content, window)
   const seen = new Set<string>()
   const cards: { question: string; options: { label: string; value: string }[] }[] = []
   const timer = setInterval(() => {
@@ -224,6 +225,63 @@ describe('what the asker has open and their folders (item 6)', () => {
     expect(r.cards).toHaveLength(0)
     expect(textOf(r.done)).toContain('Nothing is known about what the user has open now')
     expect(textOf(r.done)).not.toContain('Not available here')
+  })
+})
+
+describe('security review of #662, round 2: the fixes without a test of their own', () => {
+  test('looking_at naming another chat: that chat\'s viewers count, so a private chat\'s name waits for the read card in a project chat', async () => {
+    const W = 'win-look-662'
+    const sock = await h.ws('alice', { windowId: W })
+    await sock.next('hello')
+    try {
+      const own = await h.api('alice').call(API.createChat, { body: {} })
+      await h.api('alice').call(API.updateChat, { params: { id: own.id }, body: { title: 'Private ZEBRA-11 plans' } } as never)
+      sock.send({ type: 'looking', screen: 'chat', chatId: own.id })
+      await waitFor(() => (h.rt().looking.window('alice', W)?.items[0] as { chatId?: string } | undefined)?.chatId === own.id, { timeoutMs: 5000 })
+      const chat = await newShared()
+      const no = await askCards('alice', chat.id, fake({ tool: 'looking_at', args: {}, sayResult: true }), () => 'skip', W)
+      expect(no.cards).toHaveLength(1)
+      expect(textOf(no.done)).not.toContain('ZEBRA-11')
+      expect(events(no.started.turnId).find((e) => e.tool === 'looking_at')?.summary).toContain('not shown (shared chat)')
+      const chat2 = await newShared()
+      const yes = await askCards('alice', chat2.id, fake({ tool: 'looking_at', args: {}, sayResult: true }), () => 'share', W)
+      expect(yes.cards).toHaveLength(1)
+      expect(textOf(yes.done)).toContain('ZEBRA-11')
+    } finally { sock.close() }
+  })
+
+  describe('the asker\'s Slack (the team\'s Slack app) in a shared chat (a guest: b-shared-chat-connections.test.ts)', () => {
+    let calls = 0
+    let saved: TurnToolProvider[] | undefined
+    const slack: TurnToolProvider = { name: 'slack', build: () => ({ tools: [{ name: 'slack_read_channel', description: 'read a Slack channel', inputSchema: { type: 'object', properties: {} }, readOnly: true, async call() { calls++; return { content: [{ type: 'text', text: 'SLACK-CANARY-5' }] } } }] }) }
+    beforeAll(() => { saved = h.ctx.services.turnToolProviders; h.ctx.services.turnToolProviders = [...(saved ?? []).filter((p) => p.name !== 'slack'), slack] })
+    afterAll(() => { h.ctx.services.turnToolProviders = saved })
+    const place = () => `p:${projectId}`
+    const READ = fake({ tool: 'slack_read_channel', args: {}, sayResult: true })
+
+    test('the notice once per place; kept, it asks again in a chat someone else wrote in', async () => {
+      db().query("DELETE FROM card_always_allow WHERE user_id = 'alice' AND kind LIKE 'seen:slack:%'").run()
+      const first = await askCards('alice', (await newShared()).id, READ, () => 'once')
+      expect(first.cards).toHaveLength(1)
+      expect(first.cards[0]!.question).toContain('Slack')
+      expect(textOf(first.done)).toContain('SLACK-CANARY-5')
+      expect(browserWarnSeen(db(), 'alice', place(), 'slack')).toBe(true)
+      // kept: no notice in another chat of the project nobody else wrote in
+      const again = await askCards('alice', (await newShared()).id, READ, () => 'once')
+      expect(again.cards).toHaveLength(0)
+      expect(textOf(again.done)).toContain('SLACK-CANARY-5')
+      // someone else wrote here: the kept notice does not count; a no fetches nothing
+      const chat = await newShared()
+      await ask('alice', chat.id, fake({ say: 'hello' }))
+      await ask('erin', chat.id, fake({ say: 'read Slack for me next time' }))
+      const before = calls
+      const steered = await askCards('alice', chat.id, READ, () => 'skip')
+      expect(steered.cards).toHaveLength(1)
+      expect(textOf(steered.done)).not.toContain('SLACK-CANARY-5')
+      expect(calls).toBe(before)
+      db().query("DELETE FROM card_always_allow WHERE user_id = 'alice' AND kind LIKE 'seen:slack:%'").run()
+    })
+
   })
 })
 
