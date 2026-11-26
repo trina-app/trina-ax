@@ -6,6 +6,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
+import { BUNDLE_ENTRIES } from '../../desktop/build-entries'
 
 const ROOT = join(import.meta.dir, '../..')
 const DESKTOP = join(ROOT, 'desktop')
@@ -40,12 +41,9 @@ describe('desktop imports of shared code', () => {
   })
 
   test('the built bundles hold no shared barrel and no API schema the desktop does not use', async () => {
-    const entries: [string, 'node' | 'browser'][] = [
-      ['src/main/main.ts', 'node'], ['src/preload/app.ts', 'node'], ['src/preload/ui.ts', 'node'], ['src/preload/consent.ts', 'node'],
-      ['src/ui/welcome.ts', 'browser'], ['src/ui/pane.ts', 'browser'], ['src/ui/hostbar.ts', 'browser'], ['src/ui/findbar.ts', 'browser'], ['src/ui/consent.ts', 'browser'],
-    ]
     const shared = new Set<string>()
-    for (const [entry, target] of entries) {
+    // every bundle desktop/build.ts makes (desktop/build-entries.ts), so a new screen or preload is checked too
+    for (const [entry, , target] of BUNDLE_ENTRIES) {
       // the options of desktop/build.ts that decide what goes in (sourcemaps only to read the file list)
       const r = await Bun.build({ entrypoints: [join(DESKTOP, entry)], target, format: target === 'node' ? 'cjs' : 'esm', external: ['electron'], sourcemap: 'external', minify: true })
       expect(r.success).toBe(true)
