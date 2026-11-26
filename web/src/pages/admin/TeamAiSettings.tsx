@@ -15,7 +15,8 @@ import clsx from 'clsx'
 import { AlertTriangle, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState, type Ref } from 'react'
 import { useLocation } from 'react-router-dom'
-import type { Budget, EngineId, EnginesResponse, MemberEngineChoice } from '@mycel/shared/api'
+import type { Budget, Effort, EngineId, EnginesResponse, MemberEngineChoice } from '@mycel/shared/api'
+import { EFFORTS, EFFORT_KEY } from '../../components/chat/EngineMenu'
 import { api, API } from '../../lib/api'
 import { formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
@@ -114,21 +115,26 @@ function GroupSave({ busy, onSave, onCancel, testId }: { busy?: boolean; onSave:
 function Defaults({ data, onSaved, headingRef }: { data: EnginesData; onSaved: (r: EnginesData) => void; headingRef?: Ref<HTMLHeadingElement> }) {
   const t = useT()
   const act = useAction()
-  const saved = { defaultEngine: data.defaultEngine, defaultModel: data.defaultModel, concurrency: data.concurrency }
+  // the depth: null = 보통 (what ran before the choice); an older server sends none
+  const saved = { defaultEngine: data.defaultEngine, defaultModel: data.defaultModel, defaultEffort: (data.defaultEffort ?? null) as Effort | null, concurrency: data.concurrency }
   const [f, setF] = useState(saved)
   const [busy, setBusy] = useState(false)
   useEffect(() => {
-    setF({ defaultEngine: data.defaultEngine, defaultModel: data.defaultModel, concurrency: data.concurrency })
-  }, [data.defaultEngine, data.defaultModel, data.concurrency])
+    setF({ defaultEngine: data.defaultEngine, defaultModel: data.defaultModel, defaultEffort: data.defaultEffort ?? null, concurrency: data.concurrency })
+  }, [data.defaultEngine, data.defaultModel, data.defaultEffort, data.concurrency])
   // a phone's group page: the draft stays when the page is left (lib/keptDraft.ts)
   useKeptDraft('ai-defaults', saved, f, setF)
-  const dirty = f.defaultEngine !== saved.defaultEngine || f.defaultModel !== saved.defaultModel || f.concurrency !== saved.concurrency
+  const dirty = f.defaultEngine !== saved.defaultEngine || f.defaultModel !== saved.defaultModel || f.defaultEffort !== saved.defaultEffort || f.concurrency !== saved.concurrency
   const max = data.concurrencyMax ?? 16
   const choices = defaultEngineChoices(data.engines, data.defaultEngine)
   const engineOff = choices.some((c) => c.id === f.defaultEngine && c.off)
   const phone = useMediaQuery('(max-width: 767.98px)')
   const engineNote = engineOff && <p className="mt-1 text-xs text-warn" id="ai-engine-off" data-testid="default-engine-off">{t('engines.defaultEngineOff')}</p>
   const models = data.engines.find((e) => e.id === f.defaultEngine)?.models ?? []
+  // the depth row: not for the API engine (it takes none)
+  const effortRow = f.defaultEngine !== 'api'
+  const effortOptions = EFFORTS.map((e) => ({ value: e, label: t(EFFORT_KEY[e]) }))
+  const setEffort = (v: string) => setF({ ...f, defaultEffort: v === 'normal' ? null : (v as Effort) })
   const save = async () => {
     setBusy(true)
     const r = await act(() => api.call(API.updateEngines, { body: f }), t('common.saved'))
@@ -145,6 +151,7 @@ function Defaults({ data, onSaved, headingRef }: { data: EnginesData; onSaved: (
           <PhoneChoiceRow title={t('engines.defaultModel')} value={f.defaultModel ?? ''} testId="ai-model"
             options={[{ value: '', label: t('composer.defaultModel') }, ...models.map((m) => ({ value: m.id, label: m.label }))]}
             onChange={(v) => setF({ ...f, defaultModel: v || null })} />
+          {effortRow && <PhoneChoiceRow title={t('engines.defaultEffort')} value={f.defaultEffort ?? 'normal'} testId="ai-effort" options={effortOptions} onChange={setEffort} />}
         </>
       ) : (<>
       <SettingRow id="ai-engine" title={t('engines.defaultEngine')}
@@ -171,6 +178,14 @@ function Defaults({ data, onSaved, headingRef }: { data: EnginesData; onSaved: (
               ))}
           </select>
         } />
+      {effortRow && (
+        <SettingRow id="ai-effort" title={t('engines.defaultEffort')} desc={t('engines.defaultEffortHint')}
+          control={
+            <select id="ai-effort" className={clsx(inputCls, 'md:w-64')} value={f.defaultEffort ?? 'normal'} onChange={(e) => setEffort(e.target.value)} data-testid="ai-effort">
+              {effortOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          } />
+      )}
       </>)}
       <SettingRow id="ai-concurrency" inline title={t('engines.concurrency')} desc={t('engines.concurrencyHint')}
         below={data.concurrencyMax !== undefined && data.concurrencyMax < 16 && <p className="mt-1 text-xs text-faint">{t('engines.concurrencyPlan', { max: data.concurrencyMax })}</p>}

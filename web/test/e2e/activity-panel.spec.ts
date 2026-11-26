@@ -1,8 +1,8 @@
 // 활동 beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P3), with the server's `navRail` switch
-// on: the notices that are not conversations on the left (GET /api/notifications?only=notices), chips 전체 · 트리나 · 요청
-// (요청 for the owner and admins only), unread first, the rail's 활동 number the same as the list's unread rows; a notice
-// opens on the right while 활동 stays lit; one with no page of its own opens as itself; mentions and threads are 대화's
-// (one line on top goes there, and an old ?tab=mentions link lands there).
+// on: the one Activity (docs/decisions/20261126-one-activity.md): every notice on the left (GET /api/notifications, no
+// only=), chips 전체 · DM · 멘션 · 스레드 · 트리나 · 요청 (요청 for the owner and admins only), unread first, the rail's 활동
+// number the same as the list's unread rows; a notice opens on the right while 활동 stays lit; one with no page of its
+// own opens as itself; a mention opens its room with 활동 lit; an old ?tab=mentions or ?in=chats link picks its chip.
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { navRail, openRail, reset, signIn } from './helpers'
@@ -28,7 +28,7 @@ function week(chatId: string): Item[] {
   ]
 }
 
-/** GET /api/notifications answered with `items` (only=notices: they are all notices), POST …/read marks one */
+/** GET /api/notifications answered with `items`, POST …/read marks one */
 async function routeNotices(page: Page, items: Item[]) {
   const asked: string[] = []
   await page.route('**/api/notifications?*', (route) => {
@@ -62,14 +62,16 @@ async function start(page: Page, who?: typeof MEMBER) {
 const SHOTS = process.env.SHOTS_DIR
 const rows = (page: Page) => page.getByTestId('activity-panel').getByTestId('activity-panel-row')
 
-test('owner: the notices on the left, unread first; chips 전체 · 트리나 · 요청; the rail\'s number is the list\'s', async ({ page }) => {
+test('owner: the notices on the left, unread first; chips 전체 · DM · 멘션 · 스레드 · 트리나 · 요청; the rail\'s number is the list\'s', async ({ page }) => {
   const chatId = await start(page)
   const asked = await routeNotices(page, week(chatId))
   await page.reload()
   await page.getByTestId('rail-activity').click()
   await expect(page.getByTestId('activity-panel')).toBeVisible()
   await expect(page.getByTestId('rail-activity')).toHaveAttribute('aria-current', 'page')
-  expect(asked).toContain('notices')
+  // the list asks for every notice (store/chatMentions.ts reads its conversation rows with only=rooms on its own)
+  expect(asked).toContain('')
+  expect(asked).not.toContain('notices')
   // unread first (newest first), the read one under 읽음
   await expect(rows(page)).toHaveCount(5)
   expect(await rows(page).evaluateAll((els) => els.map((e) => e.hasAttribute('data-unread')))).toEqual([true, true, true, true, false])
@@ -78,24 +80,20 @@ test('owner: the notices on the left, unread first; chips 전체 · 트리나 ·
   await expect(page.getByTestId('rail-activity-mark')).toHaveAttribute('data-n', '4')
   await expect(page.getByTestId('activity-panel-dot')).toHaveCount(4)
   // the chips: 트리나 the scheduled runs, 요청 the connection
-  await expect(page.getByTestId('activity-panel-chips').getByRole('button')).toHaveText([t['feed.tab.all'], '트리나', t['activity.chip.requests']])
+  await expect(page.getByTestId('activity-panel-chips').getByRole('button')).toHaveText([t['feed.tab.all'], t['feed.tab.dmsShort'], t['feed.tab.mentions'], t['feed.tab.threads'], '트리나', t['activity.chip.requests']])
   await expect(page.getByTestId('activity-panel-mark-all')).toBeVisible()
   await page.getByTestId('activity-chip-trina').click()
   await expect(rows(page)).toHaveCount(3)
-  // "Mark all as read" reads the whole list: only under 전체, never what a chip hides
+  // "Mark all as read" is the server's tabs': never under 트리나 or 요청, which the server cannot read alone
   await expect(page.getByTestId('activity-panel-mark-all')).toHaveCount(0)
   expect(await rows(page).evaluateAll((els) => els.map((e) => e.getAttribute('data-chip')))).toEqual(['trina', 'trina', 'trina'])
   await page.getByTestId('activity-chip-requests').click()
   await expect(rows(page)).toHaveCount(1)
   await expect(rows(page).first()).toHaveAttribute('data-chip', 'requests')
-  // no mention or thread rows here: one line says they are in 대화, and goes there with 대화 lit
-  await expect(page.getByTestId('activity-panel-to-chats')).toHaveText(t['activity.inChats'])
+  // no line to 대화's 멘션·스레드 any more: they are here
+  await expect(page.getByTestId('activity-panel-to-chats')).toHaveCount(0)
   // nothing picked: the right side says where to look
   await expect(page.getByTestId('activity-pick')).toContainText(t['activity.pick'])
-  await page.getByTestId('activity-panel-to-chats').click()
-  await expect(page).toHaveURL(/\/activity\?in=chats$/)
-  await expect(page.getByTestId('rail-chats')).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByTestId('chats-panel')).toBeVisible()
 })
 
 test('a notice opens on the right while 활동 stays lit; it is read; Back and the rail keep 활동', async ({ page }) => {
@@ -152,12 +150,12 @@ test('a job\'s notice opens the chat 트리나 showed last: every rail place sti
   }
 })
 
-test('member: 전체 · 트리나 only (요청 is for the owner and admins)', async ({ page }) => {
+test('member: no 요청 (it is for the owner and admins)', async ({ page }) => {
   const chatId = await start(page, MEMBER)
   await routeNotices(page, week(chatId))
   await page.reload()
   await page.getByTestId('rail-activity').click()
-  await expect(page.getByTestId('activity-panel-chips').getByRole('button')).toHaveText([t['feed.tab.all'], '트리나'])
+  await expect(page.getByTestId('activity-panel-chips').getByRole('button')).toHaveText([t['feed.tab.all'], t['feed.tab.dmsShort'], t['feed.tab.mentions'], t['feed.tab.threads'], '트리나'])
   await expect(page.getByTestId('activity-chip-requests')).toHaveCount(0)
 })
 
@@ -180,7 +178,7 @@ test('the right side: no pick hint while the list is empty; with notices, the hi
   await expect(page.getByTestId('activity-pick')).not.toContainText(t['notifications.empty'])
 })
 
-test('"Mark all as read" reads the notices only; an old ?tab=mentions link goes to 대화\'s 멘션·스레드', async ({ page }) => {
+test('"Mark all as read" reads every notice; an old ?tab=mentions or ?in=chats link picks its chip in 활동', async ({ page }) => {
   const chatId = await start(page)
   const items = week(chatId)
   await routeNotices(page, items)
@@ -194,17 +192,42 @@ test('"Mark all as read" reads the notices only; an old ?tab=mentions link goes 
   await page.getByTestId('rail-activity').click()
   await page.getByTestId('activity-panel-mark-all').click()
   await expect(page.getByTestId('activity-panel-dot')).toHaveCount(0)
-  expect(body).toEqual({ tab: 'all', only: 'notices' })
+  expect(body).toEqual({ tab: 'all' })
   await expect(page.getByTestId('rail-activity-mark')).toHaveCount(0)
   await expect(page.getByTestId('activity-panel-mark-all')).toHaveCount(0)
   await page.goto('/activity?tab=mentions')
-  await expect(page).toHaveURL(/\/activity\?in=chats&tab=mentions$/)
-  await expect(page.getByTestId('rail-chats')).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByTestId('activity-tab-mentions')).toHaveAttribute('aria-selected', 'true')
-  // the DMs tab's old link: direct and group chats are 대화's list
+  await expect(page).toHaveURL(/\/activity\?tab=mentions$/)
+  await expect(page.getByTestId('rail-activity')).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('activity-chip-mentions')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('activity-panel-empty')).toHaveText(t['feed.emptyFiltered'])
+  // 대화's old 멘션·스레드 link: the one Activity, its tab kept, never a 404
+  await page.goto('/activity?in=chats&tab=threads')
+  await expect(page).toHaveURL(/\/activity\?tab=threads$/)
+  await expect(page.getByTestId('rail-activity')).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('activity-chip-threads')).toHaveAttribute('aria-pressed', 'true')
+  await page.goto('/activity?in=chats')
+  await expect(page).toHaveURL(/\/activity$/)
+  await expect(page.getByTestId('activity-panel')).toBeVisible()
+  // DM: says where plain DMs are
   await page.goto('/activity?tab=dms')
-  await expect(page).toHaveURL(/\/activity\?in=chats$/)
-  await expect(page.getByTestId('rail-chats')).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('activity-chip-dms')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('activity-panel-empty')).toHaveText(t['feed.dmsEmpty'])
+})
+
+test('a chip picked after a link stays on Back: the address follows the chip, Back never puts the link\'s chip back', async ({ page }) => {
+  const chatId = await start(page)
+  await routeNotices(page, week(chatId))
+  await page.goto('/activity?tab=threads')
+  await expect(page.getByTestId('activity-chip-threads')).toHaveAttribute('aria-pressed', 'true')
+  await page.getByTestId('activity-chip-trina').click()
+  await expect(page).toHaveURL(/\/activity\?tab=trina$/)
+  // a notice opens on the right; Back: 활동 with 트리나 still picked
+  await rows(page).first().click()
+  await expect(page).toHaveURL(new RegExp(`/c/${chatId}$`))
+  await page.goBack()
+  await expect(page).toHaveURL(/\/activity\?tab=trina$/)
+  await expect(page.getByTestId('activity-chip-trina')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('activity-chip-threads')).toHaveAttribute('aria-pressed', 'false')
 })
 
 // Two people joined one project: both notices open that project. Only the one opened is selected (a fill, semibold),

@@ -2,7 +2,7 @@
 // TC-244): parents, one screen whatever its passing query says, Files as a tree, back to a screen already in the stack
 // instead of a second copy of it.
 import { describe, expect, test } from 'bun:test'
-import { activityInChats, chainOf, CHATS_ACTIVITY, parentOf, rootTab, sameScreen, screenOf } from '../../src/lib/screens'
+import { chainOf, oldChatsActivity, parentOf, rootTab, sameScreen, screenOf } from '../../src/lib/screens'
 import { isOverlay, knownTab, planFor, stackToSave, type Item } from '../../src/lib/screenHistory'
 import { useChats } from '../../src/store/chats'
 
@@ -77,20 +77,15 @@ describe('the table', () => {
     expect(sameScreen('/rooms', '/rooms?new=1')).toBe(false)
   })
 
-  test('Activity\'s conversations (대화\'s 멘션·스레드 row) are a page of the 대화 tab; the whole Activity stays 나\'s (TC-256)', () => {
-    expect(activityInChats('?in=chats')).toBe(true)
-    expect(activityInChats('?tab=mentions')).toBe(false)
-    expect(screenOf(CHATS_ACTIVITY).tab).toBe('chats')
-    expect(parentOf(CHATS_ACTIVITY)).toBe('/rooms')
-    expect(chainOf(`${CHATS_ACTIVITY}&tab=threads`)).toEqual(['/rooms', `${CHATS_ACTIVITY}&tab=threads`])
-    // one screen whichever of its tabs is chosen; not the whole Activity
-    expect(sameScreen(CHATS_ACTIVITY, `${CHATS_ACTIVITY}&tab=mentions`)).toBe(true)
-    expect(sameScreen(CHATS_ACTIVITY, '/activity')).toBe(false)
-    expect(rootTab(CHATS_ACTIVITY)).toBeNull()
-    // from the 대화 list: down, a push; a tab of it: a replace; back to the list: back one
-    expect(plan(items('/rooms'), CHATS_ACTIVITY)).toEqual({ back: 0, replace: undefined, push: [CHATS_ACTIVITY] })
-    expect(plan(items('/rooms', CHATS_ACTIVITY), `${CHATS_ACTIVITY}&tab=threads`, 'replace')).toEqual({ back: 0, replace: `${CHATS_ACTIVITY}&tab=threads`, push: [] })
-    expect(plan(items('/rooms', CHATS_ACTIVITY, '/rooms/r1/t/m1'), '/rooms')).toEqual({ back: 2, replace: undefined, push: [] })
+  test('Activity is one place, 나\'s, whatever its search; an old 멘션·스레드 link is known (one Activity)', () => {
+    expect(screenOf('/activity').tab).toBe('me')
+    expect(screenOf('/activity?tab=mentions').tab).toBe('me')
+    expect(screenOf('/activity?in=chats').tab).toBe('me')
+    expect(oldChatsActivity('/activity?in=chats')).toBe(true)
+    expect(oldChatsActivity('/activity?in=chats&tab=threads')).toBe(true)
+    expect(oldChatsActivity('/activity?tab=threads')).toBe(false)
+    expect(oldChatsActivity('/activity')).toBe(false)
+    expect(oldChatsActivity('/rooms?in=chats')).toBe(false)
   })
 
   test('tabs: the stack an address starts, and the roots', () => {

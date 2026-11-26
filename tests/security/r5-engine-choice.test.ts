@@ -3,6 +3,8 @@
 // send / regenerate / new chat / chat change, not by storing an own default in their preferences, not by changing the
 // admin setting — and cannot turn on "다른 AI로 대신 답하기" (which sends conversations to the other AI's company).
 // Real session service and personas (tests/security/lib): owner dana, admin carol, members alice / erin / bob.
+// Since 2026-11-26 a new team starts with everyone picking (docs/decisions/20261126-model-effort-choice.md): the world
+// here is set back to "off", a team from before, and the depth (effort) follows the same rule.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { startInstance, type Instance } from './lib/instance'
 import { buildWorld, type World } from './lib/world'
@@ -10,14 +12,23 @@ import { buildWorld, type World } from './lib/world'
 setDefaultTimeout(120_000)
 let W: World
 let inst: Instance
-beforeAll(async () => { inst = await startInstance('r5-engine-choice'); W = await buildWorld(inst, { sharedSubscriptions: true }) })
+let newTeamChoice: string | null = null
+beforeAll(async () => {
+  inst = await startInstance('r5-engine-choice'); W = await buildWorld(inst, { sharedSubscriptions: true })
+  newTeamChoice = (inst.ctx.db.query("SELECT value FROM settings WHERE key = 'engines.memberChoice'").get() as { value: string } | null)?.value ?? null
+  await W.as.owner.ok('PATCH', '/api/admin/engines', { memberChoice: { mode: 'off', groupIds: [], userIds: [] } })
+})
 afterAll(async () => { for (const s of Object.values(W?.sockets ?? {})) s.close(); await inst?.close() })
 
 const turns = (chatId: string) => (inst.ctx.db.query('SELECT COUNT(*) AS n FROM turns WHERE chat_id = ?').get(chatId) as { n: number }).n
 const setting = (key: string) => (inst.ctx.db.query('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | null)?.value ?? null
 
 describe('engine / model choice is the admin\'s', () => {
-  test('GET /api/me: members cannot pick by default, admins and the owner can', async () => {
+  test('a new team starts with everyone picking', () => {
+    expect(JSON.parse(newTeamChoice ?? 'null')).toMatchObject({ mode: 'everyone' })
+  })
+
+  test('GET /api/me: members cannot pick with "off", admins and the owner can', async () => {
     const me = async (who: 'owner' | 'admin' | 'memberIn' | 'memberOut') => (await W.as[who].ok('GET', '/api/me')).user.canChooseEngine
     expect([await me('owner'), await me('admin'), await me('memberIn'), await me('memberOut')]).toEqual([true, true, false, false])
   })
@@ -25,22 +36,26 @@ describe('engine / model choice is the admin\'s', () => {
   test('a member naming an engine or model is refused and nothing runs', async () => {
     const a = W.as.memberIn
     const before = turns(W.ids.chatA)
-    for (const body of [{ engine: 'codex' }, { model: 'opus' }, { engine: 'codex', model: 'gpt-5' }]) {
+    for (const body of [{ engine: 'codex' }, { model: 'opus' }, { engine: 'codex', model: 'gpt-5' }, { effort: 'thorough' }]) {
       const r = await a.post(`/api/chats/${W.ids.chatA}/messages`, { content: 'hi', attachmentIds: [], clientMessageId: 'cm-' + crypto.randomUUID(), ...body })
       expect(r.status).toBe(403)
       expect(r.json.error.code).toBe('forbidden')
     }
     expect((await a.post(`/api/chats/${W.ids.chatA}/messages/${W.ids.assistantMsg}/regenerate`, { engine: 'codex' })).status).toBe(403)
+    expect((await a.post(`/api/chats/${W.ids.chatA}/messages/${W.ids.assistantMsg}/regenerate`, { effort: 'quick' })).status).toBe(403)
     expect((await a.post('/api/chats', { engine: 'codex' })).status).toBe(403)
+    expect((await a.post('/api/chats', { effort: 'thorough' })).status).toBe(403)
     expect((await a.patch(`/api/chats/${W.ids.chatA}`, { engine: 'codex' })).status).toBe(403)
+    expect((await a.patch(`/api/chats/${W.ids.chatA}`, { effort: 'thorough' })).status).toBe(403)
     expect(turns(W.ids.chatA)).toBe(before)
     expect((await a.ok('GET', `/api/chats/${W.ids.chatA}`)).engine).not.toBe('codex')
   })
 
   test('a member cannot store an own default engine (it is dropped) nor read one back', async () => {
-    const r = await W.as.memberIn.ok('PATCH', '/api/me', { prefs: { theme: 'dark', engine: 'codex', model: 'gpt-5' } })
+    const r = await W.as.memberIn.ok('PATCH', '/api/me', { prefs: { theme: 'dark', engine: 'codex', model: 'gpt-5', effort: 'thorough' } })
     expect(r.user.prefs.theme).toBe('dark')
     expect(r.user.prefs.engine).toBeUndefined()
+    expect(r.user.prefs.effort).toBeUndefined()
     const row = inst.ctx.db.query("SELECT prefs FROM users WHERE id = 'alice'").get() as { prefs: string }
     expect(JSON.parse(row.prefs).engine).toBeUndefined()
   })

@@ -1,4 +1,5 @@
 // Account flows: first-owner setup, sign-in, password change, invites, one-time reset links.
+import { settleNewTeamMemberChoice } from '../admin/engine-choice'
 import { hostedTeamName, reportTeamName } from '../system/cloud-team-name'
 import fs from 'node:fs'
 import { projectJoinsOfNewAccount } from '../chat/project-joins'
@@ -176,6 +177,9 @@ export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<st
     updateTeamSettings(ctx.db, { teamName: o.teamName, defaultLocale: o.locale, ...(isValidTimeZone(o.timeZone) && !keepCpZone ? { timeZone: o.timeZone } : {}) })
     insertAccount(ctx.db, { id, username: o.username, name: o.name, email: o.email ?? null, role: 'owner', locale: null, mustChangePassword: false }, cred, new Date(authOf(ctx).now()).toISOString())
     createDefaultFolders(ctx)
+    // a new team lets everyone pick the AI model and depth (docs/decisions/20261126-model-effort-choice.md); a team
+    // from before keeps its setting (no key = off)
+    settleNewTeamMemberChoice(ctx)
     // with Google: that it was Google, never the address
     audit(ctx.db, { actor: id, action: 'setup', target: id, detail: { teamName: o.teamName, ...('google' in cred ? { method: 'google' } : {}) } })
     return true

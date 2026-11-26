@@ -62,8 +62,8 @@ test('every conversation by kind, no "더 보기"; the hidden ones behind one ro
   expect((await panel(page).getByTestId('room-group-people').first().boundingBox())!.width).toBe(20)
   await expect(panel(page).getByTestId('rooms-more')).toHaveCount(0)
   await expect(panel(page).getByTestId('rooms-all')).toHaveCount(0)
-  // 멘션·스레드 stays the first row
-  await expect(panel(page).getByTestId('rooms-activity')).toBeVisible()
+  // no 멘션·스레드 row: mentions and thread replies are 활동's (the one Activity)
+  await expect(panel(page).getByTestId('rooms-activity')).toHaveCount(0)
   // the hidden DM: on the conversations page itself it is listed there (no second row); in a room, one row at the end
   // goes there
   await expect(page.getByTestId('rooms-hidden')).toBeVisible()

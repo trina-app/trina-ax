@@ -68,7 +68,8 @@ test('one engine with two models: the picker lists the models only, and a pick i
   await page.getByTestId('engine-picker').click()
   const list = page.getByRole('listbox', { name: 'AI 고르기' })
   // the models of Claude only: no engine row ("기본 모델"), no ChatGPT
-  await expect(list.getByRole('option')).toHaveText(['Sonnet', 'Opus'])
+  // (each Claude model with its one-line hint; the depth row under them is not a model)
+  await expect(list.locator('[role="option"]:not([data-testid^="effort-"])')).toHaveText([/^Sonnet/, /^Opus/])
   await list.getByRole('option', { name: 'Opus' }).click()
   await expect(page.getByTestId('engine-picker')).toContainText('Claude · Opus')
   await ask(page, 'hello')

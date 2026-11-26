@@ -1,18 +1,15 @@
-// A team project's shared chat tells its people of a new message, as a chat shared with people does (owner 2026-11-22,
-// docs/decisions/20261122-project-chat-notices-threads-mention-only.md; chat/message-notices.ts), and a reply in a thread
-// rings only on a mention. Falcon is on projects/falcon: alice writes it, the finance group (bob, and erin for this file)
-// reads it; carol (admin) and dana (owner) are not members. Covered: a person's message gives every other member a
-// notice (never the sender, never a non-member, a guest or anyone for an "Only me" chat), the unread number and the
-// chat.updated `notice`, Trina's answer as a number only, /seen, "Mute this chat" (no mention gets through it: the main box
-// mentions nobody, docs/decisions/20261122-ai-session-no-main-mention.md), the chat's people, the unread list and the push badge for a member who never wrote there, the fan-out's reads not growing with the
-// project, and the thread rule (a plain reply listed but not rung, a mention rung with the switch off, pushed anew on an
-// open notice).
+// A team project's shared chat tells nobody of someone else's message (owner 2026-11-26, docs/decisions/
+// 20261126-project-chat-mention-only.md, replacing the 11-22 rule; chat/message-notices.ts): a new chat a teammate
+// starts, a message in a chat I wrote in, Trina's answers and a scheduled run's answer give no notice, no unread number,
+// no push and no desktop ring; old unread rows from before are never shown (migration 457 reads them). Only a mention
+// notifies: a thread reply that mentions me rings with "Replies in threads I'm part of" off, a plain reply does not.
+// Falcon is on projects/falcon: alice writes it, the finance group (bob, and erin for this file) reads it; carol (admin)
+// and dana (owner) are not members.
 import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, type ServerFrame } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
 import { chatMessageWanted, noteSharedAnswer, noteSharedMessage, unreadByUser } from '../../server/src/chat/message-notices'
-import { hiddenAnswersCutover, setAnswerReads, setHiddenAnswersCutover } from '../../server/src/chat/shared-answers'
 import { chatThreadWanted } from '../../server/src/chat/threads'
 import { getPreferences, pushEventEnabled, savePreferences } from '../../server/src/notifications/preferences'
 import { pushBadge } from '../../server/src/notifications/push-badge'
@@ -53,191 +50,66 @@ beforeAll(async () => {
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h.close() })
 beforeEach(() => (roomsOf(h.ctx) as unknown as { sendBudget: Map<string, unknown> }).sendBudget.clear())
 
-describe('a person\'s message in a project chat', () => {
-  test('every other member gets a notice that may ring; the sender and non-members none', async () => {
-    const before = updates('erin').length
+describe('someone else\'s message in a project chat', () => {
+  const noRing = (user: string, from: number, messageId: string) => expect(updates(user).slice(from).some((f) => f.data.notice?.messageId === messageId)).toBe(false)
+
+  test('a message in a chat I wrote in: no notice, number, mark or ring for me or anyone', async () => {
+    await h.api('alice').call(API.markChatSeen, { params: { id: chatId } })
+    const before = { alice: updates('alice').length, erin: updates('erin').length }
     const s = await say('bob', 'Can we ship on Friday?')
     const msg = s.userMessage!.id
-    for (const u of ['alice', 'erin']) expect(of(u, msg)).toMatchObject([{ kind: 'message', quiet: 0, mention: 0, read_at: null }])
-    expect(of('bob', msg)).toEqual([])
-    for (const u of ['carol', 'dana']) expect(db().query('SELECT COUNT(*) n FROM chat_message_notices WHERE user_id = ?').get(u)).toEqual({ n: 0 })
-    // erin never wrote there: the chat.updated still reaches her with the notice (desktop notice and sound)
-    expect(updates('erin').slice(before).some((f) => f.data.notice?.messageId === msg)).toBe(true)
-    expect(chatMessageWanted(h.ctx, of('erin', msg)[0]!.id)).toBe(true)
+    for (const u of ['alice', 'erin', 'bob', 'carol', 'dana']) expect(notices(u)).toEqual([])
+    noRing('alice', before.alice, msg)
+    noRing('erin', before.erin, msg)
+    // the chat.updated still reaches the members (the new message shows), without an unread number
+    expect(updates('erin').length).toBeGreaterThan(before.erin)
+    for (const f of updates('erin').slice(before.erin)) expect(f.data.chat?.unreadCount).toBeUndefined()
+    const a = await h.api('alice').call(API.getChat, { params: { id: chatId } })
+    expect(a.unreadCount).toBeUndefined()
+    expect(a.unseen).toBeFalsy()
     const e = await h.api('erin').call(API.getChat, { params: { id: chatId } })
-    expect(e.unreadCount).toBe(unread('erin').length)
-    expect(e.unseen).toBe(true)
+    expect(e.unreadCount).toBeUndefined()
+    expect(e.unseen).toBeFalsy()
   })
 
-  test('Trina\'s answer is a number for the others, never pushed, nothing for its asker', async () => {
-    const answers = (u: string) => notices(u).filter((n) => n.kind === 'answer')
-    expect(answers('erin').length).toBeGreaterThan(0)
-    expect(answers('bob').filter((n) => n.kind === 'answer').length).toBe(1) // alice's kickoff answer only
-    for (const n of answers('erin')) { expect(n.quiet).toBe(1); expect(chatMessageWanted(h.ctx, n.id)).toBe(false) }
+  test('a new chat a teammate starts in the project tells nobody', async () => {
+    const theirs = (await h.api('bob').call(API.createChat, { body: { projectId } })).id
+    await say('bob', 'a new idea', { chat: theirs })
+    expect(db().query('SELECT COUNT(*) n FROM chat_message_notices WHERE chat_id = ?').get(theirs)).toEqual({ n: 0 })
+    for (const u of ['alice', 'erin']) expect(ws[u]!.frames.some((f) => f.type === 'chat.updated' && f.data.chatId === theirs && !!f.data.notice)).toBe(false)
+    for (const u of ['alice', 'erin']) {
+      expect((await h.api(u).call(API.listChats, { query: { unread: '1' } })).items).toEqual([])
+      expect(pushBadge(h.ctx, u)).toBe(0)
+    }
   })
 
-  test('a member who never wrote there: the unread list has the chat, my chat list does not; the push badge counts it', async () => {
-    const list = await h.api('erin').call(API.listChats, { query: {} })
-    expect(list.items.some((c) => c.id === chatId)).toBe(false)
-    const u = await h.api('erin').call(API.listChats, { query: { unread: '1' } })
-    expect(u.items.map((c) => c.id)).toEqual([chatId])
-    expect(u.items[0]!.unreadCount).toBe(unread('erin').length)
-    expect(pushBadge(h.ctx, 'erin')).toBe(unread('erin').length)
-    // not with another filter
-    await expect(h.api('erin').call(API.listChats, { query: { unread: '1', projectId } })).rejects.toMatchObject({ status: 400 })
-  })
-
-  test('opening the chat reads my notices only', async () => {
-    await h.api('erin').call(API.markChatSeen, { params: { id: chatId } })
-    expect(unread('erin')).toEqual([])
-    expect(unread('alice').length).toBeGreaterThan(0)
-    expect((await h.api('erin').call(API.listChats, { query: { unread: '1' } })).items).toEqual([])
-  })
-
-  test('"Mute this chat": nothing for me, also for a message naming me with "@"; the audience lists the project chat\'s people but me', async () => {
-    expect((await h.api('erin').call(API.muteChat, { params: { id: chatId } })).muted).toBe(true)
-    const plain = await say('bob', 'no ping')
-    expect(of('erin', plain.userMessage!.id)).toEqual([])
-    // an older page still sending `mentions`: ignored (the main box mentions nobody), so the mute holds
+  test('Trina\'s answer and an "@" sent by an older page in the main box tell nobody', async () => {
     const ping = await say('bob', '@Erin Yoo look', { mentions: ['erin', 'carol'] })
     expect(of('erin', ping.userMessage!.id)).toEqual([])
-    expect(db().query('SELECT COUNT(*) n FROM chat_message_notices WHERE user_id = ?').get('carol')).toEqual({ n: 0 })
-    expect((await h.api('erin').call(API.unmuteChat, { params: { id: chatId } })).muted).toBeUndefined()
+    expect(of('erin', ping.assistantMessage.id)).toEqual([])
+    const chat = h.ctx.db.query('SELECT * FROM chats WHERE id = ?').get(chatId) as Parameters<typeof noteSharedAnswer>[1]
+    expect(noteSharedAnswer(h.ctx, chat, ping.assistantMessage.id, 'bob').size).toBe(0)
+    expect(noteSharedMessage(h.ctx, chat, ping.userMessage!.id, 'bob').size).toBe(0)
+    expect(db().query('SELECT COUNT(*) n FROM chat_message_notices WHERE chat_id = ?').get(chatId)).toEqual({ n: 0 })
+  })
+
+  test('an unread row made before the change is never shown or pushed, and migration 457 reads it', async () => {
+    const msg = (db().query("SELECT id FROM messages WHERE chat_id = ? AND role = 'user' ORDER BY rowid DESC LIMIT 1").get(chatId) as { id: string }).id
+    const id = crypto.randomUUID()
+    db().query(`INSERT INTO chat_message_notices (id, user_id, event_type, source_id, chat_id, by_user, kind, created_at, suppressed, quiet, mention)
+      VALUES (?, 'erin', 'chat.message', ?, ?, 'bob', 'message', ?, 0, 0, 0)`).run(id, msg, chatId, new Date().toISOString())
+    expect((await h.api('erin').call(API.getChat, { params: { id: chatId } })).unreadCount).toBeUndefined()
+    expect((await h.api('erin').call(API.listChats, { query: { unread: '1' } })).items).toEqual([])
+    expect(pushBadge(h.ctx, 'erin')).toBe(0)
+    expect(chatMessageWanted(h.ctx, id)).toBe(false)
+    expect(unreadByUser(db(), chatId).get('erin')?.n).toBe(1)
+    db().exec(await Bun.file(new URL('../../server/migrations/457_b_project_chat_notices_read.sql', import.meta.url)).text())
+    expect(unread('erin')).toEqual([])
+  })
+
+  test('the audience still lists the chat\'s people but me (who a thread reply may mention)', async () => {
     const a = await h.api('bob').call(API.getChatAudience, { params: { id: chatId } })
     expect(a.mentionable?.map((p) => p.id).sort()).toEqual(['alice', 'erin'])
-    // a chat of one person still cannot be muted
-    const mine = await h.api('alice').call(API.createChat, { body: {} })
-    await expect(h.api('alice').call(API.muteChat, { params: { id: mine.id } })).rejects.toMatchObject({ status: 400 })
-  })
-
-  test('an "Only me" chat in the project tells nobody; a guest gets nothing', async () => {
-    const own = (await h.api('alice').call(API.createChat, { body: { projectId, private: true } })).id
-    await say('alice', 'just me', { chat: own })
-    expect(db().query('SELECT COUNT(*) n FROM chat_message_notices WHERE chat_id = ?').get(own)).toEqual({ n: 0 })
-    db().query('UPDATE users SET guest = 1 WHERE id = ?').run('erin')
-    try {
-      const s = await say('bob', 'while erin is a guest')
-      expect(of('erin', s.userMessage!.id)).toEqual([])
-      expect(of('alice', s.userMessage!.id)).toHaveLength(1)
-    } finally { db().query('UPDATE users SET guest = 0 WHERE id = ?').run('erin') }
-  })
-
-  test('a member who loses the project: no unread list entry, nothing on the push badge, no push, though the notice stays', async () => {
-    const s = await say('bob', 'before erin leaves')
-    const n = of('erin', s.userMessage!.id)[0]!
-    const before = pushBadge(h.ctx, 'erin')!
-    expect(before).toBeGreaterThanOrEqual(unread('erin').length)
-    db().query("DELETE FROM group_members WHERE group_id = 'finance' AND user_id = 'erin'").run()
-    try {
-      expect((await h.api('erin').call(API.listChats, { query: { unread: '1' } })).items).toEqual([])
-      expect(pushBadge(h.ctx, 'erin')).toBe(before - unread('erin').length)
-      expect(chatMessageWanted(h.ctx, n.id)).toBe(false)
-    } finally {
-      db().query("INSERT INTO group_members (group_id, user_id) VALUES ('finance', 'erin')").run()
-      await h.api('erin').call(API.markChatSeen, { params: { id: chatId } })
-    }
-  })
-
-  test('the fan-out reads the same number of times for 3 people or 33 (no read per person)', () => {
-    const chat = h.ctx.db.query('SELECT * FROM chats WHERE id = ?').get(chatId) as Parameters<typeof noteSharedMessage>[1]
-    const msg = (db().query("SELECT id FROM messages WHERE chat_id = ? AND role = 'user' ORDER BY id DESC LIMIT 1").get(chatId) as { id: string }).id
-    const count = () => {
-      const real = db().query.bind(db())
-      let n = 0
-      const spy = db() as unknown as { query: (sql: string) => unknown }
-      spy.query = (sql: string) => { n++; return real(sql) }
-      try {
-        db().query('DELETE FROM chat_message_notices WHERE source_id = ?').run(msg); n = 0
-        const rings = noteSharedMessage(h.ctx, chat, msg, 'bob')
-        return { n, rings: rings.size }
-      } finally { spy.query = real as never }
-    }
-    const small = count()
-    expect(small.rings).toBe(2)
-    for (let i = 0; i < 30; i++) {
-      db().query("INSERT INTO users (id, username, name, role) VALUES (?, ?, ?, 'member')").run(`p${i}`, `p${i}`, `P ${i}`)
-      db().query("INSERT INTO group_members (group_id, user_id) VALUES ('finance', ?)").run(`p${i}`)
-    }
-    try {
-      const large = count()
-      expect(large.rings).toBe(32)
-      expect(large.n).toBe(small.n)
-    } finally {
-      db().query("DELETE FROM chat_message_notices WHERE user_id LIKE 'p%'").run()
-      db().query("DELETE FROM group_members WHERE user_id LIKE 'p%'").run()
-      db().query("DELETE FROM users WHERE id LIKE 'p%' AND username LIKE 'p%'").run()
-    }
-  })
-})
-
-describe('the answer\'s notices and the unread read stay bounded (review of #362)', () => {
-  const chatRow = () => h.ctx.db.query('SELECT * FROM chats WHERE id = ?').get(chatId) as Parameters<typeof noteSharedAnswer>[1]
-  const lastAnswer = () => (db().query("SELECT id FROM messages WHERE chat_id = ? AND role = 'assistant' ORDER BY rowid DESC LIMIT 1").get(chatId) as { id: string }).id
-  /** noteSharedAnswer as alice's answer, with every statement it prepares counted and kept */
-  const run = (answer: string) => {
-    const real = db().query.bind(db())
-    const sqls: string[] = []
-    const spy = db() as unknown as { query: (sql: string) => unknown }
-    db().query('DELETE FROM chat_message_notices WHERE source_id = ?').run(answer)
-    spy.query = (sql: string) => { sqls.push(sql); return real(sql) }
-    const t0 = performance.now()
-    try { noteSharedAnswer(h.ctx, chatRow(), answer, 'alice') } finally { spy.query = real as never }
-    return { sqls, ms: performance.now() - t0, told: (db().query('SELECT user_id FROM chat_message_notices WHERE source_id = ?').all(answer) as { user_id: string }[]).map((r) => r.user_id).sort() }
-  }
-  const addPeople = (n: number) => {
-    for (let i = 0; i < n; i++) {
-      db().query("INSERT INTO users (id, username, name, role) VALUES (?, ?, ?, 'member')").run(`q${i}`, `q${i}`, `Q ${i}`)
-      db().query("INSERT INTO group_members (group_id, user_id) VALUES ('finance', ?)").run(`q${i}`)
-    }
-  }
-  const dropPeople = () => {
-    db().query("DELETE FROM chat_message_notices WHERE user_id LIKE 'q%'").run()
-    db().query("DELETE FROM group_members WHERE user_id LIKE 'q%'").run()
-    db().query("DELETE FROM users WHERE id LIKE 'q%' AND username LIKE 'q%'").run()
-  }
-
-  test('a finished answer is judged alone: the same reads for 3 people or 300, never the whole chat per person', async () => {
-    // a long chat: many earlier answers the old fan-out walked once per member
-    for (let i = 0; i < 15; i++) await say('alice', `step ${i}`)
-    const answer = lastAnswer()
-    const small = run(answer)
-    expect(small.told).toEqual(['bob', 'erin'])
-    addPeople(300)
-    try {
-      const large = run(answer)
-      expect(large.told).toHaveLength(302)
-      // no statement per person: the same statements as for two people
-      expect(large.sqls.length).toBe(small.sqls.length)
-      // never a read of every message of the chat (shared-answers.ts chatNodes) nor an account per person
-      expect(large.sqls.some((q) => /WHERE m\.chat_id = \? ORDER BY m\.rowid/.test(q))).toBe(false)
-      expect(large.sqls.filter((q) => /FROM users WHERE id = \?/.test(q))).toHaveLength(0)
-      expect(large.ms).toBeLessThan(2000)
-    } finally { dropPeople() }
-  })
-
-  test('the answer\'s own record still hides it: an x group from the people not in it; before the cutover, all but its runner', async () => {
-    const answer = lastAnswer()
-    // what it read is not all known (x): only the people who saw the chat then (bob) see it
-    setAnswerReads(db(), chatId, answer, [{ c: ['alice', 'bob'], s: [{ type: 'root' }], x: 1 }])
-    expect(run(answer).told).toEqual(['bob'])
-    // an older answer (no cutover: the old rule) without a readable record: hidden from all but its runner
-    const cut = hiddenAnswersCutover(db())
-    db().query('DELETE FROM shared_answer_reads WHERE message_id = ?').run(answer)
-    setHiddenAnswersCutover(db(), null)
-    try { expect(run(answer).told).toEqual([]) } finally { setHiddenAnswersCutover(db(), cut) }
-    setAnswerReads(db(), chatId, answer, [])
-    expect(run(answer).told).toEqual(['bob', 'erin'])
-  })
-
-  test('everyone\'s unread numbers read the unread rows through their partial index (migration 438)', () => {
-    const plan = (db().query(`EXPLAIN QUERY PLAN SELECT user_id, COUNT(*) n FROM chat_message_notices INDEXED BY chat_message_notices_unread_by_chat
-      WHERE chat_id = ? AND read_at IS NULL AND suppressed = 0 GROUP BY user_id`).all(chatId) as { detail: string }[]).map((r) => r.detail).join(' | ')
-    expect(plan).toContain('chat_message_notices_unread_by_chat')
-    expect(plan).not.toContain('TEMP B-TREE')
-    // the function itself: read rows are not counted, unread ones are
-    const u = unreadByUser(db(), chatId)
-    expect(u.get('bob')?.n ?? 0).toBe(unread('bob').length)
-    expect(u.get('alice')?.n ?? 0).toBe(unread('alice').length)
   })
 })
 
@@ -293,37 +165,22 @@ describe('threads ring only on a mention', () => {
   })
 })
 
-// AB4 (the owner-flow A/B run): a scheduled run's result in a shared chat told nobody else. It is told as a person's
-// main message is (the owner's Slack rule, docs/decisions/20261123-ab4-asks-left.md): a notice that may ring, for every
-// other member, with no person as its writer
+// AB4: a scheduled run's answer in a project chat is Trina's, not the reader's own: it tells nobody either (only its
+// owner's finished notice, notifications/chat-answers.ts)
 describe("a scheduled run's answer in a project chat", () => {
   const farTime = () => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(Date.now() + 12 * 3_600_000))
-  test('every other member gets a notice that may ring (a push, the desktop notice); the task\'s owner and a muted member none', async () => {
-    await h.api('erin').call(API.muteChat, { params: { id: chatId } })
-    try {
-      const before = updates('bob').length
-      const s = h.rt().schedules.create('alice', { title: 'Morning ' + crypto.randomUUID().slice(0, 6), prompt: fake({ say: 'the morning summary' }), repeat: 'daily', time: farTime(), projectId }, undefined, CONFIRMED, { chatId })
-      db().query('UPDATE schedules SET next_run_at = ? WHERE id = ?').run(new Date(Date.now() - 1000).toISOString(), s.id)
-      expect(h.rt().schedules.runDue(new Date())).toEqual([s.id])
-      const t = db().query('SELECT id FROM turns WHERE schedule_id = ? ORDER BY started_at DESC LIMIT 1').get(s.id) as { id: string }
-      const answerId = () => (db().query("SELECT id, status FROM messages WHERE turn_id = ? AND role = 'assistant'").get(t.id) as { id: string; status: string } | null)
-      await waitFor(() => answerId()?.status === 'done' && of('bob', answerId()!.id).length > 0, { timeoutMs: 30_000 })
-      h.rt().schedules.delete('alice', s.id)
-      const a = answerId()!.id
-      expect(of('bob', a)).toMatchObject([{ kind: 'message', quiet: 0, read_at: null }])
-      expect((db().query('SELECT by_user FROM chat_message_notices WHERE user_id = ? AND source_id = ?').get('bob', a) as { by_user: string | null }).by_user).toBeNull()
-      expect(chatMessageWanted(h.ctx, of('bob', a)[0]!.id)).toBe(true)
-      expect(of('alice', a)).toEqual([])
-      expect(of('erin', a)).toEqual([])
-      await waitFor(() => updates('bob').slice(before).some((f) => (f.data as { notice?: { messageId: string } }).notice?.messageId === a), { timeoutMs: 10_000 })
-    } finally { await h.api('erin').call(API.unmuteChat, { params: { id: chatId } }) }
-  })
-
-  test("Trina's answer to a person who watches stays the number only (never pushed)", () => {
-    const answer = (db().query("SELECT id FROM messages WHERE chat_id = ? AND role = 'assistant' ORDER BY rowid DESC LIMIT 1").get(chatId) as { id: string }).id
-    db().query('DELETE FROM chat_message_notices WHERE source_id = ?').run(answer)
-    const rings = noteSharedAnswer(h.ctx, h.ctx.db.query('SELECT * FROM chats WHERE id = ?').get(chatId) as Parameters<typeof noteSharedAnswer>[1], answer, 'alice')
-    expect(rings.size).toBe(0)
-    expect(of('bob', answer)).toMatchObject([{ kind: 'answer', quiet: 1 }])
+  test('no member gets a notice or a ring', async () => {
+    const before = updates('bob').length
+    const s = h.rt().schedules.create('alice', { title: 'Morning ' + crypto.randomUUID().slice(0, 6), prompt: fake({ say: 'the morning summary' }), repeat: 'daily', time: farTime(), projectId }, undefined, CONFIRMED, { chatId })
+    db().query('UPDATE schedules SET next_run_at = ? WHERE id = ?').run(new Date(Date.now() - 1000).toISOString(), s.id)
+    expect(h.rt().schedules.runDue(new Date())).toEqual([s.id])
+    const t = db().query('SELECT id FROM turns WHERE schedule_id = ? ORDER BY started_at DESC LIMIT 1').get(s.id) as { id: string }
+    const answer = () => (db().query("SELECT id, status FROM messages WHERE turn_id = ? AND role = 'assistant'").get(t.id) as { id: string; status: string } | null)
+    await waitFor(() => answer()?.status === 'done', { timeoutMs: 30_000 })
+    h.rt().schedules.delete('alice', s.id)
+    await Bun.sleep(200)
+    const a = answer()!.id
+    for (const u of ['alice', 'bob', 'erin']) expect(of(u, a)).toEqual([])
+    expect(updates('bob').slice(before).some((f) => (f.data as { notice?: { messageId: string } }).notice?.messageId === a)).toBe(false)
   })
 })

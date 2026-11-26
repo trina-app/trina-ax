@@ -277,7 +277,7 @@ describe('settings, budgets, usage, audit', () => {
     expect(u.totals).toEqual({ turns: 3, inputTokens: 1110, outputTokens: 555, costUsd: 2.75 })
     expect(u.rows.map((r: any) => [r.key, r.label, r.turns])).toEqual([['olga', 'Olga Owner', 1], [mem.id, 'MAX', 2]])
     expect((await admin.call('GET', '/api/admin/usage?groupBy=engine')).rows.map((r: any) => [r.key, r.turns])).toEqual([['claude-code', 2], ['codex', 1]])
-    expect((await admin.call('GET', '/api/admin/usage?groupBy=model')).rows.map((r: any) => r.label).sort()).toEqual(['(default)', 'gpt-x', 'sonnet'])
+    expect((await admin.call('GET', '/api/admin/usage?groupBy=model')).rows.map((r: any) => r.label).sort()).toEqual(['(default)', 'Claude Sonnet', 'gpt-x'])
     expect((await admin.call('GET', '/api/admin/usage?groupBy=group')).rows).toEqual([{ key: group, label: 'Ops', turns: 2, inputTokens: 110, outputTokens: 55, costUsd: 0.75 }])
     const from = new Date(Date.now() - 60 * 86_400_000).toISOString()
     const days = (await admin.call('GET', `/api/admin/usage?groupBy=day&from=${encodeURIComponent(from)}`)).rows

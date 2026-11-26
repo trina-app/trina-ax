@@ -197,14 +197,14 @@ Un chat directo con alguien que dejó el equipo dice "<nombre> dejó el equipo" 
 ## Chat del equipo
 
 **Chats** en la barra de la izquierda (en un teléfono, la pestaña **Chats**) es donde las personas hablan entre sí: **Canales**
-(uno para todo el equipo, uno por grupo y los canales privados en los que está) y **Mensajes directos** (chats 1:1 y chats de grupo). **Menciones e hilos**,
-arriba, reúne los mensajes que le mencionan y los hilos que sigue.
+(uno para todo el equipo, uno por grupo y los canales privados en los que está) y **Mensajes directos** (chats 1:1 y chats de grupo).
+Los mensajes que le mencionan y las respuestas nuevas en los hilos que sigue están en **Actividad**, con sus demás avisos.
 
 Para escribir a una sola persona, haga clic en su foto o en su nombre junto a un mensaje (también sirve una @mención o su fila en la lista de miembros de una conversación). Se abre una tarjeta pequeña con su nombre y su cargo: **Enviar mensaje** abre su chat 1:1 con esa persona. En un teléfono la tarjeta se abre desde la parte inferior de la pantalla. Su propia tarjeta tiene **Editar perfil**. Las aplicaciones y las personas que ya no están en el equipo no tienen tarjeta; un invitado solo puede escribir a las personas de su chat de grupo o de su proyecto.
 
 Para traer a alguien de fuera del equipo, elija **Invitar a un invitado** al añadir personas a un canal privado, a un chat de grupo o a un proyecto. [Más información sobre los invitados](guests.md).
 
-![La lista Chats: Menciones e hilos, Canales con Todos (Everyone) y Marketing, y Mensajes directos con una conversación de grupo y un mensaje directo](../../images/chats/rooms-list.webp "La lista Chats")
+![La lista Chats: Canales con Todos (Everyone), el canal privado Launch email y Marketing, y Mensajes directos con un mensaje directo](../../images/chats/rooms-list.webp "La lista Chats")
 
 #### Preguntar a Trina junto a una conversación
 
@@ -238,7 +238,7 @@ antes de enviar: **Mostrar solo el enlace** (la opción predeterminada) envía s
 marcada como compartida por usted. La copia desaparece si se elimina el original. Para quitar una tarjeta de su propio mensaje, señálela
 y haga clic en **✕** (o elija **Quitar vista previa** en el menú del mensaje).
 
-![Chats en un teléfono: Menciones e hilos, canales, un chat de grupo y un mensaje directo, con las cinco pestañas abajo](../../images/chats/rooms-phone.webp "Chats en un teléfono")
+![Chats en un teléfono: Canales con Todos (Everyone), un canal privado y Marketing, y un mensaje directo, con las cinco pestañas abajo](../../images/chats/rooms-phone.webp "Chats en un teléfono")
 
 ### Dónde aparecen sus conversaciones
 

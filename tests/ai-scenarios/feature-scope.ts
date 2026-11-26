@@ -135,6 +135,7 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   'settings.notifications': { reach: 'explains' },
   'settings.export': { reach: 'explains' },
   'settings.push': { reach: 'explains' },
+  'settings.problem-reports': { reach: 'none', why: 'a form the person fills in to tell the Trina AX team; the AI never sends a report' },
   'settings.apps': { reach: 'explains' },
   'settings.about': { reach: 'explains' },
   // Admin

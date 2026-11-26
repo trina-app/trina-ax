@@ -83,6 +83,7 @@ import { emptyThread, runningMessage, type ViewMessage } from '../../store/threa
 import { toast } from '../../store/ui'
 import { ComposerFileList, useComposerFiles, type Pending } from '../chat/ComposerFiles'
 import { ComposerToolbar } from '../chat/ComposerToolbar'
+import { StopButton } from '../chat/StopButton'
 import { AttachSheet } from '../chat/AttachSheet'
 import TeamFilePicker from '../chat/TeamFilePicker'
 import { FileDropZone, type DropTarget } from '../FileDropZone'
@@ -932,7 +933,9 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
                 )}
                 end={<>
                   <VoiceMic voice={voice} mic={mic} tip />
-                  <Tooltip label={sendLabel}>
+                  {/* while my answer is on its way, as in the full chat's box: the send button only when there is
+                      something to send (the clock: it waits for the answer), and Stop next to it */}
+                  {(!busy || canSend) && <Tooltip label={sendLabel}>
                     <button
                       type="button"
                       onClick={() => void send()}
@@ -943,7 +946,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
                     >
                       {busy && queueing ? <Clock size={17} aria-hidden /> : <ArrowUp size={18} aria-hidden />}
                     </button>
-                  </Tooltip>
+                  </Tooltip>}
+                  {busy && chatId && <StopButton onStop={() => useChats.getState().stop(chatId)} onError={fail} className="size-9 max-sm:size-10" testId="side-chat-stop" />}
                 </>}
               />
             </>

@@ -20,8 +20,9 @@ import { groupName, isHiddenFor, MENTIONS_SQL, parseMentions, seenSeq, sharedAns
  * push, but no row (the 대화 tab counts those). To list them as well, add `OR n.event_type = 'room.dm'` here (and keep
  * COUNTED_SQL as it is: listed, not counted). */
 export const LISTED_SQL = `(n.event_type = 'room.mention' OR (m.thread_root_id IS NOT NULL AND EXISTS (SELECT 1 FROM room_thread_follows f WHERE f.root_id = m.thread_root_id AND f.user_id = n.user_id)))`
-/** Which listed rows count in the Inbox's unread number: today all of them. */
-export const COUNTED_SQL = LISTED_SQL
+/** Which listed rows count in the Inbox's unread number: all but a followed thread's reply the person turned off
+ * ("Replies in threads I'm part of": room_notices.silent), which stays listed in Activity's Threads. */
+export const COUNTED_SQL = `(${LISTED_SQL} AND n.silent = 0)`
 /** What the person may read now (`rm` their member row, `r` the room): not archived, not hidden by them, the message
  * there, theirs to see. A notice of a message they can no longer read is no row at all. */
 const READABLE_SQL = `r.archived_at IS NULL AND ${NOT_HELD_SQL('r')} AND rm.hidden_at IS NULL AND m.deleted_at IS NULL AND m.event IS NULL

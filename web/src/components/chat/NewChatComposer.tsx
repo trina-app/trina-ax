@@ -98,7 +98,7 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
   // the engine / model are the admin's choice: only people allowed to pick see a picker and send a choice (starting
   // from their own default, Settings); everyone else sends none and gets the team default
   const choose = canChooseEngine(me)
-  const [picked, setEngine] = useState<EngineChoice>({ engine: me.user.prefs.engine, model: me.user.prefs.model ?? null })
+  const [picked, setEngine] = useState<EngineChoice>({ engine: me.user.prefs.engine, model: me.user.prefs.model ?? null, effort: me.user.prefs.effort })
   const engine: EngineChoice = choose ? picked : { engine: undefined, model: undefined }
 
   useEffect(() => {
@@ -113,7 +113,7 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
     if (drafted === null) setDrafted(!wantPrivate)
     let shared: boolean | null = null
     const made = draftChat(me.user.id, draftId, () =>
-      api.call(API.createChat, { body: { projectId, engine: engine.engine, model: engine.model ?? undefined, ...(wantPrivate ? { private: true } : {}) } }).then((c) => {
+      api.call(API.createChat, { body: { projectId, engine: engine.engine, model: engine.model ?? undefined, ...(engine.effort ? { effort: engine.effort } : {}), ...(wantPrivate ? { private: true } : {}) } }).then((c) => {
         upsertChat(c)
         shared = !!c.shared
         return c.id
@@ -135,7 +135,7 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
     const chatId = pending ? await pending : null
     // never a private question into a shared draft chat: the switch shows the draft's state, and this checks it again
     if (chatId && team && onlyMe && draftChatShared(me.user.id, draftId) !== false) throw new Error('draft chat is shared')
-    const r = await send({ chatId, content: text, attachments, author: { id: me.user.id, name: me.user.name }, projectId, engine: engine.engine, model: engine.model, ...(privateNow ? { private: true } : {}) })
+    const r = await send({ chatId, content: text, attachments, author: { id: me.user.id, name: me.user.name }, projectId, engine: engine.engine, model: engine.model, ...(engine.effort ? { effort: engine.effort } : {}), ...(privateNow ? { private: true } : {}) })
     forgetDraftChat(me.user.id, draftId)
     // the next new chat here starts shared again
     setOnlyMe(false)

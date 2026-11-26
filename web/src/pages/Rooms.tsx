@@ -11,27 +11,24 @@
 // recently pinned first, a pin after the name), my sections (an empty one says how to fill it), 채널 (전체
 // first), 다이렉트 메시지 (1:1s and group chats, a group chat with its people's faces), each under its name. Someone with no 1:1 or group chat yet gets one quiet line
 // under the list that opens the people list ("동료에게 새 대화 시작하기"), as the top bar's ⊕ does.
-// The list starts with "멘션·스레드" (QA TC-256): the Activity page's conversations (mentions and replies in
-// threads I follow, lib/screens.ts CHATS_ACTIVITY), a page of this tab. A dot while one is unread, no number: their rooms
-// count them already, on their rows and on the 대화 tab. Search is the top bar's 🔍 (components/PhoneTopBar.tsx).
+// Mentions, DMs and thread replies as notices are in 나 › 활동, the one Activity (docs/decisions/20261126-one-activity.md):
+// this list has no row for them. Search is the top bar's 🔍 (components/PhoneTopBar.tsx).
 // Each section folds with its header (docs/decisions/20261116-collapsible-chat-sections.md), with the 대화
 // panel's fold keys, so a section folded here is folded on the computer and on my other devices (panels/folds.ts):
 // folded, its rooms go and the header says what waits there, bold with one pill (RoomsByKind.tsx foldedLook).
 import { useCanStartChat, useGuestHidden } from '../components/GuestView'
 import { guestPlacePath, meGuest } from '../lib/guests'
 import clsx from 'clsx'
-import { ListIcon, ListSection, rowName } from '../components/list/List'
-import { AtSign, BellOff, ChevronDown, Plus } from 'lucide-react'
+import { ListSection, rowName } from '../components/list/List'
+import { BellOff, ChevronDown, Plus } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { listTime } from '../lib/format'
 import { listedRoom, plainLine, roomCounts } from '../lib/rooms'
-import { CHATS_ACTIVITY } from '../lib/screens'
 import { useLocale, useT } from '../i18n'
 import { useRooms } from '../store/rooms'
-import { useRoomNoticeUnread } from '../store/inbox'
 import { toast } from '../store/ui'
 import { useMe } from '../store/session'
 import { PeoplePicker } from '../components/rooms/PeoplePicker'
@@ -104,9 +101,6 @@ export default function Rooms() {
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-testid="rooms-page">
       <div className="mx-auto w-full max-w-2xl">
-        <ul>
-          <ChatsActivityRow className={row} />
-        </ul>
         {(() => {
           const sections = roomsByKind(everyRoom.filter((r) => !r.hidden && listedRoom(r)), titleOf, locale, folders)
           // with any conversation, Channels and Direct messages stay (their "+" makes a section or a channel), and my
@@ -160,27 +154,6 @@ export default function Rooms() {
       </div>
       <PeoplePicker open={picking} onClose={() => setPicking(false)} />
     </div>
-  )
-}
-
-/** The first row: 멘션·스레드, the conversations' part of Activity (a page of this tab), a dot while one is unread. */
-function ChatsActivityRow({ className }: { className: string }) {
-  const t = useT()
-  const unread = useRoomNoticeUnread() > 0
-  return (
-    <li>
-      <Link to={CHATS_ACTIVITY} className={className} data-testid="rooms-activity">
-        <ListIcon>
-          <AtSign />
-        </ListIcon>
-        <span className={clsx('min-w-0 flex-1 truncate', rowName({ unread }))}>{t('feed.chats')}</span>
-        {unread && (
-          <span className="mr-1 size-2.5 shrink-0 rounded-full bg-accent" data-testid="rooms-activity-unread">
-            <span className="sr-only">{t('feed.chatsUnread')}</span>
-          </span>
-        )}
-      </Link>
-    </li>
   )
 }
 

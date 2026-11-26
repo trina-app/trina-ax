@@ -46,10 +46,9 @@ const q = (search: string) => new URLSearchParams(search)
 const dirOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 const folder = (p: string) => (p ? `/files?path=${encodeURIComponent(p)}` : '/files')
 
-/** Activity's conversations (mentions and thread replies, `?in=chats`): a page of the 대화 tab, opened from its
- * 멘션·스레드 row (pages/Rooms.tsx), so it is under /rooms here. The whole Activity (/activity) stays 나's. */
-export const CHATS_ACTIVITY = '/activity?in=chats'
-export const activityInChats = (search: string) => q(search).get('in') === 'chats'
+/** An old link to 대화's 멘션·스레드 (`/activity?in=chats`, removed: docs/decisions/20261126-one-activity.md): Activity
+ * opens it as itself (pages/Activity.tsx), and a kept stack or place drops it. */
+export const oldChatsActivity = (to: string) => /^\/activity(\?|$)/i.test(to) && q(to.slice(to.indexOf('?') + 1)).get('in') === 'chats'
 
 /** The pieces of an address ("/files?path=a#x" → pathname, search, hash). */
 function split(to: string) {
@@ -122,8 +121,7 @@ export function screenOf(to: string): Screen {
       if (c) return s('me', `/${seg.slice(0, -1).join('/')}`)
       return b ? s('me', '/settings') : s('me', null)
     case 'activity':
-      // its conversations (?in=chats, 대화's 멘션·스레드 row) are a page of the 대화 tab, whichever of its tabs is chosen
-      if (activityInChats(search)) return s('chats', '/rooms', CHATS_ACTIVITY)
+      // the one Activity, with every notice (docs/decisions/20261126-one-activity.md): 나's
       return s('me', '/settings')
     case 'admin':
       // Admin's own table (pages/admin/adminScreens.ts): a page → /admin, a group of Team settings → /admin/settings,
@@ -232,7 +230,6 @@ export function useScreenName(): (to: string) => string | null {
       // 파일's places, or the team folder's own top (?team=1)
       return path ? folderName(path) : !q(search).has('team') ? t('sidebar.files') : t('files.root')
     }
-    if (pathname === '/activity' && activityInChats(search)) return t('feed.chats')
     const settings = settingsPageName(pathname, t)
     if (settings) return settings
     const key = TITLES.find(([re]) => re.test(pathname))?.[1]

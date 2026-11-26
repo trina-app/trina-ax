@@ -80,6 +80,14 @@ export function createBroker(cc: CredCtx): CredentialBroker {
     output_tokens = (CASE WHEN usage_source = 'proxy' THEN output_tokens ELSE 0 END) + ?,
     cost_usd = (CASE WHEN usage_source = 'proxy' THEN COALESCE(cost_usd, 0) ELSE 0 END) + ?,
     est_cost_usd = (CASE WHEN usage_source = 'proxy' THEN COALESCE(est_cost_usd, 0) ELSE 0 END) + ?, usage_source = 'proxy' WHERE id = ?`)
+  // usage by model (turn_models, migration 456): the same rule per model. The first proxied request of a turn drops the
+  // rows the engine reported for it (chat/turn.ts recordModelUsage), later ones add to the proxy's rows; the engine
+  // never writes once a proxy row exists, so no token is counted twice
+  const dropEngineModels = cc.db.query("DELETE FROM turn_models WHERE turn_id = ? AND source = 'engine'")
+  const addModel = cc.db.query(`INSERT INTO turn_models (turn_id, model, source, requests, input_tokens, output_tokens, cost_usd, est_cost_usd)
+    SELECT ?1, ?2, 'proxy', 1, ?3, ?4, ?5, ?6 WHERE EXISTS (SELECT 1 FROM turns WHERE id = ?1)
+    ON CONFLICT(turn_id, model) DO UPDATE SET source = 'proxy', requests = requests + 1, input_tokens = input_tokens + excluded.input_tokens,
+      output_tokens = output_tokens + excluded.output_tokens, cost_usd = cost_usd + excluded.cost_usd, est_cost_usd = est_cost_usd + excluded.est_cost_usd`)
   const day = cc.db.query(`INSERT INTO credential_usage_daily (credential_id, day, requests, input_tokens, output_tokens, cost_usd) VALUES (?, ?, 1, ?, ?, ?)
     ON CONFLICT(credential_id, day) DO UPDATE SET requests = requests + 1, input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + excluded.output_tokens, cost_usd = cost_usd + excluded.cost_usd`)
   const used = cc.db.query('UPDATE engine_credentials SET last_used_at = ?, checked_at = COALESCE(checked_at, ?) WHERE id = ?')
@@ -185,7 +193,12 @@ export function createBroker(cc: CredCtx): CredentialBroker {
       }
       const now = new Date(cc.now())
       // a subscription request adds 0 to the money spent, and its API list price to the estimate (est_cost_usd)
-      add.run(input, output, cost, estimateOf(row.kind, model, usage), turnId)
+      const est = estimateOf(row.kind, model, usage)
+      cc.db.transaction(() => {
+        add.run(input, output, cost, est, turnId)
+        dropEngineModels.run(turnId)
+        addModel.run(turnId, (model || 'unknown').slice(0, 200), input, output, cost, est)
+      })()
       day.run(credentialId, teamDay(cc.db, now), input, output, cost)
       used.run(now.toISOString(), now.toISOString(), credentialId)
       const userId = (cc.db.query('SELECT user_id FROM turns WHERE id = ?').get(turnId) as { user_id: string } | null)?.user_id
