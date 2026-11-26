@@ -160,8 +160,8 @@ export function describeLooked(exec: Exec, x: Looked, record: LookedAt | null, L
         if (!confidentialChat(db, x.chatId)) {
           const a = chatFor(rt, spec.userId, x.chatId, 'view')
           parts.push(`the chat ${q(a.row.title || 'New chat')}`)
-          // another chat's title: the person's own (a chat they see)
-          record?.places.push({ type: 'user', id: spec.userId })
+          // another chat's title: whoever sees that chat (read-scope.ts chatViewers), so a card asks when someone here does not
+          record?.places.push({ type: 'chat', id: x.chatId })
         }
       } catch {}
     }

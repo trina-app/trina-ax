@@ -36,7 +36,8 @@ function labels(ctx: AppContext, user: string) {
   const mine = !!own && own.status === 'connected' && own.config_key === svc.key
   return { mine, shares: usableShares(ctx.db, user, svc.key) }
 }
-function resolve(ctx: AppContext, user: string, wanted: string | undefined): Source {
+/** `named`: the result may name the team's Drive shares (not in a shared chat, where everyone in it reads it) */
+function resolve(ctx: AppContext, user: string, wanted: string | undefined, named = true): Source {
   const svc = googleDriveOf(ctx)
   svc.checkShareOwners()
   const { mine, shares } = labels(ctx, user)
@@ -50,7 +51,7 @@ function resolve(ctx: AppContext, user: string, wanted: string | undefined): Sou
   }
   if (wanted) {
     share = shares.find((r) => `team:${r.name}`.toLocaleLowerCase() === wanted.toLocaleLowerCase())
-    if (!share) throw new ToolError(`drive_source_unknown: ${all.length ? `the sources here are ${all.map((x) => JSON.stringify(x)).join(', ')}` : 'no Google Drive is connected or shared with this person'}`)
+    if (!share) throw new ToolError(`drive_source_unknown: ${all.length ? (named ? `the sources here are ${all.map((x) => JSON.stringify(x)).join(', ')}` : `there ${all.length === 1 ? 'is 1 source' : `are ${all.length} sources`} here (the user sees their names in Settings)`) : 'no Google Drive is connected or shared with this person'}`)
   } else share = shares[0]
   if (!share) throw new DriveError('needs_reconnect', 409)
   const row = share
@@ -63,7 +64,7 @@ function resolve(ctx: AppContext, user: string, wanted: string | undefined): Sou
  * knows where the bytes came from). */
 export async function withDrive<T>(ctx: AppContext, t: ToolCtx, wanted: string | undefined, fn: (s: Source, signal: AbortSignal) => Promise<T>): Promise<{ result: T; source: Source; others: string[] }> {
   const at = turnChat(ctx, t), chat = at.id, svc = googleDriveOf(ctx)
-  const source = resolve(ctx, t.user.id, wanted)
+  const source = resolve(ctx, t.user.id, wanted, !at.shared)
   const read: ReadSource = source.share ? { type: 'drive_share', id: source.share.id } : { type: 'user', id: t.user.id, via: 'connection' }
   // a shared chat (docs/decisions/20261126-shared-chat-everything.md): the asker's one notice per place first, and
   // what comes back joins the answer's read record (their own, or the Drive share's people)

@@ -4337,8 +4337,13 @@ export class TurnExec {
    * `yes`: after a read card's yes (the group gets y: nothing hides by it, it tells a later widening warning and an
    * older build's walk apart from a silent read). false: the record could not be written (the caller does not read:
    * fails closed). */
+  /** this answer took in something some people here could not open themselves (a read card's yes, a connection's or the
+   * person's own service's answer): its title is not built from it (set_title, chat/tools.ts) */
+  narrowerRead = false
+
   private noteSharedReads(sources: readonly ReadSource[], audience: readonly string[], yes = false, kept = false): boolean {
     if (!this.shared || !sources.length) return true
+    if (yes || kept) this.narrowerRead = true
     // an answer that already attached a file for everyone here (attachToAnswer), or is attaching one now (beginAttach),
     // never becomes one hidden from people added later (a k group): that connection's answer is not read into it (fails closed, the call is refused).
     // Nor one that saved a version of a chat file (TurnFiles.chatVersionsMade, set in the same synchronous step as the
@@ -4900,7 +4905,7 @@ export class TurnExec {
    * chat later and may not use the connection themselves does not see the answer. Changes at the service keep their
    * own cards (connections/tools.ts gate). null: go on.
    */
-  async confirmSharedConnection(c: { id: string; key: string; name: string; sources: ReadSource[]; bind?: string; browser?: true; notice?: OwnService }): Promise<string | null> {
+  async confirmSharedConnection(c: { id: string; key: string; name: string; sources: ReadSource[]; bind?: string; browser?: true; notice?: OwnService; fresh?: true }): Promise<string | null> {
     if (!this.shared) return null
     // this answer saved a version of a chat file (everyone who sees the file opens it), so it never becomes one hidden
     // from people added later (noteSharedReads): said as it is, never "could not check" (QA TC-6962)
@@ -4922,7 +4927,8 @@ export class TurnExec {
     // Always from the old card
     if (this.sharedConnAllowed.has(c.key)) return go()
     try {
-      if (c.browser || c.notice ? browserWarnSeen(this.rt.db, this.spec.userId, place, c.notice ?? 'browser') : c.bind && warnSeen(this.rt.db, c.id, this.spec.userId, place, c.bind)) return go()
+      // (`fresh`: the kept notice does not count now: confirmSharedService)
+      if (!c.fresh && (c.browser || c.notice ? browserWarnSeen(this.rt.db, this.spec.userId, place, c.notice ?? 'browser') : c.bind && warnSeen(this.rt.db, c.id, this.spec.userId, place, c.bind))) return go()
       if (!c.browser && !c.notice && this.sharedConnForGood(c)) return go()
     } catch (e) { this.rt.log.warn('shared connection check failed', { err: e, turn: this.id }); return failed() }
     // one notice per connection at a time (parallel calls share it)
@@ -4945,30 +4951,34 @@ export class TurnExec {
   }
 
   /**
+   * The asker's own Google Drive or Slack in a shared chat (docs/decisions/20261126-shared-chat-everything.md): as their
+   * own connection, behind the one notice per place ("Other people in this chat can also see what the AI gets from
+   * <service>.", Continue; kept in card_always_allow `seen:<service>:<place>`, browser-notice.ts). While a guest sees the
+   * chat or someone else wrote in it, the kept notice does not count: it asks again in each answer (their Always for
+   * changes after other people's words, `room_change`, lets the kept one count). Slack (the team's Slack app) and a Drive
+   * the team shares are team connections: off while a guest sees the chat. What it returns joins the answer's read record
+   * (`sources`: the person's own, or the team Drive share's people). null: go on; else the refusal for the AI.
+   */
+  confirmSharedService(what: OwnService, sources: ReadSource[]): Promise<string | null> {
+    if (!this.shared) return Promise.resolve(null)
+    let guests = true
+    try { guests = this.sharedAudience().some((u) => isGuestUser(this.rt.db, u)) } catch { guests = true }
+    const name = what === 'drive' ? 'Google Drive' : 'Slack'
+    if (guests && (what === 'slack' || sources.some((x) => x.type === 'drive_share'))) {
+      return Promise.resolve(refusal({ done: `Nothing was fetched from ${name}`, why: { kind: 'mode', mode: 'this shared chat', why: `a guest is in it, and guests have no connected services, so the team's ${name} is off here` }, next: what === 'drive' ? 'say so plainly in one or two sentences; the user can use their own Drive, or ask in a chat only they see' : 'say so plainly in one or two sentences; the user can ask in a chat only they see' }))
+    }
+    const fresh = (guests || this.otherAuthors) && alwaysHere(this.alwaysPlace(), 'room_change') !== 'on'
+    const id = `\u0000${what}`
+    return this.confirmSharedConnection({ id, key: id, name, sources, notice: what, ...(fresh ? { fresh: true as const } : {}) })
+  }
+
+  /**
    * The in-app browser in a shared chat (docs/decisions/20261126-shared-chat-own-tools.md): the asker's own browser for
    * their own request, as in their own chat, behind the same one notice per place as a connection ("Other people in this
    * chat can also see what the AI gets from your browser.", Continue; kept in card_always_allow, browserWarnSeen). What
    * its pages bring in joins the answer's read record as the asker's own (via 'browser'), like their own connection's
    * answer: someone who sees the chat later does not see that answer. null: go on; else the refusal for the AI.
    */
-  /**
-   * The asker's own Google Drive or Slack in a shared chat (docs/decisions/20261126-shared-chat-everything.md): as their
-   * own connection, behind the one notice per place ("Other people in this chat can also see what the AI gets from
-   * <service>.", Continue; kept in card_always_allow `seen:<service>:<place>`, browser-notice.ts). What it returns joins
-   * the answer's read record (`sources`: the person's own, or the team Drive share's people). null: go on.
-   */
-  confirmSharedService(what: OwnService, sources: ReadSource[]): Promise<string | null> {
-    if (!this.shared) return Promise.resolve(null)
-    // a Drive the team shares is a team connection: off while a guest sees the chat (guests have no connected services)
-    if (sources.some((x) => x.type === 'drive_share')) {
-      let guests = true
-      try { guests = this.sharedAudience().some((u) => isGuestUser(this.rt.db, u)) } catch { guests = true }
-      if (guests) return Promise.resolve(refusal({ done: 'Nothing was fetched from Google Drive', why: { kind: 'mode', mode: 'this shared chat', why: 'a guest is in it, and guests have no connected services, so the team\'s Google Drive is off here' }, next: 'say so plainly in one or two sentences; the user can use their own Drive, or ask in a chat only they see' }))
-    }
-    const id = `\u0000${what}`
-    return this.confirmSharedConnection({ id, key: id, name: what === 'drive' ? 'Google Drive' : 'Slack', sources, notice: what })
-  }
-
   confirmSharedBrowser(): Promise<string | null> {
     if (!this.shared) return Promise.resolve(null)
     return this.confirmSharedConnection({ id: BROWSER_NOTICE, key: BROWSER_NOTICE, name: tr('browserName', this.spec.locale), sources: [{ type: 'user', id: this.spec.userId, via: 'browser' }], browser: true })

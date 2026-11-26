@@ -22,9 +22,12 @@
     found): rooms (`rooms`, `room_read`, `room_file`; a room some of them are not in, or a part of it they do not see),
     files and folders shared with the asker one by one (`shared_with_me`, and the read tools open them by their links or
     paths here too: TurnFiles.grantReads; the source is the owner's place, whose readers are the owner and the share's
-    people), what the asker has open (`looking_at`), the asker's folders (`my_folders`, their names), and a computer
-    upload attached before the chat was shared (now a reference to that file of the sender's own folder: behind the read
-    card in a project chat, a copy kept with the chat in a chat shared with people, as any file of their own folder).
+    people), what the asker has open (`looking_at`), and the asker's folders (`my_folders`, their names).
+  - a computer upload attached before the chat was shared: now a reference to that file of the sender's own folder, and
+    it goes as any file of their own folder does there: in their own project's chat with no card (the asker's own folder
+    read for their own project, the owner's rule of 2026-11-23 in [20261123-do-then-undo.md](20261123-do-then-undo.md);
+    the read card when a guest is among the people), in a chat shared with people as a copy kept with the chat (their
+    press of Send, [20261121-share-chat-files.md](20261121-share-chat-files.md) Rule 2).
   - the asker's own Google Drive and Slack: the once-per-place notice a connection has ("Other people in this chat can
     also see what the AI gets from Google Drive.", Continue), kept in `card_always_allow` as `seen:drive:<place>` /
     `seen:slack:<place>` (no connection row, so no migration) and listed in Settings › Allowed for Trina, where it can be

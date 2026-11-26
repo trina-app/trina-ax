@@ -283,16 +283,19 @@ export function roomReadTools(exec: TurnExec): Tool[] {
         const refused = guestRoomRefusal(a.data.room)
         if (refused) { label('room_file'); return { ...text(refused, false), summary: 'room_file -> no room (guest)' } }
         try {
-          // a shared chat: what the file is joins the chat's read scope only after the read card
-          const found: ReadSource[] = []
-          const r = await readRoomFile(exec, files, a.data, (name) => { named = name }, exec.shared ? (x) => { found.push(x) } : undefined)
-          // (several rooms matched the name: their names, by the ids the answer lists)
-          if (exec.shared && !found.length) for (const c of r.content) if (c.type === 'text' && c.text.startsWith('Several of the user\'s rooms match')) for (const m of c.text.matchAll(/room_id=([0-9a-f-]{36})/g)) found.push({ type: 'room', id: m[1]! })
-          if (exec.shared && found.length) {
-            const no = await sharedNo('room_file', found)
-            if (no) return { ...text(no, true), summary: 'room_file -> not read (shared chat)' }
-            addSources(rt.db, spec.chatId, found)
+          // a shared chat: the read card before the file is read or named (its step stays the verb alone until then):
+          // the file's room from its message on, or every room the name matches when it names several or no file
+          if (exec.shared) {
+            const pre: ReadSource[] = []
+            try {
+              const f = findRoomFile(rt.db, spec.userId, a.data.room, a.data.file, shownTimeZone(spec.timeZone, rt.timeZone))
+              if (!('text' in f)) pre.push(...saveSources(exec, f))
+              else { const m = findRoom(rt.db, spec.userId, a.data.room); if (m) pre.push(...('one' in m ? [m.one.room.id] : m.many.map((x) => x.room.id)).map((id): ReadSource => ({ type: 'room', id }))) }
+            } catch { /* nothing found: the read answers as not found */ }
+            const shut = await sharedNo('room_file', pre)
+            if (shut) return { ...text(shut, true), summary: 'room_file -> not read (shared chat)' }
           }
+          const r = await readRoomFile(exec, files, a.data, (name) => { named = name })
           return guest ? { ...r, content: r.content.map((c) => (c.type === 'text' ? { ...c, text: c.text.replace(ROOMS_HINT, GUEST_ROOMS_HINT) } : c)) } : r
         } finally { label('room_file', named) }
       },
@@ -311,6 +314,8 @@ export function roomReadTools(exec: TurnExec): Tool[] {
         if (off) { label('save_room_file'); return { text: off, summary: 'save_room_file -> denied: account disabled' } }
         // someone taken out of a group a moment ago is out of its room before the file is looked up (and before a card)
         syncMine()
+        // a shared chat: a refusal names rooms (several match) or the file, so it waits for the read card in call()
+        if (exec.shared) return null
         const no = saveRefusal(exec, a.data)
         if (!no) return null
         label('save_room_file')
@@ -327,11 +332,14 @@ export function roomReadTools(exec: TurnExec): Tool[] {
         const to = a.data.save_as?.trim().slice(0, 80)
         // a shared chat: the copy's name and place come into the chat and a later read of it there is the asker's own
         // folder's, so the room goes through the read card first (security review of the shared-chat change)
+        // (every room the name matches, before any refusal names one of them or the file)
         if (exec.shared) {
-          let room: string | null = null
-          try { const f = findRoom(rt.db, spec.userId, a.data.room); room = f && 'one' in f ? f.one.room.id : null } catch { room = null }
-          const shut = room ? await sharedNo('save_room_file', [{ type: 'room', id: room }]) : null
+          let rooms: string[] = []
+          try { const f = findRoom(rt.db, spec.userId, a.data.room); rooms = !f ? [] : 'one' in f ? [f.one.room.id] : f.many.map((x) => x.room.id) } catch { rooms = [] }
+          const shut = await sharedNo('save_room_file', rooms.map((id): ReadSource => ({ type: 'room', id })))
           if (shut) { label('save_room_file'); return { ...text(shut, true), summary: 'save_room_file -> not saved (shared chat)' } }
+          const no = saveRefusal(exec, a.data)
+          if (no) { label('save_room_file'); return { ...text(no.text, true), summary: no.summary } }
         }
         try { return await saveRoomFile(exec, files, a.data, (n) => { named = n }, planned.take(args), { tool: 'save_room_file', args }) } finally { label('save_room_file', named && to ? `${named} → ${to}` : named) }
       },
@@ -646,9 +654,11 @@ function saveWiden(exec: TurnExec, a: SaveArgs | undefined): WidenOf | undefined
 }
 
 /** "<verb> · <name> → <save_as>" for the step and the card in the person's own chat: the file's name as the person sees
- * it, only for a file of the named room they may see; the verb alone otherwise. */
+ * it, only for a file of the named room they may see; the verb alone otherwise (and in a shared chat). */
 function saveLabel(exec: TurnExec) {
   return (args: unknown, locale: Locale) => {
+    // a shared chat: the verb alone until the read card (call() names the file once it is saved)
+    if (exec.shared) return FILE_STEP_VERB.save_room_file![locale]
     const a = (args && typeof args === 'object' ? args : {}) as { room?: unknown; file?: unknown; save_as?: unknown }
     const f = typeof a.file === 'string' && typeof a.room === 'string' ? findRoomFile(exec.rt.db, exec.spec.userId, a.room, a.file, shownTimeZone(exec.spec.timeZone, exec.rt.timeZone)) : null
     const verb = FILE_STEP_VERB.save_room_file![locale]

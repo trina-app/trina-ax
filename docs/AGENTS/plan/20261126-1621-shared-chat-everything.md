@@ -30,7 +30,7 @@ In (numbers as in the owner's brief):
    is not in that room.
 8. delete_files: the normal card for any file the asker may delete (as in their own chat).
 9. change_project_members, change_folder_access, skill_files: offered with their normal card (Always still skips it).
-10. An upload attached before the chat was shared: a reference behind the read card (project chat) or a copy kept with
+10. An upload attached before the chat was shared: a reference to the sender's own file (project chat: the own-folder rule) or a copy kept with
     the chat (chat shared with people), as a team file of the sender's own folder is today.
 11. The situation block, the model-pick hint and the person's "earlier yes" approvals (card-approvals) in shared chats.
 Kept (owner decisions): other chats' memories, guest-only limits, the personal-skill copy check, scheduled-run place

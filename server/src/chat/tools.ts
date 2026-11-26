@@ -428,8 +428,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // and the asker's own Slack reading behind its one notice per place (docs/decisions/20261126-shared-chat-everything.md)
   // a free-roam demo: no Slack reading (its API calls go out directly: docs/decisions/20261119-demo-free-roam-a.md)
   const kept = isFreeRoam(exec.rt.ctx.config) ? providers.filter((p) => p.name !== 'slack') : providers
-  const offered = confidential || exec.restricted || guest ? [] : exec.shared ? kept.filter((p) => p.name === 'integrations' || p.name === 'slack') : kept
   const sharedConn = exec.shared ? exec.sharedConnections() : undefined
+  // (the team's Slack app is a team connection: not while a guest sees the chat)
+  const offered = confidential || exec.restricted || guest ? [] : exec.shared ? kept.filter((p) => p.name === 'integrations' || (p.name === 'slack' && !sharedConn!.guestHere())) : kept
   for (const p of offered) {
     let built: ReturnType<typeof p.build>
     try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, desktop: exec.desktop, scheduled: exec.spec.clientKind === 'schedule', ...(sharedConn ? { shared: sharedConn } : {}) }) }
@@ -1894,6 +1895,8 @@ function bTools(exec: TurnExec): Tool[] {
           summary: `set_title -> refused (${t.reason})`,
         }
       }
+      // a shared chat: the title shows to everyone in it, so not after this answer took in what some of them cannot open
+      if (exec.shared && exec.narrowerRead) return { ...text('Not set: this answer used something some people in this shared chat cannot open, and the title shows to all of them. Leave the title as it is; the user can rename the chat.'), summary: 'set_title -> refused (shared chat, narrower read)' }
       if (!setAiTitle(rt.db, spec.chatId, t.title))
         return { ...text('Not set: this chat already has its title (the user named it, or you already did). Do not call set_title again.'), summary: 'set_title -> kept the existing title' }
       rt.publishChat(spec.userId, spec.chatId, 'updated')

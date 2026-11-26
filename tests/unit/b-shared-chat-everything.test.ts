@@ -154,6 +154,29 @@ describe('team chat rooms (item 7)', () => {
   })
 })
 
+describe('room names and files before the card (security review of #662)', () => {
+  test('save_room_file and room_file with a name several rooms match: the read card first; a no names none of them', async () => {
+    await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['dana'], name: 'Quokka crew' } })
+    await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['dana'], name: 'Quokka team' } })
+    for (const tool of ['save_room_file', 'room_file']) {
+      const chat = await newShared()
+      const r = await askCards('alice', chat.id, fake({ tool, args: { room: 'Quokka', file: uuidv7() }, sayResult: true }), () => 'skip')
+      expect({ tool, cards: r.cards.length }).toEqual({ tool, cards: 1 })
+      expect(textOf(r.done)).not.toContain('Quokka crew')
+      expect(textOf(r.done)).not.toContain('Quokka team')
+    }
+  })
+
+  test('set_title after the answer took in what some people here cannot open: not set', async () => {
+    const room = await teamRoom(['alice', 'dana'], 'Title secret: OKAPI-3')
+    const chat = await newShared()
+    const r = await askCards('alice', chat.id, fake({ tool: 'room_read', args: { room } }, { tool: 'set_title', args: { title: 'Okapi plans' }, sayResult: true }), () => 'share')
+    expect(r.cards).toHaveLength(1)
+    expect(textOf(r.done)).toContain('Not set: this answer used something some people in this shared chat cannot open')
+    expect((await h.api('erin').call(API.getChat, { params: { id: chat.id } })).title).not.toBe('Okapi plans')
+  })
+})
+
 describe('trash (item 8)', () => {
   test('another person\'s team file goes to the trash behind the delete card (no: it stays)', async () => {
     const rel = `groups/marketing/trash-${uuidv7().slice(-6)}.md`

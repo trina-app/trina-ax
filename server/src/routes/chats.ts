@@ -197,7 +197,7 @@ const sharedAttachment = (a: ChatAccess, x: Attachment): boolean => x.source ===
 
 /** A shared chat's attachments: a computer upload of the sender in this chat from before it was shared goes in as a
  * reference to its file in their own folder (AttachmentStore.asReference), so it is a team file of theirs like any other
- * there: behind the read card in a project chat, a copy kept with a chat shared with people (attachCopies;
+ * there: as the own-folder rule of a project chat says (no card in the asker's own project, else the read card), a copy kept with a chat shared with people (attachCopies;
  * docs/decisions/20261126-shared-chat-everything.md). Anything else unchanged. */
 async function sharedUploads(ctx: AppContext, a: ChatAccess, userId: string, picked: Attachment[]): Promise<Attachment[]> {
   const store = ctx.services.attachments
