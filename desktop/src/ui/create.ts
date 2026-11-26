@@ -211,7 +211,7 @@ function nameTeam(v: Extract<CreateView, { screen: 'name' }>, ctx: Ctx) {
   )
 }
 
-/** S4: "Setting up {team}… about 3 to 5 minutes. You can close the app." and its 3 steps */
+/** S4: "Setting up {team}… about a minute or two. You can close the app." and its 3 steps */
 function starting(v: Extract<CreateView, { screen: 'starting' }>, ctx: Ctx) {
   const steps = startSteps(v.step)
   return card(

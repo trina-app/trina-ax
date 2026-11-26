@@ -21,14 +21,14 @@ Dengan **Lanjutkan dengan Google**, browser Anda membuka halaman masuk Google; s
 #### Beri nama tim
 Ketik nama tim. Aplikasi menyarankan alamatnya (`acme.trina.app`); **Ubah** memilih alamat lain. Baca batas paket Gratis, centang kotaknya, lalu buat.
 
-#### Tunggu beberapa menit
-Membuat tim memakan waktu sekitar 3 sampai 5 menit. Anda bisa menutup aplikasi; saat dibuka lagi, aplikasi kembali ke layar ini.
+#### Tunggu satu atau dua menit
+Membuat tim memakan waktu sekitar satu atau dua menit. Anda bisa menutup aplikasi; saat dibuka lagi, aplikasi kembali ke layar ini.
 
 #### Selamat datang di tim Anda
 Tim terbuka di aplikasi, dan Anda sudah masuk. Jika Anda masuk dengan Google, tekan **Lanjutkan**. Jika Anda masuk dengan kode email, **pilih kata sandi** dulu: Anda memakainya di ponsel dan komputer lain.
 :::
 
-Setiap akun punya satu tim gratis. Jika akun Anda sudah punya tim, aplikasi menawarkan **Buka** sebagai gantinya. Tim Gratis tertidur saat tidak ada yang memakainya dan bangun saat seseorang membukanya. Owner meningkatkan paket di **Admin › Sistem › Paket › Pilih paket**. Versi Mac App Store hanya bisa masuk ke tim yang sudah Anda buat sebelumnya (**Sudah membuat tim?** **Masuk**).
+Setiap akun punya satu tim gratis. Jika akun Anda sudah punya tim, aplikasi menawarkan **Buka** sebagai gantinya. Tim Gratis tertidur saat tidak ada yang memakainya dan bangun dalam waktu kurang dari setengah menit saat seseorang membukanya. Owner meningkatkan paket di **Admin › Sistem › Paket › Pilih paket**. Versi Mac App Store hanya bisa masuk ke tim yang sudah Anda buat sebelumnya (**Sudah membuat tim?** **Masuk**).
 
 ## Langkah-langkahnya
 

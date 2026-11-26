@@ -48,7 +48,7 @@ test('S0 → S5 for a Google owner: one sign-in in the browser, a name, the wait
   try {
     // S0: two rows and the demo link, no box yet
     await expect(w.getByTestId('create-team')).toContainText('Create a team for free')
-    await expect(w.getByTestId('create-team')).toContainText('Your own team in about 5 minutes. Free, no card.')
+    await expect(w.getByTestId('create-team')).toContainText('Your own team in about a minute or two. Free, no card.')
     await expect(w.getByTestId('join-team')).toHaveText('Join with an invite link')
     await expect(w.locator('#address')).toHaveCount(0)
     await expect(w.getByText('Install it yourself')).toHaveCount(0)
@@ -96,7 +96,7 @@ test('S0 → S5 for a Google owner: one sign-in in the browser, a name, the wait
 
     // S4, then the team's own setup page in the app's window
     await expect(w.getByText('Setting up Acme Cafe…')).toBeVisible()
-    await expect(w.getByText('About 3 to 5 minutes. You can close the app.')).toBeVisible()
+    await expect(w.getByText('About a minute or two. You can close the app.')).toBeVisible()
     const page = await teamView(app, '/app-setup')
     await expect(page.locator('#welcome')).toHaveText('Welcome to Acme Cafe, owner')
     await expect(page.locator('#pw')).toHaveCount(0)
@@ -211,6 +211,9 @@ test('every state line: each its own words and its one button; Back to the first
     fake.sc.createError = { code: 'capacity_full', status: 409, fields: { pool: 'free' } }
     await w.getByTestId('create-submit').click()
     await line('The free servers are full right now. Try again later.')
+    // the free pool full: no button but Back (no mail or wait is promised)
+    await expect(w.getByTestId('notice-action')).toHaveCount(0)
+    await expect(w.getByTestId('create-back')).toBeVisible()
     expect(fake.log.filter((l) => l.path === '/api/app/v1/teams').at(-1)!.body).toMatchObject({ slug: 'acme-cafe-2' })
     for (const [code, text] of [
       ['network_limit', 'Too many new teams were made from this network today. Try again tomorrow.'],
@@ -222,6 +225,11 @@ test('every state line: each its own words and its one button; Back to the first
       fake.sc.createError = { code, status: code === 'network_limit' ? 429 : 409 }
       await nameTeam(w)
       await line(text)
+      // no free host in the region: the plain line and Back only
+      if (code === 'no_free_region') {
+        await expect(w.getByTestId('notice-action')).toHaveCount(0)
+        await expect(w.getByTestId('create-back')).toBeVisible()
+      }
     }
 
     // from /me: the free team used, the waiting list
