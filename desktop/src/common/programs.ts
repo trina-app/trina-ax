@@ -15,7 +15,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { BATCH_REFUSED, BATCH_REFUSED_RE, windowsShare } from '@mycel/shared/api'
+import { BATCH_REFUSED, BATCH_REFUSED_RE, windowsShare } from '@mycel/shared/api/local-apps'
 
 export { windowsShare }
 

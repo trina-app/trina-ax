@@ -294,6 +294,9 @@ export type GoogleStart = z.infer<typeof GoogleStart>
  * `<linkScheme>://open?url=<team>/login/google#code=<code>`, taken only for the team on screen (desktop/src/common/
  * address.ts googleSignInCode). */
 export const GOOGLE_APP_RETURN_PATH = '/login/google'
+/** Where the desktop app posts that code (API.claimDriveFlow, api/drive.ts): here so the desktop app can name the address
+ * without bundling the Drive schemas (tests/unit/desktop-shared-imports.test.ts). */
+export const CLAIM_DRIVE_FLOW_PATH = '/api/integrations/google-drive/claim'
 /** Where Google's return sends a phone app's flow: the address its auth session waits for (expo-web-browser
  * openAuthSessionAsync), with `#code=<code>` or `#error=<reason>`. The phone app keeps the same in
  * mobile/src/protocol.ts (GOOGLE_SIGNIN_RETURN_HOST; a test keeps them equal). */

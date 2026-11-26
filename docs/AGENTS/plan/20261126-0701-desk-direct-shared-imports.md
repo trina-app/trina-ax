@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-26 07:01
 - Branch: `fix/desk-direct-shared-imports`
-- Status: in progress
+- Status: done
 - Where: desktop/, shared/. Why: the desktop imports `@mycel/shared` through barrels, so every API schema lands in the
   desk bundles and a server-only release changes the built Windows/Mac app (see docs/REPOSITORY-RULES.md)
 - Version impact: patch: the built desktop bundles get smaller; no behaviour, screen or API change
@@ -56,3 +56,8 @@ exposes every shared module by path; that is what the explicit entries already d
 `bun run typecheck`, `bun run check:prepush`, `tests/unit/desktop-shared-imports.test.ts`, the desktop and local-app
 unit tests (`e-desktop-*`, `e-local-apps*`, `desktop-*`, `office-update-desktop*`, `step-labels-*`, `i18n-languages`),
 desktop e2e (`desktop/e2e/ci.config.ts`).
+
+## Result
+
+Shared files in the desk bundles: 94 → 29 (main.cjs 1,324,531 → 929,991 bytes; welcome/pane/hostbar/findbar UI scripts
+~550 KB each → 2.5–15 KB). A change to `api/rooms.ts` and `api/admin.ts` leaves all built desk files byte-identical.

@@ -11,7 +11,7 @@
 // tests/unit/e-desktop-work-files.test.ts; desktop/src/main/work-files.ts wires it to Electron and node:fs.
 import { posix, win32 } from 'node:path'
 import { considered, docRank, fileExt, neverListed, savedPage, softwareFolder, WORK_FILES_LIMITS } from '@mycel/shared/file-scan'
-import type { WorkCloudProvider, WorkFileMeta, WorkFileRead, WorkFolderId, WorkRootId, WorkRootResult } from '@mycel/shared'
+import type { WorkCloudProvider, WorkFileMeta, WorkFileRead, WorkFolderId, WorkRootId, WorkRootResult } from '@mycel/shared/desktop-bridge'
 import { browserOwnerChange, type MeResult } from './browser-owner'
 import { isRecent, type IndexedFile } from './work-index'
 import { cloudProviderOf, placeOf, type Place } from './work-places'

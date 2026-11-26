@@ -2,7 +2,7 @@
 // page script. `bun run build` (desktop/). Shared code (@mycel/shared, zod) is bundled; only electron is external.
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { PRODUCT } from '@mycel/shared'
+import { PRODUCT } from '@mycel/shared/product'
 import { parseKit } from './src/common/kit'
 import { ensureElectron } from './scripts/ensure-electron'
 import { reportReleaseNotices, writeReleaseNotices } from '../scripts/release-notices'

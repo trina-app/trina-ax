@@ -8,7 +8,7 @@
 // Photos, Safari and any other app's data are never a place, and a recent list's entry that points there is dropped
 // (homeExcluded). A file in the cloud (online only) is listed from its metadata and never opened by the look.
 import { posix, win32 } from 'node:path'
-import type { WorkCloudProvider } from '@mycel/shared'
+import type { WorkCloudProvider } from '@mycel/shared/desktop-bridge'
 import { neverListed } from '@mycel/shared/file-scan'
 
 // ---------------------------------------------------------------- a place
