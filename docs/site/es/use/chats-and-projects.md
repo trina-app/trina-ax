@@ -162,8 +162,12 @@ Pulse **Compartir** (**Guardar** si ya estaba compartido). Si sale con cambios s
   y **Añadir** hace miembro a la persona. Un chat compartido de un proyecto del equipo pide unirse a ese proyecto. Cuando no
   se puede pedir (un chat que nunca se comparte, como uno de un proyecto personal, o nadie que pueda responder), la página
   solo dice que no puede pedirlo, sin el botón y sin decir por qué. Los invitados no pueden pedirlo, y quien ya puede abrirlo simplemente entra.
-- **Lo personal se queda fuera.** En un chat compartido la IA no usa sus recuerdos, su navegador, su correo ni sus
-  horarios. Para usarlos, elija **Continuar en un chat que solo ve usted** en el menú del chat.
+- **Sus propias herramientas también funcionan aquí.** Cuando usted lo pide, la IA usa sus servicios conectados, las
+  apps de su computadora (como Aside) y el navegador de la app de escritorio como en su propio chat. La primera vez en un
+  proyecto o chat compartido verá un aviso breve de que las demás personas del chat pueden ver lo que obtiene la IA, con
+  **Continuar**. Enviar un correo o un archivo sigue preguntándole en su tarjeta, y un archivo del equipo que algunas
+  personas del chat no pueden abrir le pregunta antes. El mensaje de otra persona nunca puede usar sus herramientas. Sus
+  recuerdos de otros chats se quedan fuera.
 - Un chat de un proyecto personal sigue siendo suyo: **Compartir** le ofrece sacarlo antes del proyecto. Un chat de un proyecto del equipo se comparte
   con los miembros del proyecto (consulte [Proyectos](#proyectos)).
 

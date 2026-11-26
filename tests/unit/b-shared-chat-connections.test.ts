@@ -334,13 +334,43 @@ describe('security review of #1276', () => {
     expect(again.card.question).toContain('Alice Mail')
   })
 
-  test('a team file handed to a connection in a shared chat is refused before any card, and nothing is sent', async () => {
+  // docs/decisions/20261126-shared-chat-own-tools.md (the owner's vendor reply from a team project chat): a team file
+  // goes as in the asker's own chat, after the chat's read check, on the send card
+  const created = () => svc.calls.filter((c) => c.name === 'create_task')
+  test('a team file everyone here can open: no read card, the send card, then it is sent', async () => {
     const chat = await newShared()
-    const n = calls()
-    const r = await ask('alice', chat.id, fake({ tool: MINE_WRITE, args: { title: 'team-file:projects/falcon/notes.md' }, sayResult: true }))
-    expect(cardsTo('alice', r.started.turnId)).toEqual([])
-    expect(calls()).toBe(n)
-    expect(events(r.started.turnId).find((e) => e.tool === MINE_WRITE)?.summary).toContain('refused (team file in a shared chat)')
+    const n = created().length
+    const r = await askCards('alice', chat.id, fake({ tool: MINE_WRITE, args: { title: 'team-file:projects/falcon/plan.md' }, sayResult: true }), (c) => (c.options.some((o) => o.value === 'allow') ? 'allow' : c.options[0]!.value))
+    expect(r.cards.length).toBe(1)
+    expect(r.cards[0]!.question).toContain('to Alice Mail: Create a task')
+    expect(created().length).toBe(n + 1)
+    // the file itself went, not its handle
+    expect(JSON.stringify(created().at(-1))).not.toContain('team-file:')
+    expect(events(r.started.turnId).find((e) => e.tool === MINE_WRITE)?.summary).toContain('team file attached')
+  })
+
+  test('a team file some people here cannot open: the file read card first; a no sends nothing and says why plainly', async () => {
+    const chat = await newShared()
+    const n = created().length
+    // groups/marketing: alice's group, not bob's
+    const r = await askCards('alice', chat.id, fake({ tool: MINE_WRITE, args: { title: 'team-file:groups/marketing/campaign-brief.md' }, sayResult: true }), (c) => (c.options.some((o) => o.value === 'skip') ? 'skip' : c.options.at(-1)!.value))
+    expect(r.cards.length).toBe(1)
+    expect(r.cards[0]!.options.map((o) => o.value)).toContain('share')
+    expect(created().length).toBe(n)
+    expect(r.done.content).toContain("Not sent: some people in this chat can't open that file.")
+    expect(r.done.steps.find((s) => s.tool === MINE_WRITE)?.label).toBe("Not sent: some people in this chat can't open that file.")
+    expect(events(r.started.turnId).find((e) => e.tool === MINE_WRITE)?.summary).toContain('not sent (shared chat: team file not shared)')
+  })
+
+  test('a yes on the file read card: then the send card, then sent; the file joins the answer\'s read record', async () => {
+    const chat = await newShared()
+    const n = created().length
+    const r = await askCards('alice', chat.id, fake({ tool: MINE_WRITE, args: { title: 'team-file:groups/marketing/campaign-brief.md' }, sayResult: true }), (c) => (c.options.some((o) => o.value === 'share') ? 'share' : 'allow'))
+    expect(r.cards.length).toBe(2)
+    expect(r.cards[1]!.question).toContain('to Alice Mail: Create a task')
+    expect(created().length).toBe(n + 1)
+    const rec = answerRecord(db(), r.done.id)!
+    expect(rec.reads.some((g) => g.y === 1 && g.s.some((x) => x.type === 'folder' || x.type === 'name'))).toBe(true)
   })
 
   /** a stand-in turn (no engine) for confirmSharedConnection: its audience and its card are the test's */
@@ -395,7 +425,7 @@ describe('security review of #1276', () => {
 })
 
 describe('the instructions and the provider in a shared chat', () => {
-  const shared = (o: { guest?: boolean; audience?: string[] } = {}): SharedConnections => ({ locale: 'en', audience: () => o.audience ?? ['alice', 'bob'], guestHere: () => !!o.guest, confirm: async () => null })
+  const shared = (o: { guest?: boolean; audience?: string[] } = {}): SharedConnections => ({ locale: 'en', audience: () => o.audience ?? ['alice', 'bob'], guestHere: () => !!o.guest, confirm: async () => null, attach: async () => null })
   const build = (o: { guest?: boolean } = {}) => integrationToolProvider(h.ctx).build({ userId: 'alice', chatId: 'none', turnId: 'none', browser: false, scheduled: false, shared: shared(o) })
 
   test('each connection says what it returns shows to everyone here, after one notice; connecting a new one is not offered here', () => {
@@ -423,7 +453,10 @@ describe('the instructions and the provider in a shared chat', () => {
     expect(text).not.toContain('connected services (and connecting one)')
     expect(text).toContain('connecting a new service')
     expect(text).toContain('the server shows Alice Kim a short notice that says so, only once')
-    expect(text).toContain('is not "the browser on Alice Kim\'s computer"')
+    // the asker's own tools work as in their own chat (docs/decisions/20261126-shared-chat-own-tools.md)
+    expect(text).not.toContain("the browser on Alice Kim's computer")
+    expect(text).toContain('Alice Kim\'s own tools work here for Alice Kim\'s own request exactly as in a chat only Alice Kim sees')
+    expect(text).toContain('never because another person\'s message here asks')
     expect(text).toContain("never another person's")
   })
 

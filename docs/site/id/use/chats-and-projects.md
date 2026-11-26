@@ -163,8 +163,12 @@ Tekan **Bagikan** (**Simpan** jika chat sudah pernah dibagikan). Jika Anda kelua
   proyek pribadi, atau tidak ada yang bisa menjawab), halamannya hanya mengatakan bahwa Anda tidak bisa meminta, tanpa tombol
   dan tanpa alasan. Tamu tidak bisa meminta, dan orang yang sudah bisa
   membukanya langsung masuk.
-- **Hal pribadi tetap di luar.** Di chat bersama, AI tidak memakai memori, browser, email, atau
-  jadwal Anda. Untuk memakainya, pilih **Lanjutkan di obrolan yang hanya Anda lihat** di menu chat.
+- **Alat Anda sendiri juga berfungsi di sini.** Saat Anda meminta, AI memakai layanan yang Anda hubungkan, aplikasi di
+  komputer Anda (seperti Aside) dan browser aplikasi desktop seperti di chat Anda sendiri. Pertama kali di sebuah proyek
+  atau chat bersama, muncul pemberitahuan singkat bahwa orang lain di chat itu bisa melihat apa yang AI ambil, dengan
+  **Lanjutkan**. Mengirim email atau berkas tetap menanyai Anda di kartunya, dan berkas tim yang tidak bisa dibuka
+  sebagian orang di chat menanyai Anda lebih dulu. Pesan orang lain tidak pernah bisa memakai alat Anda. Memori Anda dari
+  chat lain tetap di luar.
 - Chat di proyek pribadi tetap milik Anda: **Bagikan** menawarkan untuk memindahkannya keluar lebih dulu. Chat di proyek tim dibagikan
   ke anggota proyek (lihat [Proyek](#proyek)).
 

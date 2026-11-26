@@ -133,7 +133,7 @@ describe('a tool only the service calls read-only, in a shared chat (TC-4900)', 
   })
 
   test('what the AI is told agrees: the sending tool "changes something" in a shared chat, a read stays a read', () => {
-    const shared: SharedConnections = { locale: 'en', audience: () => ['alice', 'bob'], guestHere: () => false, confirm: async () => null }
+    const shared: SharedConnections = { locale: 'en', audience: () => ['alice', 'bob'], guestHere: () => false, confirm: async () => null, attach: async () => null }
     const b = integrationToolProvider(h.ctx).build({ userId: 'alice', chatId: 'none', turnId: 'none', browser: false, scheduled: false, shared })
     const t = (n: string) => b.tools.find((x) => x.name === n)!
     expect(t(MINE_SEND).description).toContain('Changes something at the service')

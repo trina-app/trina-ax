@@ -270,11 +270,11 @@ async function sharedGate(ctx: AppContext, b: BuildCtx, row: Row, tc: TurnToolCo
  * version (a new address, key or sign-in, a changed rule) and the account it is signed in to */
 const sharedKey = (row: Pick<Row, 'id' | 'version' | 'account'>) => `${row.id}\u0000${row.version}\u0000${accountKey(row.account)}`
 
-/** A team file handed to a connection's tool in a shared chat: refused, in plain words */
-const SHARED_NO_TEAM_FILES = (name: string) => refusal({
-  done: `Nothing was sent to ${name}.`,
-  why: { kind: 'mode', mode: 'this shared chat', why: 'team files are not sent to a connected service from a shared chat' },
-  next: 'say so in one or two sentences; the user can send the file in a chat only they see', names: [name],
+/** A team file handed to an app on the person's computer (local.ts): none of its tools takes a file's content */
+const LOCAL_NO_TEAM_FILES = (name: string) => refusal({
+  done: `Nothing was sent: ${name} got nothing.`,
+  why: { kind: 'mode', mode: name, why: `${name} runs on the user's computer and its tools take code or a task, not a team file's content, so a team file cannot be attached through it (a web mail opened in it included)` },
+  next: 'say so plainly in one or two sentences, without promising it; offer what works: a connected mail service that takes attachments, a link to the file, or the user attaching the file themselves', names: [name],
 })
 
 /** A team connection while a guest sees the shared chat: for the AI, in plain words */
@@ -384,6 +384,27 @@ function titleArg(args: unknown): string | null {
 
 /** Argument names that hold code an app on the person's computer runs (Aside's Repl "code", ego lite's "script") */
 const CODE_KEY = /^(code|script|js|javascript|program)$/i
+/** Argument names where a tool takes a file's content (a mail's attachment "content", "data"): the only place a team file
+ * handle can go to an app on the person's computer */
+const CONTENT_KEY = /^(content|contents|data|bytes|base64|file_content|filecontent|file_data)$/i
+/** A team file handle given to an app on the person's computer anywhere but where its tool takes a file's content
+ * (security review of #647: any depth, any argument name; Aside's repl "code" and exec "prompt", a CLI's stdin, a
+ * "command"): it would go as text, not a file. Fails closed: an argument the walk cannot reach counts as such. */
+function handleAsCode(row: Pick<Row, 'local_app'>, tool: string, args: unknown): boolean {
+  if (!row.local_app) return false
+  const own = scriptArg(row, tool)
+  let bad = false
+  const walk = (v: unknown, key: string | null, depth: number) => {
+    if (bad) return
+    if (depth > 12) { bad = true; return }
+    if (typeof v === 'string') { if (v.startsWith(TEAM_FILE_PREFIX) && (key === null || key === own || !CONTENT_KEY.test(key))) bad = true }
+    else if (Array.isArray(v)) for (const x of v) walk(x, key, depth + 1)
+    else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v as Record<string, unknown>)) walk(x, k, depth + 1)
+  }
+  walk(args, null, 0)
+  return bad
+}
+
 /** The argument that is code an app on the person's computer runs: a declared CLI's stdin, or a top-level string
  * argument named like code; none for any other connection */
 function codeKeyOf(row: Pick<Row, 'local_app'> | null, tool: string, args: unknown): string | undefined {
@@ -1268,10 +1289,8 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
       try {
         chat = turnChat(ctx, tc, !!b.shared)
         current = h.use(svc.forCall(tc.userId, row.id))
-        // a shared chat: no team file goes to a service from here (what the service says back about it would reach
-        // everyone in the chat without the file read card; the person attaches it in a chat only they see), then the
-        // asker's card (or the guest refusal) before anything else
-        if (b.shared && teamFileHandles(args).length) throw new CallError(SHARED_NO_TEAM_FILES(current.name), 'refused (team file in a shared chat)')
+        // a shared chat: the asker's one notice (or the guest refusal) before anything else. A team file they attach goes
+        // as in their own chat, after the chat's read check below (docs/decisions/20261126-shared-chat-own-tools.md)
         current = await sharedGate(ctx, b, current, tc, h)
         // an app on the computer: from this turn's desktop window only, before anything is asked or sent
         if (current.local_app) localVia(ctx, tc, current)
@@ -1304,8 +1323,18 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
           if (t.readOnly) throw new CallError(`Nothing was sent: a team file can be attached only with a tool that sends or changes something at ${current.name}; ${t.name} only reads.`, 'refused (attachment on a read)')
           const person = b.scheduled ? null : tc.files.person
           if (!person || person.unattended) throw new CallError(`Nothing was sent to ${current.name}: a team file is attached only in a chat where the user can see what leaves the team, not in a scheduled run. Say so in the summary; the user can send it in a chat.`, 'refused (attachment: nobody to ask)')
+          // an app on the computer whose argument there is code it runs or a task for its agent (Aside's repl and exec,
+          // ego lite's script): the handle would go as text, not a file. Said plainly, so the AI does not promise an
+          // attachment it cannot make (an app's tool that takes a file's content still gets the file)
+          if (handleAsCode(current, t.name, args)) throw new CallError(LOCAL_NO_TEAM_FILES(current.name), 'refused (attachment: app on the computer)')
           // a connection that refuses changes is refused by the gate below, before any file is read
           if (current.write_policy !== 'deny') files = readTeamFiles(ctx, tc, current.name, handles)
+          // a shared chat: the files go through the chat's read check first, as a read of them would (someone here who
+          // cannot open one: the asker's file read card); they join the answer's read record
+          if (files.length && b.shared) {
+            const no = await b.shared.attach(files.map((f) => f.rel), name)
+            if (no) throw new CallError(no, 'not sent (shared chat: team file not shared)')
+          }
         }
         // the attachment tool: its bytes come back inline and are read here (google-apps/attachments.ts); the file name
         // is Trina's own argument, never sent
@@ -1359,6 +1388,12 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
           // no card was due (the connection sends without asking for this person): a file still leaves only in a turn
           // the person watches from their own app, never from a question asked elsewhere (Slack)
           if (!confirmed && !tc.files.person?.allSitesHere?.()) throw new CallError(`Nothing was sent to ${current.name}: a team file is attached only in a chat the user has open in the app, where they see what leaves the team. Tell the user to ask there.`, 'refused (attachment: not watched)')
+          // a shared chat: the read check again after the send card, which may have waited while people joined (security
+          // review of #647); a yes this answer gave for the same people holds, someone new asks again
+          if (b.shared) {
+            const no = await b.shared.attach(files.map((f) => f.rel), name)
+            if (no) throw new CallError(no, 'not sent (shared chat: team file not shared)')
+          }
           recheckTeamFiles(ctx, tc, files)
           sending = withTeamFiles(args, files)
         }

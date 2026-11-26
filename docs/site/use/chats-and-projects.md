@@ -166,8 +166,11 @@ Press **Share** (**Save** when it was shared already). Leaving with changes you 
   request, and **Add** makes the person a member. A shared chat of a team project asks to join that project. Where no
   request is possible (a chat that is never shared, such as one in a personal project, or nobody left to answer), the
   page says only that they can't ask, without the button and without saying why. Guests can't ask, and someone who can already open it is simply let in.
-- **Personal things stay out.** In a shared chat the AI does not use your memories from other chats, your browser, your
-  email or your schedules. To use them, choose **Continue in a chat only you see** in the chat's menu.
+- **Your own tools work here too.** When you ask, the AI uses your connected services, apps on your computer (such as
+  Aside) and the desktop app's browser as in your own chat. The first time in a project or shared chat you see a short
+  notice that the others in it can see what the AI gets, with **Continue**. Sending a mail or a file still asks you on
+  its card, and a team file that some people in the chat can't open asks you first. Nobody else's message can use your
+  tools. Your memories from other chats stay out.
 - **It still learns from you.** When you correct it or tell it how you work, the AI keeps that in your own memory, as in
   your own chats, with a small "Remembered" step only you can undo. What other people write in the chat never goes into
   your memory.
