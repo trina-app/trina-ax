@@ -918,7 +918,7 @@ Decision: [Apps on your own computer as connectors](decisions/20261118-local-app
 - **Adding one.** Only the person adds it, in Settings › Connectors in the desktop app: Aside and ego lite have cards of their own in Discover (+ connects their preset command, no picker; web/src/lib/localApps.ts), and any other program is Add custom connector › On this computer (a member, who adds no server by its address, gets only that choice). It cannot be added through `POST /api/integrations/local`'s team counterparts, templates, requests or the connect card.
 - **How calls travel.** The calls go through the local relay (`server/src/realtime/local-relay.ts`, the sibling of the browser relay) to the desktop window the message was sent from. They never go out over the network.
   - From anywhere else, the AI says that the app works only from the desktop app on that computer.
-  - Scheduled runs, shared chats, rooms and sub-agents never get its tools.
+  - Scheduled runs and sub-agents never get its tools. In a shared or project chat, only the person who asks can use their own app, from their own desktop window, and a card only they see comes first unless they chose Always allow.
 - **On the computer** (`desktop/src/common/local-apps.ts`):
   - The desktop app asks once in its own dialog ("Connect this program?"), and again only when the command changes.
   - It starts the program from an argument list, never through a shell, and never runs as root.
