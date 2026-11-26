@@ -384,11 +384,12 @@ jobs:
           Expand-Archive -LiteralPath $zip -DestinationPath $dir -Force
           "MYCEL_WIN_SIGN_TOOL=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: NSIS installer and latest.yml (signed when WINDOWS_SIGNING_PROVIDER is set, else unsigned)
+        # the credentials reach this step only when signing is switched on; an unsigned build gets empty values
         env:
-          MYCEL_SSLCOM_USERNAME: ${{ secrets.SSLCOM_USERNAME }}
-          MYCEL_SSLCOM_PASSWORD: ${{ secrets.SSLCOM_PASSWORD }}
-          MYCEL_SSLCOM_CREDENTIAL_ID: ${{ secrets.SSLCOM_CREDENTIAL_ID }}
-          MYCEL_SSLCOM_TOTP_SECRET: ${{ secrets.SSLCOM_TOTP_SECRET }}
+          MYCEL_SSLCOM_USERNAME: ${{ vars.WINDOWS_SIGNING_PROVIDER != '' && secrets.SSLCOM_USERNAME || '' }}
+          MYCEL_SSLCOM_PASSWORD: ${{ vars.WINDOWS_SIGNING_PROVIDER != '' && secrets.SSLCOM_PASSWORD || '' }}
+          MYCEL_SSLCOM_CREDENTIAL_ID: ${{ vars.WINDOWS_SIGNING_PROVIDER != '' && secrets.SSLCOM_CREDENTIAL_ID || '' }}
+          MYCEL_SSLCOM_TOTP_SECRET: ${{ vars.WINDOWS_SIGNING_PROVIDER != '' && secrets.SSLCOM_TOTP_SECRET || '' }}
         run: |
           bun run --cwd desktop dist:win -- "-c.extraMetadata.version=$VERSION"
           ls -l desktop/release

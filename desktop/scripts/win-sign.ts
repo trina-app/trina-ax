@@ -80,9 +80,16 @@ export const CHECK_PS = [
 
 export interface SignatureState { status: string; message: string; subject: string; timestamped: boolean }
 
+/** the environment of the signature check: the build's, without the SSL.com credentials (it needs none) */
+export function checkEnv(file: string, env: Record<string, string | undefined> = process.env): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = { ...env, MYCEL_SIGNED_FILE: file }
+  for (const name of Object.values(SECRETS)) delete out[name]
+  return out
+}
+
 function checkSignature(file: string): SignatureState {
   const r = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', CHECK_PS], {
-    env: { ...process.env, MYCEL_SIGNED_FILE: file }, encoding: 'utf8',
+    env: checkEnv(file), encoding: 'utf8',
   })
   if (r.status !== 0) throw new Error(`Get-AuthenticodeSignature failed for ${file}: ${r.stderr || r.error}`)
   return JSON.parse(r.stdout.trim()) as SignatureState

@@ -6,7 +6,7 @@ import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { javaBin, signArgs, signFile, toolFailed, toolJar, winSignOptions, winSignSettings, type SignatureState } from '../../desktop/scripts/win-sign'
+import { checkEnv, javaBin, signArgs, signFile, toolFailed, toolJar, winSignOptions, winSignSettings, type SignatureState } from '../../desktop/scripts/win-sign'
 
 const ROOT = path.resolve(import.meta.dir, '../..')
 const CRED = '0f1e2d3c-4b5a-4968-8778-695a4b3c2d1e'
@@ -70,6 +70,12 @@ describe('the electron-builder hook', () => {
   test('the jar is found in the unpacked tool, and a missing one fails at config time', () => {
     expect(toolJar(TOOL)).toBe(path.join(TOOL, 'jar', 'code_sign_tool-1.3.2.jar'))
     expect(() => winSignOptions({ ...OK, MYCEL_WIN_SIGN_TOOL: path.join(TOOL, 'nope') })).toThrow(/expected one code_sign_tool/)
+  })
+  test('the signature check (pwsh) gets the file but none of the SSL.com credentials', () => {
+    const env = checkEnv('C:\\b\\x.exe', { ...OK, PATH: '/bin' })
+    expect(env.MYCEL_SIGNED_FILE).toBe('C:\\b\\x.exe')
+    expect(env.PATH).toBe('/bin')
+    for (const k of Object.keys(env)) expect(k.startsWith('MYCEL_SSLCOM_'), k).toBe(false)
   })
   test('java from JAVA_HOME (setup-java), else PATH', () => {
     expect(javaBin({ JAVA_HOME: '/j' })).toBe(path.join('/j', 'bin', process.platform === 'win32' ? 'java.exe' : 'java'))
@@ -137,14 +143,14 @@ describe('the release job', () => {
     expect(job.permissions).toEqual({ contents: 'read' })
     expect(job.environment).toBe('release')
   })
-  test('the switch is a repository variable; the credentials are secrets, given only to the build step', () => {
+  test('the switch is a repository variable; the credentials are secrets, given only to the build step and only when switched on', () => {
     expect(job.env).toMatchObject({ MYCEL_WIN_SIGN_PROVIDER: '${{ vars.WINDOWS_SIGNING_PROVIDER }}' })
     expect(JSON.stringify(job.env)).not.toContain('secrets.')
     expect(steps[at(build)]!.env).toEqual({
-      MYCEL_SSLCOM_USERNAME: '${{ secrets.SSLCOM_USERNAME }}',
-      MYCEL_SSLCOM_PASSWORD: '${{ secrets.SSLCOM_PASSWORD }}',
-      MYCEL_SSLCOM_CREDENTIAL_ID: '${{ secrets.SSLCOM_CREDENTIAL_ID }}',
-      MYCEL_SSLCOM_TOTP_SECRET: '${{ secrets.SSLCOM_TOTP_SECRET }}',
+      MYCEL_SSLCOM_USERNAME: "${{ vars.WINDOWS_SIGNING_PROVIDER != '' && secrets.SSLCOM_USERNAME || '' }}",
+      MYCEL_SSLCOM_PASSWORD: "${{ vars.WINDOWS_SIGNING_PROVIDER != '' && secrets.SSLCOM_PASSWORD || '' }}",
+      MYCEL_SSLCOM_CREDENTIAL_ID: "${{ vars.WINDOWS_SIGNING_PROVIDER != '' && secrets.SSLCOM_CREDENTIAL_ID || '' }}",
+      MYCEL_SSLCOM_TOTP_SECRET: "${{ vars.WINDOWS_SIGNING_PROVIDER != '' && secrets.SSLCOM_TOTP_SECRET || '' }}",
     })
     const others = steps.filter((st) => st.name !== build)
     expect(JSON.stringify(others)).not.toContain('secrets.')
