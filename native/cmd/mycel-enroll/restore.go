@@ -233,8 +233,18 @@ func (e *Enroller) restore(r *enrollResponse, ot *oneTimeIdentity) error {
 	if _, _, err := e.fetchChain(ri, ids, staging); err != nil {
 		return err
 	}
-	if _, err := e.adminJS("restore-artifacts", "--dir", staging, "--to", e.P.Base); err != nil {
+	// restore-artifacts builds <out>/db/app.sqlite + <out>/team into a folder that must not exist yet (the same rule
+	// as restore-verify). The folder is on the data disk, so the swap below is a rename. BASE itself is root-owned:
+	// only this root process can put team/ in place.
+	dataDir, teamRoot := e.serverDirs()
+	out := filepath.Join(dataDir, ".restore-out")
+	_ = osRemoveAll(out)
+	defer osRemoveAll(out)
+	if _, err := e.adminJS("restore-artifacts", "--dir", staging, "--to", out); err != nil {
 		return err
+	}
+	if err := swapInRestored(out, dataDir, teamRoot, time.Now().UTC().Format("20060102T150405Z")); err != nil {
+		return fail("restore_failed", "%v", err)
 	}
 	if ri.CredentialsKeyAge != nil && *ri.CredentialsKeyAge != "" {
 		key, err := decryptAgeText(*ri.CredentialsKeyAge, ot.id)
@@ -331,4 +341,57 @@ func (e *Enroller) verifyRestore(r *enrollResponse, ot *oneTimeIdentity) (*verif
 	}
 	// a verify that ran but found a problem is still a finished enroll: the result carries ok=false
 	return res, nil
+}
+
+// serverDirs: dataDir and teamRoot from BASE/config/server.json (apply has written it), else BASE/data and BASE/team.
+func (e *Enroller) serverDirs() (string, string) {
+	dataDir, teamRoot := filepath.Join(e.P.Base, "data"), filepath.Join(e.P.Base, "team")
+	var c struct {
+		DataDir  string `json:"dataDir"`
+		TeamRoot string `json:"teamRoot"`
+	}
+	if b, err := os.ReadFile(filepath.Join(e.P.Base, "config", "server.json")); err == nil && json.Unmarshal(b, &c) == nil {
+		if filepath.IsAbs(c.DataDir) {
+			dataDir = c.DataDir
+		}
+		if filepath.IsAbs(c.TeamRoot) {
+			teamRoot = c.TeamRoot
+		}
+	}
+	return dataDir, teamRoot
+}
+
+// swapInRestored puts <out>/db/app.sqlite in place of <dataDir>/app.db and <out>/team in place of teamRoot (the same
+// swap as the office restore, swapInRestore in server/src/office/cli.ts). What was there stays next to it as
+// *.before-restore-<stamp>. Runs before the units start: nothing has the database open.
+func swapInRestored(out, dataDir, teamRoot, stamp string) error {
+	incoming := filepath.Join(out, "db", "app.sqlite")
+	inTeam := filepath.Join(out, "team")
+	if !exists(incoming) || !exists(inTeam) {
+		return fmt.Errorf("restore-artifacts left no db/app.sqlite or team/ in %s", out)
+	}
+	db := filepath.Join(dataDir, "app.db")
+	if exists(db) {
+		if err := os.Rename(db, db+".before-restore-"+stamp); err != nil {
+			return fmt.Errorf("move the old database aside: %v", err)
+		}
+	}
+	for _, sfx := range []string{"-wal", "-shm"} {
+		_ = os.Remove(db + sfx)
+	}
+	if err := os.Rename(incoming, db); err != nil {
+		return fmt.Errorf("put the restored database in place: %v", err)
+	}
+	if err := os.Chmod(db, 0o600); err != nil {
+		return err
+	}
+	if exists(teamRoot) {
+		if err := os.Rename(teamRoot, teamRoot+".before-restore-"+stamp); err != nil {
+			return fmt.Errorf("move the old team folder aside: %v", err)
+		}
+	}
+	if err := os.Rename(inTeam, teamRoot); err != nil {
+		return fmt.Errorf("put the restored team folder in place: %v", err)
+	}
+	return os.Chmod(teamRoot, 0o700)
 }
