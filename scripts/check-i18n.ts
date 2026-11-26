@@ -4,6 +4,7 @@ import path from 'node:path'
 import ts from 'typescript'
 import { DICTS, placeholdersOf } from '../web/src/i18n'
 import { STRINGS } from '../desktop/src/common/i18n'
+import { IOS_USAGE, MOBILE_STRINGS } from '../mobile/src/strings'
 
 const locales = ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const
 const root = path.resolve(import.meta.dir, '..')
@@ -33,7 +34,7 @@ const voiceRules: Record<string, { name: string, pattern: RegExp, except?: strin
 export function auditI18n() {
   const problems: string[] = []
   const counts: Record<string, number> = {}
-  for (const [name, dictionaries] of [['web', DICTS], ['desktop', STRINGS]] as const) {
+  for (const [name, dictionaries] of [['web', DICTS], ['desktop', STRINGS], ['mobile', MOBILE_STRINGS], ['mobile.ios', IOS_USAGE]] as const) {
     const english = dictionaries.en
     for (const locale of locales) {
       const dictionary = (dictionaries[locale] ?? {}) as Record<string, string>

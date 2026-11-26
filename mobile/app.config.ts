@@ -87,7 +87,14 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
       // root); until then Android offers the app in its chooser
       ...(linkHost ? { intentFilters: [{ action: 'VIEW', autoVerify: true, category: ['BROWSABLE', 'DEFAULT'], data: [{ scheme: 'https', host: linkHost, pathPrefix: '/invite/' }, { scheme: 'https', host: linkHost, path: '/join' }] }] } : {}),
     },
-    locales: { en: { ios: { CFBundleDisplayName: product.name, ...IOS_USAGE.en } }, ko: { ios: { CFBundleDisplayName: product.name, ...IOS_USAGE.ko } }, 'zh-Hans': { ios: { CFBundleDisplayName: product.name, ...IOS_USAGE.zh } } },
+    locales: {
+      en: { ios: { CFBundleDisplayName: product.name, ...IOS_USAGE.en } },
+      ko: { ios: { CFBundleDisplayName: product.name, ...IOS_USAGE.ko } },
+      id: { ios: { CFBundleDisplayName: product.name, ...IOS_USAGE.id } },
+      ja: { ios: { CFBundleDisplayName: product.name, ...IOS_USAGE.ja } },
+      es: { ios: { CFBundleDisplayName: product.name, ...IOS_USAGE.es } },
+      'zh-Hans': { ios: { CFBundleDisplayName: product.name, ...IOS_USAGE.zh } },
+    },
     plugins: [
       'expo-secure-store',
       'expo-localization',
