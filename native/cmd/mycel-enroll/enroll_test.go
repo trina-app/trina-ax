@@ -621,8 +621,9 @@ func TestRestoreMode(t *testing.T) {
 		}
 		team, _ := os.ReadFile(filepath.Join(sawStaging, "bk_0001", "team.tar.zst"))
 		chain, _ := os.ReadFile(filepath.Join(sawStaging, "chain.json"))
-		if string(team) != "TEAM" || !strings.Contains(string(chain), `"bk_0001"`) {
-			t.Fatalf("team %q chain %s", team, chain)
+		var ids []string
+		if string(team) != "TEAM" || json.Unmarshal(chain, &ids) != nil || len(ids) != 1 || ids[0] != "bk_0001" {
+			t.Fatalf("team %q chain %s (want the JSON array the server reads)", team, chain)
 		}
 		if h.chowned[filepath.Join(sawStaging, "bk_0001", "db.sqlite")] != [2]int{990, 990} {
 			t.Fatal("staging not given to the server account")

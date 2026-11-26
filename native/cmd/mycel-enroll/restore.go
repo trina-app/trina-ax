@@ -127,7 +127,14 @@ func (e *Enroller) fetchChain(ri *restoreInfo, ids []age.Identity, staging strin
 		}
 		chain = append(chain, entry)
 	}
-	cj, _ := json.MarshalIndent(map[string]any{"format": 1, "chain": chain}, "", "  ")
+	// chain.json is what the server's admin.js restore-artifacts reads (server/src/system/cloud-admin.ts chainOf): a JSON
+	// array of backup ids, oldest first. Every server version reads only that shape; an object here made every
+	// restore fail with "ids.map is not a function" (found on staging 2026-11-26).
+	chainIDs := make([]string, 0, len(chain))
+	for _, c := range chain {
+		chainIDs = append(chainIDs, c.BackupID)
+	}
+	cj, _ := json.MarshalIndent(chainIDs, "", "  ")
 	if err := os.WriteFile(filepath.Join(staging, "chain.json"), append(cj, '\n'), 0o600); err != nil {
 		return 0, 0, fail("restore_failed", "%v", err)
 	}
