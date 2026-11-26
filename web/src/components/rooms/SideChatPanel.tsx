@@ -539,15 +539,22 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   // that opens (findSideChat keptIn); an older chat's draft waits until that chat is opened again
   const keptKey = `side:${roomId}`
   const keptRead = useRef<string | null>(null)
+  // the first write after another chat shows: an empty box there does not erase the draft kept for another chat (it
+  // waits for that chat); a box emptied by the person (typed away, sent, New chat) does
+  const justOpened = useRef(false)
   useEffect(() => {
     if (chatId === undefined || keptRead.current === `${keptKey}|${chatId}`) return
     keptRead.current = `${keptKey}|${chatId}`
+    justOpened.current = true
     const kept = parseKept(readDraft(me.user.id, keptKey))
     if (kept && kept.chatId === chatId && !sideChatOf(useSideChats.getState(), roomId).draft) setDraft(kept.text)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatId, keptKey])
   useEffect(() => {
     if (chatId === undefined || keptRead.current !== `${keptKey}|${chatId}`) return
+    const first = justOpened.current
+    justOpened.current = false
+    if (first && !draft.trim()) return
     writeDraft(me.user.id, keptKey, draft.trim() ? JSON.stringify({ chatId, text: draft }) : '')
   }, [draft, chatId, keptKey, me.user.id])
   // a send that did not go for the connection: the calm line under the box, the text kept in it (as the full chat's)
@@ -667,6 +674,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     if (busy) return
     // a recording was for the chat shown: it goes with it (its words are not put back into the new chat's box)
     voice.abandon()
+    // the text it leaves goes from this device too (a draft kept for another chat waits for it)
+    if (parseKept(readDraft(me.user.id, keptKey))?.chatId === chatId) writeDraft(me.user.id, keptKey, '')
     setHistory(null)
     setChatId(null)
     setDraft('')

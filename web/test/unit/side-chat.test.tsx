@@ -1473,3 +1473,29 @@ test('Stop that fails: the reason as the panel\'s other errors, and Stop stays t
     await m.unmount()
   }
 })
+
+test('a draft kept for an older side chat (opened from 🕘) waits after a reload: the new chat that opens does not erase it, and it comes back in that chat', async () => {
+  signIn()
+  const newest = uuidv7()
+  const older = uuidv7()
+  serve(newest, [older])
+  const key = `mycel.draft:${ME.id}:side:${team.id}`
+  const kept = JSON.stringify({ chatId: older, text: 'half a question' })
+  localStorage.setItem(key, kept)
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    // the newest chat is done: a new chat opens, its box empty, the older chat's draft still kept
+    await m.until(() => !!m.find('side-chat-empty'), 'a new chat')
+    await m.settle()
+    expect(boxText(m)).toBe('')
+    expect(localStorage.getItem(key)).toBe(kept)
+    // opened from 🕘: the draft is back in its chat
+    await m.click('side-chat-history')
+    await m.until(() => m.container.ownerDocument!.body.querySelectorAll('[data-testid="side-chat-history-item"]').length === 2, 'the list')
+    await m.click(m.container.ownerDocument!.body.querySelectorAll('[data-testid="side-chat-history-item"]')[1]!)
+    await m.until(() => boxText(m) === 'half a question', 'the draft back')
+  } finally {
+    await m.unmount()
+    localStorage.removeItem(key)
+  }
+})
