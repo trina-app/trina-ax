@@ -7,6 +7,8 @@
 <b>The AI your whole team shares.</b><br>
 Trina AX puts your team's files, skills and tools on one server. Everyone's AI starts from them.<br>Pick up a teammate's AI session where they left off. Every file it opens is checked as the person who asked.
 
+<a href="https://demo.trina.app"><img src="docs/images/readme/v4/try-demo-en.png" height="40" alt="Try it in 1 minute, no sign-up"></a>
+
 <a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-en.png" height="40" alt="Download for Mac"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-en.png" height="40" alt="Download for Windows"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Download on the App Store"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Get it on Google Play"></a><br>
 <sub>Linux: .deb and AppImage (x64, arm64) on the <a href="https://ax.trina.app/download">download page</a></sub>
 
