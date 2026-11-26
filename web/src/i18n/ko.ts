@@ -7693,6 +7693,23 @@ export const ko = {
   "roomApps.nothingYetCheck.email.2": "필터나 규칙을 열어 그 메일을 찾는지 확인하세요.",
   "teamSettings.roomEmail": "대화에서 이메일 받기",
   "teamSettings.row.roomEmailDesc": "대화마다 전달된 메일을 받을 이메일 주소를 만들 수 있어요. 끄면 모든 주소가 작동을 멈춰요.",
+  "problemReport.open": "문제 신고",
+  "problemReport.rowDesc": "불편했던 점을 {product} 개발팀에 알려 주세요.",
+  "problemReport.title": "문제 신고",
+  "problemReport.label": "무엇이 불편했나요?",
+  "problemReport.placeholder": "무엇을 하다가 어떤 일이 있었는지 적어 주세요.",
+  "problemReport.who": "{product} 개발팀(포텐랩)이 읽어요.",
+  "problemReport.whoSelf": "신고는 이 서버 밖으로 나가 개발팀에게 가요.",
+  "problemReport.attach": "이 답변과 질문 함께 보내기",
+  "problemReport.previewQuestion": "내 질문",
+  "problemReport.previewAnswer": "답변",
+  "problemReport.send": "보내기",
+  "problemReport.sent": "받았어요. 알려 주셔서 고마워요.",
+  "problemReport.limit": "오늘은 신고를 많이 보냈어요. 내일 다시 보내 주세요.",
+  "problemReport.thumbsDown": "이 답변 문제 신고",
+  "teamSettings.problemReports": "팀원이 문제를 신고할 수 있어요",
+  "teamSettings.row.problemReportsDesc": "설정 › 정보의 \"문제 신고\"와 답변 아래 👎로 {product} 개발팀(포텐랩)에 신고를 보낼 수 있어요. 끄면 둘 다 보이지 않아요.",
+  "teamSettings.row.problemReportsSelf": "신고는 이 서버 밖으로 나가요.",
 } as const
 
 export type MessageKey = keyof typeof ko

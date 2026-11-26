@@ -1177,6 +1177,10 @@ export const TeamSettings = z.object({
    * app. Off by default; off removes every room's address at the mail service (mail to them is refused). Older servers
    * omit it. */
   roomEmail: z.boolean().optional(),
+  /** "팀원이 문제를 신고할 수 있어요" (default on; docs/decisions/20261126-problem-reports.md): Settings › About's "문제 신고"
+   * and 👎 under an AI answer send a report to the <app> team. Off: both are hidden and the server refuses. Shown only
+   * where this server can send reports (Me.server.problemReports). Older servers omit it. */
+  problemReports: z.boolean().optional(),
   /** "Members can share files they own" (default on; docs/DECISIONS.md "A member shares their own files"): a member's
    * Share on a file of theirs, and access requests to members. Off: members cannot add people or be asked; the shares
    * already made keep working until removed. The team owner and admins share team files either way. */

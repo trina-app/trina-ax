@@ -17,12 +17,13 @@
 import { HomeCardsShowAgain, MySetupShowAgain } from '../components/onboarding/CardHide'
 import clsx from 'clsx'
 import { rowName } from '../components/list/List'
-import { Brain, KeyRound, Laptop, Loader2, LogOut, Monitor, Pencil, Plus, Send, ShieldAlert, Smartphone, Tablet, Trash2 } from 'lucide-react'
+import { Brain, KeyRound, Laptop, Loader2, LogOut, MessageSquareWarning, Monitor, Pencil, Plus, Send, ShieldAlert, Smartphone, Tablet, Trash2 } from 'lucide-react'
 import { lazy, useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { type Effort, type EngineId, type Memory, type Session, type TextSize, type Theme } from '@mycel/shared/api'
 import { APP_DOWNLOADS, PROFILE_TITLE_MAX } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../lib/api'
+import ProblemReportSheet from '../components/ProblemReportSheet'
 import { formatDateTime } from '../lib/format'
 import { optimistic, optimisticPending } from '../lib/optimistic'
 import { deviceKind, deviceLabel } from '../lib/userAgent'
@@ -31,7 +32,7 @@ import { phoneApps, type AppClient } from '../lib/apps'
 import { browser, canInstallIn, installGuideShown, isStandalone, platform } from '../lib/pwa'
 import { LOCALES, useLocale, useT } from '../i18n'
 import { memoryChanged } from '../store/live'
-import { canChooseEngine, useMeStrict, useSession } from '../store/session'
+import { canChooseEngine, useMe, useMeStrict, useSession } from '../store/session'
 import { useFreeRoam } from '../store/demo'
 import { isGuestMe, meGuest } from '../lib/guests'
 import { peekCached, rememberCached } from '../store/listCache'
@@ -1040,10 +1041,23 @@ function About() {
   const { version } = info
   // the phone app: its own version and build first, then the team server's, so the two are told apart (QA TC-8071)
   const app = mobileApp()
+  const me = useMe()
+  const [reporting, setReporting] = useState(false)
   return (
     <Section title={t('settings.about')} page>
       {app && <p className="text-sm" data-testid="about-app-version">{app.appBuild ? t('about.appVersionBuild', { version: app.appVersion, build: app.appBuild }) : t('about.appVersion', { version: app.appVersion })}</p>}
       {version && <p className={app ? 'mt-1 text-sm' : 'text-sm'} data-testid="about-version">{app ? t('about.serverVersion', { version }) : t('about.version', { version })}</p>}
+      {/* "문제 신고" (docs/decisions/20261126-problem-reports.md): under the version line, where people look when something
+          is wrong; only where this server sends reports and the team allows it (Me.team.problemReports) */}
+      {me?.team.problemReports && (
+        <div className="mt-3" data-testid="about-problem-report">
+          <Button size="sm" variant="secondary" onClick={() => setReporting(true)} data-testid="about-problem-report-open">
+            <MessageSquareWarning size={14} aria-hidden /> {t('problemReport.open')}
+          </Button>
+          <p className="mt-1 text-xs text-muted">{t('problemReport.rowDesc')}</p>
+        </div>
+      )}
+      {reporting && <ProblemReportSheet onClose={() => setReporting(false)} />}
       <p className="mt-2 text-sm text-muted">{t('about.license')}</p>
       <SourceCodeLinks info={info} className="mt-3 inline-block text-sm text-accent-text underline" />
     </Section>
