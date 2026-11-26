@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-26 06:34
 - Branch: `feat/problem-reports` (plan first drafted on `plan/problem-reports`)
-- Status: in progress
+- Status: done
 - Where: core (`web/` report sheet and entry points, `server/` sender and outbox, `shared/src/cloud-protocol/` the
   wire format, MIT) plus the hosting service's private control plane (intake and delivery). Why: the sheet, the
   allow-list and the signed sender are generic and must be readable by anyone; the intake address, its posting
@@ -155,4 +155,10 @@ web e2e at 1440 and 390; `bun run typecheck`, `bun run check:prepush`, related u
 
 ## Result
 
-Filled in at the end.
+Built as planned in the review changes above: the sheet (Settings › About button and 👎 under an answer, six
+languages), the allow-list builder and outbox sender (`server/src/system/problem-reports.ts`, migration 703), the admin
+switch, `MYCEL_PROBLEM_REPORTS` / `MYCEL_PROBLEM_REPORT_URL`, the wire format (`shared/src/cloud-protocol/
+problem-report.ts`) and, in trina-cloud, the intake behind `CP_PROBLEM_REPORTS` with English cards. Tests:
+`tests/unit/problem-reports.test.ts`, `web/test/e2e/problem-reports.spec.ts` (1440 and 390), the permission matrix case,
+and the control plane's own `tests/problem-reports.test.ts`. The room, its app, the credential and the privacy-policy
+sentence are owner steps (listed in the PRs).
