@@ -8,6 +8,7 @@
 // else has nothing to open; its tooltip says what it opens. On a phone the button takes taps from a 44 px box without
 // making the line taller. The project page's 멤버 line says the same words by the same rule (whoSeesText 'project').
 import { Lock, Users } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useT } from '../../i18n'
 import { whoSees } from '../../lib/sharedChat'
 
@@ -23,7 +24,24 @@ export function whoSeesText(t: ReturnType<typeof useT>, shared: { audience?: num
   return t(place === 'new' ? 'projects.sharedNewChat' : place === 'chat' ? 'chat.sharedSeen' : 'projects.membersCount', { n: who.n })
 }
 
-export function WhoSeesLine({ shared, place, onOpen, text: words, openLabel }: {
+/** A chat made with "Continue in a new chat" that only I see (Chat.forkedFrom): "🔒 나만 보는 채팅 · ‘<제목>’에서 이어
+ * 왔어요. 원래 채팅은 그대로예요.", the title a link to the original while I may open it (docs/decisions/20261126-chat-fork-tree.md) */
+function ForkWho({ from }: { from: { title: string; chatId?: string } }) {
+  const t = useT()
+  const mark = '\u0001'
+  const [before = '', after = ''] = t('chat.forkWho', { title: mark }).split(mark)
+  const title = from.title.trim() || t('chat.untitled')
+  return (
+    <span data-testid="who-sees" data-who="me" data-fork="">
+      <Lock size={12} className="mr-1 inline-block align-[-1px]" aria-hidden />
+      {before}
+      {from.chatId ? <Link to={`/c/${from.chatId}`} className="underline decoration-dotted underline-offset-2 hover:text-ink hover:decoration-solid" title={t('chat.forkedFromOpen')} data-testid="who-sees-fork-link">{title}</Link> : title}
+      {after}
+    </span>
+  )
+}
+
+export function WhoSeesLine({ shared, place, onOpen, text: words, openLabel, forkedFrom }: {
   /** a shared chat's count with its project's `alone`, or the project whose new chat will be shared; null: a chat of
    * one person */
   shared: { audience?: number; alone?: boolean } | null
@@ -37,8 +55,11 @@ export function WhoSeesLine({ shared, place, onOpen, text: words, openLabel }: {
   text?: string
   /** the button's tooltip ("Manage members" by default; a chat's Share dialog: "Change who sees it") */
   openLabel?: string
+  /** a chat only I see made with "Continue in a new chat": says so, with the chat it came from (ForkWho) */
+  forkedFrom?: { title: string; chatId?: string }
 }) {
   const t = useT()
+  if (!shared && forkedFrom && place === 'chat' && !words) return <ForkWho from={forkedFrom} />
   const who = whoSees(shared)
   const text = words ?? whoSeesText(t, shared, place)
   const Icon = who.kind === 'me' && !words ? Lock : Users
