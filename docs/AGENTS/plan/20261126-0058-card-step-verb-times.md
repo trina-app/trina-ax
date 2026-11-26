@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-26 00:58
 - Branch: `fix/card-step-verb-times`
-- Status: in progress
+- Status: done
 - Where: `shared/src/step-key-input.ts` (the step line's key input), `web` (the ask card's field values). Why: the step
   line is chosen in shared for every connection; the card's values are drawn by the web client (docs/REPOSITORY-RULES.md)
 - Version impact: patch, two display fixes with no API or data change
@@ -61,4 +61,6 @@ languages through Intl.
 
 ## Result
 
-Filled in at the end.
+Built as planned: `choiceArg` in shared/src/step-key-input.ts (name words and schema `enum`/`const`), `summary` and
+`headline` as title words; `formatCardTime` in web/src/lib/format.ts, used by the ask card's field values (a value
+holding a mark stays as sent). Items 3 and 4 reported in the PR, not changed.
