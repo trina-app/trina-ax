@@ -23,7 +23,7 @@ export default {
   // this menu entry's name, and the window's WM_CLASS matches it; without it the handler would point at
   // "<productName>.desktop", a file the .deb does not install (docs/decisions/20261119-linux-desktop-app.md "Names")
   extraMetadata: { productName: PRODUCT.displayName, description: `${PRODUCT.displayName} desktop app`, desktopName: `${LINUX_EXECUTABLE}.desktop` },
-  copyright: 'Copyright © 2026 TreeSoop. AGPL-3.0-only.',
+  copyright: 'Copyright © 2026 Trina Inc. AGPL-3.0-only.',
   directories: { output: 'release', buildResources: 'build-resources' },
   files: ['dist/**/*', '!dist/**/*.map', 'package.json'],
   asar: true,
@@ -128,7 +128,7 @@ export default {
     // picture this used to be showed a generic gear in the app grid and the dock (QA TC-5353)
     icon: 'build-resources/linux-icons',
     synopsis: `${PRODUCT.displayName} desktop app`,
-    maintainer: 'TreeSoop <contact@trina.app>',
+    maintainer: 'Trina Inc. <contact@trina.app>',
   },
   // only the package's name (apt install/remove <it>, dpkg-query): the default would be the product name, which has a
   // space and capitals. No `depends`: it would replace the default list of libraries. `fpm` adds the scalable icon

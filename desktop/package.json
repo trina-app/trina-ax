@@ -4,7 +4,7 @@
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
-  "author": "TreeSoop",
+  "author": "Trina Inc.",
   "homepage": "https://treesoop.com",
   "description": "Desktop app: the team's web page plus the in-app browser pane the AI can use. Component E. Name, installer names and electron-builder settings: electron-builder.config.ts (from shared/src/product.ts).",
   "main": "dist/main.cjs",

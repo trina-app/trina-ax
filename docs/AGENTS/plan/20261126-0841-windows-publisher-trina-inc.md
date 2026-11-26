@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-26 08:41
 - Branch: `fix/windows-publisher-trina-inc`
-- Status: in progress
+- Status: done
 - Where: desktop/package.json, desktop/electron-builder.config.ts, tests/unit. Why: the installer is signed by Trina Inc. but Apps & features names TreeSoop.
 - Version impact: patch (installer metadata text only; no API, data or format change)
 
@@ -31,4 +31,4 @@ None for updates: the NSIS GUID comes from appId, not the publisher.
 `bun run typecheck`, `bun run check:prepush`, desktop/branding unit tests.
 
 ## Result
-(at the end)
+author, copyright and the .deb maintainer now say Trina Inc.; test added in tests/unit/e-desktop-linux.test.ts.
