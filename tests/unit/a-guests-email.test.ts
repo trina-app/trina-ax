@@ -67,8 +67,10 @@ test('at most 10 addresses an hour from a guest, whatever the answer; clearing i
   for (let i = 0; i < 12; i++) expect((await mia.client.try('PATCH', '/api/me', { email: 'mia@acme.example' })).status).toBe(200)
 })
 
-test('members still may share an address (unchanged)', async () => {
+// since 2026-11-27 (sign in by e-mail, tests/unit/a-login-email.test.ts) members may not share one either
+test('members may no longer take an address another account has', async () => {
   const r = await owner.try('PATCH', '/api/me', { email: 'mia@acme.example' })
-  expect(r.status).toBe(200)
+  expect(r.status).toBe(409)
+  expect(r.body.error.params?.reason).toBe('email_in_use')
   expect(emailOf(mia.id)).toBe('mia@acme.example')
 })
