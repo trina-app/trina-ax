@@ -17,7 +17,7 @@ import type { AppContext } from '../context'
 import { newId } from '../db'
 import { answerTokensCached, insertGuestBudget } from '../admin/budgets'
 import type { AppEnv } from '../http/env'
-import { fail } from '../http/errors'
+import { fail, HttpError } from '../http/errors'
 import { originAllowed } from '../http/middleware'
 import { audit } from '../admin/audit'
 import { afterAccessChange, captureState, createDefaultFolders, ensureFolderRow, rulesOf, writeFolderAccess } from '../admin/folders'
@@ -37,7 +37,7 @@ import { isHosted } from '../system/deployment'
 import { HOSTED_BROKER_ORIGIN } from '../integrations/google-drive/broker'
 import { isManaged } from '../app-config'
 import { resolveLayout } from '../system/layout'
-import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameFromEmail, usernameTaken, userRef, type NewUser, type UserRow } from './users'
+import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, insertUser, signInCandidates, SIGN_IN_CANDIDATES_MAX, usernameFromEmail, usernameTaken, userRef, type NewUser, type UserRow } from './users'
 import { notifyResetLink, notifySignInChange, notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
 import { recordJoin } from '../onboarding/member-welcome'
@@ -246,7 +246,11 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
   const ip = info.ip
   // which counter of the account this attempt uses (rate-limit.ts AccountScope): failures from the internet must not
   // lock the person out at the Mac, on the office network, or on a network they signed in from before
-  const known = getUserByUsername(ctx.db, b.username)
+  // the username, or the account's e-mail (users.ts signInCandidates): the counters below are the account's when the
+  // name stands for one account, else the name's own
+  const candidates = signInCandidates(ctx.db, b.username)
+  const known = candidates.length === 1 ? candidates[0]! : null
+  const loginName = known?.username ?? b.username
   const net = ip ? limitIp(ip) : null
   const scope: AccountScope = net && ((!info.tunnel && isLoopback(ip)) || (known && a.limiter.knownNet(known.id, net)))
     ? { kind: 'net', net }
@@ -257,7 +261,7 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
   // sign-ins with any usernames locked the whole team out there for 15 minutes. Its attempts still count toward the
   // normal IP counter, and the per-account counter (10 per 15 minutes) still applies.
   // A loopback address reported by the relay is a client on the relay host, not this Mac: it keeps the normal limit.
-  const accountK = accountKey(b.username, scope)
+  const accountK = accountKey(loginName, scope)
   const shared = scope.kind === 'net' && !(info.via === 'relay' && isLoopback(ip))
   const keys = shared ? [accountK, ...netIpKeys(ip)] : [accountK, ...ipKeys(ip)]
   // counted before the (slow) password check, so parallel guesses cannot slip past the limit
@@ -265,14 +269,39 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
   if (hold.wait > 0) {
     // one audit row per client IP (or account, when the IP is unknown) and minute: a flood of refused attempts,
     // even with made-up usernames, cannot fill the disk
-    if (a.firstInMinute(ip ? `rl-ip:${ip}` : `rl-user:${b.username.toLowerCase()}`)) {
-      audit(ctx.db, { actor: null, action: 'auth.rate_limited', target: getUserByUsername(ctx.db, b.username)?.id ?? null, detail: { ip, via: viaOf(c.get('info')) } })
+    if (a.firstInMinute(ip ? `rl-ip:${ip}` : `rl-user:${loginName.toLowerCase()}`)) {
+      audit(ctx.db, { actor: null, action: 'auth.rate_limited', target: known?.id ?? null, detail: { ip, via: viaOf(c.get('info')) } })
     }
     fail('rate_limited', msg('tooManyAttempts', locale), { retryAfter: hold.wait })
   }
-  const u = getUserByUsername(ctx.db, b.username)
+  // The password decides which account a name with an @ is (a username, and the e-mail of one or more accounts): it is
+  // checked against each, always SIGN_IN_CANDIDATES_MAX times (made-up hashes for the rest), so how fast the answer
+  // comes says nothing about how many accounts the address has. One match signs that one in; none is the usual wrong
+  // password; only a person whose password matches two of them is told to use the username.
+  const now = signInCandidates(ctx.db, b.username)
+  let u: UserRow | null
   let ok = false
-  try { ok = await verifyPassword(b.password, u?.password_hash) } catch (e) { hold.release(); throw e }
+  try {
+    if (!b.username.includes('@')) {
+      u = now[0] ?? null
+      ok = await verifyPassword(b.password, u?.password_hash)
+    } else {
+      const matches: UserRow[] = []
+      for (let i = 0; i < SIGN_IN_CANDIDATES_MAX; i++) {
+        const cand = now[i]
+        if ((await verifyPassword(b.password, cand?.password_hash)) && cand) matches.push(cand)
+      }
+      if (matches.length > 1) {
+        audit(ctx.db, { actor: null, action: 'auth.login_failed', target: null, detail: { ip, via: viaOf(c.get('info')), emailShared: true } })
+        fail('unauthorized', msg('loginEmailShared', locale), { params: { reason: 'email_shared' } })
+      }
+      u = matches[0] ?? (now.length === 1 ? now[0]! : null)
+      ok = matches.length === 1
+    }
+  } catch (e) {
+    if (!(e instanceof HttpError)) hold.release()
+    throw e
+  }
   // a wrong password, or no such account: the same 401 and words (nothing says which usernames exist), counted
   if (!u || !ok || u.status !== 'active') {
     if (u && !ok && u.status === 'active') countTempFailure(ctx, u, a.now(), ip)
@@ -294,7 +323,7 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
   }
   hold.release()
   // only this scope's failures: a correct password at the office must not hand an internet guesser ten more tries
-  a.limiter.clear(accountKey(b.username, scope))
+  a.limiter.clear(accountKey(loginName, scope))
   const temp = !!u!.must_change_password
   audit(ctx.db, { actor: u!.id, action: 'auth.login', target: u!.id, detail: { ip, via: viaOf(c.get('info')), client: b.client, ...(temp ? { temporaryPassword: true } : {}) } })
   return a.signIn(c, u!.id, b.client, b.tokenMode, { tempLogin: temp })

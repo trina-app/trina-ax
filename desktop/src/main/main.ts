@@ -20,13 +20,14 @@
  *                              127.0.0.1, else https; common/create-team.ts consoleOrigin)
  *   MYCEL_DESKTOP_TEST_STORE   1: the first-run and create screens as in the Mac App Store build (no create row, no plans)
  *   MYCEL_DESKTOP_TEST_CREATE_POLL_MS  how often the starting screen asks the console (main/create-team.ts)
+ *   MYCEL_DESKTOP_TEST_OFFER_RETRY_MS  how soon an unknown "Create a team for free" answer is asked again (unpacked only)
  *   MYCEL_DESKTOP_TEST_PASSWORD_STORE  Linux: gnome-libsecret | kwallet5 | kwallet6, the keyring Chromium uses (Playwright's
  *                              Electron loader sets --password-store=basic, Electron's fixed-key fallback, which "Apps on
  *                              your computer" refuses to seal settings with)
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
-import { app, clipboard, ClipboardItem, dialog, Menu, nativeImage, nativeTheme, net, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions, type WebContents } from 'electron'
+import { app, clipboard, ClipboardItem, dialog, Menu, nativeImage, nativeTheme, net, powerMonitor, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import { APP_DOWNLOADS } from '@mycel/shared/app-downloads'
 import { DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION } from '@mycel/shared/desktop-bridge'
 import { PRODUCT } from '@mycel/shared/product'
@@ -682,10 +683,46 @@ async function createWindow() {
   })
   const create = createTeam
   // whether the console offers "Create a team for free" (asked once without a token; asked again later while unknown)
+  // An unknown answer (offline at start, a slow network, a portal's redirect) is asked again by itself until the
+  // console answers, and the first screen changes when it does: before, one failed ask at start left the old
+  // "Join your team" screen until the app restarted (live QA of 0.20.0). Nothing waits on it.
+  const retryMs = dev && Number(process.env.MYCEL_DESKTOP_TEST_OFFER_RETRY_MS) > 0 ? [Number(process.env.MYCEL_DESKTOP_TEST_OFFER_RETRY_MS)] : [2000, 5000, 15_000, 30_000, 60_000]
+  let offerTries = 0
+  let offerTimer: NodeJS.Timeout | undefined
+  let offerAsked = false
+  // quitting: no more asks (a request started while the app writes its cookies held the quit back)
+  let offerStopped = false
+  app.once('before-quit', () => { offerStopped = true; clearTimeout(offerTimer) })
+  const askOffer = (fresh: boolean) => {
+    if (offerStopped) return
+    const before = signin.knownOffer()
+    void signin.probe(fresh).then((v) => {
+      if (v !== before) win?.createChanged(false)
+      clearTimeout(offerTimer)
+      if (v !== 'unknown' || offerStopped) return
+      offerTimer = setTimeout(() => askOffer(true), retryMs[Math.min(offerTries++, retryMs.length - 1)])
+      offerTimer.unref?.()
+    })
+  }
+  // the network came back (Wi-Fi joined, the computer woke) while the answer is still unknown: ask at once, not at the
+  // next wait (up to a minute). Electron's main process has no "online" event: net.online is read once a second, only
+  // while the answer is unknown, and a wake asks too
+  let wasOnline = net.online
+  const onlineWatch = setInterval(() => {
+    const online = net.online
+    if (online && !wasOnline && signin.knownOffer() === 'unknown' && !offerStopped) { offerTries = 0; askOffer(true) }
+    wasOnline = online
+    if (signin.knownOffer() !== null && signin.knownOffer() !== 'unknown') clearInterval(onlineWatch)
+  }, 1000)
+  onlineWatch.unref?.()
+  powerMonitor.on('resume', () => { if (signin.knownOffer() === 'unknown' && !offerStopped) { offerTries = 0; askOffer(true) } })
+  app.once('before-quit', () => clearInterval(onlineWatch))
   const offer = () => {
-    const known = signin.knownOffer()
-    if (known === null || known === 'unknown') void signin.probe().then((v) => { if (v !== known) win?.createChanged(false) })
-    return known ?? 'checking'
+    if (!offerAsked) {
+      offerAsked = true
+      askOffer(false)
+    }
+    return signin.knownOffer() ?? 'checking'
   }
   // the app restarted by itself to install an update: the page and window come back as they were (once)
   const resume = takeResume(app.getPath('userData'))

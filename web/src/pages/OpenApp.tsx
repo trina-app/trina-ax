@@ -20,7 +20,7 @@ import { platform } from '../lib/pwa'
 import { appComputer, appSignInHref, pageOrigin, readAppSetupClaim, readAppSignInCode } from '../lib/open-app'
 import { LANDING_STATE } from '../lib/welcome'
 import { useLogoutTo } from '../lib/logout'
-import { Button } from '../components/ui'
+import { Button, Field, inputCls } from '../components/ui'
 import { AuthFrame, PasswordField, signedInHome, usePasswordReveal } from './Auth'
 
 const quietLink = 'font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink max-md:inline-flex max-md:min-h-11 max-md:items-center'
@@ -220,6 +220,9 @@ export function AppSetup() {
   const inApp = !!desktop()
   const [state, setState] = useState<SetupState>(() => (!inApp ? { s: 'outside' } : claim ? { s: 'loading' } : { s: 'gone' }))
   const [password, setPassword] = useState('')
+  // the name to keep, prefilled from the preview (null: not touched yet)
+  const [name, setName] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
   const [fieldError, setFieldError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [, rerender] = useState(0)
@@ -267,7 +270,7 @@ export function AppSetup() {
       setBusy(true)
       setFieldError(null)
       try {
-        const r = await api.call(API.setupConsole, { body: { claim: claim!, ...(p.google ? {} : { password }), client: 'desktop', tokenMode: 'cookie' } })
+        const r = await api.call(API.setupConsole, { body: { claim: claim!, ...(p.google ? {} : { password, name: (name ?? p.name).trim() }), client: 'desktop', tokenMode: 'cookie' } })
         landing = true
         signedIn(r.me)
         rerender((n) => n + 1)
@@ -283,12 +286,32 @@ export function AppSetup() {
       <AuthFrame title={t('appSetup.welcome', { team: p.teamName, name: p.name })} sub={p.email} switcher={false}>
         <form onSubmit={(e) => void submit(e)} noValidate>
           {!p.google && (
+            // the person never chose a username (made from the e-mail): it is said here, with Copy; the e-mail works too
+            <div className="mb-4 rounded-md border border-line px-3 py-2 text-sm" data-testid="app-setup-username">
+              <p className="flex flex-wrap items-center gap-x-2">
+                <span>{t('appSetup.username', { username: p.username })}</span>
+                <button type="button" className="font-medium text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="app-setup-copy"
+                  onClick={() => { void navigator.clipboard?.writeText(p.username).then(() => setCopied(true), () => {}) }}>
+                  {t(copied ? 'appSetup.copied' : 'appSetup.copy')}
+                </button>
+              </p>
+              <p className="mt-1 text-xs text-muted">{t('appSetup.usernameHint')}</p>
+            </div>
+          )}
+          {!p.google && (
+            <div className="mb-4">
+              <Field label={t('appSetup.name')}>
+                <input className={inputCls} name="name" autoComplete="name" maxLength={100} value={name ?? p.name} onChange={(e) => setName(e.target.value)} data-testid="app-setup-name" />
+              </Field>
+            </div>
+          )}
+          {!p.google && (
             <div className="mb-4">
               <PasswordField label={t('appSetup.password')} hint={t('appSetup.passwordHint')} error={fieldError} reveal={reveal} eyeTestId="app-setup-password-show"
                 name="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus autoComplete="new-password" data-testid="app-setup-password" />
             </div>
           )}
-          <Button type="submit" variant="primary" className="w-full" busy={busy} disabled={!p.google && password.length === 0} data-testid="app-setup-continue">
+          <Button type="submit" variant="primary" className="w-full" busy={busy} disabled={!p.google && (password.length === 0 || (name ?? p.name).trim() === '')} data-testid="app-setup-continue">
             {t('appSignIn.continue')}
           </Button>
         </form>
