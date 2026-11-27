@@ -132,7 +132,7 @@ test('links open the app only through screen ④ (phase 2): the hosted domain\'s
   expect(neutral.android?.intentFilters).toBeUndefined()
   // every link the OS hands over is read, then only offered to ④; LinkAsk connects only with the gate's answer
   const app = fs.readFileSync(path.join(root, 'App.tsx'), 'utf8') as string
-  expect(app).toMatch(/const p = readAppLink\(url, LINKS\)\n\s*if \(!p\) return\n\s*if \(!p\.ok\) \{ Alert\.alert\(product\.name, t\.linkBad\); return \}\n\s*setLink\(gate\.current\.put\(p\)\)/)
+  expect(app).toMatch(/const p = readAppLink\(url, LINKS\)\n\s*if \(!p\) return\n\s*if \(!p\.ok\) \{ Alert\.alert\(product\.name, words\.current\.linkBad\); return \}\n\s*setLink\(gate\.current\.put\(p\)\)/)
   // ④ reports itself on screen (the yes counts only a while after), keeps its state per link, and asks again for a rename
   expect(app).toContain('gate.shown(offer.id, Date.now())')
   expect(app).toContain('<LinkAsk key={link.id}')

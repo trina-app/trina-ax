@@ -8,7 +8,7 @@ import { markTeamShares } from '../chat/team-shares'
 import { redactorFor } from '../integrations/connections/redact'
 import { searchForms, searchWords } from '@mycel/shared'
 import { formsWhere } from '../search-forms'
-import { ACCESS_TARGET_ID, API, CHAT_FILE_EDIT_MAX, WINDOW_HEADER, type Attachment, type Chat, type Effort, type EngineId, type Locale, type Message, type UserRef } from '@mycel/shared/api'
+import { ACCESS_TARGET_ID, API, CHAT_FILE_EDIT_MAX, DEFAULT_LOCALE, WINDOW_HEADER, type Attachment, type Chat, type Effort, type EngineId, type Locale, type Message, type UserRef } from '@mycel/shared/api'
 import type { Context } from 'hono'
 import type { RouteModule } from './module'
 import type { AppContext } from '../context'
@@ -159,7 +159,7 @@ function notifyInstructionsChanged(ctx: AppContext, r: ProjectRowT, by: AuthInfo
     try { who = ctx.files.principal(u.id) } catch { continue }
     if (!canSeeProject(ctx.files, who, r)) continue
     try {
-      ctx.services.realtime.publish(u.id, { type: 'notice', data: { level: 'info', code: 'project_instructions_changed', message: tr('projectInstructionsChanged', u.locale ?? 'ko', { name: r.name, by: by.name }) } })
+      ctx.services.realtime.publish(u.id, { type: 'notice', data: { level: 'info', code: 'project_instructions_changed', message: tr('projectInstructionsChanged', u.locale ?? DEFAULT_LOCALE, { name: r.name, by: by.name }) } })
     } catch (e) { ctx.log.warn('project notice failed', { err: e }) }
   }
 }

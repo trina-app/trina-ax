@@ -1,4 +1,4 @@
-import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, base64Size, DICTATION_CAPABILITY, GOOGLE_SIGNIN_CAPABILITY, googleSignInCode, googleSignInError, type GoogleSignInError, dictationEventBody, dictationInstall, dictationState, MAX_DICTATION_BYTES, MAX_BADGE, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_PICK_BYTES, MAX_PICK_FILES, MAX_SHARE_TEXT, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, pickChunkLength, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, SHARE_TEXT_CAPABILITY, googleOAuthUrl, validConfig, validPicks, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken, PUSH_SYNC_CAPABILITY, PUSH_CLEAR_CAPABILITY } from '../../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, LANGUAGE_CAPABILITY, type PageLocale, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, base64Size, DICTATION_CAPABILITY, GOOGLE_SIGNIN_CAPABILITY, googleSignInCode, googleSignInError, type GoogleSignInError, dictationEventBody, dictationInstall, dictationState, MAX_DICTATION_BYTES, MAX_BADGE, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_PICK_BYTES, MAX_PICK_FILES, MAX_SHARE_TEXT, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, pickChunkLength, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, SHARE_TEXT_CAPABILITY, googleOAuthUrl, validConfig, validPicks, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken, PUSH_SYNC_CAPABILITY, PUSH_CLEAR_CAPABILITY } from '../../../mobile/src/protocol'
 import type { DesktopBridge, DesktopDictationEvent } from '@mycel/shared'
 import { currentTheme } from './theme'
 
@@ -84,6 +84,7 @@ export function resetMobileSession(signedOut = false): void {
     // Native also installs this config before delivering its acknowledgement.
     if (!mobileApp() || mobileApp()!.generation !== reply.nextGeneration) throw new Error('mobile_protocol_mismatch')
     void sendAppearance().catch(() => {})
+    void sendLanguage().catch(() => {})
     void sendNav().catch(() => {})
     void sendBadge().catch(() => {})
   })
@@ -327,6 +328,21 @@ async function sendAppearance(): Promise<void> {
   if (!config?.capabilities.includes(APPEARANCE_CAPABILITY)) return
   await request({ ...envelope(config), type: 'appearance', dark: document.documentElement.classList.contains('dark'), system: currentTheme() === 'system' }, config, 10_000)
 }
+/** The page's language for the app's own screens (language-v1): set by main.tsx at the start and whenever it changes;
+ * sent then, when the bridge comes and after every session reset, like the look. An app without the capability gets
+ * nothing (its screens follow the phone's language). */
+let language: PageLocale | null = null
+export function setAppLanguage(locale: PageLocale): void {
+  if (language === locale) return
+  language = locale
+  void sendLanguage().catch(() => {})
+}
+async function sendLanguage(): Promise<void> {
+  await barrier.catch(() => {})
+  const config = mobileApp(), locale = language
+  if (!locale || !config?.capabilities.includes(LANGUAGE_CAPABILITY)) return
+  await request({ ...envelope(config), type: 'language', locale }, config, 10_000)
+}
 /** Where Back goes in this page (nav-v1, lib/appNav.ts): the latest the page worked out. */
 export interface AppNav { canGoBack: boolean; home: boolean }
 let nav: AppNav | null = null
@@ -398,6 +414,7 @@ export function initMobile(errorHandler?: (error: unknown) => void): void {
     if (pageSignedOut && !signedOutTold) resetMobileSession(true)
     else {
       void sendAppearance().catch(() => {})
+      void sendLanguage().catch(() => {})
       void sendNav().catch(() => {})
       void sendBadge().catch(() => {})
     }

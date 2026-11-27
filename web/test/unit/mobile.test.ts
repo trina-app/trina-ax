@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { initMobile, mobileApp, sendFileToApp, setAppBadge, setAppNav, setMobileSession, openExternal, openAppSettings, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge, appSharesText, appPicksPhotos, pickPhotosFromApp, googleSignInInApp, phoneGoogleSignIn } from '../../src/lib/mobile'
+import { initMobile, mobileApp, sendFileToApp, setAppBadge, setAppLanguage, setAppNav, setMobileSession, openExternal, openAppSettings, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge, appSharesText, appPicksPhotos, pickPhotosFromApp, googleSignInInApp, phoneGoogleSignIn } from '../../src/lib/mobile'
 import { canShareText, shareText, SHARE_PHONE_QUERY } from '../../src/lib/share'
 import { clientKind } from '../../src/lib/desktop'
 import { askLater, laterHides, LATER_MS, OFF_HERE_PREFIX, phonePushView, registerMobilePush, setMobilePushSession, turnOffPhonePush, usePhonePush } from '../../src/lib/mobile-push'
@@ -8,7 +8,7 @@ import { clearLocalData } from '../../src/lib/localData'
 import { initAppNav, resetAppNavForTest } from '../../src/lib/appNav'
 import { OVERLAY_ENTRY_EVENT } from '../../src/lib/backCloses'
 import { HISTORY_STEPS_EVENT } from '../../src/lib/historySteps'
-import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, GOOGLE_SIGNIN_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, PUSH_SYNC_CAPABILITY, PUSH_CLEAR_CAPABILITY } from '../../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, LANGUAGE_CAPABILITY, BADGE_CAPABILITY, GOOGLE_SIGNIN_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, PUSH_SYNC_CAPABILITY, PUSH_CLEAR_CAPABILITY } from '../../../mobile/src/protocol'
 const config: MobileConfig = { protocol: 1, appVersion: '0.2.2', platform: 'ios', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
 const win = Object.assign(new EventTarget(), { self: null as unknown, top: null as unknown, mycelMobile: { ...config }, ReactNativeWebView: { postMessage: (_raw: string) => {} } })
 win.self = win; win.top = win
@@ -289,6 +289,29 @@ test('appearance-v1: the page tells the app its look when the bridge is ready an
     win.dispatchEvent(new Event('mycel:theme')); await settle()
     expect(messages).toHaveLength(0)
   } finally { Reflect.deleteProperty(doc, 'documentElement') }
+})
+
+test('language-v1: the page tells the app its language when the bridge is ready, when it changes and after a reset; never an app without it', async () => {
+  const locales = () => messages.filter(m => m.type === 'language').map(m => (m as { locale: string }).locale)
+  // an app without the capability (older store builds): nothing, also when the language changes
+  setAppLanguage('id'); await settle()
+  expect(locales()).toEqual([])
+  win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, LANGUAGE_CAPABILITY] }
+  win.dispatchEvent(new Event('mycel:mobile-ready'))
+  await settle(() => locales().length > 0)
+  expect(locales()).toEqual(['id'])
+  setAppLanguage('ja')
+  await settle(() => locales().length > 1)
+  expect(locales()).toEqual(['id', 'ja'])
+  // the same language again: not sent again
+  setAppLanguage('ja'); await settle()
+  expect(locales()).toEqual(['id', 'ja'])
+  // a session reset (sign-in): sent again with the new generation
+  messages = []
+  setMobileSession('user:language-after-reset')
+  await settle(() => messages.some(m => m.type === 'language'))
+  expect(messages.map(m => m.type)).toEqual(['session-reset', 'language'])
+  expect(messages[1]).toMatchObject({ locale: 'ja', generation: messages[0]!.generation + 1 })
 })
 
 test('nav-v1: the page tells the app where Back goes when it changes, once per bridge, and again after a reset', async () => {

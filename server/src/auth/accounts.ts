@@ -711,7 +711,7 @@ async function acceptGuestInvite(c: Context<AppEnv>, ctx: AppContext, r: InviteR
     }
     else {
       const folder = ensureFolderRow(ctx.db, projectFolder(ctx.db, place!.id)!)
-      writeFolderAccess(ctx.db, folder.id, { rules: [...rulesOf(ctx.db, folder.id).filter((x) => !(x.subjectType === 'user' && x.subjectId === id)), { subjectType: 'user', subjectId: id, access: 'write' }] }, r.created_by)
+      writeFolderAccess(ctx.db, folder.id, { rules: [...rulesOf(ctx.db, folder.id).filter((x) => !(x.subjectType === 'user' && x.subjectId === id)), { subjectType: 'user', subjectId: id, access: 'write' }] }, r.created_by, getUser(ctx.db, id)?.locale)
     }
     audit(ctx.db, { actor: id, action: 'invite.accept', target: r.id, detail: { userId: id, role: 'guest', place, ai: ai.mode } })
     return 'ok'

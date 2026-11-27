@@ -26,6 +26,7 @@ import { newId, nowIso } from '../../db'
 import { fail } from '../../http/errors'
 import { audit } from '../../admin/audit'
 import { teamDefaultLocale, teamTimeZone } from '../../admin/settings'
+import { getUser } from '../../auth/users'
 import { credentialsOf } from '../../credentials/store'
 import type { Vault } from '../../credentials/vault'
 import { teamAddressOf } from '../../system/connection'
@@ -129,13 +130,13 @@ export class RoomApps {
   addressOf(row: AppRow, viewer: string): string {
     if (this.isEmail(row)) {
       const domain = mailInOf(this.ctx).domain()
-      if (!domain) return fail('conflict', appText('mailNotConnected', this.locale()), { params: { reason: 'mail_not_connected' } })
+      if (!domain) return fail('conflict', appText('mailNotConnected', this.localeOf(viewer)), { params: { reason: 'mail_not_connected' } })
       const address = `${this.tokenOf(row)}@${domain}`
       this.saw(row.id, viewer)
       return address
     }
     const base = this.base()
-    if (!base) return fail('conflict', appText('noAddress', this.locale()), { params: { reason: 'no_public_address' } })
+    if (!base) return fail('conflict', appText('noAddress', this.localeOf(viewer)), { params: { reason: 'no_public_address' } })
     const address = `${base}/in/${this.tokenOf(row)}`
     this.saw(row.id, viewer)
     return address
@@ -197,6 +198,8 @@ export class RoomApps {
   /** An Email app (email into rooms): preset 'email'. */
   isEmail(row: Pick<AppRow, 'kind' | 'preset'>): boolean { return row.kind === 'other' && row.preset === 'email' }
   private locale(): Locale { try { return teamDefaultLocale(this.db) } catch { return DEFAULT_LOCALE } }
+  /** An answer to one person (a refusal), in their own language: the team's is for lines everyone in the room reads. */
+  private localeOf(userId: string): Locale { return getUser(this.db, userId)?.locale ?? this.locale() }
   row(id: string): AppRow | null { return this.db.query('SELECT * FROM room_apps WHERE id = ?').get(id) as AppRow | null }
   /** The app's preset when this build knows it (an unknown one: none here; inbound.ts refuses its requests). */
   presetOf(row: Pick<AppRow, 'kind' | 'preset'>) {
@@ -424,8 +427,8 @@ export class RoomApps {
   rotate(userId: string, roomId: string, appId: string): RoomAppCreated {
     const { room, row } = this.mine(userId, roomId, appId)
     const email = this.isEmail(row)
-    if (!email && this.base() === null) fail('conflict', appText('noAddress', this.locale()), { params: { reason: 'no_public_address' } })
-    if (email && !mailInOf(this.ctx).availability().available) fail('conflict', appText('mailEmailOff', this.locale()), { params: { reason: 'room_email_off' } })
+    if (!email && this.base() === null) fail('conflict', appText('noAddress', this.localeOf(userId)), { params: { reason: 'no_public_address' } })
+    if (email && !mailInOf(this.ctx).availability().available) fail('conflict', appText('mailEmailOff', this.localeOf(userId)), { params: { reason: 'room_email_off' } })
     const prev = this.secretOf(row)
     // a secret that no longer opens must not turn into "no secret": set it again first
     if (prev === 'broken') return fail('conflict', undefined, { params: { reason: 'secret_unreadable' } })
@@ -546,7 +549,8 @@ export class RoomApps {
   example(userId: string, roomId: string, appId: string): void {
     const { row } = this.mine(userId, roomId, appId)
     const L = this.locale()
-    this.takeHourly(this.examples, row.id, ROOM_APP_EXAMPLES_PER_HOUR, (minutes) => appText('exampleLimit', L, { n: ROOM_APP_EXAMPLES_PER_HOUR, minutes }))
+    // the refusal is for the person who asked; the example card is for the room
+    this.takeHourly(this.examples, row.id, ROOM_APP_EXAMPLES_PER_HOUR, (minutes) => appText('exampleLimit', this.localeOf(userId), { n: ROOM_APP_EXAMPLES_PER_HOUR, minutes }))
     const card = cleanCard({ kind: appText('example', L), title: appText('exampleTitle', L, { app: row.name }), details: [], status: undefined })
     this.insert(row, { card, quiet: true, example: true })
   }
