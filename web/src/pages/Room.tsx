@@ -39,7 +39,7 @@ import { lookingAt, onWindowFocus } from '../lib/attention'
 import { isPrivateChannel, readUpTo, roomFilesButtonShown, roomEmptyKey, threadClosing, threadOpening, timelineTarget, pushedMessagePath, withoutTarget } from '../lib/rooms'
 import { roomColumns, roomSqueezed, useElementWidth } from '../lib/roomColumns'
 import { getSidePanel } from '../lib/sidePanel'
-import { PANEL_ALWAYS_BOTH_PX } from '../components/rail/railPanel'
+import { panelAlwaysBothPx, useRailPanel } from '../components/rail/railPanel'
 import { PANEL_ID } from '../components/panels/PanelFrame'
 import { useBackLink } from '../lib/back'
 import { useOverlayEntry } from '../lib/backCloses'
@@ -186,7 +186,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const rowForBoth = useCallback((): number | null => {
     const now = page.current?.offsetWidth
     if (!now) return null
-    const list = window.innerWidth < PANEL_ALWAYS_BOTH_PX ? document.getElementById(PANEL_ID)?.offsetWidth ?? 0 : 0
+    const list = window.innerWidth < panelAlwaysBothPx(useRailPanel.getState().width) ? document.getElementById(PANEL_ID)?.offsetWidth ?? 0 : 0
     return now + list
   }, [])
   // (drawn again whenever the row changes size: a window resize, the list folding, a file preview beside the page:

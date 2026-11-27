@@ -1,10 +1,14 @@
-// The divider on a panel's left edge: drag it (or focus it and use the arrow keys) to resize the panel, double-click to
-// reset. Used by the right-hand panel beside the chat (components/SidePanelFrame.tsx) and a thread beside its room
-// (components/rooms/ThreadPanel.tsx), so both look and behave the same.
+// The divider on a panel's edge: drag it (or focus it and use the arrow keys) to resize the panel, double-click to
+// reset. Used by the right-hand panel beside the chat (components/SidePanelFrame.tsx), a thread beside its room
+// (components/rooms/ThreadPanel.tsx) and the list panel beside the rail (components/panels/PanelFrame.tsx), so they all
+// look and behave the same.
 //
 // It resizes its PARENT element, the panel: from md up the panel is positioned relative, its width is the CSS variable
-// --panel-w with the panel's own default as the fallback, and its minimum width is the sizing's minimum. The column it
-// shares the row with is the panel's previous sibling. A default wider than the limits allow (a narrow window, the
+// --panel-w with the panel's own default as the fallback, and its minimum width is the sizing's minimum. A panel on the
+// right of its row (`side` 'end', the default) has the divider on its left edge and shares the row with its previous
+// sibling; the list panel ('start') has it on its right edge and shares the row with its next sibling (<main>). The
+// divider fits the panel again when the window, the row or that column changes size (the list panel widening shrinks
+// the chat beside a right-hand panel). A default wider than the limits allow (a narrow window, the
 // right-hand panel beside an open thread) is shown at the largest width without being remembered. Phones (< 768 px)
 // get no divider (the panel is full screen there). While dragging the width is written straight to the variable once
 // per animation frame: nothing in the panel or the column beside it re-renders because of it. Widths and limits:
@@ -24,8 +28,10 @@ function watch(el: Element, fn: () => void): ResizeObserver | undefined {
 }
 
 /** `sizing`: one of the constants in lib/panelWidth.ts (the same object on every render: a new one measures again).
- * `testId`, `overlayTestId`: the divider's test id and that of the cover laid over the panel while dragging. */
-export function PanelDivider({ sizing, label, testId = 'panel-divider', overlayTestId = 'panel-drag-overlay' }: { sizing: PanelSizing; label: string; testId?: string; overlayTestId?: string }) {
+ * `testId`, `overlayTestId`: the divider's test id and that of the cover laid over the panel while dragging.
+ * `onRemember`: told what is remembered after a width is set for good (null: forgotten, the default again). */
+export function PanelDivider({ sizing, label, testId = 'panel-divider', overlayTestId = 'panel-drag-overlay', onRemember }: { sizing: PanelSizing; label: string; testId?: string; overlayTestId?: string; onRemember?: (kept: number | null) => void }) {
+  const start = sizing.side === 'start'
   const handle = useRef<HTMLDivElement>(null)
   const [remembered] = useState(() => readPanelFraction(sizing))
   const fraction = useRef(remembered)
@@ -35,12 +41,13 @@ export function PanelDivider({ sizing, label, testId = 'panel-divider', overlayT
   const [m, setM] = useState({ now: 0, min: sizing.min, max: sizing.min })
 
   const panel = useCallback(() => handle.current?.parentElement ?? null, [])
-  /** The room the column beside the panel and the panel share: the column is the panel's previous sibling. */
-  const avail = useCallback(() => {
+  /** The column beside the panel: its previous sibling, or its next one for a panel at the row's start. */
+  const other = useCallback(() => {
     const box = panel()
-    const other = box?.previousElementSibling as HTMLElement | null | undefined
-    return (other?.offsetWidth ?? 0) + (box?.offsetWidth ?? 0)
-  }, [panel])
+    return (start ? box?.nextElementSibling : box?.previousElementSibling) as HTMLElement | null | undefined
+  }, [panel, start])
+  /** The room the column beside the panel and the panel share. */
+  const avail = useCallback(() => (other()?.offsetWidth ?? 0) + (panel()?.offsetWidth ?? 0), [other, panel])
 
   const measure = useCallback(() => {
     const box = panel()
@@ -77,28 +84,36 @@ export function PanelDivider({ sizing, label, testId = 'panel-divider', overlayT
     const { width, fraction: f } = settlePanel(px, avail(), sizing, fraction.current)
     fraction.current = f
     writePanelFraction(f, sizing)
+    onRemember?.(f)
     if (width === null) return fit()
     apply(width)
     measure()
-  }, [apply, avail, fit, measure, sizing])
+  }, [apply, avail, fit, measure, sizing, onRemember])
   useLayoutEffect(() => {
     fit()
     window.addEventListener('resize', fit)
     const row = panel()?.parentElement
     const ro = row ? watch(row, fit) : undefined
+    // the column beside it too: the list panel beside the rail widening shrinks it without the row changing size
+    const col = other()
+    const roCol = col ? watch(col, fit) : undefined
     return () => {
       window.removeEventListener('resize', fit)
       ro?.disconnect()
+      roCol?.disconnect()
       cancelAnimationFrame(raf.current)
     }
-  }, [fit, panel])
+  }, [fit, panel, other])
   useEffect(() => {
     const box = panel()
     const ro = box ? watch(box, measure) : undefined
     return () => ro?.disconnect()
   }, [measure, panel])
 
-  const widthAt = (clientX: number) => clampPanel((panel()?.getBoundingClientRect().right ?? 0) - clientX, avail(), sizing)
+  const widthAt = (clientX: number) => {
+    const r = panel()?.getBoundingClientRect()
+    return clampPanel(start ? clientX - (r?.left ?? 0) : (r?.right ?? 0) - clientX, avail(), sizing)
+  }
   const onDown = (e: PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -138,7 +153,7 @@ export function PanelDivider({ sizing, label, testId = 'panel-divider', overlayT
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
   }
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    const next = keyWidth(e.key, e.shiftKey, panel()?.offsetWidth ?? m.now, m)
+    const next = keyWidth(e.key, e.shiftKey, panel()?.offsetWidth ?? m.now, m, sizing.side)
     if (next === null) return
     e.preventDefault()
     commit(next)
@@ -166,8 +181,10 @@ export function PanelDivider({ sizing, label, testId = 'panel-divider', overlayT
         onDoubleClick={() => commit(null)}
         onKeyDown={onKey}
         className={clsx(
-          'absolute inset-y-0 -left-px z-30 hidden w-1.5 cursor-col-resize touch-none select-none md:block',
-          'after:absolute after:inset-y-0 after:left-0 after:w-0.5 after:transition-colors',
+          'absolute inset-y-0 z-30 hidden w-1.5 cursor-col-resize touch-none select-none md:block',
+          // (the list panel's: across its border, half over the column beside it, clear of the list's scroll bar)
+          start ? '-right-[3px] after:left-[2px]' : '-left-px after:left-0',
+          'after:absolute after:inset-y-0 after:w-0.5 after:transition-colors',
           'hover:after:bg-accent focus-visible:after:bg-accent data-[dragging]:after:bg-accent focus:outline-none',
         )}
       />

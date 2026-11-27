@@ -6451,6 +6451,7 @@ export const ko = {
   "rail.label": "앱 메뉴",
   "rail.skipList": "목록으로",
   "rail.hideList": "목록 숨기기",
+  "rail.resizeList": "목록 너비 조절",
   "rail.showList": "목록 보기",
   "rail.searchChats": "대화 검색",
   "rail.unreadRooms": "안 읽은 대화 {n}개",

@@ -259,6 +259,9 @@ test('keyboard: skip links to the page and to the list; Tab goes logo → places
   await expect(page.locator('#rail-panel :focus')).toHaveCount(1)
   // the list's last control (삭제한 기록 is in a menu now)
   await page.locator('#rail-panel').locator('a:visible, button:visible').last().focus()
+  // then the list's divider on its right edge (it resizes the list: list-panel-resize.spec.ts), then the page
+  await page.keyboard.press('Tab')
+  await expect(page.getByTestId('list-panel-divider')).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(page.locator('#main :focus')).toHaveCount(1)
   // ⇧⌘O: a new AI chat, 트리나 lit

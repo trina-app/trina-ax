@@ -6406,6 +6406,7 @@ export const ja: Record<MessageKey, string> = {
   "rail.label": "アプリメニュー",
   "rail.skipList": "リストへ移動",
   "rail.hideList": "リストを隠す",
+  "rail.resizeList": "リストの幅を調整",
   "rail.showList": "リストを表示",
   "rail.searchChats": "トークを検索",
   "rail.unreadRooms": "{n, plural, one {未読のトーク#件} other {未読のトーク#件}}",

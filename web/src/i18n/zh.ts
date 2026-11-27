@@ -6377,6 +6377,7 @@ export const zh: Record<MessageKey, string> = {
   "rail.label": "应用菜单",
   "rail.skipList": "跳到列表",
   "rail.hideList": "隐藏列表",
+  "rail.resizeList": "调整列表宽度",
   "rail.showList": "显示列表",
   "rail.searchChats": "搜索聊天",
   "rail.unreadRooms": "{n, plural, one {#个有未读消息的聊天} other {#个有未读消息的聊天}}",

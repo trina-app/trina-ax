@@ -6450,6 +6450,7 @@ export const id: Record<MessageKey, string> = {
   "rail.label": "Menu aplikasi",
   "rail.skipList": "Lewati ke daftar",
   "rail.hideList": "Sembunyikan daftar",
+  "rail.resizeList": "Atur lebar daftar",
   "rail.showList": "Tampilkan daftar",
   "rail.searchChats": "Cari percakapan",
   "rail.unreadRooms": "{n} percakapan belum dibaca",
