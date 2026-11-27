@@ -307,6 +307,8 @@ step the person starts; scheduled runs never reach them. "hidden for guests" mea
 | `ui.admin.system.changeMode` | `web/src/pages/admin/System.tsx:683` | Change the server connection mode; password again. | Change connection / 연결 방식 바꾸기 | Save / Cancel | none | n/a | n/a | admin only | security | OK |
 | `ui.admin.system.connectedRemove` | `web/src/pages/admin/System.tsx:762` | Disconnect a connected folder. | Disconnect folder / 연결 끊기 (`connected.removeTitle`) | Disconnect / Cancel | none | n/a | n/a | admin only | irreversible | OK |
 | `ui.admin.system.connectFolder` | `web/src/pages/admin/System.tsx:793` | Connect a folder for the team; password again. | Connect a folder / 폴더 연결 | Connect / Cancel | none | n/a | n/a | admin only | shows-private-to-others | OK |
+| `ui.admin.system.restart` | `web/src/pages/admin/System.tsx:474` | Health › Restart: the AI only or the whole app; password again. The owner may also restart right away (running answers stop). | What should restart? / 무엇을 다시 시작할까요? (`system.restart.title`) | Restart when answers finish / Restart right away (owner only) / Cancel | none | n/a | n/a | admin only | other:feature-stops | OK (decision 20261127-restart) |
+| `ui.admin.system.restartNow` | `web/src/pages/admin/System.tsx:460` | Health › Restart: a restart that waits for answers goes right away (the owner); password again. | Restart right away / 지금 바로 다시 시작 (`system.restart.whenNow`) | Restart right away / Cancel | none | n/a | n/a | admin only | other:feature-stops | OK (decision 20261127-restart) |
 | `ui.admin.system.restoreBackup` | `web/src/pages/admin/System.tsx:1050` | Restore a server backup; password again. | Restore this backup? / 이 백업으로 복원할까요? | Restore / Cancel | none | n/a | n/a | admin only | irreversible | OK |
 | `ui.admin.officeUpdate` | `web/src/pages/admin/OfficeUpdate.tsx:126` | Update the office Mac's app now; password again. | (`officeUpdate.confirmTitle`, `officeUpdate.confirmBody`) | Update now / Cancel | none | n/a | n/a | admin only | other:restart | OK |
 | `ui.admin.system.update` | `web/src/pages/admin/jobs.tsx:86` | Install, retry or roll back an update; password again; with tasks running: wait or update now. | (the install title) + password | Continue / Update now anyway / Cancel | none | n/a | waits for running tasks unless "anyway" | admin only | other:restart | OK |
@@ -574,7 +576,7 @@ lines than the row fails the test; fewer passes.
 | `web/src/pages/admin/Plugins.tsx` | 1 | `ui.admin.plugins.remove` |
 | `web/src/pages/admin/SkillManagers.tsx` | 1 | `ui.admin.skillManagers.remove` |
 | `web/src/pages/admin/Slack.tsx` | 1 | `ui.admin.slack.remove` |
-| `web/src/pages/admin/System.tsx` | 5 | `ui.admin.system.askCleanup`, `ui.admin.system.changeMode`, `ui.admin.system.connectedRemove`, `ui.admin.system.connectFolder`, `ui.admin.system.restoreBackup` |
+| `web/src/pages/admin/System.tsx` | 7 | `ui.admin.system.askCleanup`, `ui.admin.system.changeMode`, `ui.admin.system.connectedRemove`, `ui.admin.system.connectFolder`, `ui.admin.system.restart`, `ui.admin.system.restartNow`, `ui.admin.system.restoreBackup` |
 | `web/src/pages/admin/TeamAiSettings.tsx` | 2 | `ui.admin.ai.sharedSubscriptions`, `ui.leave.aiDefaults` |
 | `web/src/pages/admin/TeamSettings.tsx` | 3 | `ui.admin.team.iconRemove`, `ui.admin.team.removeAllShares`, `ui.admin.team.speechKeyRemove` |
 | `web/src/pages/admin/common.tsx` | 1 | `definition` |

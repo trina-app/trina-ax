@@ -48,6 +48,9 @@ export const AppState = z.object({
   forward: z.string().nullable().optional(),
   /** set by the bootstrap when no version can run and it stopped starting the server; cleared when app/current changes */
   blocked: z.object({ version: z.string(), since: z.string(), detail: z.string() }).nullable().optional(),
+  /** set by the bootstrap's watchdog when it stopped restarting a server that keeps hanging (3 restarts an hour);
+   * cleared by the server's next healthy answer (docs/decisions/20261127-restart.md) */
+  liveness: z.object({ gaveUp: z.boolean(), since: z.string(), detail: z.string() }).nullable().optional(),
 })
 export type AppState = z.infer<typeof AppState>
 export const emptyAppState = (): AppState => ({ format: 1, current: null, previous: null, pending: null, pendingSince: null, attempts: 0, history: [] })

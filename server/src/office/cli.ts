@@ -77,6 +77,7 @@ import { reloadMarkedUpdateAgent, removeUpdateAgent, syncUpdateAgent, updateComm
 import { clearStaleFailure, noteRecovery, updateView } from './update'
 import { dbReaderLevel, exit75Decision, type Exit75Decision, extraWaitSeconds, goForward, previousDecision, releaseIn, setAsidePrevious, updateRunning, writeHealMarker } from './forward'
 import { isMigrating, MIGRATE_WAIT_MS, probeHealth } from './health'
+import { OfficeWatchdog, officeWatchdogKills, WATCH_EVERY_MS, WATCH_TIMEOUT_MS } from './watchdog'
 import { claudeMcpCommand, headline, scanClaudeMcp } from './claude-mcp'
 import { ensureAgentProgram, loginItemOffText, loginItemState } from './login-item'
 import { PRODUCT } from '@mycel/shared'
@@ -292,8 +293,11 @@ export async function run(home: string): Promise<never> {
   if (browser) env.MYCEL_HTML_PDF_BROWSER = browser
   // documents: the kit office-install.sh installed (devenv/kit.ts): documents mode for builds, the page render
   Object.assign(env, officeDocKitEnv(p, env, s.documentsMode))
+  // a server that runs but stopped answering (office/watchdog.ts): watched once this start answered
+  const watchdog = new OfficeWatchdog(p.data)
   const spawnServer = () => {
     startedAt = Date.now()
+    watchdog.started()
     child = Bun.spawn([process.execPath, mainScript(), '--config', p.serverJson], { cwd: p.home, env, stdin: 'ignore', stdout: 'ignore', stderr: 'inherit' })
     const me = child
     say(`server started (pid ${me.pid})`)
@@ -372,12 +376,37 @@ export async function run(home: string): Promise<never> {
     }
   }
   const timer = setInterval(() => void check(), CHECK_MS)
+  let watching = false
+  const watch = async () => {
+    if (stopping || restarting || watching || !child || blocked) return
+    watching = true
+    try {
+      const me = child
+      const h = await probeHealth(s.appPort, WATCH_TIMEOUT_MS)
+      if (stopping || restarting || child !== me) return
+      // an update run (the update agent) stops and starts the server itself: like the bootstrap with a pending
+      // version, the watchdog never acts then, and counts again from the next answer
+      let updating = false
+      try { updating = updateRunning(home) } catch {}
+      if (updating) { watchdog.started(); return }
+      let kill = false
+      try { kill = officeWatchdogKills(fs.readFileSync(p.env, 'utf8')) } catch {}
+      const act = watchdog.look(h, kill)
+      if (!act) return
+      say(act.line)
+      if (act.kind !== 'kill') return
+      restarting = true
+      try { await stopServer(); spawnServer() } finally { restarting = false }
+    } finally { watching = false }
+  }
+  const watchTimer = setInterval(() => void watch(), WATCH_EVERY_MS)
 
   const shutdown = async (sig: string) => {
     if (stopping) return
     stopping = true
     say(`stopping (${sig})`)
     clearInterval(timer)
+    clearInterval(watchTimer)
     helper?.stop(true)
     await stopServer()
     process.exit(0)

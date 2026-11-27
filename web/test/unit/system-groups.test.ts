@@ -12,9 +12,9 @@ describe('systemGroups', () => {
   test('a server without connected folders has no such page', () => {
     expect(ids({ owner: true, features: { connectedFolders: false } })).not.toContain('connected')
   })
-  test('an admin: the storage, and the automatic updates in office mode only (while unknown, the address is kept)', () => {
-    expect(ids({ owner: false, features: undefined, office: false })).toEqual(['storage'])
-    expect(ids({ owner: false, features: undefined, office: true })).toEqual(['storage', 'updates'])
+  test('an admin: the storage, the restart row, and the automatic updates in office mode only (while unknown, the address is kept)', () => {
+    expect(ids({ owner: false, features: undefined, office: false })).toEqual(['storage', 'health'])
+    expect(ids({ owner: false, features: undefined, office: true })).toEqual(['storage', 'updates', 'health'])
     expect(systemGroup('updates', { owner: false, features: undefined })?.id).toBe('updates')
     expect(systemGroup('backups', { owner: false, features: undefined })).toBeUndefined()
   })

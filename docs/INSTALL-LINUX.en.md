@@ -349,6 +349,8 @@ Use Admin → System → Diagnostics and `sudo mycel-ctl status`. Locally inspec
 
 Source-built unsigned kits are an advanced development path: derive a unique `-dev` version from the source version, review the bundle and explicitly accept its unsigned status on a disposable host. They are not the normal update path. [Developer guide](DEVELOPMENT.md).
 
+When answers hang or the screen freezes, Admin → System → Health → **Restart…** (owners and admins) restarts **The AI only** (the launcher) or **All of Trina AX**, when answers finish (at most 10 minutes) or, for the owner, right away; at most 5 times an hour, each in the Activity log. Over SSH: `sudo systemctl restart mycel-server`.
+
 ## Build a kit from source (developers)
 
 For developers only. To install a published release, use [Download, verify, check](#download-verify-check) and [Install](#install) instead.
