@@ -549,7 +549,8 @@ export class RoomApps {
   example(userId: string, roomId: string, appId: string): void {
     const { row } = this.mine(userId, roomId, appId)
     const L = this.locale()
-    this.takeHourly(this.examples, row.id, ROOM_APP_EXAMPLES_PER_HOUR, (minutes) => appText('exampleLimit', L, { n: ROOM_APP_EXAMPLES_PER_HOUR, minutes }))
+    // the refusal is for the person who asked; the example card is for the room
+    this.takeHourly(this.examples, row.id, ROOM_APP_EXAMPLES_PER_HOUR, (minutes) => appText('exampleLimit', this.localeOf(userId), { n: ROOM_APP_EXAMPLES_PER_HOUR, minutes }))
     const card = cleanCard({ kind: appText('example', L), title: appText('exampleTitle', L, { app: row.name }), details: [], status: undefined })
     this.insert(row, { card, quiet: true, example: true })
   }

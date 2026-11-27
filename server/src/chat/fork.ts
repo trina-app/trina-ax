@@ -269,7 +269,9 @@ export function forkOfOwn(db: ChatRuntime['db'], sourceId: string, userId: strin
  * one suffix, in today's language (never "X (이어서) (lanjutan)"). An empty title stays empty (the apps say "New chat"). */
 export function forkTitle(fromTitle: string, locale: Locale): string {
   const suffix = tr('forkTitleSuffix', locale)
-  const had = Object.values(TEXT.forkTitleSuffix).find((x) => fromTitle.endsWith(x))
-  const base = had ? fromTitle.slice(0, -had.length) : fromTitle
+  // every suffix at the end goes (an older title can carry two: "X (이어서) (lanjutan)")
+  const all = Object.values(TEXT.forkTitleSuffix)
+  let base = fromTitle
+  for (let had = all.find((x) => base.endsWith(x)); had; had = all.find((x) => base.endsWith(x))) base = base.slice(0, -had.length)
   return !base.trim() ? fromTitle : `${base.slice(0, 200 - suffix.length)}${suffix}`
 }

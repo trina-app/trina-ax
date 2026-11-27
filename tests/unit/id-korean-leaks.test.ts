@@ -12,6 +12,9 @@ describe('a fork keeps one "(continued)", in the language of today', () => {
     expect(forkTitle('Rencana (이어서)', 'id')).toBe('Rencana (lanjutan)')
     expect(forkTitle('Rencana (lanjutan)', 'id')).toBe('Rencana (lanjutan)')
     expect(forkTitle('Plan (continued)', 'ko')).toBe('Plan (이어서)')
+    expect(forkTitle('Rencana (이어서) (lanjutan)', 'en')).toBe('Rencana (continued)')
+    expect(forkTitle('計画（続き）', 'es')).toBe('計画 (continuación)')
+    expect(forkTitle(' (continued)', 'id')).toBe(' (continued)')
   })
   test('an empty title stays empty', () => {
     expect(forkTitle('', 'id')).toBe('')
