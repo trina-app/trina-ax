@@ -240,7 +240,7 @@ let win: AppWindow | undefined
 // 5 s) and the computer waking, all while the answer is unknown, and all stopped once it is known or the app quits.
 const OFFER_RETRY_MS = process.env.MYCEL_DESKTOP_TEST_OFFER_RETRY_MS && !app.isPackaged && Number(process.env.MYCEL_DESKTOP_TEST_OFFER_RETRY_MS) > 0
   ? [Number(process.env.MYCEL_DESKTOP_TEST_OFFER_RETRY_MS)] : [2000, 5000, 15_000, 30_000, 60_000]
-interface OfferWatch { signin: ConsoleSignIn; tries: number; retry?: NodeJS.Timeout; poll?: NodeJS.Timeout; stopped: boolean }
+interface OfferWatch { signin: ConsoleSignIn; tries: number; retry?: NodeJS.Timeout; poll?: NodeJS.Timeout; stopped: boolean; onResume?: () => void }
 let offerWatch: OfferWatch | null = null
 function offerKnown(): boolean {
   const k = offerWatch?.signin.knownOffer()
@@ -251,6 +251,8 @@ function stopOfferWatch() {
   offerWatch.stopped = true
   clearTimeout(offerWatch.retry)
   clearTimeout(offerWatch.poll)
+  if (offerWatch.onResume) powerMonitor.removeListener('resume', offerWatch.onResume)
+  offerWatch.onResume = undefined
 }
 function askOffer(fresh: boolean) {
   const w = offerWatch
@@ -280,7 +282,8 @@ function startOfferWatch(signin: ConsoleSignIn) {
     w.poll.unref?.()
   }
   tick()
-  powerMonitor.on('resume', () => { if (!w.stopped && !offerKnown()) { w.tries = 0; askOffer(true) } })
+  w.onResume = () => { if (!w.stopped && !offerKnown()) { w.tries = 0; askOffer(true) } }
+  powerMonitor.on('resume', w.onResume)
   app.once('before-quit', stopOfferWatch)
   askOffer(false)
 }

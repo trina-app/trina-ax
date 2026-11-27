@@ -113,12 +113,15 @@ export async function createUser(c: Context<AppEnv>, ctx: AppContext, b: In<type
     // meanwhile) cannot take it between the check and the insert
     ctx.db.transaction(() => {
       if (usernameTaken(ctx.db, b.username)) throw new UniqueTaken('body.username')
+      // checked again inside the write: another create (or an e-mail change) during the password hash cannot slip in
+      if (b.email && emailTakenByOther(ctx.db, b.email, null)) throw new UniqueTaken('body.email')
       assertSeatFree(ctx.db, locale) // the plan's seats (system/limits.ts), inside the write
       id = b.id ?? deriveUserId(ctx.db, b.username, ctx.files.fx.root)
       insertUser(ctx.db, { id, username: b.username, name: b.name, email: b.email ?? null, passwordHash, role: b.role, locale: b.locale ?? null, mustChangePassword: true, tempPasswordExpiresAt: tempPasswordExpiry(authOf(ctx).now()), groupIds: groups })
       audit(ctx.db, { actor: auth.user.id, action: 'user.create', target: id, detail: { role: b.role, groupIds: groups } })
     }).immediate()
   } catch (e) {
+    if (e instanceof UniqueTaken && e.field === 'body.email') fail('conflict', msg('emailTakenByOther', locale), { params: { reason: 'email_in_use' }, fields: { 'body.email': 'email_in_use' } })
     if (e instanceof UniqueTaken) fail('conflict', e.field === 'body.username' ? msg('usernameTaken', locale) : undefined, { fields: { [e.field]: 'taken' } })
     if (isUniqueViolation(e)) fail('conflict', undefined, { fields: { [b.id ? 'body.id' : 'body.username']: 'taken' } })
     throw e

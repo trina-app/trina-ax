@@ -144,10 +144,10 @@ export const authRoutes: RouteModule = {
       const args: (string | null)[] = []
       if (body.name !== undefined) { sets.push('name = ?'); args.push(body.name) }
       if (body.email !== undefined) {
-        // a guest may not take an address another account here gives (members may share one, as before). At most
-        // GUEST_EMAIL_TRIES addresses an hour, whatever the answer, so it cannot be used to find who is in the team
+        // At most GUEST_EMAIL_TRIES new addresses an hour for everyone (the 409 below says an address is taken, so it
+        // cannot be used to find who is in the team); a guest also may not take an address another account gives
+        if (body.email !== null && body.email !== u!.email && !guestEmailTry(auth.user.id, Date.now())) fail('rate_limited', undefined, { params: { reason: 'email_tries' } })
         if (body.email !== null && isGuest(ctx.db, auth.user.id)) {
-          if (!guestEmailTry(auth.user.id, Date.now())) fail('rate_limited', undefined, { params: { reason: 'email_tries' } })
           if (emailUsedByOther(ctx.db, auth.user.id, body.email)) fail('conflict', msg('emailInUse', c.get('locale')), { params: { reason: 'email_in_use' }, fields: { 'body.email': 'email_in_use' } })
         }
         // one e-mail signs in one account (users.ts signInUser): nobody takes an address another account has

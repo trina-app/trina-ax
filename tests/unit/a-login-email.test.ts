@@ -11,7 +11,7 @@ import { TEMP_PASSWORD_MAX_FAILURES } from '@mycel/shared'
 import { bootstrapOwner } from '../../server/src/auth/accounts'
 import { DEFAULT_LIMITS } from '../../server/src/auth/rate-limit'
 import { emailTakenByOther, signInUser, usernameTaken } from '../../server/src/auth/users'
-import { harness, type Client, type Harness } from './a-lib'
+import { addMember, harness, type Client, type Harness } from './a-lib'
 
 const PW = 'owner horse battery 42'
 
@@ -113,5 +113,34 @@ describe('sign in with the e-mail', () => {
     expect((await owner.try('PATCH', `/api/admin/users/${yuri.id}`, { email: 'yuri2@example.com' })).status).toBe(200)
     // an e-mail equal to another account's username
     expect((await owner.try('PATCH', '/api/me', { email: 'eve@example.com' })).status).toBe(409)
+  })
+
+  test('two members made at once with one new e-mail: one is made, the other refused (checked inside the write)', async () => {
+    const make = (username: string) => owner.try('POST', '/api/admin/users', { username, name: username, role: 'member', email: 'race@example.com' })
+    const [a, b] = await Promise.all([make('race1'), make('race2')])
+    expect([a.status, b.status].sort()).toEqual([201, 409])
+    const refused = a.status === 409 ? a : b
+    expect(refused.body.error.params?.reason).toBe('email_in_use')
+    expect((h.ctx.db.query("SELECT COUNT(*) AS n FROM users WHERE lower(email) = 'race@example.com'").get() as { n: number }).n).toBe(1)
+  })
+
+  test('a switched-off account\'s e-mail is taken for a write (turning it back on never makes two), not for sign-in', async () => {
+    await addUser('u_off', 'olly', 'off@example.com', PW, 'disabled')
+    expect(emailTakenByOther(h.ctx.db, 'OFF@example.com', null)).toBe(true)
+    expect(signInUser(h.ctx.db, 'off@example.com')).toBeNull()
+    const r = await owner.try('PATCH', '/api/me', { email: 'off@example.com' })
+    expect(r.status).toBe(409)
+    expect((await owner.try('POST', '/api/admin/users', { username: 'olly2', name: 'Olly', role: 'member', email: 'off@example.com' })).status).toBe(409)
+  })
+
+  test('Settings › Profile: at most a few new e-mails an hour for everyone, so the 409 cannot probe who is in the team', async () => {
+    const m = await addMember(h, owner, { username: 'probe', ip: '10.6.6.6' })
+    let last = 0
+    for (let i = 0; i < 12; i++) {
+      const r = await m.client.try('PATCH', '/api/me', { email: `guess${i}@example.com` })
+      last = r.status
+      if (r.status === 429) { expect(r.body.error.params?.reason).toBe('email_tries'); break }
+    }
+    expect(last).toBe(429)
   })
 })
