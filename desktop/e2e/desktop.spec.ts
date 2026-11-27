@@ -603,6 +603,72 @@ test.describe('office network and allowed sites', () => {
   })
 })
 
+// What opens by itself never waits on the hosting console's "Create a team for free" check (GET /api/app/v1/me): here
+// the console accepts the connection and never answers. A remembered team opens at start, a link at start is asked
+// about (④) at once, and a link from a second start reaches the running app's ④.
+test.describe('opens by itself while the console does not answer', () => {
+  let hang: import('node:net').Server
+  let port = 0
+  test.beforeAll(async () => {
+    const net = await import('node:net')
+    hang = net.createServer(() => { /* accept, never answer */ })
+    await new Promise<void>((r) => hang.listen(0, '127.0.0.1', r))
+    port = (hang.address() as import('node:net').AddressInfo).port
+  })
+  test.afterAll(() => { hang?.close() })
+  const slow = () => ({ MYCEL_CONSOLE_ORIGIN: `http://127.0.0.1:${port}` })
+  const LINK = 'trina-ax://open?url=' + encodeURIComponent('https://newteam.example.com/')
+
+  test('a remembered team opens at start', async () => {
+    const userData = newUserData()
+    let app = await launch(userData, slow())
+    try {
+      await addTeam(app, 'acme.localhost:19151', ACME)
+    } finally {
+      await close(app)
+    }
+    app = await launch(userData, slow())
+    try {
+      const page = await teamPage(app, ACME)
+      await expect(page.locator('#team')).toHaveText('Acme')
+    } finally {
+      await close(app)
+    }
+  })
+
+  test('a link at start is asked about at once; a link from a second start reaches the running app', async () => {
+    const userData = newUserData()
+    let app = await launch(userData, slow(), [LINK])
+    try {
+      const w = await welcome(app)
+      await expect(w.getByTestId('link-ask')).toBeVisible({ timeout: 5000 })
+      await expect(w.getByTestId('link-ask')).toContainText('newteam.example.com')
+      await w.getByTestId('link-cancel').click()
+      await addTeam(app, 'acme.localhost:19151', ACME)
+    } finally {
+      await close(app)
+    }
+    // the remembered team is open; a second start with a link hands it to this app (Windows and Linux: its command line)
+    app = await launch(userData, slow())
+    try {
+      await teamPage(app, ACME)
+      const { spawn } = await import('node:child_process')
+      const electronPath = (await import('electron')).default as unknown as string
+      const second = spawn(electronPath, [join(import.meta.dirname, '..', 'dist/main.cjs'), LINK], {
+        env: { ...process.env, MYCEL_DESKTOP_USER_DATA: userData, ...slow() }, stdio: 'ignore',
+      })
+      try {
+        const w = await welcome(app)
+        await expect(w.getByTestId('link-ask')).toBeVisible({ timeout: 15_000 })
+      } finally {
+        if (second.exitCode === null) second.kill('SIGKILL')
+      }
+    } finally {
+      await close(app)
+    }
+  })
+})
+
 test.describe('office direct connection', () => {
   test('the pinned LAN address is used when it answers; the sign-in cookie follows', async () => {
     const userData = newUserData()
@@ -629,6 +695,36 @@ test.describe('office direct connection', () => {
       await expect.poll(() => direct.evaluate(() => fetch('/test/whoami').then((r) => r.json()))).toEqual({ session: 'from-relay', secure: true })
     } finally {
       await close(app)
+    }
+  })
+
+  test('the window gaining focus while the pinned LAN team opens at start never sends it back to the list', async () => {
+    // CI 2026-11-27: the window's focus at start ran the office-address check while the page was still about:blank;
+    // it loaded `https://127.0.0.1:19154blank/` (-300), and the start failure of a team on this computer showed the list
+    const userData = newUserData()
+    let app = await launch(userData)
+    try {
+      await welcome(app).then((w) => w.getByRole('textbox', { name: '초대 링크 또는 팀 주소' }).fill('lan.localhost:19156'))
+      await (await welcome(app)).getByRole('button', { name: '들어가기' }).click()
+      await view(app, (u) => u.startsWith('https://127.0.0.1:19154'), 30_000)
+    } finally {
+      await close(app)
+    }
+    for (let round = 0; round < 3; round++) {
+      app = await launch(userData)
+      try {
+        // focus, again and again, from the first moment the window exists until the team page is on screen
+        await app.evaluate(({ BaseWindow }) => {
+          const t = setInterval(() => { const w = BaseWindow.getAllWindows()[0]; if (w) w.emit('focus') }, 5)
+          setTimeout(() => clearInterval(t), 4000)
+        })
+        const direct = await view(app, (u) => u.startsWith('https://127.0.0.1:19154'), 30_000)
+        await expect.poll(() => direct.evaluate(() => (window as any).testState?.connection?.route)).toBe('direct')
+        expect(app.windows().some((p) => /blank\/?$/.test(p.url()) && p.url().startsWith('https://'))).toBe(false)
+        await expect((await welcome(app)).getByTestId('address-error').filter({ hasText: /\S/ })).toHaveCount(0)
+      } finally {
+        await close(app)
+      }
     }
   })
 
