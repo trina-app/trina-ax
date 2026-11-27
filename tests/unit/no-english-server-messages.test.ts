@@ -99,7 +99,7 @@ describe('API refusals are in the caller\'s language', () => {
   })
 
   test('route refusals have all six languages, each its own words, with the value filled in', () => {
-    for (const [key, m] of Object.entries(ROUTE_MESSAGES)) for (const l of ['ko', 'id', 'ja', 'es', 'zh'] as const) expect({ key, l, same: m[l] === m.en }).toEqual({ key, l, same: false })
+    for (const [key, m] of Object.entries(ROUTE_MESSAGES)) for (const l of ['ko', 'id', 'ja', 'es', 'zh'] as const) expect({ key, l, same: (m[l] as string) === (m.en as string) }).toEqual({ key, l, same: false })
     expect(routeMsg('devPreviewPort', 'ja', { port: 3000 })).toBe('ポート3000はプレビューできません。')
     expect(routeMsg('autoModeOff', 'id')).toBe('Tim Anda tidak mengizinkan Anda memakai mode otomatis.')
   })

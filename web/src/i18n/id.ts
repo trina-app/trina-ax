@@ -2414,7 +2414,7 @@ export const id: Record<MessageKey, string> = {
   "scope.you": "Hanya untuk Anda",
   'scope.teamName': "Berlaku untuk semua orang di {team}",
   "providers.desc": "AI yang dipakai tim Anda dan akun yang dipakainya untuk menjawab.",
-  "teamAi.defaults": "Default AI",
+  "teamAi.defaults": "Bawaan AI",
   "teamAi.sharedTermsShort": "Hanya bila ketentuan penyedia mengizinkannya.",
   "providers.accounts": "Akun",
   "providers.addAccount": "Tambah akun",

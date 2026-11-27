@@ -8,6 +8,7 @@
 import { describe, expect, test } from 'bun:test'
 import { DICTS } from '../../web/src/i18n'
 import { STRINGS } from '../../desktop/src/common/i18n'
+import catalog from '../../resources/plugins/catalog.json'
 
 const LANGS = ['ko', 'id', 'ja', 'es', 'zh'] as const
 const NAMES = /\(\.\w+\)|\b(Trina|AX|Google|Drive|Gmail|Calendar|Slack|GitHub|Notion|Claude|Code|Codex|ChatGPT|OpenAI|OpenRouter|Anthropic|Ollama|Figma|Canva|Microsoft|Windows|macOS|Linux|Android|iPhone|iOS|Mac|Chrome|Safari|Docker|Tailscale|Discord|Jira|HubSpot|Stripe|Zapier|Sentry|Typeform|Tally|Jotform|Shopify|Zendesk|Outlook|PowerPoint|OneDrive|Toss|Payments|Channel|Talk|PortOne|glibc|Beta|Internet|Emoji|acme|com|name|company|Acme)\b/g
@@ -137,5 +138,11 @@ describe('no text left in English in another language', () => {
     expect(words('PowerPoint (.pptx)')).toEqual([])
     expect(words('Save changes')).toEqual(['Save', 'changes'])
     expect(words('{n, plural, one {# chat} other {# chats}}')).toEqual(['chat', 'chats'])
+  })
+
+  test('the official plugin list names and describes each plugin in all six languages (the walk: Chinese saw English)', () => {
+    for (const e of catalog.entries as { id: string; i18n: Record<string, { name?: string; description?: string }> }[]) {
+      for (const l of ['en', ...LANGS]) expect({ id: e.id, l, name: !!e.i18n[l]?.name, description: !!e.i18n[l]?.description }).toEqual({ id: e.id, l, name: true, description: true })
+    }
   })
 })
