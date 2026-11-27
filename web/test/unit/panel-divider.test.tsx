@@ -174,3 +174,39 @@ test('the list panel: a remembered px width comes back as it is', async () => {
   expect(width()).toBe(352)
   await m.unmount()
 })
+
+test('the list panel counts a right-hand panel beside the page: a preview opening, or expanded over the page, keeps its width', async () => {
+  row = 1368
+  localStorage.setItem(LIST_PANEL.key, '400')
+  const m = await mount(
+    <div data-testid="row">
+      <div data-testid="box">
+        <PanelDivider sizing={LIST_PANEL} label="Resize the list" testId="divider" overlayTestId="overlay" />
+      </div>
+      <div data-testid="col" />
+      <div data-testid="side" />
+    </div>,
+  )
+  const box = m.get('box'), col = m.get('col'), side = m.get('side')
+  let preview = 0, expanded = false
+  const w = () => { const v = (box.style as Record<string, string>)['--panel-w']; return v ? parseInt(v, 10) : 288 }
+  Object.defineProperty(box, 'offsetWidth', { configurable: true, get: w })
+  Object.defineProperty(col, 'offsetWidth', { configurable: true, get: () => (expanded ? 0 : row - w() - preview) })
+  Object.defineProperty(side, 'offsetWidth', { configurable: true, get: () => (expanded ? row - w() : preview) })
+  Object.defineProperty(box, 'nextElementSibling', { configurable: true, value: col })
+  Object.defineProperty(col, 'nextElementSibling', { configurable: true, value: side })
+  Object.defineProperty(side, 'nextElementSibling', { configurable: true, value: null })
+  const resize = () => act(async () => { window.dispatchEvent(new FakeEvent('resize') as unknown as Event) })
+  await resize()
+  expect(w()).toBe(400)
+  // a file preview of 400 px beside the page: the page is 568, but the list and the preview share the rest with it
+  preview = 400
+  await resize()
+  expect(w()).toBe(400)
+  expect(m.get('divider').getAttribute('aria-valuemax')).toBe('400')
+  // the preview expanded over the page (the page hidden): still 400, not squeezed to 240
+  expanded = true
+  await resize()
+  expect(w()).toBe(400)
+  await m.unmount()
+})

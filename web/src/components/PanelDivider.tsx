@@ -46,8 +46,17 @@ export function PanelDivider({ sizing, label, testId = 'panel-divider', overlayT
     const box = panel()
     return (start ? box?.nextElementSibling : box?.previousElementSibling) as HTMLElement | null | undefined
   }, [panel, start])
-  /** The room the column beside the panel and the panel share. */
-  const avail = useCallback(() => (other()?.offsetWidth ?? 0) + (panel()?.offsetWidth ?? 0), [other, panel])
+  /** The room the column beside the panel and the panel share. The list panel's is everything right of the rail: the
+   * page and a right-hand panel beside it (a file preview), or that panel alone while it is expanded and the page hidden.
+   * Counting the page alone would squeeze the list to its minimum whenever a preview opens, and its divider and the
+   * preview's would chase each other through the page's width. */
+  const avail = useCallback(() => {
+    const box = panel()
+    if (!start) return (other()?.offsetWidth ?? 0) + (box?.offsetWidth ?? 0)
+    let w = box?.offsetWidth ?? 0
+    for (let el = box?.nextElementSibling as HTMLElement | null | undefined; el; el = el.nextElementSibling as HTMLElement | null) w += el.offsetWidth ?? 0
+    return w
+  }, [other, panel, start])
 
   const measure = useCallback(() => {
     const box = panel()
@@ -189,7 +198,8 @@ export function PanelDivider({ sizing, label, testId = 'panel-divider', overlayT
         )}
       />
       {/* while dragging, what is in the panel (an iframe, a PDF) must not swallow the moves */}
-      {dragging && <div className="absolute inset-0 z-20 cursor-col-resize" data-testid={overlayTestId} />}
+      {/* (the list panel's: over the whole window, as the pointer goes over the page beside it) */}
+      {dragging && <div className={clsx(start ? 'fixed' : 'absolute', 'inset-0 z-20 cursor-col-resize')} data-testid={overlayTestId} />}
     </>
   )
 }
