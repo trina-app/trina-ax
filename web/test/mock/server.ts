@@ -305,7 +305,8 @@ const deletionDue = (at: string) => new Date(Date.parse(at) + ACCOUNT_DELETION_G
  * server keeps the invite's or link's id) */
 type MockSignUp =
   | { kind: 'setup'; teamName: string; locale: Locale; timeZone: string | null; site: string | null }
-  | { kind: 'invite' | 'link'; token: string; username: string; name: string; locale: Locale | null }
+  // username and name null: picked on Google's return from the Google address and name (the pages send neither)
+  | { kind: 'invite' | 'link'; token: string; username: string | null; name: string | null; locale: Locale | null }
 export class MockServer {
   setupNeeded = false
   serverVersion = '0.1.0'
@@ -345,7 +346,11 @@ export class MockServer {
   static freshGoogleLogin() {
     return {
       client: null as 'here' | 'elsewhere' | null,
-      account: { sub: '100', email: 'olga@acme.test' } as { sub: string; email: string; name?: string },
+      // whose Google client (Admin › Sign-in methods' status line), and why there is none (google-login-admin.ts)
+      via: 'own' as 'own' | 'service',
+      reason: 'no_address' as 'no_address' | 'unreachable' | 'not_served' | 'none',
+      lockedOut: 0,
+      account: { sub: '100', email: 'olga@acme.test' } as { sub: string; email: string; name?: string; hd?: string },
       linked: new Map<string, { sub: string; email: string; connectedAt: string; lastUsedAt: string | null }>(),
       // signUp: what a sign-up carries to Google's return (server/src/auth/google-signup.ts): the setup's team, or the
       // invite or team link the person joins with their username and name
@@ -1772,6 +1777,13 @@ export class MockServer {
     if (error) return go(back(error === 'access_denied' ? 'cancelled' : 'failed'))
     const a = g.account
     const holder = [...g.linked].find(([, x]) => x.sub === a.sub)
+    if (f.intent === 'connect' && f.next === '/admin/sign-in') {
+      // "Try it": a page that names the Google account and the domain list's answer, signing nobody in (tryPage)
+      const list = this.settings.googleSignInDomains ?? []
+      const ok = !list.length || (!!a.hd && list.includes(a.hd))
+      headers.set('content-type', 'text/html; charset=utf-8')
+      return new Response(`<!doctype html><main><h1 data-testid="google-try-title">${ok ? 'Google sign-in works' : "This account wouldn't get in"}</h1><p role="status">${ok ? `Works: ${a.email}. Nobody was signed in.` : `Google answered for ${a.email}, but this team only lets in Google Workspace accounts from ${list.join(', ')}. Nobody was signed in.`}</p><a href="/admin/sign-in" data-testid="google-try-back">Back to Sign-in methods</a></main>`, { status: 200, headers })
+    }
     if (f.intent === 'connect') {
       const u = this.userOf(req)
       if (!u || u.id !== f.userId || this.sessionTokenOf(req) !== f.session || u.mustChangePassword) return go(back('expired'))
@@ -1806,31 +1818,40 @@ export class MockServer {
     const taken = (n: string) => this.users.some((u) => u.username.toLowerCase() === n.toLowerCase())
     // a user id from a username, like server/src/auth/users.ts deriveUserId (a "." is no id character)
     const idOf = (n: string) => n.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^[-_]+|[-_]+$/g, '') || 'user'
+    // a free username from the Google address, like server/src/auth/users.ts usernameFromEmail ("+tag" dropped, -2, -3, ...)
+    const fromEmail = (fallback: string) => {
+      let base = a.email.split('@')[0]!.split('+')[0]!.replace(/[^A-Za-z0-9._-]+/g, '').toLowerCase()
+      if (base.length < 2) base = fallback
+      if (!taken(base)) return base
+      for (let i = 2; ; i++) if (!taken(`${base}-${i}`)) return `${base}-${i}`
+    }
     if (s.kind === 'setup') {
       if (!this.setupNeeded) return 'gone'
       this.setupNeeded = false
       this.settings.teamName = s.teamName
       this.settings.defaultLocale = s.locale
       if (s.timeZone) this.settings.timeZone = s.timeZone
-      const base = a.email.split('@')[0]!.split('+')[0]!.replace(/[^A-Za-z0-9._-]+/g, '').toLowerCase() || 'owner'
+      const base = fromEmail('owner')
       const u = this.addUser({ id: idOf(base) || 'owner', username: base, name: a.name ?? base, role: 'owner', groupIds: [], email: a.email }, '')
       this.files.set('users', { type: 'folder', mtime: now() })
       const at = now()
       this.welcome ??= this.welcomeSaved({ startedAt: at, updatedAt: at, teamType: null, steps: { profile: null, result: null, skills: null, files: null, tools: null, invite: null }, resultChatId: null, inviteShownAt: null, site: s.site, dismissedAt: null, finishedAt: null }, at)
       return u
     }
-    if (taken(s.username)) return 'username_taken'
+    const username = s.username ?? fromEmail('member')
+    const name = s.name ?? a.name ?? username
+    if (taken(username)) return 'username_taken'
     if (s.kind === 'invite') {
       const i = this.invites.find((x) => x.token === s.token && !x.usedAt)
       if (!i || (i as { deadReason?: string }).deadReason) return 'gone'
-      const u = this.addUser({ id: idOf(s.username), username: s.username, name: s.name, role: i.role, groupIds: i.groupIds, localeChoice: s.locale, email: a.email }, '')
+      const u = this.addUser({ id: idOf(username), username, name, role: i.role, groupIds: i.groupIds, localeChoice: s.locale, email: a.email }, '')
       i.usedAt = now()
       i.usedBy = { id: u.id, name: u.name }
       return u
     }
     const l = this.teamLink?.token === s.token ? this.teamLink : null
     if (!l || l.uses >= l.maxUses) return 'gone'
-    const u = this.addUser({ id: idOf(s.username), username: s.username, name: s.name, role: 'member', groupIds: l.groupIds, localeChoice: s.locale, email: a.email }, '')
+    const u = this.addUser({ id: idOf(username), username, name, role: 'member', groupIds: l.groupIds, localeChoice: s.locale, email: a.email }, '')
     l.uses++
     return u
   }
@@ -3083,8 +3104,9 @@ export class MockServer {
       const i = this.invites.find((x) => x.token === c.body.token && !x.usedAt)
       if (!i) fail('gone', 410)
       if (i!.role === 'guest') fail('forbidden', 403, serverMsg('googleGuestJoin', this.localeOf(c.req)), undefined, { reason: 'guest_password_only' })
-      if (this.users.some((u) => u.username.toLowerCase() === c.body.username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.', { 'body.username': 'taken' })
-      return this.googleStart(c.req, 'join', null, '/invite', { kind: 'invite', token: c.body.token, username: c.body.username, name: c.body.name, locale: c.body.locale ?? null })
+      const username = c.body.username
+      if (username && this.users.some((u) => u.username.toLowerCase() === username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.', { 'body.username': 'taken' })
+      return this.googleStart(c.req, 'join', null, '/invite', { kind: 'invite', token: c.body.token, username: username ?? null, name: c.body.name ?? null, locale: c.body.locale ?? null })
     },
 
     listChats: (c) => {
@@ -4421,8 +4443,9 @@ export class MockServer {
       const l = this.teamLink?.token === c.body.token ? this.teamLink : null
       if (!l) fail('not_found', 404)
       if (l!.uses >= l!.maxUses) fail('gone', 410, '이 링크로 들어올 수 있는 인원이 다 찼어요. 링크를 보낸 분께 새 링크를 부탁해 주세요.')
-      if (this.users.some((u) => u.username.toLowerCase() === c.body.username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.', { 'body.username': 'taken' })
-      return this.googleStart(c.req, 'join', null, '/join', { kind: 'link', token: c.body.token, username: c.body.username, name: c.body.name, locale: c.body.locale ?? null })
+      const username = c.body.username
+      if (username && this.users.some((u) => u.username.toLowerCase() === username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.', { 'body.username': 'taken' })
+      return this.googleStart(c.req, 'join', null, '/join', { kind: 'link', token: c.body.token, username: username ?? null, name: c.body.name ?? null, locale: c.body.locale ?? null })
     },
     joinTeamLink: (c) => {
       const l = this.teamLink?.token === c.body.token ? this.teamLink : null
@@ -5010,7 +5033,14 @@ export class MockServer {
     },
     settings: () => ({ ...this.settings, speechProvider: this.speechNow() }),
     // like server/src/auth/google-login-admin.ts: whether this server has a Google client (here or elsewhere), never which
-    googleSignInAdminStatus: () => ({ client: this.googleLogin.client !== null }),
+    googleSignInAdminStatus: () => (this.googleLogin.client !== null ? { client: true, via: this.googleLogin.via, tryable: this.googleLogin.client === 'here' } : { client: false, reason: this.googleLogin.reason, tryable: false }),
+    // Admin › Sign-in methods' "Try it" (server/src/auth/google-login.ts startGoogleTry): a connect flow whose next is the page
+    // before a domain list is saved (server/src/auth/google-login-admin.ts googleDomainLockouts): set by /__test/google-login lockedOut
+    checkGoogleSignInDomains: (c) => ({ lockedOut: c.body.domains.length ? this.googleLogin.lockedOut : 0 }),
+    tryGoogleSignIn: (c) => {
+      if (this.googleLogin.client !== 'here') fail('unavailable', 503, serverMsg('googleSignInOff', this.localeOf(c.req)))
+      return this.googleStart(c.req, 'connect', { userId: c.user.id, session: this.sessionTokenOf(c.req) }, '/admin/sign-in')
+    },
     // SpeechKeyStatus.hosted (0.2.17): the hosting service's free hours; none on this mock server
     speechKey: () => ({ ...this.speechKey, hosted: null }),
     speechHost: () => this.speechHost,
@@ -6512,7 +6542,10 @@ export class MockServer {
     else if (p === '/__test/google-login') {
       // {client?: 'here' | 'elsewhere' | null, account?: {sub, email}}: Sign in with Google (freshGoogleLogin)
       if (body.client !== undefined) this.googleLogin.client = body.client === 'here' || body.client === 'elsewhere' ? body.client : null
-      if (body.account) this.googleLogin.account = body.account as { sub: string; email: string }
+      if (body.account) this.googleLogin.account = body.account as { sub: string; email: string; hd?: string }
+      if (body.via === 'own' || body.via === 'service') this.googleLogin.via = body.via
+      if (typeof body.reason === 'string') this.googleLogin.reason = body.reason as typeof this.googleLogin.reason
+      if (typeof body.lockedOut === 'number') this.googleLogin.lockedOut = body.lockedOut
     }
     else if (p === '/__test/plugin-previous') this.plugins.control(body as { id: string; version: string; trusted: boolean; untrusted?: boolean })
     else if (p === '/__test/member-welcome') {

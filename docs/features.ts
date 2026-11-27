@@ -173,7 +173,7 @@ export const FEATURES: Feature[] = [
   // ---------------- Admin ----------------
   { id: 'admin.home', name: 'Admin home and owner checklist', area: 'Admin', endpoints: ['afterUpdateActions', 'dismissAfterUpdate', 'managedNotices', 'plan'], screens: ['/admin'] },
   { id: 'admin.members', name: 'Members: add, change role, remove, reset password', area: 'Admin', endpoints: ['listUsers', 'createUser', 'updateUser', 'deleteUser', 'resetPassword', 'createResetLink', 'transferOwnership'], screens: ['/admin/members', '/admin/members/:id'] },
-  { id: 'admin.google-sign-in', name: "Sign in with Google for the team: the switch in Team settings, who connected one, disconnecting a member's", area: 'Admin', endpoints: ['googleSignInAdminStatus', 'disconnectUserGoogle'] },
+  { id: 'admin.google-sign-in', name: "Sign-in methods: the password, Sign in with Google's switch, status, Workspace domains and Try it; who connected one, disconnecting a member's", area: 'Admin', endpoints: ['googleSignInAdminStatus', 'checkGoogleSignInDomains', 'tryGoogleSignIn', 'disconnectUserGoogle'], screens: ['/admin/sign-in'] },
   { id: 'admin.invites', name: 'Invites', area: 'Admin', endpoints: ['listInvites', 'createInvite', 'revokeInvite'] },
   { id: 'admin.guests', name: 'Guests', area: 'Admin', endpoints: ['createGuestInvite', 'guestInviteLimit', 'convertGuest', 'updateGuestAi'] },
   { id: 'admin.groups', name: 'Groups', area: 'Admin', endpoints: ['listGroups', 'createGroup', 'updateGroup', 'deleteGroup', 'originCheck'], screens: ['/admin/groups', '/admin/groups/:id'] },

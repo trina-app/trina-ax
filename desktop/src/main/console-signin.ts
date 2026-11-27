@@ -45,13 +45,15 @@ export class ConsoleSignIn {
   }
 
   /** Whether the console offers this flow (cached for the session once it answered 401 or 404; an unknown answer is
-   * asked again after 30 s). */
-  async probe(): Promise<CreateOffer> {
-    if (this.offer && (this.offer.value !== 'unknown' || Date.now() - this.offer.at < 30_000)) return this.offer.value
+   * asked again after 30 s, or at once with `fresh`: main.ts retries an unknown answer until it is known). A redirect is
+   * an error here (`redirect: "error"`; Electron's net.fetch throws on "manual" when one comes), so a portal or proxy
+   * reads as unknown and is asked again. */
+  async probe(fresh = false): Promise<CreateOffer> {
+    if (this.offer && (this.offer.value !== 'unknown' || (!fresh && Date.now() - this.offer.at < 30_000))) return this.offer.value
     this.probing ??= (async () => {
       let status: number | null = null
       try {
-        const r = await this.o.fetch(this.o.origin + APP_PATHS.me, { method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(5000) })
+        const r = await this.o.fetch(this.o.origin + APP_PATHS.me, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(5000) })
         status = r.status
       } catch {}
       const value = offerFromProbe(status)
@@ -104,7 +106,7 @@ export class ConsoleSignIn {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ v: 1, code: a.code, verifier }),
-        redirect: 'manual',
+        redirect: 'error',
         signal: AbortSignal.timeout(15_000),
       })
     } catch {
@@ -151,7 +153,7 @@ export class ConsoleSignIn {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
         credentials: 'omit',
-        redirect: 'manual',
+        redirect: 'error',
         signal: AbortSignal.timeout(15_000),
       })
       return { status: r.status, body: await r.json().catch(() => null) }
@@ -176,7 +178,7 @@ export class ConsoleSignIn {
         headers: { authorization: `Bearer ${t.token}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
         body: body === undefined ? undefined : JSON.stringify(body),
         credentials: 'omit',
-        redirect: 'manual',
+        redirect: 'error',
         signal: AbortSignal.timeout(20_000),
       })
       const json = await r.json().catch(() => null)

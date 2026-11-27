@@ -38,6 +38,8 @@ export interface Scenario {
   provisionError: 'slug_conflict' | 'setup_failed' | null
   /** the bodies of POST /teams/:id/retry */
   retries: unknown[]
+  /** the first unauthenticated GET /me answers (the app's "does the console offer it" ask), then as usual */
+  meFirst: Array<'redirect' | number>
 }
 
 const freePlan = { maxActiveMembers: 3, maxConcurrency: 1, diskGB: 5, termsUrl: 'https://terms.example.test/free', privacyUrl: 'https://terms.example.test/privacy', termsVersion: 'free-2026-11' }
@@ -51,7 +53,7 @@ export async function startFakeConsole() {
   let mailSeq = 0
   const log: { method: string; path: string; body: unknown; auth: string | null; cookie: string | null }[] = []
   let polls = 0
-  const sc: Scenario = { old: false, email: 'owner@example.com', owner: 'google', team: null, freeLeft: true, waitlist: false, createError: null, claimError: null, provisionPolls: 1, expireOnPoll: false, resumeError: null, emailCodeExpired: false, provisionError: null, retries: [] }
+  const sc: Scenario = { old: false, email: 'owner@example.com', owner: 'google', team: null, freeLeft: true, waitlist: false, createError: null, claimError: null, provisionPolls: 1, expireOnPoll: false, resumeError: null, emailCodeExpired: false, provisionError: null, retries: [], meFirst: [] }
   const claims = new Set<string>()
   const setups: { claim: string; password: string | null }[] = []
 
@@ -82,6 +84,12 @@ export async function startFakeConsole() {
     const body = req.method === 'POST' ? await readBody(req) : null
     log.push({ method: req.method ?? '', path: p, body, auth: req.headers.authorization ?? null, cookie: req.headers.cookie ?? null })
     if (sc.old && p.startsWith('/api/app/')) return fail(res, 404, 'not_found')
+    // the first unauthenticated GET /me answers, in turn: a redirect (a portal, a proxy) or a status; then as usual
+    if (p === '/api/app/v1/me' && req.method === 'GET' && !req.headers.authorization && sc.meFirst.length) {
+      const next = sc.meFirst.shift()!
+      if (next === 'redirect') { res.writeHead(302, { location: '/somewhere-else' }); return res.end() }
+      return fail(res, next, next === 503 ? 'unavailable' : 'oops')
+    }
     if (p === '/api/app/v1/email/start' && req.method === 'POST') {
       const b = parseAppEmailStart(body)
       if (!b) return fail(res, 400, 'invalid_request')
@@ -265,7 +273,7 @@ else fetch('/api/setup/console/preview', { method: 'POST', headers: { 'content-t
     /** the codes "mailed" so far (newest last) */
     sent,
     reset() {
-      Object.assign(sc, { old: false, email: 'owner@example.com', owner: 'google', team: null, freeLeft: true, waitlist: false, createError: null, claimError: null, provisionPolls: 1, expireOnPoll: false, resumeError: null, emailCodeExpired: false, provisionError: null, retries: [] })
+      Object.assign(sc, { old: false, email: 'owner@example.com', owner: 'google', team: null, freeLeft: true, waitlist: false, createError: null, claimError: null, provisionPolls: 1, expireOnPoll: false, resumeError: null, emailCodeExpired: false, provisionError: null, retries: [], meFirst: [] })
       log.length = 0
       sent.length = 0
       mails.clear()

@@ -8,8 +8,8 @@
 // the relay's order, wrong tokens counted per address), the hosted team name, the invite (accounts.ts inviteForGoogle:
 // works now, not a guest invite, a free username and seat) or the team link (team-links.ts linkForGoogle: its limit,
 // works now, a free username). What the person typed travels sealed in the flow with the verifier and the nonce
-// (google-login.ts begin `extra`): the team name, language, time zone and website, or the username, name and language
-// with the invite's or link's id. Never a token: the setup token only as its hash; an invite or link token stays in the
+// (google-login.ts begin `extra`): the team name, language, time zone and website, or the language (a username and name only from older clients) with
+// the invite's or link's id. Never a token: the setup token only as its hash; an invite or link token stays in the
 // page's tab, and Google's return comes back to the page without it (google-login.ts backTo).
 //
 // Google's return (google-login.ts settle, after the browser binding, the one use and the id_token checks) runs the
@@ -47,7 +47,8 @@ import { usernameFromEmail } from './users'
 /** What a sign-up carries sealed to Google's return (google-login.ts begin). */
 export type SignUpExtra =
   | { setup: { tokenHash: string; teamName: string; locale: Locale; timeZone: string | null; site: string | null } }
-  | { join: { kind: 'invite' | 'link'; id: string; username: string; name: string; locale: Locale | null } }
+  // username and name null: a join started without them, picked on the way back from Google's address and name
+  | { join: { kind: 'invite' | 'link'; id: string; username: string | null; name: string | null; locale: Locale | null } }
 
 /** How a sign-up's return ended: a refusal for its page, the page to open signed in, or `existing`: this Google account
  * already signs someone in here, who signs in instead (google-login.ts signInWith). */
@@ -80,13 +81,13 @@ export async function startGoogleInvite(c: Context<AppEnv>, ctx: AppContext, b: 
   // one invite's starts count on its own limit (the link's): one token cannot fill the open flows
   const hold = authOf(ctx).limiter.hold([linkKey(id)])
   if (hold.wait > 0) fail('rate_limited', msg('tooManyAttempts', c.get('locale')), { retryAfter: hold.wait })
-  return startJoin(c, ctx, hold, { kind: 'invite', id, username: b.username, name: b.name, locale: b.locale ?? null })
+  return startJoin(c, ctx, hold, { kind: 'invite', id, username: b.username ?? null, name: b.name ?? null, locale: b.locale ?? null })
 }
 
 /** POST /api/team-link/google: the link as a join checks it (its limit counts this start), then Google. */
 export function startGoogleJoin(c: Context<AppEnv>, ctx: AppContext, b: z.output<typeof GoogleJoinBody>): Promise<{ url: string }> {
   const { id, hold } = linkForGoogle(c, ctx, b.token, b.username)
-  return startJoin(c, ctx, hold, { kind: 'link', id, username: b.username, name: b.name, locale: b.locale ?? null })
+  return startJoin(c, ctx, hold, { kind: 'link', id, username: b.username ?? null, name: b.name ?? null, locale: b.locale ?? null })
 }
 
 async function startJoin(c: Context<AppEnv>, ctx: AppContext, hold: { release(): void }, join: Extract<SignUpExtra, { join: unknown }>['join']): Promise<{ url: string }> {
@@ -98,7 +99,7 @@ async function startJoin(c: Context<AppEnv>, ctx: AppContext, hold: { release():
 export async function signUpReturn(c: Context<AppEnv>, ctx: AppContext, row: { intent: string; next: string | null }, g: GoogleClaims, extra: SignUpExtra | undefined): Promise<SignUpEnd> {
   const google: NewCredential = { google: { sub: g.sub, email: g.email, hd: g.hd } }
   if (row.intent === 'setup' && extra && 'setup' in extra) return setupReturn(c, ctx, row.next, g, extra.setup)
-  if (row.intent === 'join' && extra && 'join' in extra) return joinReturn(c, ctx, google, extra.join)
+  if (row.intent === 'join' && extra && 'join' in extra) return joinReturn(c, ctx, google, g, extra.join)
   return { result: 'failed' }
 }
 
@@ -130,9 +131,12 @@ async function setupReturn(c: Context<AppEnv>, ctx: AppContext, next: string | n
   return { next: next ?? '/' }
 }
 
-async function joinReturn(c: Context<AppEnv>, ctx: AppContext, google: NewCredential, j: Extract<SignUpExtra, { join: unknown }>['join']): Promise<SignUpEnd> {
+async function joinReturn(c: Context<AppEnv>, ctx: AppContext, google: NewCredential, g: GoogleClaims, j: Extract<SignUpExtra, { join: unknown }>['join']): Promise<SignUpEnd> {
   const a = authOf(ctx)
-  const who: Joiner = { username: j.username, name: j.name, locale: j.locale }
+  // a join started without a username: one from the Google address, as setup (still free at the join's write below: it
+  // runs in the same turn, nothing awaited between), the name from Google; the person can change both in Profile
+  const username = j.username ?? usernameFromEmail(ctx.db, g.email, 'member')
+  const who: Joiner = { username, name: j.name ?? nameOf(g.name) ?? username, locale: j.locale }
   const done = j.kind === 'invite' ? joinWithInvite(ctx, j.id, who, google) : joinWithLink(ctx, j.id, who, google, c.get('info'))
   // the start's count on the invite's or link's limit: given back unless the return was refused (a join that worked,
   // or a person who already has an account here, is no failed attempt)

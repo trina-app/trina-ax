@@ -26,6 +26,7 @@ import { startSweeper } from '../auth/sweeper'
 import { registerAccountsCleanup } from '../auth/account-removal'
 import { getUser, setUserLocale } from '../auth/users'
 import { emailUsedByOther, isGuest } from '../auth/guests'
+import { emailTakenByOther } from '../auth/users'
 import { msg } from '../auth/messages'
 import type { RouteModule } from './module'
 import { reachedAt } from '../system/connection'
@@ -107,9 +108,10 @@ export const authRoutes: RouteModule = {
       await setPassword(c, ctx, body)
       return { ok: true as const }
     })
-    // Sign in with Google through the hosting service (hosted teams without a Google client of their own,
-    // auth/google-login-broker.ts): the console sends the browser back here with a one-time handoff. Asked once at
-    // start whether the console serves this team, so the sign-in page knows soon
+    // Sign in with Google through the hosting service (hosted teams, and self-installed servers with a public address,
+    // without a Google client of their own; auth/google-login-broker.ts): the console sends the browser back here with
+    // a one-time handoff. Asked once at start whether the console serves this server, so the sign-in page knows soon (a
+    // self-installed server with its own Google client asks nothing and registers nothing)
     kit.raw('GET', GOOGLE_SIGNIN_TEAM_RETURN_PATH, (c) => finishGoogleBroker(c as unknown as Context<AppEnv>, ctx))
     googleSigninBrokerOf(ctx)
 
@@ -142,12 +144,14 @@ export const authRoutes: RouteModule = {
       const args: (string | null)[] = []
       if (body.name !== undefined) { sets.push('name = ?'); args.push(body.name) }
       if (body.email !== undefined) {
-        // a guest may not take an address another account here gives (members may share one, as before). At most
-        // GUEST_EMAIL_TRIES addresses an hour, whatever the answer, so it cannot be used to find who is in the team
+        // At most GUEST_EMAIL_TRIES new addresses an hour for everyone (the 409 below says an address is taken, so it
+        // cannot be used to find who is in the team); a guest also may not take an address another account gives
+        if (body.email !== null && body.email !== u!.email && !guestEmailTry(auth.user.id, Date.now())) fail('rate_limited', undefined, { params: { reason: 'email_tries' } })
         if (body.email !== null && isGuest(ctx.db, auth.user.id)) {
-          if (!guestEmailTry(auth.user.id, Date.now())) fail('rate_limited', undefined, { params: { reason: 'email_tries' } })
           if (emailUsedByOther(ctx.db, auth.user.id, body.email)) fail('conflict', msg('emailInUse', c.get('locale')), { params: { reason: 'email_in_use' }, fields: { 'body.email': 'email_in_use' } })
         }
+        // one e-mail signs in one account (users.ts signInUser): nobody takes an address another account has
+        if (body.email !== null && body.email !== u!.email && emailTakenByOther(ctx.db, body.email, auth.user.id)) fail('conflict', msg('emailTakenByOther', c.get('locale')), { params: { reason: 'email_in_use' }, fields: { 'body.email': 'email_in_use' } })
         sets.push('email = ?'); args.push(body.email)
       }
       if (body.prefs !== undefined) {

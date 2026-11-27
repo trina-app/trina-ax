@@ -151,10 +151,20 @@ async function reserveFor(c: Context<AppEnv>, ctx: AppContext, claim: string): P
   return fail('unavailable', msg('consoleUnavailable', locale))
 }
 
-/** The owner's name as an account name: the console's, else the e-mail's part before @, else "Owner". */
-function ownerName(o: OwnerClaimOwner): string {
-  for (const n of [o.name, o.email.split('@')[0]!]) { const p = PersonName.safeParse(n); if (p.success) return p.data }
+/** The e-mail's part before @ without a "+tag" (`kim+create1127@…` → `kim`), as a name to start from. */
+export const nameFromEmail = (email: string): string => email.split('@')[0]!.split('+')[0]!
+/** The owner's name as an account name: the console's (a console that sent the e-mail's part before @ as the name
+ * gets it without its +tag), else the e-mail's part before @ without the tag, else "Owner". */
+export function ownerName(o: Pick<OwnerClaimOwner, 'name' | 'email'>): string {
+  const local = o.email.split('@')[0]!
+  const given = o.name === local || /^[^\s@+]+\+[^\s@]*$/.test(o.name) ? o.name.split('+')[0]! : o.name
+  for (const n of [given, nameFromEmail(o.email)]) { const p = PersonName.safeParse(n); if (p.success && p.data) return p.data }
   return 'Owner'
+}
+/** the name the person wrote on the page, when it is one (PersonName's rule) */
+function typedName(n: string | undefined): string | null {
+  const p = n === undefined ? null : PersonName.safeParse(n)
+  return p?.success && p.data ? p.data : null
 }
 function ownerLocale(o: OwnerClaimOwner): Locale {
   const p = Locale.safeParse(o.locale.split('-')[0]!.toLowerCase())
@@ -164,7 +174,8 @@ function ownerLocale(o: OwnerClaimOwner): Locale {
 /** POST /api/setup/console/preview: the team and the owner, for the page's "Welcome to {team}, {name}". Spends nothing. */
 export async function previewConsoleSetup(c: Context<AppEnv>, ctx: AppContext, b: z.output<typeof ConsoleSetupPreviewBody>): Promise<ConsoleSetupPreview> {
   const { owner } = await reserveFor(c, ctx, b.claim)
-  return { teamName: owner.teamName, name: ownerName(owner), email: owner.email, google: owner.google !== null }
+  // no user exists yet (reserveFor): the username setup will make is this one
+  return { teamName: owner.teamName, name: ownerName(owner), email: owner.email, google: owner.google !== null, username: usernameFromEmail(ctx.db, owner.email) }
 }
 
 /** POST /api/setup/console: make the owner, spend the claim, sign the app in. */
@@ -184,7 +195,7 @@ export async function consoleSetup(c: Context<AppEnv>, ctx: AppContext, b: z.out
     credential = { password: b.password! }
   }
   const id = await bootstrapOwner(ctx, {
-    username, email: owner.email, name: ownerName(owner), teamName: owner.teamName, locale: ownerLocale(owner),
+    username, email: owner.email, name: typedName(b.name) ?? ownerName(owner), teamName: owner.teamName, locale: ownerLocale(owner),
     timeZone: owner.timeZone, credential, method: 'console',
   })
   // the claim is spent only now; a failed confirm is tried again without holding up the sign-in

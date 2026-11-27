@@ -20,13 +20,14 @@
  *                              127.0.0.1, else https; common/create-team.ts consoleOrigin)
  *   MYCEL_DESKTOP_TEST_STORE   1: the first-run and create screens as in the Mac App Store build (no create row, no plans)
  *   MYCEL_DESKTOP_TEST_CREATE_POLL_MS  how often the starting screen asks the console (main/create-team.ts)
+ *   MYCEL_DESKTOP_TEST_OFFER_RETRY_MS  how soon an unknown "Create a team for free" answer is asked again (unpacked only)
  *   MYCEL_DESKTOP_TEST_PASSWORD_STORE  Linux: gnome-libsecret | kwallet5 | kwallet6, the keyring Chromium uses (Playwright's
  *                              Electron loader sets --password-store=basic, Electron's fixed-key fallback, which "Apps on
  *                              your computer" refuses to seal settings with)
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
-import { app, clipboard, ClipboardItem, dialog, Menu, nativeImage, nativeTheme, net, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions, type WebContents } from 'electron'
+import { app, clipboard, ClipboardItem, dialog, Menu, nativeImage, nativeTheme, net, powerMonitor, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import { APP_DOWNLOADS } from '@mycel/shared/app-downloads'
 import { DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION } from '@mycel/shared/desktop-bridge'
 import { PRODUCT } from '@mycel/shared/product'
@@ -230,6 +231,62 @@ async function refuseUnsandboxed() {
 }
 
 let win: AppWindow | undefined
+
+// "Create a team for free": whether the console offers it (GET /api/app/v1/me without a token). An unknown answer
+// (offline at start, a slow network, a portal's redirect) is asked again by itself until the console answers, and the
+// first screen changes when it does: before, one failed ask at start left the old "Join your team" screen until the
+// app restarted (live QA of 0.20.0). Nothing waits on it. Set up once for the app (not per window): the retry waits,
+// a watch of net.online (Electron's main process has no "online" event: read once a second for a minute, then every
+// 5 s) and the computer waking, all while the answer is unknown, and all stopped once it is known or the app quits.
+const OFFER_RETRY_MS = process.env.MYCEL_DESKTOP_TEST_OFFER_RETRY_MS && !app.isPackaged && Number(process.env.MYCEL_DESKTOP_TEST_OFFER_RETRY_MS) > 0
+  ? [Number(process.env.MYCEL_DESKTOP_TEST_OFFER_RETRY_MS)] : [2000, 5000, 15_000, 30_000, 60_000]
+interface OfferWatch { signin: ConsoleSignIn; tries: number; retry?: NodeJS.Timeout; poll?: NodeJS.Timeout; stopped: boolean; onResume?: () => void }
+let offerWatch: OfferWatch | null = null
+function offerKnown(): boolean {
+  const k = offerWatch?.signin.knownOffer()
+  return k !== null && k !== undefined && k !== 'unknown'
+}
+function stopOfferWatch() {
+  if (!offerWatch) return
+  offerWatch.stopped = true
+  clearTimeout(offerWatch.retry)
+  clearTimeout(offerWatch.poll)
+  if (offerWatch.onResume) powerMonitor.removeListener('resume', offerWatch.onResume)
+  offerWatch.onResume = undefined
+}
+function askOffer(fresh: boolean) {
+  const w = offerWatch
+  if (!w || w.stopped) return
+  const before = w.signin.knownOffer()
+  void w.signin.probe(fresh).then((v) => {
+    if (v !== before) win?.createChanged(false)
+    clearTimeout(w.retry)
+    if (w.stopped) return
+    if (v !== 'unknown') return stopOfferWatch()
+    w.retry = setTimeout(() => askOffer(true), OFFER_RETRY_MS[Math.min(w.tries++, OFFER_RETRY_MS.length - 1)])
+    w.retry.unref?.()
+  })
+}
+function startOfferWatch(signin: ConsoleSignIn) {
+  if (offerWatch) return
+  const w: OfferWatch = { signin, tries: 0, stopped: false }
+  offerWatch = w
+  const started = Date.now()
+  let wasOnline = net.online
+  const tick = () => {
+    if (w.stopped || offerKnown()) return
+    const online = net.online
+    if (online && !wasOnline) { w.tries = 0; askOffer(true) }
+    wasOnline = online
+    w.poll = setTimeout(tick, Date.now() - started < 60_000 ? 1000 : 5000)
+    w.poll.unref?.()
+  }
+  tick()
+  w.onResume = () => { if (!w.stopped && !offerKnown()) { w.tries = 0; askOffer(true) } }
+  powerMonitor.on('resume', w.onResume)
+  app.once('before-quit', stopOfferWatch)
+  askOffer(false)
+}
 /** "Create a team for free" (main/create-team.ts): made when the app is ready (its user data folder) */
 let consoleSignIn: ConsoleSignIn | undefined
 let createTeam: CreateTeam | undefined
@@ -683,9 +740,8 @@ async function createWindow() {
   const create = createTeam
   // whether the console offers "Create a team for free" (asked once without a token; asked again later while unknown)
   const offer = () => {
-    const known = signin.knownOffer()
-    if (known === null || known === 'unknown') void signin.probe().then((v) => { if (v !== known) win?.createChanged(false) })
-    return known ?? 'checking'
+    startOfferWatch(signin)
+    return signin.knownOffer() ?? 'checking'
   }
   // the app restarted by itself to install an update: the page and window come back as they were (once)
   const resume = takeResume(app.getPath('userData'))

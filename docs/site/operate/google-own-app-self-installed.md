@@ -119,8 +119,9 @@ the team.
 
 ![Google Drive's page in Admin › Connected apps after Save: On at the top right, its three tools, and Team settings saying everyone in the team can use it with their own Google account](../images/google-self-installed/drive-on.webp "Google Drive is on")
 
-With Drive's app set up, the sign-in page of Trina AX also offers **Sign in with Google** (see [Sign in with
-Google](../use/sign-in-with-google.md)).
+With Drive's app set up, the sign-in page of Trina AX also offers **Sign in with Google** through this app (see [Sign
+in with Google](../use/sign-in-with-google.md)). You don't need it for sign-in alone: a server with a public address
+signs in with Google through Trina AX's sign-in service, with nothing to set up (**Admin › Sign-in methods**).
 
 #### Set up Gmail, Calendar, Docs and Sheets with the same app
 Open **Gmail** and choose **Set up**. Keep **Use the same Google app as Google Drive** ticked: there is nothing to

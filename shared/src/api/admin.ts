@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
 import { Access, Effort, EngineId, GuestAiChoiceBody, ReauthFields, GuestPlace, IsoTime, Locale, PageQuery, QueryBool, RelPath, Role, TeamRole, UserStatus, page } from './common'
 import { binary, endpoint, empty } from './endpoint'
-import { AuditEntry, Budget, EngineAccount, Folder, FolderRuleInput, Group, Invite, SubjectType, TeamSettings, User, UserRef } from './entities'
+import { AuditEntry, Budget, EngineAccount, Folder, FolderRuleInput, GOOGLE_SIGN_IN_DOMAINS_MAX, GoogleDomain, Group, Invite, SubjectType, TeamSettings, User, UserRef } from './entities'
 import { Password, PersonName, Username } from './auth'
 import { TEAM_ICON_MAX_BYTES, TEAM_ICON_TYPES, TEAM_ICON_VERSION_RE } from '../team-icon'
 import { SealedSecret } from './credentials'
@@ -74,11 +74,23 @@ export const UsersResponse = z.object({
   google: z.array(UserId).optional(),
 })
 export type UsersResponse = z.infer<typeof UsersResponse>
-/** Sign in with Google for Admin › Team settings (server/src/auth/google-login-admin.ts). `client`: this server has a
- * Google client it can use, so the row "Sign in with Google" shows (the team switch is TeamSettings.googleSignIn);
- * without one the page says how a self-installed server adds one (Admin › Connectors › Google Drive). */
-export const GoogleSignInAdminStatus = z.object({ client: z.boolean() })
+/** Sign in with Google for Admin › Sign-in methods (server/src/auth/google-login-admin.ts). `client`: this server has a
+ * Google client it can use now (the team switch is TeamSettings.googleSignIn). `via`: whose: 'own' (the company's own
+ * Google app, the one Google Drive uses), 'service' (the hosting service's sign-in service), absent when none. `reason`,
+ * when there is none: 'no_address' (no public web address: Google cannot come back here), 'unreachable' (the hosting
+ * service cannot be asked now), 'not_served' (it does not serve this server, or not yet), 'none' (no way at all on
+ * this server). `tryable`: this page's address can run "Try it". Older servers send only `client`. */
+export const GoogleSignInAdminStatus = z.object({
+  client: z.boolean(),
+  via: z.enum(['own', 'service']).optional(),
+  reason: z.enum(['no_address', 'unreachable', 'not_served', 'none']).optional(),
+  tryable: z.boolean().optional(),
+})
 export type GoogleSignInAdminStatus = z.infer<typeof GoogleSignInAdminStatus>
+/** Before saving a domain list (Admin › Sign-in methods): how many people who sign in only with Google (no password)
+ * have a Google account outside it (by `hd`), and would be locked out. */
+export const GoogleDomainsCheckBody = z.object({ domains: z.array(GoogleDomain).max(GOOGLE_SIGN_IN_DOMAINS_MAX) })
+export const GoogleDomainsCheck = z.object({ lockedOut: z.number().int().min(0) })
 /** Hand the owner role to another active member (the old owner becomes admin). The target must be active, not the
  * caller, past their temporary password and signed in at least once. `end`: the caller's own connections to end after
  * the transfer (handover.ts HandoverState.connections; the confirm starts with all of them ticked); omitted = none. */
@@ -680,7 +692,7 @@ export const AuditQuery = PageQuery.extend({
 export const ADMIN = {
   listUsers: endpoint({ method: 'GET', path: '/api/admin/users', auth: 'admin', owner: 'A', query: z.object({ noAi: QueryBool.optional() }), response: UsersResponse, summary: 'All members, and with ?noAi=1 who cannot use AI now ("No AI").' }),
   createUser: endpoint({ method: 'POST', path: '/api/admin/users', auth: 'admin', owner: 'A', status: 201, body: CreateUserBody, response: CreatedUser, summary: 'Add a member with a temporary password (alternative to an invite).' }),
-  updateUser: endpoint({ method: 'PATCH', path: '/api/admin/users/:id', auth: 'admin', owner: 'A', body: UpdateUserBody, response: User, summary: 'Role, groups, disable (ends their sessions). Only the owner changes admins. A guest\'s e-mail cannot be one another account here gives (409 conflict, reason email_in_use).' }),
+  updateUser: endpoint({ method: 'PATCH', path: '/api/admin/users/:id', auth: 'admin', owner: 'A', body: UpdateUserBody, response: User, summary: 'Role, groups, disable (ends their sessions). Only the owner changes admins. An e-mail another account here already has is refused (409 conflict, reason email_in_use): one e-mail signs in one account.' }),
   deleteUser: endpoint({ method: 'DELETE', path: '/api/admin/users/:id', auth: 'admin', owner: 'A', query: DeleteUserQuery, body: DeleteUserBody, response: empty, status: 204, summary: 'The owner removes anyone but themselves; an admin removes a member only (never the owner, an admin or themselves), with their password again in the body. Sessions end now, chats and memories are purged after the chat retention period; the personal folder goes to the owner or is deleted.' }),
   resetPassword: endpoint({ method: 'POST', path: '/api/admin/users/:id/reset-password', auth: 'admin', owner: 'A', body: ResetPasswordBody, response: ResetPasswordResult, summary: 'New temporary password (given, or a memorable one is made); the person must change it at next sign-in; valid 7 days; audited.' }),
   createResetLink: endpoint({ method: 'POST', path: '/api/admin/users/:id/reset-link', auth: 'admin', owner: 'A', response: ResetLinkResult, summary: 'One-time password reset link (24 h) to hand over; ends their sessions when used; audited.' }),
@@ -728,7 +740,9 @@ export const ADMIN = {
 
   settings: endpoint({ method: 'GET', path: '/api/admin/settings', auth: 'admin', owner: 'A', response: TeamSettings, summary: 'Team settings.' }),
   updateSettings: endpoint({ method: 'PATCH', path: '/api/admin/settings', auth: 'admin', owner: 'A', body: UpdateSettingsBody, response: TeamSettings, summary: 'Change team settings. Owner only: the team name (also renames the relay address), the retention periods and the update channel (OWNER_ONLY_SETTINGS).' }),
-  googleSignInAdminStatus: endpoint({ method: 'GET', path: '/api/admin/google-login', auth: 'admin', owner: 'A', response: GoogleSignInAdminStatus, summary: 'Whether this server has a Google client for Sign in with Google (the team switch is the googleSignIn setting); never the client.' }),
+  googleSignInAdminStatus: endpoint({ method: 'GET', path: '/api/admin/google-login', auth: 'admin', owner: 'A', response: GoogleSignInAdminStatus, summary: 'Whether this server has a Google client for Sign in with Google, whose, and why not (the team switch is the googleSignIn setting); never the client.' }),
+  checkGoogleSignInDomains: endpoint({ method: 'POST', path: '/api/admin/google-login/domains-check', auth: 'admin', owner: 'A', body: GoogleDomainsCheckBody, response: GoogleDomainsCheck, summary: 'Before saving a Google Workspace domain list: how many people who sign in only with Google are outside it and would be locked out (a count, never who).' }),
+  tryGoogleSignIn: endpoint({ method: 'POST', path: '/api/admin/google-login/try', auth: 'admin', owner: 'A', response: z.object({ url: z.string() }), summary: 'Try it: Google\'s address for a test sign-in; its return shows which Google account answered and whether the domain list lets it in, and signs nobody in.' }),
   putTeamIcon: endpoint({ method: 'PUT', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', query: TeamIconQuery, body: binary(TEAM_ICON_MAX_BYTES), response: TeamIconInfo, summary: 'Set the team logo (shown at the top left on computers, with the team name; tab and app icons stay the product\'s): PNG, JPEG or WebP up to 1 MiB, 32–4096 px a side; audited.' }),
   deleteTeamIcon: endpoint({ method: 'DELETE', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Remove the team logo: the product\'s mark shows again; audited.' }),
   speechHost: endpoint({ method: 'GET', path: '/api/admin/speech-host', auth: 'admin', owner: 'A', response: SpeechHost, summary: 'How this server turns video and audio sound into text itself: its cores, piece length, measured speed, and the tools voice input lacks here.' }),

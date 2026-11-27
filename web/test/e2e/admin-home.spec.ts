@@ -11,7 +11,7 @@ import { openAdmin } from './nav'
 const t = DICTS.en
 
 const MENU: [MessageKey, MessageKey[]][] = [
-  ['admin.group.people', ['admin.members', 'admin.groups', 'admin.folders']],
+  ['admin.group.people', ['admin.members', 'admin.groups', 'admin.folders', 'admin.signIn']],
   // Slack is not a menu item (owner 2026-11-12): the owner finds it in Connected apps (Integrations.tsx)
   ['admin.group.connections', ['admin.providers', 'admin.integrations', 'aiApps.title', 'admin.plugins']],
   ['admin.group.activity', ['admin.usage', 'admin.audit']],

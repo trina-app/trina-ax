@@ -9,6 +9,11 @@ import { Access, ApiErrorBody, ClientKind, Effort, EngineId, IsoTime, Locale, Gu
 // ---------------- people ----------------
 /** Minimal person reference (chat authors, audit actors, file authors). */
 export const UserRef = z.object({ id: UserId, name: z.string() })
+
+/** A Google Workspace domain as Google's `hd` claim names it: a lower-case DNS name (punycode for other scripts), at
+ * least two labels (TeamSettings.googleSignInDomains). */
+export const GoogleDomain = z.string().max(253).regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$/)
+export const GOOGLE_SIGN_IN_DOMAINS_MAX = 20
 export type UserRef = z.infer<typeof UserRef>
 
 /** How many folds a person's lists keep (ListFolds); a newer choice pushes out the oldest. */
@@ -1236,5 +1241,10 @@ export const TeamSettings = z.object({
    * a Google client. Off: no button, no connect, and a Google return already on its way neither signs in nor connects;
    * the connected accounts stay and work again when it is turned back on. Older servers omit it. */
   googleSignIn: z.boolean().optional(),
+  /** "Only Google Workspace accounts from" (Admin › Sign-in methods; docs/decisions/20261127-google-signin-selfhost.md):
+   * empty (the default) lets every Google account in, personal Gmail too. Set, a Google sign-in, connect or sign-up
+   * works only when Google's `hd` claim (the Workspace domain Google vouches for) is one of these, never by the e-mail
+   * address's suffix. Lower case, at most GOOGLE_SIGN_IN_DOMAINS_MAX. Older servers omit it. */
+  googleSignInDomains: z.array(GoogleDomain).max(GOOGLE_SIGN_IN_DOMAINS_MAX).optional(),
 })
 export type TeamSettings = z.infer<typeof TeamSettings>
