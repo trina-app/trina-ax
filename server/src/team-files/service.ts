@@ -33,7 +33,7 @@ import { dropFolderRow, hasAccessSettings, runAccessHooks } from '../admin/folde
 import { PRODUCT } from '@mycel/shared'
 import { publishChanges } from './changes'
 import { FileError, fileError } from './errors'
-import { checkRegular, copyTeamFile, freeName, hashFile, hashOpen, installFile, moveIntoTrash, openChecked, restoredName, snapshotVersion, splitExt, treeSize } from './place'
+import { abortStaged, checkRegular, commitStaged, copyOffLoop, freeName, hashFile, hashOpen, installRenamed, moveIntoTrash, openChecked, replaceKeeping, restoredName, sameFile, splitExt, stageInstall, stageTeamCopy, treeSize, type Staged } from './place'
 import { AI_TRASH_MAX_ENTRIES, AiTrashChanged, TrashStranded, aiSkillPath, holdsSkillRoot, instructionFile, sameStamps, stampTree, type Stamp } from './ai-trash'
 import crypto from 'node:crypto'
 import { folderSharesOf } from '../files/folder-shares'
@@ -282,18 +282,34 @@ export class TeamFiles {
     return { abs: r.abs, name: r.segs[r.segs.length - 1]!, st }
   }
 
-  /** Replace the file at `abs`: `then` gets the sha256 of the file as it is now, and runs in the same synchronous step
-   * as the check that the file did not change (inode, size, mtime) while it was hashed, so it keeps the current file as
-   * a version and puts the new one in place with nothing in between. Hashed again when it changed (11-11 code audit,
+  /**
+   * Replace the team file `r` with `incoming` (staged next to it, place.ts stageInstall / stageTeamCopy), keeping the
+   * current file as a version. The current file is hashed, `skip` decides on that hash (a value: nothing is replaced),
+   * then its content is copied for the version, both off the event loop (a 20 GB file on ext4 takes minutes:
+   * docs/decisions/20261127-restart.md). Only then, in one synchronous step (place.ts replaceKeeping), the file must
+   * still be the one that was hashed (inode, size, mtime): `check`, the version row, and the rename of the new content,
+   * with nothing in between; a failed rename takes the version back. Looked at again when it changed (11-11 code audit,
    * row 33: two replace uploads at once kept the first one's bytes under the hash of the file before it, and restoring
    * that version did nothing; a hash from the cache let the other one in between too). A file that never holds still
-   * (someone outside keeps writing): conflict. */
-  private async replacing<T>(abs: string, then: (sha: string) => T): Promise<T> {
+   * (someone outside keeps writing): conflict. `incoming` is the caller's: placed here, or aborted by the caller.
+   */
+  private async replacing<T>(r: { abs: string; rel: string; segs: string[] }, o: {
+    userId: string
+    kind: 'edit' | 'restore'
+    incoming: () => Promise<Staged>
+    skip?: (sha: string) => T | undefined
+    check?: () => void
+  }): Promise<{ replaced: true } | { replaced: false; value: T }> {
+    let incoming: Staged | null = null
     for (let i = 0; i < 5; i++) {
-      const st = checkRegular(abs)
-      const h = await this.sha(abs, st)
-      const now = checkRegular(abs)
-      if (now.ino === st.ino && now.dev === st.dev && now.size === st.size && now.mtimeMs === st.mtimeMs) return then(h)
+      const st = checkRegular(r.abs)
+      const h = await this.sha(r.abs, st)
+      if (o.skip) {
+        if (!sameFile(st, checkRegular(r.abs))) continue
+        const v = o.skip(h)
+        if (v !== undefined) return { replaced: false, value: v }
+      }
+      if (await replaceKeeping(this.ctx.db, this.root, r.abs, r.rel, r.segs, st, h, async () => (incoming ??= await o.incoming()), { userId: o.userId, turnId: null }, o.kind, o.check)) return { replaced: true }
     }
     throw new HttpError('conflict')
   }
@@ -1050,8 +1066,8 @@ export class TeamFiles {
    * A source the caller cannot read answers exactly like a missing one (not_found).
    */
   async copy(userId: string, from: string, to: string, o: { baseSha256?: string | null; dryRun?: boolean; onExists?: 'fail' | 'replace' | 'rename'; skillGrant?: string; confirm?: boolean } & By = {}): Promise<{ path: string; sha256: string } | { viewersAdded: number }> {
-    const user = this.principal(userId)
-    const rules = this.rules()
+    let user = this.principal(userId)
+    let rules = this.rules()
     const fr = authorize(this.fx, rules, user, from, 'read', { mustExist: true })
     if (fr.st!.isDirectory()) throw new ToolError('folder', 'is_folder')
     const st = checkRegular(fr.abs)
@@ -1071,49 +1087,67 @@ export class TeamFiles {
       if ((o.onExists ?? 'rename') !== 'fail' || o.dryRun) throw new Denied(SKILL_FILES_REFUSAL)
       grant = takeSkillAction(this.ctx.files, o.skillGrant, { userId, turnId: o.turnId, action: 'copy', from: fr.rel, to: r.rel })
     }
-    const added = this.viewersAdded(rules, user.id, fr.segs, r.segs)
-    if (o.dryRun) return { viewersAdded: added }
+    const added0 = this.viewersAdded(rules, user.id, fr.segs, r.segs)
+    if (o.dryRun) return { viewersAdded: added0 }
     // the AI's copy is a new file the AI puts into a team folder: the one check (files/office-exit.ts), by its content,
     // with only a replaced file (as this caller last saw it, baseSha256) vouching for what it already held
     if (o.turnId != null) await assertSafeTeamPath(name, fr.abs, (o.onExists === 'replace' && r.exists) ? replacedAsRead(r.abs, o.baseSha256 ?? undefined) : null, undefined, { writeBack: false })
     // into a folder its owner shares, where more people will see it: the person's yes first (the dry run's count on the
     // Files screen, the AI's card), whatever the client did before (409 audience_widened without confirm)
-    this.assertSharedConfirmed(r.segs, added, o.confirm)
+    this.assertSharedConfirmed(r.segs, added0, o.confirm)
     // with a plan, the team disk near full or over the plan's limit (system/storage.ts): a tool gets a tool error, the
     // Files screen a 507. A server with no plan has no check here, as before.
     if (currentPlan()) { if (o.tool) assertStorageRoomForAI(st.size); else assertStorageRoom(st.size) }
     const onExists = o.onExists ?? 'rename'
     let replaced = false
     let conflictOf: string | null = null
-    let out: ReturnType<typeof copyTeamFile> | null = null
-    if (r.exists) {
-      if (r.st!.isDirectory() || onExists === 'fail') fileError('conflict', 'exists', { to: r.rel })
-      if (r.rel === fr.rel && onExists === 'replace') fileError('conflict', 'exists', { to: r.rel })
-      if (onExists === 'rename') r = authorize(this.fx, rules, user, [...pr.segs, freeName(pr.abs, name, false, (n) => siblingVisible(this.fx, rules, user, pr.segs, n))].join('/'), 'write', { mustExist: false })
-      else {
-        const target = r
-        out = await this.replacing(target.abs, (cur) => {
-          if (o.baseSha256 && o.baseSha256 !== cur) return null
-          // the copy follows the snapshot in the same step (replacing)
-          grant?.recheck()
-          snapshotVersion(this.ctx.db, this.root, target.rel, { userId, turnId: null }, 'edit', cur)
-          replaced = true
-          return copyTeamFile(this.root, fr.abs, target.segs)
-        })
-        if (!out) {
-          // changed since the caller looked at it: keep it, put the copy next to it (tab 2 "동시 수정")
-          let cn = conflictCopyName(name, user.name, new Date(), teamDefaultLocale(this.ctx.db), teamTimeZone(this.ctx.db))
-          if (badSegment(cn)) cn = `conflict-${Date.now()}-${name}`
-          conflictOf = r.rel
-          r = authorize(this.fx, rules, user, [...pr.segs, freeName(pr.abs, cn)].join('/'), 'write', { mustExist: false })
+    // refused before anything is copied (and again after: the copy is awaited)
+    if (r.exists && (r.st!.isDirectory() || onExists === 'fail')) fileError('conflict', 'exists', { to: r.rel })
+    if (r.exists && r.rel === fr.rel && onExists === 'replace') fileError('conflict', 'exists', { to: r.rel })
+    // the copy is made first, off the event loop, under a temp name next to where it goes (a clone on APFS; bytes on
+    // ext4); from the fresh look at the name below to the rename, every step is synchronous, so a name checked free is
+    // still free when the copy appears there
+    const inc = await stageTeamCopy(this.root, fr.abs, pr.segs)
+    let out: fs.Stats
+    let added = added0
+    try {
+      // the rules and the person as they are now (the copy may have taken minutes): may they still write here, and
+      // did the folder get more readers meanwhile (the yes is asked again)
+      user = this.principal(userId)
+      rules = this.rules()
+      r = authorize(this.fx, rules, user, [...pr.segs, name].join('/'), 'write', { mustExist: false })
+      added = this.viewersAdded(rules, user.id, fr.segs, r.segs)
+      if (added > added0) this.assertSharedConfirmed(r.segs, added, o.confirm)
+      let placed = false
+      if (r.exists) {
+        if (r.st!.isDirectory() || onExists === 'fail') fileError('conflict', 'exists', { to: r.rel })
+        if (r.rel === fr.rel && onExists === 'replace') fileError('conflict', 'exists', { to: r.rel })
+        if (onExists === 'rename') r = authorize(this.fx, rules, user, [...pr.segs, freeName(pr.abs, name, false, (n) => siblingVisible(this.fx, rules, user, pr.segs, n))].join('/'), 'write', { mustExist: false })
+        else {
+          const target = r
+          const res = await this.replacing(target, {
+            userId, kind: 'edit', incoming: async () => inc,
+            skip: (cur) => (o.baseSha256 && o.baseSha256 !== cur ? true : undefined),
+            // the card's plan again, right before the copy is put in place (the snapshot in the same step)
+            check: () => grant?.recheck(),
+          })
+          if (res.replaced) { replaced = true; placed = true }
+          else {
+            // changed since the caller looked at it: keep it, put the copy next to it (tab 2 "동시 수정")
+            let cn = conflictCopyName(name, user.name, new Date(), teamDefaultLocale(this.ctx.db), teamTimeZone(this.ctx.db))
+            if (badSegment(cn)) cn = `conflict-${Date.now()}-${name}`
+            conflictOf = r.rel
+            r = authorize(this.fx, rules, user, [...pr.segs, freeName(pr.abs, cn)].join('/'), 'write', { mustExist: false })
+          }
         }
       }
-    }
-    if (!out) {
-      // the card's plan again, right before the copy
-      grant?.recheck()
-      out = copyTeamFile(this.root, fr.abs, r.segs)
-    }
+      if (!placed) {
+        // the card's plan again, right before the copy
+        grant?.recheck()
+        commitStaged(inc, r.segs)
+      }
+      out = inc.st
+    } finally { abortStaged(inc) }
     const sha = await this.sha(path.join(this.root, ...r.segs), fs.lstatSync(path.join(this.root, ...r.segs)))
     // a conflict copy is told to both people and listed in the original's history, like a conflicting save
     const turnId = o.turnId ?? null, tool = o.tool ?? 'file-screen'
@@ -1241,7 +1275,7 @@ export class TeamFiles {
    * (files/timeline.ts fileTimelineWalk) follows a file inside to its source through that row, so the outside mark of
    * the source's content and names goes with the copy (chat/turn.ts noteOwnReads, noteOwnNames).
    */
-  copyFolderTree(userId: string, from: string, toParent: string, o: { dryRun?: boolean; maxFiles?: number; maxBytes?: number; confirm?: boolean } = {}): { path: string; files: number; bytes: number } | { viewersAdded: number } {
+  async copyFolderTree(userId: string, from: string, toParent: string, o: { dryRun?: boolean; maxFiles?: number; maxBytes?: number; confirm?: boolean } = {}): Promise<{ path: string; files: number; bytes: number } | { viewersAdded: number }> {
     const user = this.principal(userId)
     const rules = this.rules()
     const fr = authorize(this.fx, rules, user, from, 'read', { mustExist: true })
@@ -1261,7 +1295,17 @@ export class TeamFiles {
     const added = this.viewersAdded(rules, user.id, fr.segs, tr.segs)
     if (o.dryRun) return { viewersAdded: added }
     this.assertSharedConfirmed(tr.segs, added, o.confirm)
-    const { files, bytes } = this.copyTree(user, rules, fr, pr.abs, (tmp) => { verifyChain(this.root, tr.segs, true); fs.renameSync(tmp, tr.abs) }, o)
+    const { files, bytes } = await this.copyTree(user, rules, fr, pr.abs, (tmp) => {
+      // checked before the copies were made (they are awaited, maybe for minutes): looked at again right before the
+      // rename, with the rules as they are now: the name still free, the person may still write there, and a folder
+      // that got more readers meanwhile asks the yes again
+      if (fs.existsSync(tr.abs)) fileError('conflict', 'exists', { to: tr.rel })
+      const nowRules = this.rules(), nowUser = this.principal(userId)
+      authorize(this.fx, nowRules, nowUser, tr.rel, 'write', { mustExist: false })
+      const nowAdded = this.viewersAdded(nowRules, nowUser.id, fr.segs, tr.segs)
+      if (nowAdded > added) this.assertSharedConfirmed(tr.segs, nowAdded, o.confirm)
+      verifyChain(this.root, tr.segs, true); fs.renameSync(tmp, tr.abs)
+    }, o)
     this.hookSafe(userId, tr.abs)
     fileEvent(this.ctx.db, { turnId: null, userId, path: tr.rel, action: 'create', size: bytes, detail: { folder: true, sourcePaths: [fr.rel], widened: added > 0, files: files.length, tool: 'file-screen' } })
     for (const f of files) this.extractText([...tr.segs, ...f.segs].join('/'))
@@ -1274,7 +1318,7 @@ export class TeamFiles {
    * name: nobody sees it), which `place` then puts where it goes. Walked without following anything; refused past
    * `maxFiles` / `maxBytes`; the temporary folder goes again when anything fails.
    */
-  private copyTree(user: Principal, rules: RuleSet, fr: Authorized, intoAbs: string, place: (tmp: string) => void, o: { maxFiles?: number; maxBytes?: number }): { files: { segs: string[]; size: number }[]; bytes: number } {
+  private async copyTree(user: Principal, rules: RuleSet, fr: Authorized, intoAbs: string, place: (tmp: string) => void, o: { maxFiles?: number; maxBytes?: number }): Promise<{ files: { segs: string[]; size: number }[]; bytes: number }> {
     const maxFiles = o.maxFiles ?? SHARE_MAX_FILES, maxBytes = o.maxBytes ?? SHARE_MAX_BYTES
     // what to copy: readable regular files and listable folders, walked without following anything
     const dirs: string[][] = [], files: { segs: string[]; size: number }[] = []
@@ -1307,7 +1351,8 @@ export class TeamFiles {
         const src = path.join(this.root, ...fr.segs, ...f.segs)
         const before = checkRegular(src)
         const dst = path.join(tmp, ...f.segs)
-        fs.copyFileSync(src, dst, fs.constants.COPYFILE_EXCL | fs.constants.COPYFILE_FICLONE)
+        // off the event loop (place.ts copyOffLoop): a clone on APFS, a copy on the file threads elsewhere
+        await copyOffLoop(src, dst)
         const after = checkRegular(src)
         if (after.ino !== before.ino || after.dev !== before.dev || fs.lstatSync(dst).size !== after.size) throw new Denied('path changed while copying')
         fs.chmodSync(dst, 0o600)
@@ -2019,20 +2064,34 @@ export class TeamFiles {
     if (!v.storage_path) fileError('not_found', 'noBlob')
     const blob = path.join(this.root, ...v.storage_path.split('/'))
     const size = checkRegular(blob).size
-    if (r.exists) {
-      if (r.st!.isDirectory()) throw new ToolError('folder', 'is_folder')
-      const same = await this.replacing(r.abs, (cur) => {
-        if (cur === v.sha256) return true
+    // the version's bytes are copied next to the file first (off the event loop: place.ts stageInstall keepSource), once
+    // it is known they are needed; placed in a synchronous step after a fresh look at the name
+    let inc: Staged | null = null
+    const stage = async () => (inc ??= await stageInstall(this.root, r.segs.slice(0, -1), blob, { keepSource: true }))
+    try {
+      if (r.exists) {
+        if (r.st!.isDirectory()) throw new ToolError('folder', 'is_folder')
+        const res = await this.replacing(r, {
+          userId, kind: 'restore', incoming: stage,
+          skip: (cur) => {
+            if (cur === v.sha256) return true
+            if (currentPlan()) assertStorageRoom(size)
+            return undefined
+          },
+        })
+        if (!res.replaced) return { path: r.rel, conflict: false, entry: this.entry(user, rules, r.segs) }
+      } else {
         if (currentPlan()) assertStorageRoom(size)
-        snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'restore', cur)
-        installFile(this.root, r.segs, blob, { keepSource: true })
-        return false
-      })
-      if (same) return { path: r.rel, conflict: false, entry: this.entry(user, rules, r.segs) }
-    } else {
-      if (currentPlan()) assertStorageRoom(size)
-      installFile(this.root, r.segs, blob, { keepSource: true })
-    }
+        const s = await stage()
+        // someone may have put a file there while the version was copied: it is replaced as a version too
+        const now = authorize(this.fx, this.rules(), user, r.rel, 'write', { createDirs: true })
+        if (now.exists) {
+          if (now.st!.isDirectory()) throw new ToolError('folder', 'is_folder')
+          const res = await this.replacing(now, { userId, kind: 'restore', incoming: async () => s, skip: (cur) => (cur === v.sha256 ? true : undefined) })
+          if (!res.replaced) return { path: r.rel, conflict: false, entry: this.entry(user, rules, r.segs) }
+        } else commitStaged(s, now.segs)
+      }
+    } finally { if (inc) abortStaged(inc) }
     fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'restore', size: v.size, sha256: v.sha256, detail: { versionId, version: v.version } })
     this.extractText(r.rel)
     this.publish([{ path: r.rel, action: 'restore', by: this.by(userId), turnId: null }])
@@ -2296,7 +2355,8 @@ export class TeamFiles {
       })()
     } else {
       checkRegular(src)
-      installFile(this.root, r.segs, src)
+      // .system/trash is on the team folder's volume: a rename, never a copy
+      installRenamed(this.root, r.segs, src)
       sharesRestored(this.ctx.db, t.id, t.original_path, r.rel)
     }
     this.ctx.db.query('UPDATE trash_items SET restored_at = ? WHERE id = ?').run(new Date().toISOString(), id)
@@ -2422,18 +2482,36 @@ export class TeamFiles {
       // said in the answer: the upload made nothing new (Find work files' Undo leaves such a file alone)
       if (same) return { ...same, kept: true }
     }
-    if (onExists === 'rename') finalName = freeName(fr.abs, finalName, false, (n) => siblingVisible(this.fx, rules, user, fr.segs, n), o.taken)
-    const r = authorize(this.fx, rules, user, [...fr.segs, finalName].join('/'), 'write', { mustExist: false })
-    let action: FileChange['action'] = 'create'
     const size = fs.statSync(src).size
-    if (r.exists) {
-      if (r.st!.isDirectory() || onExists === 'fail') fileError('conflict', 'exists', { name: r.rel })
-      await this.replacing(r.abs, (cur) => {
-        snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'edit', cur)
-        installFile(this.root, r.segs, src)
-      })
-      action = 'update'
-    } else installFile(this.root, r.segs, src)
+    let r: Authorized
+    let action: FileChange['action'] = 'create'
+    // refused before anything is moved (and again after)
+    const pre = onExists === 'rename' ? null : authorize(this.fx, rules, user, [...fr.segs, finalName].join('/'), 'write', { mustExist: false })
+    if (pre?.exists && (pre.st!.isDirectory() || onExists === 'fail')) fileError('conflict', 'exists', { name: pre.rel })
+    // the upload goes next to its place (a rename, or a copy off the event loop when the upload folder is on another
+    // volume): for a replace only after the old version was copied (replacing), so a crash meanwhile leaves the upload
+    // where it was; else first, and from the free name below to the rename every step is synchronous
+    let inc: Staged | null = null
+    const stage = async () => (inc ??= await stageInstall(this.root, fr.segs, src))
+    try {
+      let replacedPre = false
+      if (pre?.exists && onExists === 'replace') {
+        // (gone meanwhile: placed as a new file below)
+        try { await this.replacing(pre, { userId, kind: 'edit', incoming: stage }); replacedPre = true } catch (e) { if (!(e instanceof ToolError && e.code === 'not_found')) throw e }
+      }
+      if (replacedPre) { r = pre!; action = 'update' } else {
+        const s = await stage()
+        // the rules and the person as they are now (an upload from another volume was copied, maybe for minutes)
+        const nowUser = this.principal(userId), nowRules = this.rules()
+        if (onExists === 'rename') finalName = freeName(fr.abs, finalName, false, (n) => siblingVisible(this.fx, nowRules, nowUser, fr.segs, n), o.taken)
+        r = authorize(this.fx, nowRules, nowUser, [...fr.segs, finalName].join('/'), 'write', { mustExist: false })
+        if (r.exists) {
+          if (r.st!.isDirectory() || onExists === 'fail') fileError('conflict', 'exists', { name: r.rel })
+          await this.replacing(r, { userId, kind: 'edit', incoming: async () => s })
+          action = 'update'
+        } else commitStaged(s, r.segs)
+      }
+    } finally { if (inc) abortStaged(inc) }
     fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: event?.action ?? 'upload', size, sha256: sha, detail: { replaced: action === 'update', ...event?.detail } })
     this.extractText(r.rel)
     this.publish([{ path: r.rel, action, by: this.by(userId), turnId: null }])

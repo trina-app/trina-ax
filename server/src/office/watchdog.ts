@@ -3,14 +3,16 @@
 // - Counts only after this start of the server answered /api/health once (a restore at start, migrations before it
 //   listens are never a hang); a 503 "migrating" answer is an answer.
 // - Every 30 s one health request (3 s timeout, as the bootstrap's); 10 failures in a row (about 5 minutes) is a hang.
-// - Kill switch: TEAMAX_WATCHDOG_KILL=1 in config/office.env (office rewrites server.json at every start, so the
-//   switch lives with the other office settings), read at every hang. Off by default: the hang is logged only.
-// - At most 3 kills an hour, then data/liveness.json {gaveUp, since, detail} (Admin › System › Health reads it) until
+// - Kill switch: on unless config/office.env says TEAMAX_WATCHDOG_KILL=0 (office rewrites server.json at every start,
+//   so the switch lives with the other office settings), read at every hang. 0: the hang is logged only.
+// - At most 3 kills an hour, counted in the supervisor's memory only (`teamax restart` or a reboot starts the count
+//   again), then data/liveness.json {gaveUp, since, detail} (Admin › System › Health reads it), kept on disk until
 //   the next healthy answer, which removes it.
 // Pure: the supervisor gives it each answer and does what it says.
 import fs from 'node:fs'
 import path from 'node:path'
 import { isMigrating, type HealthAnswer } from './health'
+import { parseEnvFile, watchdogKillValue } from './settings'
 
 export const WATCH_EVERY_MS = 30_000
 export const WATCH_TIMEOUT_MS = 3000
@@ -38,7 +40,7 @@ export class OfficeWatchdog {
   /** a new start of the server: watched once it answers */
   started() { this.armed = false; this.fails = 0; this.logged = false }
 
-  /** one health answer; kill: TEAMAX_WATCHDOG_KILL is on */
+  /** one health answer; kill: TEAMAX_WATCHDOG_KILL is not 0 */
   look(h: HealthAnswer, kill: boolean, now = Date.now()): WatchAction {
     if (typeof h === 'string') {
       this.armed = true; this.fails = 0; this.logged = false
@@ -55,7 +57,7 @@ export class OfficeWatchdog {
     if (!kill) {
       if (this.logged) return null
       this.logged = true
-      return { kind: 'log', line: `watchdog: ${hung}; not restarting it: TEAMAX_WATCHDOG_KILL is off (log only)` }
+      return { kind: 'log', line: `watchdog: ${hung}; not restarting it: TEAMAX_WATCHDOG_KILL=0 (log only)` }
     }
     const win = this.o.windowMs ?? WATCH_KILL_WINDOW_MS
     this.kills = this.kills.filter((t) => now - t < win)
@@ -90,9 +92,8 @@ function clearLiveness(dataDir: string) {
   try { fs.rmSync(path.join(dataDir, LIVENESS_FILE), { force: true }) } catch {}
 }
 
-/** TEAMAX_WATCHDOG_KILL=1 in config/office.env (settings.ts reads it the same way) */
+/** the watchdog may stop a hung server: on unless config/office.env says TEAMAX_WATCHDOG_KILL=0 (settings.ts reads
+ * it the same way); no file or no line is the default, on */
 export function officeWatchdogKills(envText: string | null): boolean {
-  if (!envText) return false
-  const m = /^\s*TEAMAX_WATCHDOG_KILL\s*=\s*(\S+)\s*$/m.exec(envText)
-  return !!m && m[1] === '1'
+  return !envText || watchdogKillValue(parseEnvFile(envText).TEAMAX_WATCHDOG_KILL)
 }

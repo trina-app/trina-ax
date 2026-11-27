@@ -7,8 +7,9 @@
 //     server listens, are never a hang. A 503 "migrating" answer is an answer.
 //   - Every watchEvery (30 s) the same checkHealth as the update watch (3 s timeout); watchFailures (10) failures in a
 //     row, about 5 minutes, is a hang. Slow work is not killed.
-//   - Kill switch: server.json {"watchdog": {"kill": true}} (read at every hang, so it can be turned on without a
-//     restart). Off by default: the hang is logged only, so QA can watch the log before it kills.
+//   - Kill switch: server.json {"watchdog": {"kill": false}} turns it off (read at every hang, so no restart is
+//     needed). On by default since 2026-11-27: the server no longer copies big files on its event loop (team-files
+//     place.ts stageInstall / stageVersion), so a busy server keeps answering and only a hung one is stopped.
 //   - At most watchMaxKills (3) kills in watchKillWindow (an hour). Then it gives up: state.json liveness {gaveUp,
 //     since, detail} (mycel-ctl status, Admin › System › Health) until the next healthy answer, never reset by the
 //     clock: a server that can never answer again would otherwise be cut every hour.
@@ -21,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -72,18 +74,50 @@ func (w *watchdog) answered() {
 	}
 }
 
-// killOn: server.json says watchdog.kill true
+// killOn: on unless server.json says watchdog.kill false (also "false", 0, "0", "off", "no": a hand-written opt-out is
+// honoured). A missing or unreadable server.json, no watchdog block or no kill key: the default, on.
 func killOn() bool {
 	b, err := os.ReadFile(*configFile)
 	if err != nil {
-		return false
+		return true
 	}
 	var c struct {
 		Watchdog *struct {
-			Kill bool `json:"kill"`
+			Kill json.RawMessage `json:"kill"`
 		} `json:"watchdog"`
 	}
-	return json.Unmarshal(b, &c) == nil && c.Watchdog != nil && c.Watchdog.Kill
+	if err := json.Unmarshal(b, &c); err != nil {
+		// a hand-edited server.json that does not parse: its opt-out cannot be read, so said in the log
+		logf("watchdog: %s is not valid JSON (%v); watchdog.kill is read as on (the default)", *configFile, err)
+		return true
+	}
+	if c.Watchdog == nil || len(c.Watchdog.Kill) == 0 {
+		return true
+	}
+	return !killOff(c.Watchdog.Kill)
+}
+
+// killOff: a kill value that turns the kill off
+func killOff(v json.RawMessage) bool {
+	if strings.TrimSpace(string(v)) == "null" {
+		return false
+	}
+	var b bool
+	if json.Unmarshal(v, &b) == nil {
+		return !b
+	}
+	var n float64
+	if json.Unmarshal(v, &n) == nil {
+		return n == 0
+	}
+	var s string
+	if json.Unmarshal(v, &s) == nil {
+		switch strings.ToLower(strings.TrimSpace(s)) {
+		case "false", "0", "off", "no":
+			return true
+		}
+	}
+	return false
 }
 
 // look takes one health answer of version v; true: stop the server now (the caller restarts it as after a crash)
@@ -109,7 +143,7 @@ func (w *watchdog) look(v string, hs healthState, now time.Time) bool {
 	}
 	if !killOn() {
 		if !w.logged {
-			logf("watchdog: %s; not restarting it: server.json watchdog.kill is off (log only)", hung)
+			logf("watchdog: %s; not restarting it: server.json watchdog.kill is false (log only)", hung)
 			w.logged = true
 		}
 		return false

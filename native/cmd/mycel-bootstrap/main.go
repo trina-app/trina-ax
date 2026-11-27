@@ -25,9 +25,9 @@
 // Normal crashes restart after 1 s; more than 5 crashes in 5 minutes back off 1, 2, 4 ... 60 s. launchd's KeepAlive
 // only restarts the bootstrap itself.
 // A server that runs but stops answering (a hung event loop) is the watchdog's (watchdog.go): once this start answered
-// health ok, every 30 s the same health check; 10 failures in a row is a hang. It is stopped and started again only
-// with server.json watchdog.kill true (log only otherwise), at most 3 times an hour, then state.json liveness.gaveUp
-// until the next healthy answer (docs/decisions/20261127-restart.md).
+// health ok, every 30 s the same health check; 10 failures in a row is a hang. It is stopped and started again
+// (server.json watchdog.kill false: log only), at most 3 times an hour, then state.json liveness.gaveUp until the next
+// healthy answer (docs/decisions/20261127-restart.md).
 package main
 
 import (

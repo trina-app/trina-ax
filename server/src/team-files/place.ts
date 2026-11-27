@@ -12,6 +12,9 @@ import { verifyChain } from '../policy/resolve'
 import { foldKey } from '../policy/names'
 import { newId } from '../db'
 import { insertVersion } from '../files/store'
+import { copyOffLoop } from '../files/copy-off-loop'
+
+export { copyOffLoop }
 
 const C = fs.constants
 
@@ -106,72 +109,131 @@ export function ensureParents(root: string, segs: string[]) {
 }
 
 /**
- * Move the file at `src` (server-owned, outside the team folder or in .system) to team path `segs`, replacing a
- * regular file there. Same volume: rename. Other volume (EXDEV): copy into a temp name next to the target first, and
- * remove `src` only after the temp name became the target; on a failure only the copy is removed, so `src` keeps the
- * bytes. A failure after the source was renamed into the temp name puts it back at `src` (the temp name may be the only
- * copy of the bytes: rooms/file-moves.ts); when even that fails, the temp file is left where it is (the mover finds it
- * by its inode) rather than deleted. A copy (keepSource) is removed on a failure as before.
+ * New content waiting next to its place under a temp name (nobody lists, reads or authorizes a temp name: policy
+ * access.ts). Everything slow (a copy across volumes, a copy that keeps its source, a copy of a team file) is done
+ * while staging, off the event loop; putting it in place (commitStaged) is one rename and runs in the caller's
+ * synchronous step, so a check right before it still holds when the file appears whole. abortStaged() undoes it.
  */
-export function installFile(root: string, segs: string[], src: string, o: { keepSource?: boolean } = {}) {
-  ensureParents(root, segs)
-  const dir = path.join(root, ...segs.slice(0, -1))
-  const target = path.join(dir, segs[segs.length - 1]!)
-  const tmp = tmpName(dir)
-  let renamed = false
-  // a copy to another volume: `src` is removed once the copy is the target (until then it is the only whole copy)
-  let copied = false
-  try {
-    if (o.keepSource) fs.copyFileSync(src, tmp, C.COPYFILE_EXCL | C.COPYFILE_FICLONE)
-    else {
-      try { fs.renameSync(src, tmp); renamed = true } catch (e: any) {
-        if (e.code !== 'EXDEV') throw e
-        fs.copyFileSync(src, tmp, C.COPYFILE_EXCL)
-        copied = true
-      }
-    }
-  } catch (e) { if (!renamed) fs.rmSync(tmp, { force: true }); throw e }
-  try {
-    fs.chmodSync(tmp, 0o600)
-    verifyChain(root, segs, true)
-    try {
-      const st = fs.lstatSync(target)
-      if (!st.isFile() || st.nlink > 1) throw new Denied('target is not a regular file')
-    } catch (e: any) { if (e instanceof Denied) throw e }
-    fs.renameSync(tmp, target)
-  } catch (e) {
-    if (!renamed) fs.rmSync(tmp, { force: true })
-    else try { fs.renameSync(tmp, src) } catch { /* left at its temp name: never the only copy deleted */ }
-    throw e
-  }
-  // the target holds the bytes now; a source that cannot be removed is a leftover copy, not a failed install
-  if (copied) try { fs.rmSync(src, { force: true }) } catch { /* left */ }
+export interface Staged {
+  root: string
+  /** the folder it waits in (team path) */
+  dir: string[]
+  tmp: string
+  src: string
+  /** the source itself was renamed into `tmp`: the temp name may hold the only copy of the bytes */
+  renamed: boolean
+  /** copied to another volume: `src` goes once the copy is in place */
+  copied: boolean
+  /** what was staged (lstat of `tmp`) */
+  st: fs.Stats
+  done: boolean
 }
 
 /**
- * Copy a regular team file (already authorize()d for read) to team path `segs` (already authorize()d for write) without
- * passing through memory: clonefile on APFS, a plain copy elsewhere. The source is checked before and after the copy
- * (same inode, still a regular singly linked file), so a file swapped for a link in between is never copied.
+ * Stage the server-owned file at `src` (outside the team folder or in .system) for team folder `dir`. Same volume: a
+ * rename. Another volume (EXDEV), or `keepSource`: a copy off the event loop. On a failure only the copy goes, so `src`
+ * keeps the bytes.
  */
-export function copyTeamFile(root: string, srcAbs: string, segs: string[]): fs.Stats {
-  const before = checkRegular(srcAbs)
-  ensureParents(root, segs)
-  const dir = path.join(root, ...segs.slice(0, -1))
-  const tmp = tmpName(dir)
+export async function stageInstall(root: string, dir: string[], src: string, o: { keepSource?: boolean } = {}): Promise<Staged> {
+  ensureParents(root, [...dir, PRODUCT.tmpPrefix])
+  const tmp = tmpName(path.join(root, ...dir))
+  let renamed = false, copied = false
+  if (o.keepSource) await copyOffLoop(src, tmp)
+  else {
+    try { fs.renameSync(src, tmp); renamed = true } catch (e: any) {
+      if (e.code !== 'EXDEV') throw e
+      await copyOffLoop(src, tmp)
+      copied = true
+    }
+  }
+  const s: Staged = { root, dir, tmp, src, renamed, copied, st: null as unknown as fs.Stats, done: false }
+  try { fs.chmodSync(tmp, 0o600); s.st = fs.lstatSync(tmp) } catch (e) { abortStaged(s); throw e }
+  return s
+}
+
+/**
+ * Put staged content at team path `segs` (in the folder it was staged in), replacing a regular file there: the chain
+ * is checked again, then one rename. Synchronous, and cheap. Throws (nothing in place, `s` still staged) when the
+ * place is not a plain file any more.
+ */
+export function commitStaged(s: Staged, segs: string[]): void {
+  if (s.done) throw new Error('staged content was already placed or dropped')
+  if (segs.length !== s.dir.length + 1 || segs.slice(0, -1).some((x, i) => x !== s.dir[i])) throw new Error('staged in another folder')
+  verifyChain(s.root, segs, true)
+  const target = path.join(s.root, ...segs)
   try {
-    fs.copyFileSync(srcAbs, tmp, C.COPYFILE_EXCL | C.COPYFILE_FICLONE)
+    const st = fs.lstatSync(target)
+    if (!st.isFile() || st.nlink > 1) throw new Denied('target is not a regular file')
+  } catch (e: any) { if (e instanceof Denied) throw e }
+  fs.renameSync(s.tmp, target)
+  s.done = true
+  // the target holds the bytes now; a source that cannot be removed is a leftover copy, not a failed install
+  if (s.copied) try { fs.rmSync(s.src, { force: true }) } catch { /* left */ }
+}
+
+/** Undo a stage that was not placed: a copy goes; a renamed source goes back to `src` (the temp name may be the only
+ * copy of the bytes: rooms/file-moves.ts), or, when even that fails, stays at its temp name (the mover finds it by its
+ * inode) rather than being deleted. A no-op once placed. */
+export function abortStaged(s: Staged): void {
+  if (s.done) return
+  s.done = true
+  if (!s.renamed) { try { fs.rmSync(s.tmp, { force: true }) } catch { /* a temp name */ } }
+  else try { fs.renameSync(s.tmp, s.src) } catch { /* left at its temp name: never the only copy deleted */ }
+}
+
+/**
+ * Move a file that is already on the team folder's volume (.system/trash) to team path `segs`: a rename only, in the
+ * caller's synchronous step. EXDEV is an error here, never a copy on the event loop.
+ */
+export function installRenamed(root: string, segs: string[], src: string): void {
+  ensureParents(root, segs)
+  const tmp = tmpName(path.join(root, ...segs.slice(0, -1)))
+  fs.renameSync(src, tmp)
+  const s: Staged = { root, dir: segs.slice(0, -1), tmp, src, renamed: true, copied: false, st: null as unknown as fs.Stats, done: false }
+  try { fs.chmodSync(tmp, 0o600); commitStaged(s, segs) } catch (e) { abortStaged(s); throw e }
+}
+
+/**
+ * The server-owned file `src` on the team folder's volume, so that installRenamed() places it with a rename: `src`
+ * itself when it is there already, else a copy (off the event loop) under a temp name in the team's .system folder.
+ * `src` stays until finish(true) (placed: the source goes) or finish(false) (not placed: the copy goes, `src` keeps the
+ * bytes), so a failed placement leaves the caller's file where it was.
+ */
+export async function onTeamVolume(root: string, src: string, near?: string): Promise<{ file: string; finish: (placed: boolean) => void }> {
+  const sys = path.join(root, PRODUCT.systemDir)
+  fs.mkdirSync(sys, { recursive: true, mode: 0o700 })
+  // the volume of the folder it goes into when that is there already (a mount inside the team folder), else the team's
+  let dev = fs.lstatSync(sys).dev
+  if (near) try { const st = fs.lstatSync(near); if (st.isDirectory()) dev = st.dev } catch { /* made later: the team's */ }
+  if (fs.lstatSync(src).dev === dev) return { file: src, finish: () => {} }
+  const tmp = tmpName(dev === fs.lstatSync(sys).dev ? sys : near!)
+  await copyOffLoop(src, tmp)
+  return {
+    file: tmp,
+    finish: (placed) => { try { fs.rmSync(placed ? src : tmp, { force: true }) } catch { /* a leftover copy */ } },
+  }
+}
+
+/**
+ * Stage a copy of a regular team file (already authorize()d for read) for team folder `dir` without passing through
+ * memory or holding the event loop: clonefile on APFS, a copy on the file threads elsewhere. The source is checked
+ * before and after the copy (same inode, size, still a regular singly linked file), so a file swapped for a link in
+ * between is never copied. Put in place with commitStaged.
+ */
+export async function stageTeamCopy(root: string, srcAbs: string, dir: string[]): Promise<Staged> {
+  const before = checkRegular(srcAbs)
+  ensureParents(root, [...dir, PRODUCT.tmpPrefix])
+  const tmp = tmpName(path.join(root, ...dir))
+  await copyOffLoop(srcAbs, tmp)
+  const s: Staged = { root, dir, tmp, src: srcAbs, renamed: false, copied: false, st: null as unknown as fs.Stats, done: false }
+  try {
     const after = checkRegular(srcAbs)
     const out = fs.lstatSync(tmp)
-    if (after.ino !== before.ino || after.dev !== before.dev || out.size !== after.size) throw new Denied('path changed while copying')
+    if (after.ino !== before.ino || after.dev !== before.dev || out.size !== after.size || out.size !== before.size) throw new Denied('path changed while copying')
     fs.chmodSync(tmp, 0o600)
-    verifyChain(root, segs, true)
-    try {
-      const st = fs.lstatSync(path.join(dir, segs[segs.length - 1]!))
-      if (!st.isFile() || st.nlink > 1) throw new Denied('target is not a regular file')
-    } catch (e: any) { if (e instanceof Denied) throw e }
-    fs.renameSync(tmp, path.join(dir, segs[segs.length - 1]!))
-    return out
-  } catch (e) { fs.rmSync(tmp, { force: true }); throw e }
+    s.st = out
+    return s
+  } catch (e) { abortStaged(s); throw e }
 }
 
 /** Write bytes to a fresh server-side temp file (for small uploads arriving in memory). */
@@ -188,16 +250,82 @@ function blobPath(root: string, kind: 'history' | 'trash'): string[] {
   return [PRODUCT.systemDir, kind, `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`, crypto.randomUUID()]
 }
 
-/** Keep the current content of `rel` (a file in the team folder) as a version, by copy (clone on APFS). */
-export function snapshotVersion(db: Database, root: string, rel: string, by: { userId: string; turnId: string | null }, kind: 'edit' | 'restore', sha256: string): string {
-  const abs = path.join(root, ...rel.split('/'))
+/** Same file, unchanged by what an lstat tells (the check replacing() and the hash cache use). */
+export const sameFile = (a: fs.Stats, b: fs.Stats) => a.ino === b.ino && a.dev === b.dev && a.size === b.size && a.mtimeMs === b.mtimeMs
+
+/**
+ * A copy of a team file's current content, waiting under a temp name in .system/history/<month>/ (no file_versions row
+ * yet: nobody can reach it) to become a version. Copied off the event loop (a clone on APFS); `st` is the file as it
+ * was before the copy, and the file was the same (sameFile) after it, so the copy is that content.
+ */
+export interface KeptCopy { root: string; tmp: string; blob: string[]; st: fs.Stats; done: boolean }
+
+/** Copy the current content of team file `abs` for a version (see KeptCopy). Throws Denied when the file changed
+ * while it was copied (the caller looks again). */
+export async function stageVersion(root: string, abs: string): Promise<KeptCopy> {
   const st = checkRegular(abs)
   const blob = blobPath(root, 'history')
-  fs.mkdirSync(path.join(root, ...blob.slice(0, -1)), { recursive: true, mode: 0o700 })
-  fs.copyFileSync(abs, path.join(root, ...blob), C.COPYFILE_EXCL | C.COPYFILE_FICLONE)
+  const dir = path.join(root, ...blob.slice(0, -1))
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
+  const k: KeptCopy = { root, tmp: tmpName(dir), blob, st, done: false }
+  await copyOffLoop(abs, k.tmp)
+  try {
+    const now = checkRegular(abs)
+    if (!sameFile(st, now) || fs.lstatSync(k.tmp).size !== st.size) throw new Denied('path changed while copying')
+    fs.chmodSync(k.tmp, 0o600)
+  } catch (e) { dropVersion(k); throw e }
+  return k
+}
+
+/** Make the staged copy a version of `rel` (its row; the copy renamed to its blob name). Synchronous; returns the id. */
+export function commitVersion(db: Database, k: KeptCopy, rel: string, by: { userId: string; turnId: string | null }, kind: 'edit' | 'restore', sha256: string): string {
+  if (k.done) throw new Error('kept copy was already used or dropped')
+  fs.renameSync(k.tmp, path.join(k.root, ...k.blob))
+  k.done = true
   const id = newId()
-  insertVersion(db, { id, rel, sha256, size: st.size, by, kind, storage: blob.join('/') })
+  try { insertVersion(db, { id, rel, sha256, size: k.st.size, by, kind, storage: k.blob.join('/') }) } catch (e) {
+    try { fs.rmSync(path.join(k.root, ...k.blob), { force: true }) } catch { /* an orphan blob, never a row without one */ }
+    throw e
+  }
   return id
+}
+
+/** Take back a version made by commitVersion when the new content could not be put in place after all: the old file
+ * is still where it was, so its row and blob go again (no version of a replace that did not happen). */
+export function undoVersion(db: Database, k: KeptCopy, id: string): void {
+  db.query('DELETE FROM file_versions WHERE id = ?').run(id)
+  try { fs.rmSync(path.join(k.root, ...k.blob), { force: true }) } catch { /* an orphan blob */ }
+}
+
+/** Drop a staged copy that did not become a version. A no-op once used. */
+export function dropVersion(k: KeptCopy): void {
+  if (k.done) return
+  k.done = true
+  try { fs.rmSync(k.tmp, { force: true }) } catch { /* a temp name */ }
+}
+
+/**
+ * Keep the current content of team file `abs` (team path `rel`, as hashed: `sha256`, the file then `st`) as a version
+ * and put the new content (`incoming()`: staged once, by the caller's cache, after the old content's copy) at `segs` in
+ * its place. The slow parts (the copies) run first, off the event loop; then, in one synchronous step, the file must still be the one that was hashed (sameFile with `st`): the version
+ * row, the rename of the new content, `check` right before (a grant, a storage check). A failure of the rename takes
+ * the version back. false: the file changed meanwhile (nothing changed, `incoming` still staged): the caller looks again.
+ */
+export async function replaceKeeping(db: Database, root: string, abs: string, rel: string, segs: string[], st: fs.Stats, sha256: string, incoming: () => Promise<Staged>, by: { userId: string; turnId: string | null }, kind: 'edit' | 'restore', check?: () => void): Promise<boolean> {
+  let k: KeptCopy
+  try { k = await stageVersion(root, abs) } catch (e) { if (e instanceof Denied && e.message === 'path changed while copying') return false; throw e }
+  try {
+    // the new content next to the file only now: an upload stays where it was while the old version is copied
+    const inc = await incoming()
+    // from here on, nothing awaits: what was checked is what is replaced
+    let now: fs.Stats
+    try { now = checkRegular(abs) } catch { return false }
+    if (!sameFile(st, k.st) || !sameFile(st, now)) return false
+    check?.()
+    const id = commitVersion(db, k, rel, by, kind, sha256)
+    try { commitStaged(inc, segs) } catch (e) { undoVersion(db, k, id); throw e }
+    return true
+  } finally { dropVersion(k) }
 }
 
 /** Move a file or folder into .system/trash (rename: instant, nothing read). Returns the storage path. */
