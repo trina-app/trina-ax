@@ -12,7 +12,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { isMigrating, type HealthAnswer } from './health'
-import { parseEnvFile } from './settings'
+import { parseEnvFile, watchdogKillValue } from './settings'
 
 export const WATCH_EVERY_MS = 30_000
 export const WATCH_TIMEOUT_MS = 3000
@@ -95,5 +95,5 @@ function clearLiveness(dataDir: string) {
 /** the watchdog may stop a hung server: on unless config/office.env says TEAMAX_WATCHDOG_KILL=0 (settings.ts reads
  * it the same way); no file or no line is the default, on */
 export function officeWatchdogKills(envText: string | null): boolean {
-  return !envText || parseEnvFile(envText).TEAMAX_WATCHDOG_KILL?.trim() !== '0'
+  return !envText || watchdogKillValue(parseEnvFile(envText).TEAMAX_WATCHDOG_KILL)
 }

@@ -254,7 +254,8 @@ export class FileList implements VirtualFiles {
       const root = this.ctx.files.fx.root
       const units = new Units(this.rules().boundaryFolders())
       // one commit for the whole move: a folder with tens of thousands of listed files was as many commits in a row,
-      // minutes in the move request on a slow disk
+      // minutes in the move request on a slow disk. A failure rolls back the whole event (logged below); the next run
+      // of reconcile() puts the rows right
       this.store.tx(() => { for (const m of e.moves ?? []) {
         for (const ent of this.store.under(m.from)) {
           const to = m.to + ent.path.slice(m.from.length)
@@ -525,7 +526,8 @@ export class FileList implements VirtualFiles {
       // a pause every 100 files: kept files never wait for anything, and a rule added at the top of a big tree turns
       // every row into a write, so without it the loop held the server (and its health answer) for minutes
       if (++n % 100 === 0) { o.renew?.(); if (o.deadline != null && this.now().getTime() >= o.deadline) break; await sleep(0) }
-      const e = old.get(rel)
+      // read again, not from `old`: during a pause a move or a quick pass may have changed the row
+      const e = this.store.get(rel) ?? undefined
       if (e && e.size === f.size && e.mtimeMs === f.mtimeMs) {
         // its unit changed (a rule added or taken away above it): read again in the unit it is in now
         if (e.fields && e.chain !== chainOf(rel)) { this.store.put({ ...e, fields: null, via: null, chain: null }); pending++ } else kept++

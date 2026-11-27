@@ -73,6 +73,9 @@ describe('the office watchdog', () => {
     expect(officeWatchdogKills('TEAMAX_LABEL=x\nTEAMAX_WATCHDOG_KILL=0 \n')).toBe(false)
     expect(officeWatchdogKills('# TEAMAX_WATCHDOG_KILL=0\nTEAMAX_LABEL=x\n')).toBe(true)
     expect(officeWatchdogKills('TEAMAX_LABEL=x\nTEAMAX_WATCHDOG_KILL=1\n')).toBe(true)
+    // an opt-out written by hand is never read as on
+    for (const v of ['"0"', "'0'", '0  # off', 'false', 'off']) expect(officeWatchdogKills(`TEAMAX_WATCHDOG_KILL=${v}\n`)).toBe(false)
+    expect(settingsFrom(dir(), { TEAMAX_WATCHDOG_KILL: '"0"' }).watchdogKill).toBe(false)
     const home = dir()
     const def = settingsFrom(home, {})
     expect(def.watchdogKill).toBe(true)

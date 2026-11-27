@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-27 04:52
 - Branch: `fix/watchdog-kill-default`
-- Status: in progress
+- Status: done
 - Where: server/src/office (the office supervisor's watchdog), server/src/system/backup.ts, server/src/file-list, docs.
   Why: the watchdog of #668 only logs a hang unless an operator turns the kill on; QA on qa.trina.app passed.
 - Version impact: minor, part of the unreleased 0.21.0 watchdog feature: the default of `TEAMAX_WATCHDOG_KILL`
@@ -53,3 +53,8 @@ again), as a crash does.
 `tests/unit/office-watchdog.test.ts`, the backup and file-list tests, `bun run typecheck`, `bun run check:prepush`.
 
 ## Result
+
+Office Mac kills by default; the bootstrap stays log-only (big `copyFileSync` copies on ext4, follow-up). Fixed on the
+way: the restore check in a child process, the file list's reconcile pauses (and re-reads each row after a pause)
+with an unsynced sidecar, a moved folder in one commit. Review: a missing office.env now reads as the default (on),
+and a hand-written `"0"`, `0 # off` or `false` is off. PR #682.

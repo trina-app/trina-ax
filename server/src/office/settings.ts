@@ -110,6 +110,14 @@ export function officePaths(home: string, env: Record<string, string | undefined
 
 const KEY = /^TEAMAX_[A-Z_]+$/
 
+/** a TEAMAX_WATCHDOG_KILL value: off for 0 or false, also quoted or with a comment after it (`"0"`, `0  # off`), so
+ * an operator's opt-out is never read as on; anything else, or none, is on */
+export function watchdogKillValue(v: string | undefined): boolean {
+  if (v === undefined) return true
+  const s = v.replace(/\s+#.*$/, '').trim().replace(/^(['"])(.*)\1$/, '$2').trim().toLowerCase()
+  return s !== '0' && s !== 'false' && s !== 'off'
+}
+
 /** KEY=VALUE lines (no quotes, no expansion); comments and blank lines skipped, other keys ignored. */
 export function parseEnvFile(text: string): Record<string, string> {
   const out: Record<string, string> = {}
@@ -152,7 +160,7 @@ export function settingsFrom(home: string, e: Record<string, string>): OfficeSet
     caConstraints: e.TEAMAX_CA_CONSTRAINTS !== '0',
     includeVpn: e.TEAMAX_INCLUDE_VPN === '1',
     documentsMode: e.TEAMAX_DOCUMENTS_MODE !== '0',
-    watchdogKill: e.TEAMAX_WATCHDOG_KILL?.trim() !== '0',
+    watchdogKill: watchdogKillValue(e.TEAMAX_WATCHDOG_KILL),
     allowFrom: parseAllowFrom(e.TEAMAX_ALLOW_FROM),
     publicHost: parsePublicHost(e.TEAMAX_PUBLIC_HOST),
     publicAllowFrom: (() => { const a = parseAllowFrom(e.TEAMAX_PUBLIC_ALLOW_FROM); return Array.isArray(a) ? a : [] })(),
