@@ -477,7 +477,7 @@ lines than the row fails the test; fewer passes.
 | `mobile/modules/dictation/ios/DictationEngine.swift` | 1 | `os.phone.speech` |
 | `mobile/src/photo-io.ts` | 1 | `os.phone.photos` |
 | `mobile/src/push.ts` | 2 | `os.phone.push` |
-| `mobile/src/strings.ts` | 12 | `os.phone.camera`, `os.phone.mic`, `os.phone.photos`, `os.phone.speech` |
+| `mobile/src/strings.ts` | 24 | `os.phone.camera`, `os.phone.mic`, `os.phone.photos`, `os.phone.speech` |
 | `server/src/chat/access-requests.ts` | 1 | `dialog.access.chat` |
 | `server/src/chat/always-allow.ts` | 1 | `definition` |
 | `server/src/chat/answer-share.ts` | 3 | `dialog.answer.room`, `helper` |

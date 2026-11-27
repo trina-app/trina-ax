@@ -20,6 +20,14 @@ export const PUSH_PERMISSION_CAPABILITY = 'push-permission-v1'
  * (env(safe-area-inset-*), and the --app-inset-* CSS variables the app sets before the page loads, for WebViews that
  * do not report the insets). */
 export const APPEARANCE_CAPABILITY = 'appearance-v1'
+/** Optional, versioned: `language` tells the app the page's language, so the app's own screens (offline, cannot reach,
+ * updating, team address) use it instead of the phone's (docs/decisions/20261127-phone-app-language.md). The app keeps
+ * it for the team. An app without it: the page sends nothing, and those screens follow the phone's language. */
+export const LANGUAGE_CAPABILITY = 'language-v1'
+/** The web app's languages (shared/src/api Locale), the only ones a `language` message may name. */
+export const PAGE_LOCALES = ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const
+export type PageLocale = typeof PAGE_LOCALES[number]
+export const pageLocale = (v: unknown): v is PageLocale => typeof v === 'string' && (PAGE_LOCALES as readonly string[]).includes(v)
 /** Optional, versioned: the app shows who and where in a room push. The iPhone's notification service extension (1.0.1
  * on) and Android's messaging service (Android builds from 1.0.11 on, plugins/push-label.js) ask the team for the title with a label key the
  * app made and keeps on the phone. The `push-token` reply then also has `labelHash` (sha256 hex of that key), which the
@@ -181,6 +189,8 @@ export type MobileMessage = FileMessage | (Envelope & (
   | { type: 'open-settings' }
   // appearance-v1: the page's look (dark or light) and whether it follows the phone's (its theme is "system")
   | { type: 'appearance'; dark: boolean; system?: boolean }
+  // language-v1: the page's language, for the app's own screens
+  | { type: 'language'; locale: PageLocale }
   // share-text-v1: the phone's share sheet with this text
   | { type: 'share-text'; text: string }
   // nav-v1: Back has somewhere to go in the page (canGoBack), and the page is on its start tab or in no tab (home)
@@ -258,6 +268,7 @@ export function parseMessage(raw: string): MobileMessage | null {
     case 'file-abort': case 'push-token': case 'push-permission': case 'open-settings': case 'change-team': break
     case 'session-reset': if (m.signedOut !== undefined && typeof m.signedOut !== 'boolean') return null; break
     case 'appearance': if (typeof m.dark !== 'boolean' || (m.system !== undefined && typeof m.system !== 'boolean')) return null; break
+    case 'language': if (!pageLocale(m.locale)) return null; break
     case 'share-text': if (typeof m.text !== 'string' || !m.text.trim() || m.text.length > MAX_SHARE_TEXT) return null; break
     case 'nav': if (typeof m.canGoBack !== 'boolean' || (m.home !== undefined && typeof m.home !== 'boolean')) return null; break
     case 'photo-pick': if (typeof m.limit !== 'number' || !Number.isSafeInteger(m.limit) || m.limit < 1 || m.limit > MAX_PICK_FILES) return null; break
