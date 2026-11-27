@@ -411,3 +411,15 @@ test('a team made in the desktop app gets a desktop session (the setup page says
     expect(await sessionKind(c)).toBe('desktop')
   } finally { await h2.close() }
 })
+
+test('a phone app\'s session that says "desktop" at the start stays the phone\'s: no app code, no page before Google', async () => {
+  await setUpGmail()
+  const phone = h.client()
+  await phone.call('POST', '/api/auth/login', { username: 'olga', password: OWNER_PW, client: 'mobile', tokenMode: 'bearer' })
+  const d = await phone.call('POST', drive + '/authorize', { client: 'desktop' })
+  expect(d.openPath).toBeUndefined()
+  const g = await phone.call('POST', gmail + '/authorize', { client: 'desktop' })
+  for (const url of [cb(drive, fake.authorize(d.authorizationUrl)), gmailReturn(google.authorize(g.authorizationUrl, 'olga'))]) {
+    expect(codeOf(await (await bare(url)).text())).toBeNull()
+  }
+})

@@ -12,6 +12,7 @@ import type { AppContextC } from '../http/env'
 import { GOOGLE_RETURN_CSP, googleReturnOf, googleReturnPage, type CallbackOutcome } from '../integrations/google-drive/callback-page'
 import { isAppId } from '../integrations/google-apps/catalog'
 import { CALLBACK_PATH } from '../integrations/google-apps/config'
+import { startedFrom } from './drive'
 import { googleAppsOf, GoogleAppError } from '../integrations/google-apps/service'
 import { GoogleOwnAppError, ownAppStatusFresh, removeOwnApp, setOwnApp } from '../integrations/google-drive/own-app'
 import { afterServiceSetup, askService, dismissServiceRequests, myServiceRequests, teamServiceRequests, withdrawService } from '../integrations/service-requests'
@@ -37,7 +38,7 @@ async function safe<T>(fn: () => T | Promise<T>): Promise<T> {
 export function registerGoogleAppsRoutes(kit: RouteKit, ctx: AppContext) {
   const svc = () => googleAppsOf(ctx)
   kit.handle(API.myGoogleApps, ({ auth }) => safe(() => svc().list(auth.user.id)))
-  kit.handle(API.authorizeGoogleApp, ({ auth, params, body }) => safe(() => svc().authorize(auth.user.id, auth.session.id, appOf(params.app), 'personal', body.client)))
+  kit.handle(API.authorizeGoogleApp, ({ auth, params, body }) => safe(() => svc().authorize(auth.user.id, auth.session.id, appOf(params.app), 'personal', startedFrom(auth.session.client, body.client) === 'desktop' ? 'desktop' : undefined)))
   kit.handle(API.googleAppFlow, ({ auth, params }) => safe(() => svc().flow(auth.user.id, auth.session.id, appOf(params.app), params.id)))
   kit.handle(API.completeGoogleAppFlow, ({ auth, params }) => safe(() => svc().complete(auth.user.id, auth.session.id, appOf(params.app), params.id)))
   kit.handle(API.cancelGoogleAppFlow, ({ auth, params }) => safe(() => svc().cancel(auth.user.id, auth.session.id, appOf(params.app), params.id)))
@@ -61,7 +62,7 @@ export function registerGoogleAppsRoutes(kit: RouteKit, ctx: AppContext) {
   // refused while people without a password sign in with it (auth/google-login-admin.ts guardOwnGoogleClient)
   kit.handle(API.removeGoogleOwnApp, ({ c, auth }) => safe(() => refuseClientInUse(c.get('locale'), () => removeOwnApp(ctx, auth.user.id))))
   // the account shared with the team: owners and admins only (the route checks the role; the service checks it again)
-  kit.handle(API.authorizeGoogleAppTeam, ({ auth, params, body }) => safe(() => svc().authorize(auth.user.id, auth.session.id, appOf(params.app), 'team', body.client)))
+  kit.handle(API.authorizeGoogleAppTeam, ({ auth, params, body }) => safe(() => svc().authorize(auth.user.id, auth.session.id, appOf(params.app), 'team', startedFrom(auth.session.client, body.client) === 'desktop' ? 'desktop' : undefined)))
   kit.handle(API.googleAppTeamFlow, ({ auth, params }) => safe(() => svc().flow(auth.user.id, auth.session.id, appOf(params.app), params.id, 'team')))
   kit.handle(API.cancelGoogleAppTeamFlow, ({ auth, params }) => safe(() => svc().cancel(auth.user.id, auth.session.id, appOf(params.app), params.id, 'team')))
   kit.handle(API.completeGoogleAppTeamFlow, ({ auth, params, body }) => safe(() => svc().completeTeam(auth.user.id, auth.session.id, appOf(params.app), params.id, { create: body.create })))

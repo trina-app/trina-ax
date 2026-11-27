@@ -34,8 +34,8 @@ async function safe<T>(fn: () => T | Promise<T>, locale?: Locale): Promise<T> {
 }
 /** Who starts a Google sign-in: the desktop app when its page says so (a session it signed in can be recorded as 'web'),
  * else the session's kind. Saying 'desktop' only decides how a return without a session ends (held for the app's
- * one-time code, which only this session redeems), never who may finish it. */
-export const startedFrom = (session: ClientKind, said?: 'desktop'): ClientKind => (said === 'desktop' ? 'desktop' : session)
+ * one-time code, which only this session redeems), never who may finish it. A phone app's session stays the phone's. */
+export const startedFrom = (session: ClientKind, said?: 'desktop'): ClientKind => (said === 'desktop' && session !== 'mobile' ? 'desktop' : session)
 
 export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.myDriveConnection, ({ auth }) => safe(() => googleDriveOf(ctx).status(auth.user.id)))
