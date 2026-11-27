@@ -197,8 +197,8 @@ export class RestartService {
   /** the waiting restart goes now (the owner): audited, as it ends the running answers someone else's request waited for */
   skip(by: string): boolean {
     if (!this.waiting || this.waiting.going || this.waiting.skip) return false
-    this.waiting.skip = true
     audit(this.ctx.db, { actor: by, action: 'system.restart_now', detail: { what: this.waiting.what } })
+    this.waiting.skip = true
     return true
   }
 
