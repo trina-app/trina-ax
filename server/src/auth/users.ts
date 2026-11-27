@@ -44,20 +44,25 @@ export function getUser(db: Database, id: string): UserRow | null {
 export function getUserByUsername(db: Database, username: string): UserRow | null {
   return db.query(`SELECT ${USER_COLS} FROM users WHERE lower(username) = lower(?) AND deleted_at IS NULL`).get(username) as UserRow | null
 }
-/** how many accounts one sign-in name may stand for (accounts.ts login checks the password against each) */
-export const SIGN_IN_CANDIDATES_MAX = 3
-/** Who a sign-in may name: the live user with that username (case-insensitive) and, for a name with an @, the active
- * users whose e-mail is exactly that address (case-insensitive; switched-off accounts are not counted), at most
- * SIGN_IN_CANDIDATES_MAX, the username's first. A username never stands in for another person's e-mail: when both
- * match, the password decides which account it is (accounts.ts login). */
-export function signInCandidates(db: Database, name: string): UserRow[] {
-  const byName = getUserByUsername(db, name)
-  const out: UserRow[] = byName ? [byName] : []
-  if (!name.includes('@')) return out
-  const rows = db.query(`SELECT ${USER_COLS} FROM users WHERE email IS NOT NULL AND lower(email) = lower(?) AND deleted_at IS NULL AND status = 'active' ORDER BY created_at, id LIMIT ?`)
-    .all(name.trim(), SIGN_IN_CANDIDATES_MAX + 1) as UserRow[]
-  for (const r of rows) if (out.length < SIGN_IN_CANDIDATES_MAX && !out.some((x) => x.id === r.id)) out.push(r)
-  return out
+/** Who a sign-in names: the live user with that username (case-insensitive, trimmed), else, for a name with an @,
+ * the one active account whose e-mail is exactly that address (case-insensitive). An address no active account or
+ * several use names nobody (a wrong-password answer, like an unknown username): those people sign in with their
+ * username. */
+export function signInUser(db: Database, name: string): UserRow | null {
+  const n = name.trim()
+  const byName = getUserByUsername(db, n)
+  if (byName || !n.includes('@')) return byName
+  const rows = db.query(`SELECT ${USER_COLS} FROM users WHERE email IS NOT NULL AND lower(email) = lower(?) AND deleted_at IS NULL AND status = 'active' LIMIT 2`).all(n) as UserRow[]
+  return rows.length === 1 ? rows[0]! : null
+}
+/** An e-mail another active account here has (case-insensitive, trimmed), or another account's username: one e-mail
+ * signs in one account only, so a new or changed e-mail may not be one of those (accounts that share one from before
+ * keep it and sign in with their username). */
+export function emailTakenByOther(db: Database, email: string, exceptId: string | null): boolean {
+  const e = email.normalize('NFC').trim().toLowerCase()
+  if (!e) return false
+  const rows = db.query("SELECT id, email, username FROM users WHERE deleted_at IS NULL AND (status = 'active' OR lower(username) = ?) AND (email IS NOT NULL OR lower(username) = ?)").all(e, e) as { id: string; email: string | null; username: string }[]
+  return rows.some((r) => r.id !== exceptId && ((r.email ?? '').normalize('NFC').trim().toLowerCase() === e || r.username.toLowerCase() === e))
 }
 /** A username is taken when an account has it, or has it as its e-mail (case-insensitive): a username that is someone
  * else's e-mail would take over that person's sign-in by e-mail. */

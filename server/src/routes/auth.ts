@@ -26,6 +26,7 @@ import { startSweeper } from '../auth/sweeper'
 import { registerAccountsCleanup } from '../auth/account-removal'
 import { getUser, setUserLocale } from '../auth/users'
 import { emailUsedByOther, isGuest } from '../auth/guests'
+import { emailTakenByOther } from '../auth/users'
 import { msg } from '../auth/messages'
 import type { RouteModule } from './module'
 import { reachedAt } from '../system/connection'
@@ -149,6 +150,8 @@ export const authRoutes: RouteModule = {
           if (!guestEmailTry(auth.user.id, Date.now())) fail('rate_limited', undefined, { params: { reason: 'email_tries' } })
           if (emailUsedByOther(ctx.db, auth.user.id, body.email)) fail('conflict', msg('emailInUse', c.get('locale')), { params: { reason: 'email_in_use' }, fields: { 'body.email': 'email_in_use' } })
         }
+        // one e-mail signs in one account (users.ts signInUser): nobody takes an address another account has
+        if (body.email !== null && body.email !== u!.email && emailTakenByOther(ctx.db, body.email, auth.user.id)) fail('conflict', msg('emailTakenByOther', c.get('locale')), { params: { reason: 'email_in_use' }, fields: { 'body.email': 'email_in_use' } })
         sets.push('email = ?'); args.push(body.email)
       }
       if (body.prefs !== undefined) {

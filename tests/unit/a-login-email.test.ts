@@ -1,113 +1,117 @@
 // Component A: sign in with the e-mail address as well as the username (server/src/auth/accounts.ts login,
-// users.ts signInCandidates). Live QA of 0.20.0: an owner made from the desktop app (username from the e-mail) could
-// sign in on the web only with a username they never chose. Covers: the e-mail, exact and any case; an address several
-// accounts use: the password decides (one match signs that one in, none is the usual wrong password, and "use your
-// username" only when the password matches two), with the same number of password checks whatever the count, so
-// neither the words nor the time say how many accounts use it; a username written like an address never shadows the
-// e-mail's owner, and no new username may be someone's e-mail; switched-off and deleted accounts are never counted;
-// wrong passwords by e-mail lock the account's username too.
-import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test'
+// users.ts signInUser, emailTakenByOther). Live QA of 0.20.0: an owner made from the desktop app (username from the
+// e-mail) could sign in on the web only with a username they never chose. Covers: the e-mail of exactly one active
+// account signs it in (any case, trimmed); an address no account or several accounts use answers exactly like an
+// unknown name; once an e-mail names an account, everything is that account's own (the per-account lock answers 429
+// on its username too, and wrong tries void its temporary password); a username written like another account's e-mail
+// is that account's username, and no new username may be an e-mail; no new or changed e-mail may be one another account
+// has (Settings › Profile, Admin › Members, a new member), with the plain words.
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { TEMP_PASSWORD_MAX_FAILURES } from '@mycel/shared'
 import { bootstrapOwner } from '../../server/src/auth/accounts'
-import * as passwords from '../../server/src/auth/passwords'
-import { signInCandidates, SIGN_IN_CANDIDATES_MAX, usernameTaken } from '../../server/src/auth/users'
-import { harness, type Harness } from './a-lib'
+import { DEFAULT_LIMITS } from '../../server/src/auth/rate-limit'
+import { emailTakenByOther, signInUser, usernameTaken } from '../../server/src/auth/users'
+import { harness, type Client, type Harness } from './a-lib'
 
 const PW = 'owner horse battery 42'
-const OTHER_PW = 'another long secret 77'
 
 describe('sign in with the e-mail', () => {
   let h: Harness
+  let owner: Client
   beforeAll(async () => {
     h = await harness('login-email')
     await bootstrapOwner(h.ctx, { email: 'Alex.Kim+create1@example.com', name: 'Alex', teamName: 'Acme', locale: 'en', credential: { password: PW } })
+    owner = h.client()
+    await owner.login('alex.kim', PW)
   })
   afterAll(() => h.close())
 
   const login = (username: string, password = PW, ip?: string) => h.client(ip ? { ip } : {}).try('POST', '/api/auth/login', { username, password })
-  /** a second account: its password hash copied from the owner (PW) or a fresh one */
+  /** an account written straight to the database (also the shared e-mails that exist from before this rule) */
   const addUser = async (id: string, username: string, email: string | null, password = PW, status = 'active') => {
     const hash = await Bun.password.hash(password, { algorithm: 'argon2id', memoryCost: 4096, timeCost: 1 })
     h.ctx.db.query('INSERT INTO users (id, username, name, email, role, status, password_hash) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, username, username, email, 'member', status, hash)
   }
 
-  test('the username, and the e-mail in any case, sign the same person in', async () => {
-    const id = (h.ctx.db.query('SELECT id, username FROM users').get() as { id: string; username: string })
-    expect(id.username).toBe('alex.kim')
-    for (const name of ['alex.kim', 'ALEX.KIM', 'Alex.Kim+create1@example.com', 'alex.kim+create1@EXAMPLE.com']) {
+  test('the e-mail of one account, in any case and with spaces around, signs that account in', async () => {
+    const me = h.ctx.db.query('SELECT id, username FROM users').get() as { id: string; username: string }
+    expect(me.username).toBe('alex.kim')
+    for (const name of ['alex.kim', 'ALEX.KIM', ' alex.kim ', 'Alex.Kim+create1@example.com', ' alex.kim+create1@EXAMPLE.com ']) {
       const r = await login(name)
       expect([name, r.status]).toEqual([name, 200])
-      expect(r.body.me.user.id).toBe(id.id)
+      expect(r.body.me.user.id).toBe(me.id)
     }
     expect((await login('alex.kim@example.com')).status).toBe(401)
-    expect((await login('create1@example.com')).status).toBe(401)
   })
 
-  test('an address two accounts use: the password decides; a wrong one is the usual answer; always the same number of checks', async () => {
+  test('an address several accounts use (from before) answers exactly like an unknown name; their usernames work', async () => {
     await addUser('u_a', 'ann', 'team@example.com', PW)
-    await addUser('u_b', 'bob', 'team@example.com', OTHER_PW)
-    const spy = spyOn(passwords, 'verifyPassword')
-    try {
-      // bob's password: bob is signed in
-      const r = await login('team@example.com', OTHER_PW)
-      expect(r.status).toBe(200)
-      expect(r.body.me.user.username).toBe('bob')
-      expect(spy).toHaveBeenCalledTimes(SIGN_IN_CANDIDATES_MAX)
-      spy.mockClear()
-      // a wrong password: the plain wrong-password answer, nothing about two accounts
-      const wrong = await login('team@example.com', 'not the password 1')
-      expect(wrong.status).toBe(401)
-      expect(wrong.body.error.params?.reason).toBeUndefined()
-      expect(wrong.body.error.message).not.toContain('More than one')
-      expect(spy).toHaveBeenCalledTimes(SIGN_IN_CANDIDATES_MAX)
-      spy.mockClear()
-      // an address of one account, and an unknown address: as many checks
-      await login('alex.kim+create1@example.com', 'not the password 1')
-      expect(spy).toHaveBeenCalledTimes(SIGN_IN_CANDIDATES_MAX)
-      spy.mockClear()
-      await login('nobody@example.com', 'not the password 1')
-      expect(spy).toHaveBeenCalledTimes(SIGN_IN_CANDIDATES_MAX)
-    } finally {
-      spy.mockRestore()
-    }
+    await addUser('u_b', 'bob', 'team@example.com', PW)
+    expect(signInUser(h.ctx.db, 'team@example.com')).toBeNull()
+    const shared = await login('team@example.com', PW)
+    const unknown = await login('nobody@example.com', PW)
+    expect(shared.status).toBe(401)
+    expect(shared.body.error.message).toBe(unknown.body.error.message)
+    expect(shared.body.error.params).toEqual(unknown.body.error.params)
+    expect((await login('ann', PW)).status).toBe(200)
+    // a switched-off account does not count: the address is then one active account's
+    await addUser('u_c', 'cat', 'solo@example.com', PW)
+    await addUser('u_d', 'dan', 'solo@example.com', PW, 'disabled')
+    expect((await login('solo@example.com', PW)).body.me.user.username).toBe('cat')
   })
 
-  test('only a password that opens two of them says to use the username', async () => {
-    await addUser('u_c', 'cat', 'pair@example.com', PW)
-    await addUser('u_d', 'dan', 'pair@example.com', PW)
-    const r = await login('pair@example.com', PW)
-    expect(r.status).toBe(401)
-    expect(r.body.error.params?.reason).toBe('email_shared')
-    expect(r.body.error.message).toContain('username')
-    expect((await login('dan', PW)).status).toBe(200)
-  })
-
-  test('a username written like someone else\'s e-mail never takes that sign-in; no new username may be an e-mail', async () => {
-    await addUser('u_e', 'eve@example.com', null, OTHER_PW)
-    await addUser('u_f', 'fay', 'eve@example.com', PW)
-    // fay's password signs fay in, eve's signs eve in
-    expect((await login('eve@example.com', PW)).body.me.user.username).toBe('fay')
-    expect((await login('eve@example.com', OTHER_PW)).body.me.user.username).toBe('eve@example.com')
-    expect(signInCandidates(h.ctx.db, 'EVE@example.com').map((u) => u.id)).toEqual(['u_e', 'u_f'])
-    // nobody can now pick an e-mail an account has as a username
-    expect(usernameTaken(h.ctx.db, 'Team@Example.com')).toBe(true)
-    expect(usernameTaken(h.ctx.db, 'free@example.com')).toBe(false)
-  })
-
-  test('switched-off and deleted accounts are never counted for an e-mail', async () => {
-    await addUser('u_g', 'gus', 'solo@example.com', PW)
-    await addUser('u_h', 'hal', 'solo@example.com', PW, 'disabled')
-    expect(signInCandidates(h.ctx.db, 'solo@example.com').map((u) => u.id)).toEqual(['u_g'])
-    expect((await login('solo@example.com', PW)).body.me.user.username).toBe('gus')
-    h.ctx.db.query("UPDATE users SET deleted_at = '2026-11-01T00:00:00Z' WHERE id = 'u_g'").run()
-    expect(signInCandidates(h.ctx.db, 'solo@example.com')).toEqual([])
-  })
-
-  test('wrong passwords by e-mail lock the account: the username is refused with 429 too', async () => {
+  test('wrong tries by e-mail count against the account: its username is locked too (429)', async () => {
     await addUser('u_i', 'ivy', 'ivy@example.com', PW)
     let last = 0
-    for (let i = 0; i < 12; i++) last = (await login('ivy@example.com', 'wrong password 1', `10.3.3.${i + 1}`)).status
+    for (let i = 0; i < DEFAULT_LIMITS.perAccount + 2; i++) last = (await login('ivy@example.com', 'wrong password 1', `10.3.3.${i + 1}`)).status
     expect(last).toBe(429)
-    const r = await login('ivy', PW, '10.4.4.4')
-    expect(r.status).toBe(429)
+    expect((await login('ivy', PW, '10.4.4.4')).status).toBe(429)
+    expect((await login(' IVY ', PW, '10.4.4.5')).status).toBe(429)
+    h.advance(16 * 60_000)
+  })
+
+  test(`${TEMP_PASSWORD_MAX_FAILURES} wrong tries by e-mail void the account's temporary password`, async () => {
+    const made = await owner.call('POST', '/api/admin/users', { username: 'yuri', name: 'Yuri', role: 'member', email: 'yuri@example.com', temporaryPassword: 'walnut234' })
+    expect(made.user.username).toBe('yuri')
+    for (let i = 0; i < TEMP_PASSWORD_MAX_FAILURES; i++) {
+      if (i > 0 && i % (DEFAULT_LIMITS.perAccount - 1) === 0) h.advance(16 * 60_000)
+      expect((await login('yuri@example.com', `walnut${300 + i}`, `10.9.0.${i + 1}`)).status).toBe(401)
+    }
+    h.advance(16 * 60_000)
+    expect((await login('yuri', 'walnut234', '10.9.9.9')).status).toBe(401)
+    expect(h.ctx.db.query("SELECT action FROM audit_log WHERE action = 'auth.temp_password_voided'").all().length).toBe(1)
+  })
+
+  test('a username written like another account\'s e-mail is that account\'s username; no new username may be an e-mail', async () => {
+    await addUser('u_e', 'eve@example.com', null, PW)
+    await addUser('u_f', 'fay', 'eve@example.com', PW)
+    expect(signInUser(h.ctx.db, 'eve@example.com')?.id).toBe('u_e')
+    expect(usernameTaken(h.ctx.db, 'Fay')).toBe(true)
+    expect(usernameTaken(h.ctx.db, 'IVY@example.com')).toBe(true)
+    expect(usernameTaken(h.ctx.db, 'free@example.com')).toBe(false)
+    const r = await owner.try('POST', '/api/admin/users', { username: 'ivy@example.com', name: 'X', role: 'member' })
+    expect(r.status).toBe(409)
+  })
+
+  test('no new or changed e-mail may be one another account has, with the plain words', async () => {
+    expect(emailTakenByOther(h.ctx.db, ' IVY@example.com ', null)).toBe(true)
+    expect(emailTakenByOther(h.ctx.db, 'ivy@example.com', 'u_i')).toBe(false)
+    // Settings › Profile
+    const mine = await owner.try('PATCH', '/api/me', { email: 'ivy@example.com' })
+    expect(mine.status).toBe(409)
+    expect(mine.body.error.message).toBe('Another account already uses this email.')
+    // keeping its own e-mail is fine; a free one too
+    expect((await owner.try('PATCH', '/api/me', { email: 'Alex.Kim+create1@example.com' })).status).toBe(200)
+    // a new member
+    const made = await owner.try('POST', '/api/admin/users', { username: 'zed', name: 'Zed', role: 'member', email: 'IVY@example.com' })
+    expect(made.status).toBe(409)
+    expect(made.body.error.message).toBe('Another account already uses this email.')
+    // Admin › Members edit
+    const yuri = (await owner.call('GET', '/api/admin/users')).items.find((u: { username: string }) => u.username === 'yuri')
+    const edit = await owner.try('PATCH', `/api/admin/users/${yuri.id}`, { email: 'ivy@example.com' })
+    expect(edit.status).toBe(409)
+    expect((await owner.try('PATCH', `/api/admin/users/${yuri.id}`, { email: 'yuri2@example.com' })).status).toBe(200)
+    // an e-mail equal to another account's username
+    expect((await owner.try('PATCH', '/api/me', { email: 'eve@example.com' })).status).toBe(409)
   })
 })

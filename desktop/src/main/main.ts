@@ -231,6 +231,59 @@ async function refuseUnsandboxed() {
 }
 
 let win: AppWindow | undefined
+
+// "Create a team for free": whether the console offers it (GET /api/app/v1/me without a token). An unknown answer
+// (offline at start, a slow network, a portal's redirect) is asked again by itself until the console answers, and the
+// first screen changes when it does: before, one failed ask at start left the old "Join your team" screen until the
+// app restarted (live QA of 0.20.0). Nothing waits on it. Set up once for the app (not per window): the retry waits,
+// a watch of net.online (Electron's main process has no "online" event: read once a second for a minute, then every
+// 5 s) and the computer waking, all while the answer is unknown, and all stopped once it is known or the app quits.
+const OFFER_RETRY_MS = process.env.MYCEL_DESKTOP_TEST_OFFER_RETRY_MS && !app.isPackaged && Number(process.env.MYCEL_DESKTOP_TEST_OFFER_RETRY_MS) > 0
+  ? [Number(process.env.MYCEL_DESKTOP_TEST_OFFER_RETRY_MS)] : [2000, 5000, 15_000, 30_000, 60_000]
+interface OfferWatch { signin: ConsoleSignIn; tries: number; retry?: NodeJS.Timeout; poll?: NodeJS.Timeout; stopped: boolean }
+let offerWatch: OfferWatch | null = null
+function offerKnown(): boolean {
+  const k = offerWatch?.signin.knownOffer()
+  return k !== null && k !== undefined && k !== 'unknown'
+}
+function stopOfferWatch() {
+  if (!offerWatch) return
+  offerWatch.stopped = true
+  clearTimeout(offerWatch.retry)
+  clearTimeout(offerWatch.poll)
+}
+function askOffer(fresh: boolean) {
+  const w = offerWatch
+  if (!w || w.stopped) return
+  const before = w.signin.knownOffer()
+  void w.signin.probe(fresh).then((v) => {
+    if (v !== before) win?.createChanged(false)
+    clearTimeout(w.retry)
+    if (w.stopped) return
+    if (v !== 'unknown') return stopOfferWatch()
+    w.retry = setTimeout(() => askOffer(true), OFFER_RETRY_MS[Math.min(w.tries++, OFFER_RETRY_MS.length - 1)])
+    w.retry.unref?.()
+  })
+}
+function startOfferWatch(signin: ConsoleSignIn) {
+  if (offerWatch) return
+  const w: OfferWatch = { signin, tries: 0, stopped: false }
+  offerWatch = w
+  const started = Date.now()
+  let wasOnline = net.online
+  const tick = () => {
+    if (w.stopped || offerKnown()) return
+    const online = net.online
+    if (online && !wasOnline) { w.tries = 0; askOffer(true) }
+    wasOnline = online
+    w.poll = setTimeout(tick, Date.now() - started < 60_000 ? 1000 : 5000)
+    w.poll.unref?.()
+  }
+  tick()
+  powerMonitor.on('resume', () => { if (!w.stopped && !offerKnown()) { w.tries = 0; askOffer(true) } })
+  app.once('before-quit', stopOfferWatch)
+  askOffer(false)
+}
 /** "Create a team for free" (main/create-team.ts): made when the app is ready (its user data folder) */
 let consoleSignIn: ConsoleSignIn | undefined
 let createTeam: CreateTeam | undefined
@@ -683,45 +736,8 @@ async function createWindow() {
   })
   const create = createTeam
   // whether the console offers "Create a team for free" (asked once without a token; asked again later while unknown)
-  // An unknown answer (offline at start, a slow network, a portal's redirect) is asked again by itself until the
-  // console answers, and the first screen changes when it does: before, one failed ask at start left the old
-  // "Join your team" screen until the app restarted (live QA of 0.20.0). Nothing waits on it.
-  const retryMs = dev && Number(process.env.MYCEL_DESKTOP_TEST_OFFER_RETRY_MS) > 0 ? [Number(process.env.MYCEL_DESKTOP_TEST_OFFER_RETRY_MS)] : [2000, 5000, 15_000, 30_000, 60_000]
-  let offerTries = 0
-  let offerTimer: NodeJS.Timeout | undefined
-  let offerAsked = false
-  // quitting: no more asks (a request started while the app writes its cookies held the quit back)
-  let offerStopped = false
-  app.once('before-quit', () => { offerStopped = true; clearTimeout(offerTimer) })
-  const askOffer = (fresh: boolean) => {
-    if (offerStopped) return
-    const before = signin.knownOffer()
-    void signin.probe(fresh).then((v) => {
-      if (v !== before) win?.createChanged(false)
-      clearTimeout(offerTimer)
-      if (v !== 'unknown' || offerStopped) return
-      offerTimer = setTimeout(() => askOffer(true), retryMs[Math.min(offerTries++, retryMs.length - 1)])
-      offerTimer.unref?.()
-    })
-  }
-  // the network came back (Wi-Fi joined, the computer woke) while the answer is still unknown: ask at once, not at the
-  // next wait (up to a minute). Electron's main process has no "online" event: net.online is read once a second, only
-  // while the answer is unknown, and a wake asks too
-  let wasOnline = net.online
-  const onlineWatch = setInterval(() => {
-    const online = net.online
-    if (online && !wasOnline && signin.knownOffer() === 'unknown' && !offerStopped) { offerTries = 0; askOffer(true) }
-    wasOnline = online
-    if (signin.knownOffer() !== null && signin.knownOffer() !== 'unknown') clearInterval(onlineWatch)
-  }, 1000)
-  onlineWatch.unref?.()
-  powerMonitor.on('resume', () => { if (signin.knownOffer() === 'unknown' && !offerStopped) { offerTries = 0; askOffer(true) } })
-  app.once('before-quit', () => clearInterval(onlineWatch))
   const offer = () => {
-    if (!offerAsked) {
-      offerAsked = true
-      askOffer(false)
-    }
+    startOfferWatch(signin)
     return signin.knownOffer() ?? 'checking'
   }
   // the app restarted by itself to install an update: the page and window come back as they were (once)

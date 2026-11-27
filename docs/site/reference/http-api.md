@@ -263,7 +263,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 |---|---|---|---|
 | `GET` | `/api/admin/users` | Admin | All members, and with ?noAi=1 who cannot use AI now ("No AI"). |
 | `POST` | `/api/admin/users` | Admin | Add a member with a temporary password (alternative to an invite). |
-| `PATCH` | `/api/admin/users/:id` | Admin | Role, groups, disable (ends their sessions). Only the owner changes admins. A guest's e-mail cannot be one another account here gives (409 conflict, reason email_in_use). |
+| `PATCH` | `/api/admin/users/:id` | Admin | Role, groups, disable (ends their sessions). Only the owner changes admins. An e-mail another account here already has is refused (409 conflict, reason email_in_use): one e-mail signs in one account. |
 | `DELETE` | `/api/admin/users/:id` | Admin | The owner removes anyone but themselves; an admin removes a member only (never the owner, an admin or themselves), with their password again in the body. Sessions end now, chats and memories are purged after the chat retention period; the personal folder goes to the owner or is deleted. |
 | `POST` | `/api/admin/users/:id/reset-password` | Admin | New temporary password (given, or a memorable one is made); the person must change it at next sign-in; valid 7 days; audited. |
 | `POST` | `/api/admin/users/:id/reset-link` | Admin | One-time password reset link (24 h) to hand over; ends their sessions when used; audited. |

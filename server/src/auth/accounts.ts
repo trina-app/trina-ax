@@ -17,7 +17,7 @@ import type { AppContext } from '../context'
 import { newId } from '../db'
 import { answerTokensCached, insertGuestBudget } from '../admin/budgets'
 import type { AppEnv } from '../http/env'
-import { fail, HttpError } from '../http/errors'
+import { fail } from '../http/errors'
 import { originAllowed } from '../http/middleware'
 import { audit } from '../admin/audit'
 import { afterAccessChange, captureState, createDefaultFolders, ensureFolderRow, rulesOf, writeFolderAccess } from '../admin/folders'
@@ -37,7 +37,7 @@ import { isHosted } from '../system/deployment'
 import { HOSTED_BROKER_ORIGIN } from '../integrations/google-drive/broker'
 import { isManaged } from '../app-config'
 import { resolveLayout } from '../system/layout'
-import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, insertUser, signInCandidates, SIGN_IN_CANDIDATES_MAX, usernameFromEmail, usernameTaken, userRef, type NewUser, type UserRow } from './users'
+import { deriveUserId, ensurePersonalFolder, existingGroups, emailTakenByOther, getUser, insertUser, signInUser, usernameFromEmail, usernameTaken, userRef, type NewUser, type UserRow } from './users'
 import { notifyResetLink, notifySignInChange, notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
 import { recordJoin } from '../onboarding/member-welcome'
@@ -246,11 +246,11 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
   const ip = info.ip
   // which counter of the account this attempt uses (rate-limit.ts AccountScope): failures from the internet must not
   // lock the person out at the Mac, on the office network, or on a network they signed in from before
-  // the username, or the account's e-mail (users.ts signInCandidates): the counters below are the account's when the
-  // name stands for one account, else the name's own
-  const candidates = signInCandidates(ctx.db, b.username)
-  const known = candidates.length === 1 ? candidates[0]! : null
-  const loginName = known?.username ?? b.username
+  // the username, or the e-mail of exactly one active account (users.ts signInUser): from here on it is that account,
+  // with its own counters, exactly as by username; an address no account or several accounts use is an unknown name.
+  // The name is trimmed before it keys a counter, so " kim" and "kim" are one counter
+  const known = signInUser(ctx.db, b.username)
+  const loginName = known?.username ?? b.username.trim()
   const net = ip ? limitIp(ip) : null
   const scope: AccountScope = net && ((!info.tunnel && isLoopback(ip)) || (known && a.limiter.knownNet(known.id, net)))
     ? { kind: 'net', net }
@@ -274,34 +274,9 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
     }
     fail('rate_limited', msg('tooManyAttempts', locale), { retryAfter: hold.wait })
   }
-  // The password decides which account a name with an @ is (a username, and the e-mail of one or more accounts): it is
-  // checked against each, always SIGN_IN_CANDIDATES_MAX times (made-up hashes for the rest), so how fast the answer
-  // comes says nothing about how many accounts the address has. One match signs that one in; none is the usual wrong
-  // password; only a person whose password matches two of them is told to use the username.
-  const now = signInCandidates(ctx.db, b.username)
-  let u: UserRow | null
+  const u = signInUser(ctx.db, b.username)
   let ok = false
-  try {
-    if (!b.username.includes('@')) {
-      u = now[0] ?? null
-      ok = await verifyPassword(b.password, u?.password_hash)
-    } else {
-      const matches: UserRow[] = []
-      for (let i = 0; i < SIGN_IN_CANDIDATES_MAX; i++) {
-        const cand = now[i]
-        if ((await verifyPassword(b.password, cand?.password_hash)) && cand) matches.push(cand)
-      }
-      if (matches.length > 1) {
-        audit(ctx.db, { actor: null, action: 'auth.login_failed', target: null, detail: { ip, via: viaOf(c.get('info')), emailShared: true } })
-        fail('unauthorized', msg('loginEmailShared', locale), { params: { reason: 'email_shared' } })
-      }
-      u = matches[0] ?? (now.length === 1 ? now[0]! : null)
-      ok = matches.length === 1
-    }
-  } catch (e) {
-    if (!(e instanceof HttpError)) hold.release()
-    throw e
-  }
+  try { ok = await verifyPassword(b.password, u?.password_hash) } catch (e) { hold.release(); throw e }
   // a wrong password, or no such account: the same 401 and words (nothing says which usernames exist), counted
   if (!u || !ok || u.status !== 'active') {
     if (u && !ok && u.status === 'active') countTempFailure(ctx, u, a.now(), ip)
@@ -578,7 +553,10 @@ export type JoinEnd<Ok, Why extends string> = ({ ok: true; id: string; groups: s
 
 /** Inside the write that makes an account: its row and, made with Google, its connected Google account (no password). */
 export function insertAccount(db: Database, u: Omit<NewUser, 'passwordHash'>, cred: NewCredential, now: string): void {
-  insertUser(db, { ...u, passwordHash: 'passwordHash' in cred ? cred.passwordHash : null })
+  // one e-mail signs in one account (users.ts signInUser): an address Google gave that another account here has is not
+  // kept (the person adds one in Settings; nothing a person typed is dropped, those paths refuse it)
+  const email = u.email && emailTakenByOther(db, u.email, null) ? null : u.email
+  insertUser(db, { ...u, email, passwordHash: 'passwordHash' in cred ? cred.passwordHash : null })
   if ('google' in cred) addLoginIdentity(db, u.id, cred.google, now)
 }
 
