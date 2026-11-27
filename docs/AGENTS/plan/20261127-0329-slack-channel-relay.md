@@ -64,7 +64,10 @@ Each line is marked **verified**, with its source, or **unknown**.
   `app_rate_limited`. `chat.postMessage` allows 1 message a second per channel, with short bursts
   (https://docs.slack.dev/apis/web-api/rate-limits). Without the Marketplace, `conversations.history` and
   `conversations.replies` are limited to 1 call a minute and 15 messages. That limits catch-up, not events
-  (https://docs.slack.dev/changelog/2025/05/29/rate-limit-changes-for-non-marketplace-apps).
+  (https://docs.slack.dev/changelog/2025/05/29/rate-limit-changes-for-non-marketplace-apps). **Unresolved:** the old
+  changelog (https://api.slack.com/changelog/automation, May 2025 entry) says existing installs of unlisted apps get the
+  same limit on 2026-03-03, while today's docs.slack.dev page says existing installs are not affected. Plan for the
+  limit on every official install.
 - **Verified:** not every `message` subtype is delivered by the Events API, and an edit does not carry the original
   text (https://docs.slack.dev/reference/events/message). **Verified:** `message_changed` is an Events API subtype under
   the `channels:history` / `groups:history` scopes, with the new `message` and its `edited` field, no previous text
@@ -141,16 +144,21 @@ release: the custom name there, two Trina teams in one channel, and edit/delete 
 - **Verified, commercial distribution:** the API Terms say an app may not be commercially distributed unless Slack
   authorizes it (a Marketplace listing or a partner agreement). That already applies to the official app today and is
   not new with the relay, but the relay raises the stakes of the listing.
-- **Verified, API Terms, "Restrictions"** (same page; this is the binding text, not only a Marketplace guideline):
-  an app may not "undermine[] the Services' access controls, such as by exposing private channel data to a user
-  without access", nor "access our APIs in order to replicate or compete with the Services". The first decides who may
-  see a relayed private or Slack Connect channel (decision 3). The second is the real risk of the whole feature: a
-  two-way relay into Trina's own team chat can be read as replicating Slack. It goes to the owner with decision 1.
+  The same section says it applies "regardless of whether you publish an off-the-shelf Application or you provide
+  customers with a custom Application or Application template that connects to other products", and not only "if your
+  Application ... [was] created for use only by a single third party". Our manifest is such a template for a paid
+  product, so the own-app path most likely does not escape the distribution terms (our reading, not legal advice). It
+  does escape the rate limits: Slack exempts "internal customer-built applications" from the 1-a-minute, 15-message
+  limit (https://docs.slack.dev/changelog/2025/05/29/rate-limit-changes-for-non-marketplace-apps).
+- **Verified, API Terms, "Restrictions"** (same page; the binding text, not only a Marketplace guideline): an app may
+  not "undermine[] the Services' access controls, such as by exposing private channel data to a user without access",
+  nor "access our APIs in order to replicate or compete with the Services". Both bear on this feature; the owner
+  accepted them (decision 1).
 
-**Verdict 3.** Slack does not forbid it outright, as long as the installing team authorizes it, we keep only the linked
-channel, we do not train on it, nobody in Trina reads a private channel they cannot read in Slack, and the privacy
-policy says how long it is kept. The "replicate or compete" line stays a judgment call for the owner. Two changes
-follow. First, the people-who-can-see rule below (decision 3). Second, one new bullet in the privacy policy (trina-ax-website `src/legal/privacy.en.md`,
+**Verdict 3.** The installing team authorizes it (the admin's Connect, after one sentence naming who will see), we
+keep only the linked channel, we do not train on it, and the privacy policy says how long it is kept. The API Terms
+risk is recorded once, as accepted by the owner, under decision 1. Two changes follow. First, who sees is the admin's
+choice (decision 3, the owner's). Second, one new bullet in the privacy policy (trina-ax-website `src/legal/privacy.en.md`,
 the list under "This policy does not cover the content inside a customer's Trina AX server"). Today the policy says
 nothing about the Slack broker at all, though it already relays mentions and DMs:
 
@@ -167,15 +175,17 @@ It goes into the other five languages with it, through the website's own PR.
 
 - **Where:** the conversation's menu › **Add an app** › **Slack** (the room apps list we already have). One row:
   "Slack 채널 연결". Nothing in Admin in v1 (cut: the read-only "Linked channels: n" line; the audit log has the links).
-- **Who:** the people who manage the conversation's apps today (in a team conversation or a project, its owners and
-  admins who are in it). They also need their own Slack account linked and must be in that channel themselves, which is
-  checked with `users.conversations`, as reading does. So nobody pipes in a channel they cannot see. v1: team
-  conversations and projects only (no 1:1, group chat or everyone room).
-- **Who sees (Slack's API Terms, decision 3):** every person in the conversation must be able to read the channel in
-  Slack: for a private or Slack Connect channel, linked and in the channel; for a public channel of our own workspace,
-  linked (any workspace member can open it). Guests count like everyone else (not linked, so a conversation with a
-  guest cannot be linked). This is usually true for our target, a team that already talks to the client in that
-  channel. Checked at Connect, when someone joins the conversation, and when Slack says someone left the channel.
+- **Who connects:** a team owner or admin who is in the conversation (the people who manage its apps today). They
+  need their own Slack account linked and must be in that channel themselves, checked with `users.conversations`, as
+  reading does. So nobody pipes in a channel they cannot see. v1: team conversations and projects only (no 1:1, group
+  chat or everyone room).
+- **Who sees (the owner's decision 3):** everyone in the conversation, with or without Slack. Most of the team has no
+  Slack seat at all; that is the point. No per-member Slack check and no pausing: the admin's Connect, after the
+  sentence that says who will see, is the authorization on behalf of the customer, who owns the data. People who join
+  the conversation later see the relay from their join on, like any room message.
+- **Guests (v1):** a conversation with a guest cannot be linked, and a guest cannot be invited into a linked
+  conversation ("Disconnect Slack first to invite a guest"). A guest is outside the customer, so the admin's
+  authorization is not stretched to them; that is a limit on which conversations link, not a per-member check.
 - **Connecting** is one dialog:
   0. Not linked to Slack yet: the dialog's only content is **Sign in with Slack** (the existing flow), and it comes
      back to this dialog. No trip to Settings.
@@ -183,9 +193,7 @@ It goes into the other five languages with it, through the website's own PR.
      in Slack: /invite @trina-ax".
   2. Read one sentence: "Everyone in this conversation will see this channel's messages from now on, and what you write
      here goes to Slack under your name". A Slack Connect channel adds "(shared with <company>)".
-  3. Press **Connect**. If someone in the conversation cannot read the channel in Slack, Connect stays off and one line
-     names them: "Raka isn't in #client-acme in Slack. Add them there, or ask them to link Slack." (names only, from
-     people the connecting person already sees in the conversation).
+  3. Press **Connect**.
   Nothing else to set. One channel per conversation, one conversation per channel.
 - **In the room** a Slack message shows the sender's Slack name and picture with a small Slack mark, never as a team
   member. Slack threads are Trina threads. A Slack @mention of a linked person is a Trina mention (they are notified).
@@ -216,16 +224,16 @@ It goes into the other five languages with it, through the website's own PR.
 | Slack not added to the team | "Add an app › Slack" says "Ask an admin to add Slack first" (an admin gets the link to Admin › Connected apps › Slack) | — |
 | Connecting | Dialog: the channel list loads; Connect waits for Slack (`conversations.info`) | — |
 | Connecting person not linked to Slack | — | Dialog shows only **Sign in with Slack**, then returns to the dialog |
-| Someone in the conversation can't read the channel in Slack | — | Connect off, one line naming them (see Connecting) |
 | Connected | Event line "Mina connected #client-acme (Slack)"; header chip | — |
-| Someone joins the conversation who can't read the channel (or leaves it in Slack) | Line "Slack messages paused: Raka can't read #client-acme in Slack"; chip grey; Trina → Slack still works | Chip status names what fixes it; **Disconnect** |
+| A guest is invited to a linked conversation | Refused: "Disconnect Slack first to invite a guest" | — |
+| The conversation has a guest | — | Slack row says "Conversations with guests can't be linked yet" |
 | New scope missing (official app added before this) | Works; Slack shows the app's name with "Mina:" first | Admins see "Add to Slack again to post with each person's name" |
 | Bot removed from the channel (`channel_left`/`group_left`) | Line "Slack: the app was removed from #client-acme. Messages stop. Invite it again with /invite @trina-ax"; sending works in Trina only | Status line says the same, with **Disconnect** |
 | Channel archived / deleted | Line "#client-acme was archived in Slack"; the link ends | — |
 | Channel becomes shared with another company (`channel_shared`) | Line "#client-acme is now shared with <company>"; the relay goes on (decision 3) | — |
 | Slack token revoked / app removed from the workspace | Line "Slack was disconnected for the team. Messages stop." (existing lifecycle) | Existing "Add to Slack again" |
 | Team server or broker unreachable, or the own app's socket down | Nothing while it lasts (no grey "delayed" chip: cut). Afterwards the server catches up once per linked channel (`conversations.history` from the last relayed `ts`, 15 messages, Slack's limit). More than that: one line "Some Slack messages may be missing. Open in Slack" | Existing "can't reach the hosting service" |
-| A post refused by Slack (other company's policy, not in channel) | The Trina message gets a small "Not sent to Slack" with **Retry**; rate limits (429) retry by themselves and show nothing. `not_in_channel`, `channel_not_found`, `is_archived` end or pause the link (the rows above), whatever event did or did not arrive | — |
+| A post refused by Slack (other company's policy, not in channel) | The Trina message gets a small "Not sent to Slack" with **Retry**; rate limits (429) retry by themselves and show nothing. `not_in_channel`, `channel_not_found`, `is_archived` move the link to the bot-removed or archived row above, whatever event did or did not arrive | — |
 | Slack's 30,000 events an hour (`app_rate_limited`) | The "may be missing" line, once | — |
 | Disconnect (by a manager) | Line "Mina disconnected #client-acme"; history stays in the conversation | — |
 
@@ -311,9 +319,6 @@ Out (later):
    - Inbound: check the envelope strictly (`envelope.ts`), resolve the name and picture (`users.info`, kept in memory
      10 minutes), turn Slack mrkdwn into plain text with mentions resolved, then post through the room apps path
      (`rooms/apps/service.ts`), without the 500-a-day app cap, under its own cap of 5,000 a day per link.
-   - Inbound visibility: before storing, the "who sees" rule (Recommended UX) must hold for the conversation now;
-     otherwise the message is not stored and the link shows "paused" (a Slack message is never kept for a room where
-     someone cannot read it in Slack).
    - Outbound: on a person's own room message (not one that carries an AI answer, not an event line), send
      `chat.postMessage` with `username` "<name> (<PRODUCT.displayName>)" and `thread_ts`, as rich text that never
      mentions `@channel`; a Trina mention of a linked person becomes `<@U…>`. Also edits and deletes. The queue sends 1
@@ -349,22 +354,18 @@ Open, for the owner (one recommendation each):
 
 1. **One app or a separate relay app?**
    - *Recommendation: one app (the existing Trina AX app).* One "Add to Slack", one bot to invite.
-   - Risk: Slack's Marketplace review may count a two-way relay as "replicating Slack client functionality", and the
-     API Terms forbid using the APIs "to replicate or compete with the Services" (that clause binds a second app too,
-     so a split does not remove it). If review objects, we split the relay into a second app then, or keep the relay to
-     own apps only. The code keeps the relay apart (`relay.ts`, its own scopes and events), so the split costs little.
-2. **Who may connect:** *recommendation: the conversation's app managers (owners and admins in team conversations and
-   projects), who must also be linked to Slack and be in the channel.* Alternative: any room member, which is easier but
-   lets anyone pipe a client channel to everyone in the room.
-3. **Who may see:** Slack's API Terms forbid "exposing private channel data to a user without access" (Section 3), so
-   the earlier lean option (everyone in the conversation, after one sentence) is not offered for private or Slack
-   Connect channels.
-   - *Recommendation:* every person in the conversation can read the channel in Slack: linked and in the channel for a
-     private or Slack Connect channel, linked for a public channel of our workspace. Checked at Connect and whenever the
-     conversation or the channel changes; when it stops holding, Slack messages pause with one line naming who. For the
-     target team, which already talks to the client in that channel, this is usually true at once.
-   - Alternative (only for public channels of our own workspace): everyone in the conversation, after the connect
-     sentence. Not offered for private or shared channels.
+   - Risk, **accepted by the owner (2026-11-27)**: Slack's API Terms forbid "exposing private channel data to a user
+     without access" and using the APIs "to replicate or compete with the Services"
+     (https://slack.com/terms-of-service/api); the Marketplace names apps that "replicate Slack client functionality"
+     as unsuitable. Decision 3 shows a linked channel to Trina members without Slack seats, which is the purpose. The
+     clauses bind a second app too, so a split does not remove them; if Marketplace review objects, we split the relay
+     or keep it to own apps then. The code keeps the relay apart (`relay.ts`, its own scopes and events).
+2. **Who may connect** (decided by the owner, 2026-11-27): a team owner or admin in the conversation, linked to Slack
+   and in the channel.
+3. **Who may see** (decided by the owner, 2026-11-27: "슬랙은 이제 한명만 가입해서 쓰고, 나머지는 다 trina를 쓰기
+   위함인데… 그냥 admin이 연결한대로 가야지"): everyone in the conversation, with or without Slack. No per-member
+   Slack-access check, no pausing. The connect sentence names who will see; pressing Connect is the admin's explicit
+   authorization for the customer. Guests stay out in v1 (Recommended UX). The terms risk is under decision 1.
 4. **When the link ends** (disconnect, channel archived, app removed): *recommendation: keep the relayed history in the
    conversation*, as a Slack shared channel keeps its history; messages deleted in Slack are still deleted. Alternative:
    delete them.
@@ -407,8 +408,8 @@ Open, for the owner (one recommendation each):
     - Threads both ways.
     - Mentions.
     - The states table.
-    - The connect check (not in the channel, not linked, guests in the room) and the pause when someone joins who
-      cannot read the channel.
+    - The connect check (the admin not in the channel, not linked, not an admin; guests in the room) and a guest
+      invite refused while linked. No check on the other members (decision 3).
     - Catch-up after a gap and the "may be missing" line (broker `dropped`, `has_more`).
     - What is not relayed out: a message carrying an AI answer, attachments, event lines.
   - `tests/unit/c-slack-broker.test.ts` for `relay/channels`.
@@ -422,8 +423,8 @@ Open, for the owner (one recommendation each):
 ## Review (2026-11-27, independent)
 
 Changed in this plan after review: the broker verifies each linked channel with that install's own bot and routes by
-channel (blocker: a server could name any channel); who may see follows the API Terms' private-channel clause
-(blocker, decision 3); the scope is requested but required by no check; linked channels keep edits, deletes and other
+channel (blocker: a server could name any channel); who may see was first tied to the API Terms' private-channel
+clause, then decided by the owner as "everyone in the conversation" with the risk accepted (decision 3); the scope is requested but required by no check; linked channels keep edits, deletes and other
 bots at both filters; the outage row matches what Slack and the broker really do (retries, 500 queue, catch-up);
 what is not relayed out is marked per message; pre-link threads; inline Sign in with Slack; private-channel lifecycle
 from post errors and `conversations.info`; cuts (avatar URL, Admin line, delayed chip); Slack claims re-checked.
