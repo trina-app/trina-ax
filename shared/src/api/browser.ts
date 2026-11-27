@@ -3,13 +3,13 @@
 // proxies) the window long-polls these endpoints instead. Owner: B (server/src/routes/browser.ts).
 import { z } from 'zod'
 import { Uuid7 } from '../ids'
-import { endpoint, empty } from './endpoint'
+import { endpoint, empty, stream } from './endpoint'
 
 /** Tool names as the engine sees them (same set as the Claude desktop app; ported from Saram desktop/pane-tools). */
 export const BrowserToolName = z.enum([
   'navigate', 'read_page', 'find', 'get_page_text', 'computer', 'form_input', 'javascript_tool',
   'read_console_messages', 'read_network_requests', 'resize_window',
-  'tabs_context', 'tabs_create', 'tabs_select', 'tabs_close', 'browser_batch', 'preview_start',
+  'tabs_context', 'tabs_create', 'tabs_select', 'tabs_close', 'browser_batch', 'preview_start', 'file_upload',
 ])
 export type BrowserToolName = z.infer<typeof BrowserToolName>
 
@@ -55,9 +55,23 @@ export const BrowserResult = z.object({
 })
 export type BrowserResult = z.infer<typeof BrowserResult>
 
-export const PollQuery = z.object({ windowId: z.string().min(8).max(64), waitMs: z.coerce.number().int().min(0).max(25_000).optional() })
+/** `pane`: the desktop app's in-app browser version (DesktopBridge.browser.version, BROWSER_BRIDGE_VERSION), as on
+ * /api/ws: the server offers file_upload only to a window that said 1 or more (an older app cannot parse it) */
+export const PollQuery = z.object({ windowId: z.string().min(8).max(64), waitMs: z.coerce.number().int().min(0).max(25_000).optional(), pane: z.coerce.number().int().min(0).max(1000).optional() })
+
+/** A file the AI attaches in the in-app browser (file_upload): the desktop app fetches it once from
+ * GET /api/browser/uploads/:ticket (BROWSER.upload) through the team page's session, checks its size and sha256, and
+ * sets it on the page's file field (docs/decisions/20261126-browser-file-upload.md). */
+export const BROWSER_UPLOAD_PATH = '/api/browser/uploads'
+/** a ticket: 32 random bytes, base64url */
+export const BrowserUploadTicket = z.string().regex(/^[A-Za-z0-9_-]{43}$/)
+/** at most this many files and bytes in one file_upload call */
+export const BROWSER_UPLOAD_MAX_FILES = 20
+export const BROWSER_UPLOAD_MAX_BYTES = 100_000_000
 
 export const BROWSER = {
   pollCalls: endpoint({ method: 'GET', path: '/api/browser/calls', auth: 'user', owner: 'B', query: PollQuery, response: z.object({ calls: z.array(BrowserCall) }), summary: 'Long-poll fallback: pending browser.call for this window (waits up to waitMs).' }),
+  /** the bytes behind a file_upload ticket (single use, the person's own, until the call's deadline); any failure is 404 */
+  browserUpload: endpoint({ method: 'GET', path: `${BROWSER_UPLOAD_PATH}/:ticket`, auth: 'user', owner: 'B', response: stream(false), summary: 'One file of a file_upload call for the desktop app (application/octet-stream, single use).' }),
   postResult: endpoint({ method: 'POST', path: '/api/browser/results', auth: 'user', owner: 'B', body: BrowserResult, response: empty, status: 204, summary: 'Long-poll fallback: browser.result.' }),
 } as const

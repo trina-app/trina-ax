@@ -204,6 +204,7 @@ export const STEP_TEXT = {
     "Rechazado: una búsqueda solo abre sus propios resultados. Se indicó a la IA que obtenga la dirección con «Obtener página» (con la tarjeta de dirección).", "已拒绝：搜索只能打开它自己的结果。已告诉AI改用“获取网页”（带地址卡片）打开该地址。"),
   thinking: t('생각하는 중', 'Thinking', 'Berpikir', "考え中", "Pensando", "思考中"),
   attachChanged: t('첨부한 뒤 바뀐 파일, 지금 내용으로 읽음 · {path}', 'Attached file changed since it was attached; using the current version · {path}', 'Berkas lampiran berubah sejak dilampirkan; memakai versi terkini · {path}', "添付後にファイルが変更されたため、現在のバージョンを使用します · {path}", "El archivo cambió desde que se adjuntó; se usa la versión actual · {path}", "附件在添加后已更改，使用当前版本 · {path}"),
+  browserFilesAttached: t('파일 {n}개 첨부함: {host} · {names}', 'Files attached ({n}): {host} · {names}', 'Berkas dilampirkan ({n}): {host} · {names}', 'ファイルを{n}件添付: {host} · {names}', 'Archivos adjuntados ({n}): {host} · {names}', '已附加 {n} 个文件：{host} · {names}'),
   attachMoved: t('첨부한 파일이 옮겨짐 · {path}', 'Attached file moved · {path}', 'Berkas lampiran dipindah · {path}', "添付ファイルが移動しました · {path}", "El archivo adjunto se movió · {path}", "附件已移动 · {path}"),
   attachUnavailable: t('첨부한 팀 파일을 더 이상 쓸 수 없음', 'An attached team file is no longer available', 'Berkas tim yang dilampirkan tidak tersedia lagi', "添付したチームのファイルは利用できなくなりました", "Un archivo adjunto del equipo ya no está disponible", "添加的团队文件已不可用"),
   refusedRetry: t('AI가 답하지 않아 다른 AI로 다시 답해요', 'The AI declined; trying again with another AI', 'AI menolak; mencoba lagi dengan AI lain', "AIが回答しなかったため、別のAIでもう一度回答します", "La IA no respondió; se intenta de nuevo con otra IA", "AI拒绝回答，正在用另一个AI重试"),
@@ -381,12 +382,20 @@ export function pageKeyWords(key: unknown): string {
   return !k || /^[a-z0-9]+(?:[-_.][a-z0-9]+)+$/i.test(k) ? '' : k
 }
 
+/** " · a.pdf, b.pdf +2": the files a file_upload names (their last path part), or nothing */
+function uploadNames(files: unknown): string {
+  const names = (Array.isArray(files) ? files : []).filter((f): f is string => typeof f === 'string').map((f) => f.replace(/\/+$/, '').split('/').pop() ?? '').filter(Boolean)
+  if (!names.length) return ''
+  return ` · ${clip(names.slice(0, 3).join(', '), 90)}${names.length > 3 ? ` +${names.length - 3}` : ''}`
+}
+
 /** Short human label of a tool step ('Search "invoice" · finance/'). Never the raw input. */
 export function stepLabel(tool: string, input: unknown, locale: Locale, browserTools: ReadonlySet<string>): string {
   const a = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
   if (browserTools.has(tool)) {
     const verb = (BROWSER_STEP_VERB[tool] ?? BROWSER_STEP_FALLBACK)[locale]
     const url = typeof a.url === 'string' ? ` · ${clip(a.url, 60)}` : ''
+    if (tool === 'file_upload') return verb + uploadNames(a.files)
     return verb + url
   }
   const verb = FILE_STEP_VERB[tool]?.[locale]
@@ -923,6 +932,7 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   else if (tool === 'ask_user') label = retemplate(['asked'], step.label, locale)
   else if (tool === 'remember') label = retemplate(['remembered', 'notRemembered', 'rememberAsking', 'rememberUpdated', 'notRememberedSecret'], step.label, locale)
   else if (tool === 'forget') label = retemplate(['forgotText', 'forgot'], step.label, locale)
+  else if (tool === 'file_upload' && (label = retemplate(['browserFilesAttached'], step.label, locale)) !== null) { /* the files are in */ }
   else if (BROWSER_STEP_VERB[tool] || step.kind === 'browser' || browserTools?.has(tool)) label = reverb(BROWSER_STEP_VERB[tool] ?? BROWSER_STEP_FALLBACK, step.label, locale, LEGACY_VERBS[tool])
   else if (tool === 'read') label = reverb(READ_MEDIA_VERB.video, step.label, locale) ?? reverb(READ_MEDIA_VERB.audio, step.label, locale) ?? reverb(READ_SLIDES_VERB, step.label, locale) ?? reverb(FILE_STEP_VERB.read!, step.label, locale)
   else if (tool === 'artifact') label = reverb(ARTIFACT_ACTION_VERB.edit, step.label, locale) ?? reverb(ARTIFACT_ACTION_VERB.read, step.label, locale) ?? reverb(ARTIFACT_ACTION_VERB.restore, step.label, locale) ?? reverb(FILE_STEP_VERB.artifact!, step.label, locale, LEGACY_VERBS[tool])

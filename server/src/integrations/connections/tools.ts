@@ -1860,12 +1860,10 @@ function sharedAccount(row: Row): string {
 export const NO_CONNECTIONS = 'Checked by the server for this answer: this user has no app connection (none of their own, none the team shares with them). Google Drive and Slack are separate: Slack\'s state is in its own section, and whether Google Drive is connected shows when you use the Drive tools. When the user asks what is connected, state this plainly as the current state.'
 /** How connections are added, for "where do I connect X / can I connect it myself". `personal`: the team lets people
  * add their own connections (Team settings); `scheduled`: a scheduled run, where no connect card is shown. */
-export function connectionWays(personal: boolean, scheduled = false, shared = false): string {
+export function connectionWays(personal: boolean, scheduled = false): string {
   const team = 'How connections are added: an owner or admin adds an app for the whole team in Admin › Connected apps' +
     (personal ? ', and there can ask a member to connect their own (Ask a member to connect). ' : '. ')
   if (!personal) return team + 'On this team people cannot add their own app connections (an admin turned that off); Google Drive and Google apps, and apps from a team template, can still be connected in Settings › Connectors. For anything else, ask an owner or admin.'
-  // a shared chat: no connect card (connect_service is not offered there)
-  if (shared) return team + 'Each person can also connect their own apps in Settings › Connectors, or ask you to connect one in a chat only they see; connecting is not done in a shared chat.'
   return team + `Each person can also connect their own apps in Settings › Connectors${scheduled ? '.' : ', or ask you to connect one (connect_service).'}`
 }
 
@@ -1875,7 +1873,8 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
     name: 'integrations',
     build(b) {
       // a shared chat (docs/decisions/20261118-shared-chat-connections.md): the person's own connections and the team's,
-      // but no team connection while a guest sees the chat; nobody connects a new one here
+      // but no team connection while a guest sees the chat; a new one connects on the asker's own card
+      // (connect_service, docs/decisions/20261126-shared-chat-everything.md)
       const sh = b.shared
       const guestHere = !!sh?.guestHere()
       const all = integrationsOf(ctx).usable(b.userId)
@@ -1902,8 +1901,7 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
         const key = connectionKey(row)
         if (row.status === 'needs_auth' || (row.auth !== 'none' && !row.secret_enc)) {
           // made from an admin's template: the person connects their own key again on a card in the chat
-          if (sh && (row.template_id || row.scope === 'personal')) lines.push(`- ${row.name} (${row.template_id ? 'team template, the user\'s own key' : 'personal connection'}): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'}. Connecting is not done in a shared chat: the user fixes it in ${SCREEN.connectors(sh.locale)} or in a chat only they see`)
-          else if (row.template_id) lines.push(`- ${row.name} (team template, the user's own key${row.status === 'needs_auth' ? ' stopped working' : ' is not connected yet'}): when they ask for ${row.name}, call connect_service with template "${row.template_id}" and name "${row.name}" so they can connect their own key (not in a scheduled run)`)
+          if (row.template_id) lines.push(`- ${row.name} (team template, the user's own key${row.status === 'needs_auth' ? ' stopped working' : ' is not connected yet'}): when they ask for ${row.name}, call connect_service with template "${row.template_id}" and name "${row.name}" so they can connect their own key (not in a scheduled run)`)
           // the person's own connection: they sign in again (or give a new key) on a card in the chat (QA TC-127)
           else if (row.scope === 'personal' && !row.google_app) lines.push(`- ${row.name} (personal connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'}. When they ask for ${row.name}, call connect_service with connection "${row.id}" and name "${row.name}" so they can ${row.auth === 'oauth' ? 'sign in again' : 'give the key'} on a card in this chat (not in a scheduled run)`)
           else lines.push(`- ${row.name} (${who} connection${sharedAccount(row)}): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (${row.google_app && row.scope === 'personal' ? `the user can fix it in Settings › Connectors › ${row.name}, Reconnect` : 'an admin fixes it in Admin › Connected apps; tell the user to ask an admin'})`)
@@ -1968,7 +1966,6 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
       const templates = ctx.db.query('SELECT id, name FROM integration_templates ORDER BY name, id').all() as { id: string; name: string }[]
       for (const t of templates) {
         if (mine.has(t.id) || !templateCovers(ctx.db, t.id, b.userId)) continue
-        if (sh) { lines.push(`- ${t.name} (team template, not connected yet: each person connects their own key): connecting is not done in a shared chat; the user connects it in ${SCREEN.connectors(sh.locale)} or in a chat only they see`); continue }
         lines.push(`- ${t.name} (team template, not connected yet: each person connects their own key): when the user asks for ${t.name}, call connect_service with template "${t.id}" and name "${t.name}" so they can connect it (not in a scheduled run)`)
       }
       if (http.length) tools.push(apiRequestTool(ctx, b, http))
@@ -1979,7 +1976,7 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
       // what is connected is a fact the server checked for this answer, also when it is nothing, and the ways to add one
       // (QA TC-4528: asked about team connections, the AI said "nothing connected" from silence and left out the
       // member's own route); docs/decisions/20261117-connections-check-first.md
-      const how = connectionWays(getTeamSettings(ctx.db).personalIntegrations, b.scheduled, !!sh)
+      const how = connectionWays(getTeamSettings(ctx.db).personalIntegrations, b.scheduled)
       // the team's connections left out because a guest sees this shared chat: said, never silent
       if (guestHere && all.some((r) => r.scope === 'team')) lines.push(`- The team's connections (${[...new Set(all.filter((r) => r.scope === 'team').map((r) => r.name))].join(', ')}): not usable in this shared chat, because a guest is in it and guests have no connected services. When the user asks for one, say so plainly in one or two sentences, and that they can ask again in a chat only they see`)
       if (!lines.length) {

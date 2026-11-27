@@ -185,6 +185,13 @@ describe('a task made in a shared chat', () => {
     expect(schedulesOf('bob').find((x) => x.title === 'Bob hourly')).toMatchObject({ chat_id: chatId })
     expect(schedulesOf('alice').some((x) => x.title === 'Bob hourly')).toBe(false)
   })
+  // these tasks have wall-clock times (bob's hourly one is due at the next whole hour, Brief check at 09:00 Seoul on
+  // Mondays and Thursdays): left behind, a later runIt at that minute would start them too (runDue returned
+  // [its id, bob's] in CI at 00:00:00Z). The tests below make their own.
+  afterAll(() => {
+    h.rt().schedules.delete('alice', taskId)
+    for (const x of schedulesOf('bob')) h.rt().schedules.delete('bob', x.id)
+  })
 })
 
 describe('sharing a chat that a run posted in', () => {

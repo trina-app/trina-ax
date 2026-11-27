@@ -11,8 +11,9 @@
 // - One line per item, capped; names on one line with our block tags neutralized. A team file by its team path, a
 //   shared file by its link (never its path, as the link page shows none). No message text: a thread is named by its
 //   room, who started it and when; reading it is room_read's (which marks the chat as having read rooms).
-// - Off (lookingAtOff) in a shared chat or one other people wrote in, a guest's turn, a scheduled run, a question from
-//   Slack, a confidential chat, a template or restricted run (drafts); never for a sub-agent (subagents.ts
+// - In a shared chat (or one other people wrote in) the list goes through the read card first when someone there cannot
+//   open what it names (docs/decisions/20261126-shared-chat-everything.md). Off (lookingAtOff) in a guest's turn, a
+//   scheduled run, a question from Slack, a confidential chat, a template or restricted run (drafts); never for a sub-agent (subagents.ts
 //   PARENT_ONLY_TOOLS, and refused when reached); the remote connector has no chat turn and so no such tool.
 // - **What it returns is not the person's word.** A file, room, thread or person the AI learned here is recorded for
 //   the turn (lookedOf). share_with_person and post_to_room ask it (lookedFile, lookedPlace, lookedPerson): such a
@@ -33,6 +34,7 @@ import { roomTitleFor } from './post-to-room'
 import { canSeeProject } from './projects'
 import { neutralizeTags } from './prompt'
 import { chatFor } from './shared'
+import { sourceOf, type ReadSource } from './read-scope'
 import { actionOff, mainOnly, namedInFull, namesFileLoose } from './shared-actions'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
@@ -46,8 +48,6 @@ type Exec = Pick<TurnExec, 'rt' | 'spec' | 'shared' | 'restricted' | 'templateRu
 
 /** Why looking_at is not offered in this turn (and refused when reached anyway), or null: it is. */
 export function lookingAtOff(exec: Pick<TurnExec, 'rt' | 'spec' | 'shared' | 'restricted' | 'templateRun' | 'otherAuthors'>): string | null {
-  if (exec.shared) return 'a shared chat'
-  if (exec.otherAuthors) return 'a chat other people wrote in'
   const off = actionOff(exec, null)
   if (off) return off === 'schedule' ? 'a scheduled run' : off === 'confidential' ? 'a confidential chat' : off === 'slack' ? 'a question from Slack' : 'a run limited to one task'
   if (isGuestUser(exec.rt.db, exec.spec.userId)) return 'a guest'
@@ -57,12 +57,14 @@ export function lookingAtOff(exec: Pick<TurnExec, 'rt' | 'spec' | 'shared' | 're
 // ---------------- what the turn learned from looking_at ----------------
 
 /** What looking_at returned in this turn: the targets that are not the person's word. */
-export interface LookedAt { files: Set<string>; rooms: Set<string>; threads: Set<string>; people: Set<string> }
+export interface LookedAt { files: Set<string>; rooms: Set<string>; threads: Set<string>; people: Set<string>
+  /** where each named item is, for a shared chat's read card (the person's own chats by their own source) */
+  places: ReadSource[] }
 const looked = new WeakMap<object, LookedAt>()
 /** The turn's record (made on first use; one per TurnExec). */
 export function lookedOf(exec: object): LookedAt {
   let l = looked.get(exec)
-  if (!l) { l = { files: new Set(), rooms: new Set(), threads: new Set(), people: new Set() }; looked.set(exec, l) }
+  if (!l) { l = { files: new Set(), rooms: new Set(), threads: new Set(), people: new Set(), places: [] }; looked.set(exec, l) }
   return l
 }
 const peek = (exec: object): LookedAt | null => looked.get(exec) ?? null
@@ -117,6 +119,7 @@ export function describeLooked(exec: Exec, x: Looked, record: LookedAt | null, L
       if (o.kind === 'open') {
         parts.push(`the shared file ${q(o.name)} (read it with read and file_path "/f/${x.linkId}")`)
         record?.files.add(o.share.path)
+        record?.places.push(sourceOf(db, rt.files.rules(), o.share.path))
       }
     } catch {}
   }
@@ -126,6 +129,7 @@ export function describeLooked(exec: Exec, x: Looked, record: LookedAt | null, L
       if (r.st && !r.st.isDirectory()) {
         parts.push(`the file ${q(r.rel.split('/').pop() ?? r.rel)} (path "${neutralizeTags(r.rel.replace(/["\s]+/g, (m) => (m === '"' ? "'" : ' ')).slice(0, 300))}")`)
         record?.files.add(r.rel)
+        record?.places.push(sourceOf(db, rt.files.rules(), r.rel))
       }
     } catch {}
   }
@@ -136,6 +140,7 @@ export function describeLooked(exec: Exec, x: Looked, record: LookedAt | null, L
       const title = roomTitleFor(db, mine.room, mine.me, L)
       let line = `the room ${q(title)} (room_id ${mine.room.id})`
       record?.rooms.add(mine.room.id)
+      record?.places.push({ type: 'room', id: mine.room.id })
       if (mine.room.kind === 'dm') for (const m of members(db, mine.room.id)) if (m.user_id !== spec.userId) record?.people.add(m.user_id)
       if (x.threadRootId) {
         const root = rooms.threadRootOf(mine.room.id, x.threadRootId, mine.me)
@@ -155,6 +160,8 @@ export function describeLooked(exec: Exec, x: Looked, record: LookedAt | null, L
         if (!confidentialChat(db, x.chatId)) {
           const a = chatFor(rt, spec.userId, x.chatId, 'view')
           parts.push(`the chat ${q(a.row.title || 'New chat')}`)
+          // another chat's title: whoever sees that chat (read-scope.ts chatViewers), so a card asks when someone here does not
+          record?.places.push({ type: 'chat', id: x.chatId })
         }
       } catch {}
     }
@@ -162,7 +169,7 @@ export function describeLooked(exec: Exec, x: Looked, record: LookedAt | null, L
   if (x.projectId) {
     try {
       const p = rt.store.projectRow(x.projectId)
-      if (p && canSeeProject(rt.files, me, p)) parts.push(`the project ${q(p.name)}`)
+      if (p && canSeeProject(rt.files, me, p)) { parts.push(`the project ${q(p.name)}`); record?.places.push({ type: 'name', path: p.folder_path }) }
     } catch {}
   }
   if (parts.length) return parts.join(', ')
@@ -220,6 +227,11 @@ export function lookingAtTool(exec: TurnExec): Tool {
       const mine = snap !== undefined ? snap : spec.windowId ? looking.window(spec.userId, spec.windowId) : null
       const others = looking.others(spec.userId, spec.windowId)
       const r = lookingAtText(exec, mine, others, spec.locale)
+      // a shared chat: the list joins the chat only after the read card when someone here could not open what it names
+      if (exec.shared && r.count) {
+        const no = await exec.confirmSharedRead(LOOKING_AT_TOOL, {}, { sources: lookedOf(exec).places })
+        if (no) return { ...text(no, true), summary: 'looking_at -> not shown (shared chat)' }
+      }
       return { ...text(r.text), summary: `looking_at -> ${r.count} shown` }
     },
   }

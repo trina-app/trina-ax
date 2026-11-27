@@ -26,6 +26,7 @@ import type { ToolCard, TurnTool, TurnToolContext, TurnToolResult } from '../ser
 import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { guardedBrowserCall, guardSummary, type BrowserCall } from './browser-keys'
+import { attachedStepLabel, BUSY_TEXT, oldAppResult, prepareBrowserUpload, uploadSummary, type UploadFileReady } from './browser-upload'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
 import { cleanMemoryText, MEMORY_ITEM_MAX, memoryLines, neutralizeTags, skillBlock, SKILL_TOOL_LIMIT } from './prompt'
 import { addressesIn, asksToRemember, AUTO_PER_ANSWER, AUTO_TEXT_MAX, autoCapReached, autoMemoryOn, chatMemories, contactNotOwn, copiedFromOutside, firstAutoMemory, fold, FORGET_PER_ANSWER, nearDuplicate, othersWords, outsideAddress, ownWords, resultText, secretIn } from './auto-memory'
@@ -73,10 +74,10 @@ import { saveWorkFileTool } from './work-file-tool'
 import { COPY_FILES_TOOL, stagePlaceInput, withPlaces } from './places-copy'
 import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
-import { namedPaths, OUTPUT_PATH_OF, SEARCH_TOOLS, SHARED_MEMBER_ONLY_TOOLS, SHARED_TOOLS, SHARED_UNDER_ALWAYS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
+import { namedPaths, OUTPUT_PATH_OF, SEARCH_TOOLS, SHARED_MEMBER_ONLY_TOOLS, SHARED_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 import { steerableRun, steerableWriteRefusal } from './shared-run'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
-import { projectRoomOfChat, projectRoomTools, roomReadTools } from './room-tools'
+import { roomReadTools, sharedRoomTools } from './room-tools'
 import { hintsHere, roomHint } from './room-hint'
 import { dataDateNotes, fileNote, fileNoteOnce } from './file-notes'
 import { localTime } from '../rooms/reader'
@@ -219,7 +220,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const cards = new Map<string, NonNullable<TurnTool['card']>>()
   const templateWrites = new Set<string>()
   /** a room session's connection tools: the asker's own Google apps (integrations/connections/tools.ts) */
-  const add = (t: Tool, o: { connection?: boolean; projectRoom?: boolean; integration?: boolean; browser?: boolean } = {}): boolean => {
+  const add = (t: Tool, o: { connection?: boolean; integration?: boolean; browser?: boolean } = {}): boolean => {
     // a company profile draft (onboarding/draft.ts): web_fetch is its only tool besides the refused file tools, and a
     // draft from pasted text has none
     if (exec.profileDraft && (t.name !== 'web_fetch' || exec.profileDraft.scope.source !== 'website')) return false
@@ -247,12 +248,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // a shared project chat (chat/shared.ts): its allowlist (rooms/ai-tools.ts), and the connection tools built for it
     // (each call behind the asker's card where some people here could not see the answer:
     // docs/decisions/20261118-shared-chat-connections.md)
-    // (and a project's shared chat reads its own chat room: projectRoomTools, scoped to that one room)
-    // (a tool of SHARED_UNDER_ALWAYS too while the person's own Always for its card is on: Rule A)
     // a guest's memories stay out of shared chats (docs/decisions/20261125-auto-memory-shared-chats.md: members only)
     if (exec.shared && guest && SHARED_MEMBER_ONLY_TOOLS.has(t.name)) return false
     // (the asker's own in-app browser too, each call behind their one notice: docs/decisions/20261126-shared-chat-own-tools.md)
-    if (exec.shared && !SHARED_TOOLS.has(t.name) && !o.connection && !o.projectRoom && !o.browser && !(Object.hasOwn(SHARED_UNDER_ALWAYS, t.name) && alwaysHere(exec.alwaysPlace?.(), SHARED_UNDER_ALWAYS[t.name]!) === 'on')) return false
+    if (exec.shared && !SHARED_TOOLS.has(t.name) && !o.connection && !o.browser) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
     if (t.label) labels.set(t.name, t.label.bind(t))
@@ -264,29 +263,25 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   if (docsToolOn()) add(docsTool(exec.spec.locale))
   for (const t of skillTools(exec, () => tools.has(BOX_SHELL_TOOL) && !exec.devEnv?.documents)) add(t)
   // the team trash behind the server's card (chat/delete-files.ts): not offered in confidential or draft chats (add()
-  // above) nor in an approved template run (its scope is fixed); in a shared chat (SHARED_TOOLS) only the AI's own files
-  // of this chat go (no card), anything else is refused up front, as everywhere but the person's own chat with the
-  // person there (docs/decisions/20261121-ai-scratch-files.md rule 4, QA TC-7332)
+  // above) nor in an approved template run (its scope is fixed); in a shared chat as in the person's own: the AI's own
+  // files of this chat go without a card, anything else behind the card (docs/decisions/20261126-shared-chat-everything.md)
   if (!exec.templateRun) add(deleteFilesTool(exec))
   // a team project's members behind the server's card (chat/project-members.ts): not offered in confidential or draft
-  // chats (add() above) nor in an approved template run; in a shared chat only under the person's own Always
-  // (SHARED_UNDER_ALWAYS); refused up front in a scheduled run or a chat others wrote in unless that Always is on
+  // chats (add() above) nor in an approved template run; in a shared chat behind the same card (the person's Always
+  // skips it); refused up front in a scheduled run unless that Always is on
   if (!exec.templateRun) add(projectMembersTool(exec))
   // a team folder's access for one person or group behind the server's card (chat/folder-access-tool.ts): the person's
-  // own chat, or under their own Always also a shared chat, a chat others wrote in and their scheduled run (never
-  // confidential, Slack, template or restricted, a guest's)
+  // own chat and a shared chat (or one others wrote in) behind that card, under their own Always also their scheduled
+  // run (never confidential, Slack, template or restricted, a guest's)
   if (!folderAccessOff(exec)) add(folderAccessTool(exec))
   // the person's own team chat rooms (chat/room-tools.ts): not in a shared, confidential or draft chat (add() above
   // keeps those to their own tools) nor in an approved scheduled template's run (its scope is fixed; it would refuse
   // them anyway)
   if (!exec.templateRun && !exec.shared) for (const t of roomReadTools(exec)) add(t)
-  // a project's shared chat reads that project's own chat room, and no other (chat/room-tools.ts projectRoomTools:
-  // room_read and room_file for its one room id, only what everyone who sees the chat sees there; no rooms list, no
-  // save; docs/decisions/20261120-project-is-room.md D4)
-  else if (!exec.templateRun && exec.shared?.kind === 'project') {
-    const roomId = projectRoomOfChat(exec)
-    if (roomId) for (const t of projectRoomTools(exec, roomId)) add(t, { projectRoom: true })
-  }
+  // a shared chat: the same tools, what a call found behind the read card for anyone here who is not in that room; a
+  // project's shared chat reads its own chat room as before, with no card (chat/room-tools.ts sharedRoomTools,
+  // projectRoomTools; docs/decisions/20261120-project-is-room.md D4, 20261126-shared-chat-everything.md)
+  else if (!exec.templateRun) for (const t of sharedRoomTools(exec)) add(t)
   // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts): read as this person while they
   // see the chat; only where the chat holds such files or is shared with people. save_chat_file copies one into the team
   // folder behind the wider-audience card (docs/decisions/20261118-chat-files-full-read-and-save.md)
@@ -415,7 +410,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     if (work && !d.shared) add(saveWorkFileTool(exec, where, 'folder'))
     else if (work && exec.shared?.kind === 'people') add(saveWorkFileTool(exec, where, 'chat'))
   }
-  if (exec.browser) for (const t of PANE_TOOLS) add(browserTool(exec, t.name as BrowserToolName, t.description, t.inputSchema as unknown as Record<string, unknown>), { browser: true })
+  // file_upload only where the window's desktop app runs it (an older one cannot parse the call: chat/turn.ts browserUpload)
+  if (exec.browser) for (const t of PANE_TOOLS) if (t.name !== 'file_upload' || exec.browserUpload) add(browserTool(exec, t.name as BrowserToolName, t.description, t.inputSchema as unknown as Record<string, unknown>), { browser: true })
   // per-person tools (external-service connections), built from saved data at the start of the turn
   const prompt: string[] = []
   const context: string[] = []
@@ -429,19 +425,22 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // every tool a provider added (they act at outside services): their arguments have stored keys hidden (hideKeys)
   const outside = new Set<string>()
   const providers = exec.rt.ctx.services.turnToolProviders ?? []
-  // a shared chat: only the connections' provider, in its shared mode (the asker's card before a call some people here
-  // could not see the answer of; no team connection while a guest is here; docs/decisions/20261118-shared-chat-connections.md).
-  // Slack reading stays off there
+  // a shared chat: the connections' provider in its shared mode (the asker's notice before a call some people here could
+  // not see the answer of; no team connection while a guest is here; docs/decisions/20261118-shared-chat-connections.md),
+  // and the asker's own Slack reading behind its one notice per place (docs/decisions/20261126-shared-chat-everything.md)
   // a free-roam demo: no Slack reading (its API calls go out directly: docs/decisions/20261119-demo-free-roam-a.md)
   const kept = isFreeRoam(exec.rt.ctx.config) ? providers.filter((p) => p.name !== 'slack') : providers
-  const offered = confidential || exec.restricted || guest ? [] : exec.shared ? kept.filter((p) => p.name === 'integrations') : kept
   const sharedConn = exec.shared ? exec.sharedConnections() : undefined
+  // (the team's Slack app is a team connection: not while a guest sees the chat)
+  const offered = confidential || exec.restricted || guest ? [] : exec.shared ? kept.filter((p) => p.name === 'integrations' || (p.name === 'slack' && !sharedConn!.guestHere())) : kept
   for (const p of offered) {
     let built: ReturnType<typeof p.build>
     try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, desktop: exec.desktop, scheduled: exec.spec.clientKind === 'schedule', ...(sharedConn ? { shared: sharedConn } : {}) }) }
     catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }
     for (const t of built.tools) {
-      if (!add(wrapRegistered(exec, t), { connection: !!sharedConn, integration: p.name === 'integrations' })) continue
+      // the asker's own Slack in a shared chat: their one notice per place before each read (what it brings in is theirs)
+      const tool = exec.shared && p.name === 'slack' ? withSharedService(exec, 'slack', wrapRegistered(exec, t)) : wrapRegistered(exec, t)
+      if (!add(tool, { connection: !!sharedConn, integration: p.name === 'integrations' })) continue
       outside.add(t.name)
       if (t.label) labels.set(t.name, t.label.bind(t))
       if (t.card) cards.set(t.name, t.card.bind(t))
@@ -1270,6 +1269,8 @@ export function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: str
       ...(call ? { beforePlace: () => { const no = exec.scheduleCover?.recheck(callKey(call.tool, call.args)); if (no) throw new ToolError(no) } } : {}),
       // this chat's places (chat:files/, chat:work/): a produce tool's output attaches through it (files/place-output.ts)
       places: chatPlaces(exec, files),
+      // a shared chat: the asker's own Google Drive and Slack behind their one notice (chat/turn.ts confirmSharedService)
+      ...(exec.shared ? { sharedService: (what: 'drive' | 'slack', sources: ReadSource[]) => exec.confirmSharedService(what, sources) } : {}),
       confirmWidening: async (target, sources, binding) => {
         const no = await exec.confirmWidening(target, sources, binding, call ? { tool: call.tool, args: call.args, main: files === exec.files } : undefined)
         if (no || !call) return no
@@ -1277,6 +1278,16 @@ export function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: str
       },
     },
   }
+}
+
+/** A tool of the asker's own service (Slack) in a shared chat: their one notice per place first (chat/turn.ts
+ * confirmSharedService); what it returns joins the answer's read record as theirs. A no fetches nothing. */
+function withSharedService(exec: TurnExec, what: 'slack', t: Tool): Tool {
+  return { ...t, async call(args, files) {
+    const no = await exec.confirmSharedService(what, [{ type: 'user', id: exec.spec.userId, via: 'connection' }])
+    if (no) return { ...text(no, true), summary: `${t.name} -> not fetched (shared chat)` }
+    return t.call(args, files)
+  } }
 }
 
 /** `note`: a fact for the AI after the call's result (the data date of query_data's files), or null */
@@ -1886,6 +1897,8 @@ function bTools(exec: TurnExec): Tool[] {
           summary: `set_title -> refused (${t.reason})`,
         }
       }
+      // a shared chat: the title shows to everyone in it, so not after this answer took in what some of them cannot open
+      if (exec.shared && exec.narrowerRead) return { ...text('Not set: this answer used something some people in this shared chat cannot open, and the title shows to all of them. Leave the title as it is; the user can rename the chat.'), summary: 'set_title -> refused (shared chat, narrower read)' }
       if (!setAiTitle(rt.db, spec.chatId, t.title))
         return { ...text('Not set: this chat already has its title (the user named it, or you already did). Do not call set_title again.'), summary: 'set_title -> kept the existing title' }
       rt.publishChat(spec.userId, spec.chatId, 'updated')
@@ -1920,6 +1933,17 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
         // ...and where other people wrote or a guest is here, an action waits for the asker's card (their Always holds)
         const change = await exec.confirmSharedBrowserChange(name, args)
         if (change) return { ...text(change, true), summary: `${name} -> not run (shared chat: browser change card)` }
+      }
+      // file_upload alone (its tickets are made for the one call; docs/decisions/20261126-browser-file-upload.md)
+      if (name === 'browser_batch' && Array.isArray(args.actions) && args.actions.some((a) => a && typeof a === 'object' && (a as { name?: unknown }).name === 'file_upload')) {
+        return { ...text('Nothing was run: file_upload cannot be part of browser_batch. Call file_upload on its own, then take a screenshot.', true), summary: `${name} -> refused (file_upload in a batch)` }
+      }
+      // its files read and checked as the person now, before anything is sent (chat/browser-upload.ts)
+      let upload: UploadFileReady[] | null = null
+      if (name === 'file_upload') {
+        const got = await prepareBrowserUpload(exec, args, name)
+        if ('refused' in got) return { ...text(got.refused, true), summary: got.summary }
+        upload = got.files
       }
       const person = turnPerson(exec)
       /** null when the address may be opened; otherwise the refusal for the AI */
@@ -1986,10 +2010,22 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       }
       // the stored keys and key-like text are hidden before anything sees the result; a page that shows a key gets no
       // screenshot or script, and the AI hands over (chat/browser-keys.ts, docs/decisions/20261124-browser-key-guard.md)
+      const files = upload
+      // file_upload: each file's single-use ticket, bound to this call (its deadline, its person and window), in place
+      // of the path the AI gave (realtime/browser-uploads.ts)
+      const prepare = files && name === 'file_upload'
+        ? (callId: string, deadline: number) => {
+          const ids = rt.relay.uploads.issue(files.map((f) => ({ userId: spec.userId, windowId: spec.windowId!, callId, name: f.name, bytes: f.bytes, sha256: f.sha256, expiresAt: deadline, recheck: f.recheck })))
+          if (!ids) return BUSY_TEXT
+          const { files: _named, ...rest } = args
+          void _named
+          return { ...rest, files: files.map((f, i) => ({ ticket: ids[i]!, name: f.name, size: f.bytes.length, sha256: f.sha256 })) }
+        }
+        : undefined
       const call: BrowserCall = async (tool, a) => {
-        const r = await rt.relay.call({ userId: spec.userId, windowId: spec.windowId!, turnId: spec.turnId, chatId: spec.chatId, tool, args: a, signal: exec.abort.signal, sites: [...sites], office: [...officeHosts] })
+        const r = await rt.relay.call({ userId: spec.userId, windowId: spec.windowId!, turnId: spec.turnId, chatId: spec.chatId, tool, args: a, signal: exec.abort.signal, sites: [...sites], office: [...officeHosts], ...(tool === 'file_upload' && prepare ? { prepare } : {}) })
         keepDeviceAlways(exec, person, r.always)
-        return r
+        return tool === 'file_upload' ? oldAppResult(r) : r
       }
       const g = await guardedBrowserCall(name, args, call, spec.locale, exec.redactor())
       if (g.refused) return { ...text(g.text, true), summary: g.summary }
@@ -2011,9 +2047,11 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       }
       if (!r.ok) content.push({ type: 'text', text: `Error: ${r.error ?? 'browser tool failed'}` })
       for (const n of g.notes) content.push({ type: 'text', text: n })
-      exec.patchToolStep(name, (s) => (shared.length ? { images: [...(s.images ?? []), ...shared] } : {}))
+      // the files are in the page: the step says how many and where ("파일 2개 첨부함: mail.daum.net · …")
+      const attached = files ? attachedStepLabel(r, files, spec.locale) : null
+      exec.patchToolStep(name, (s) => ({ ...(shared.length ? { images: [...(s.images ?? []), ...shared] } : {}), ...(attached ? { label: exec.redact(attached) } : {}) }))
       if (!content.length) content.push({ type: 'text', text: r.ok ? 'OK' : 'Error' })
-      return { content, isError: !r.ok, summary: `${name} -> ${r.ok ? 'ok' : 'error: ' + (r.error ?? '').slice(0, 200)}${guardSummary(g)}${allSites ? ' (all websites allowed)' : ''}` }
+      return { content, isError: !r.ok, summary: `${name} -> ${r.ok ? 'ok' : 'error: ' + (r.error ?? '').slice(0, 200)}${guardSummary(g)}${allSites ? ' (all websites allowed)' : ''}${files ? ` (${files.length} file${files.length === 1 ? '' : 's'} ${r.ok ? 'attached' : 'offered'}: ${uploadSummary(files)})` : ''}` }
     },
   }
 }

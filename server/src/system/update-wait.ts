@@ -10,6 +10,9 @@
 // (chat/schedules.ts runDue: a missed run happens once after the restart) and refuses a foreground dev-environment
 // command that could not end before `until` (devenv/tool.ts: a job keeps running through the restart, a foreground
 // command does not), and Admin says "An update is waiting for N running tasks to finish".
+// A restart from Admin › System › Health (system/restart.ts) sets the same mark with kind 'restart' while it waits for
+// running answers: scheduled runs wait the same way, and Admin says it with the restart's own words (never "Update
+// now anyway": skippable is the update's only).
 import fs from 'node:fs'
 import path from 'node:path'
 import type { AppConfig } from '../app-config'
@@ -21,16 +24,19 @@ export interface UpdateWait {
   until: string
   /** this server's own run, still in its wait: "Update now anyway" can end the wait (skipUpdateWait) */
   skippable: boolean
+  /** an update (this server's or root's) or a restart from Admin (system/restart.ts) */
+  kind: 'update' | 'restart'
 }
 
 /** root's marker counts this long past its `until`: the run still copies, switches and restarts, then removes it (a
  * run killed meanwhile leaves the file, which stops counting then) */
 export const ROOT_WAIT_GRACE_MS = 15 * 60_000
 
-let local: { since: string; until: string; waiting: boolean; skip: boolean; endsBy?: number } | null = null
+let local: { since: string; until: string; waiting: boolean; skip: boolean; endsBy?: number; kind: UpdateWait['kind'] } | null = null
 
-/** this server's own update run starts (until: the end of its wait) / its wait ends / the run ends */
-export function beginUpdateWait(now: Date, until: Date) { local = { since: now.toISOString(), until: until.toISOString(), waiting: true, skip: false } }
+/** this server's own update run starts (until: the end of its wait) / its wait ends / the run ends. kind 'restart': a
+ * restart from Admin waits (system/restart.ts), with the same ends. */
+export function beginUpdateWait(now: Date, until: Date, kind: UpdateWait['kind'] = 'update') { local = { since: now.toISOString(), until: until.toISOString(), waiting: true, skip: false, kind } }
 /** the wait is over: the restart comes next (after the backup and the download), so `until` is now */
 export function updateWaitOver() { if (local) { local.waiting = false; local.until = new Date().toISOString() } }
 export function endUpdateWait() { local = null }
@@ -38,7 +44,7 @@ export function endUpdateWait() { local = null }
 export function updateWaitEndsBy(by: Date) { if (local) { local.waiting = false; local.endsBy = by.getTime() } }
 /** "Update now anyway" while this server's own update waits: its wait ends at the next look. false: none waits. */
 export function skipUpdateWait(): boolean {
-  if (!local?.waiting) return false
+  if (!local?.waiting || local.kind !== 'update') return false
   local.skip = true
   return true
 }
@@ -56,14 +62,17 @@ function rootWait(rootDir: string | null | undefined, now: Date): UpdateWait | n
     if (typeof j.since !== 'string' || typeof j.until !== 'string') return null
     const until = Date.parse(j.until)
     if (!Number.isFinite(until) || until + ROOT_WAIT_GRACE_MS <= now.getTime() || until - now.getTime() > 3 * 3600_000) return null
-    return { since: j.since, until: j.until, skippable: false }
+    return { since: j.since, until: j.until, skippable: false, kind: 'update' }
   } catch { return null }
 }
 
 /** Is an update under way that waits (or waited) for running work? null: no. */
 export function updateWaiting(o: { rootDir?: string | null; now?: Date } = {}): UpdateWait | null {
   if (local && local.endsBy !== undefined && Date.now() >= local.endsBy) local = null
-  if (local) return { since: local.since, until: local.until, skippable: local.waiting && !local.skip }
+  // a restart's own mark never hides root's update: Admin, the scheduled runs and the restart itself (its check when
+  // its wait ends) see the update
+  if (local?.kind === 'restart') return rootWait(o.rootDir, o.now ?? new Date()) ?? { since: local.since, until: local.until, skippable: false, kind: 'restart' }
+  if (local) return { since: local.since, until: local.until, skippable: local.kind === 'update' && local.waiting && !local.skip, kind: local.kind }
   return rootWait(o.rootDir, o.now ?? new Date())
 }
 

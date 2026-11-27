@@ -125,6 +125,22 @@ func (e *Enroller) fetchChain(ri *restoreInfo, ids []age.Identity, staging strin
 			files++
 			total += n
 		}
+		// The server checks the chain with the backups' own ids: each meta.json has the id the server gave the backup
+		// (its local id, for example 20261126T143736Z-daily) and team.base names the local id it builds on. The control
+		// plane's backup id is another id. So the folder and the chain.json entry use the local id from meta.json
+		// (found on staging 2026-11-27: "<cp id> builds on <local id>, not on <cp id>").
+		if localID, err := backupLocalID(filepath.Join(dir, "meta.json")); err != nil {
+			return 0, 0, fail("restore_failed", "%s/meta.json: %v", b.BackupID, err)
+		} else if localID != b.BackupID {
+			to := filepath.Join(staging, localID)
+			if _, err := os.Lstat(to); err == nil {
+				return 0, 0, fail("restore_failed", "two backups of the chain have the local id %q", localID)
+			}
+			if err := os.Rename(dir, to); err != nil {
+				return 0, 0, fail("restore_failed", "%v", err)
+			}
+			entry.BackupID = localID
+		}
 		chain = append(chain, entry)
 	}
 	// chain.json is what the server's admin.js restore-artifacts reads (server/src/system/cloud-admin.ts chainOf): a JSON
@@ -470,4 +486,23 @@ func sameDevice(a, b string) (bool, error) {
 		return true, nil
 	}
 	return da.Dev == db.Dev, nil
+}
+
+// backupLocalID reads the "id" of a backup's meta.json: the id the team server gave the backup, which the next
+// backup's team.base names. It must be a safe folder name.
+func backupLocalID(metaFile string) (string, error) {
+	b, err := os.ReadFile(metaFile)
+	if err != nil {
+		return "", err
+	}
+	var m struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(b, &m); err != nil {
+		return "", err
+	}
+	if !safeNameRE.MatchString(m.ID) {
+		return "", fmt.Errorf("bad backup id %q", m.ID)
+	}
+	return m.ID, nil
 }

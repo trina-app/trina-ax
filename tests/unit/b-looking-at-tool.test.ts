@@ -249,12 +249,12 @@ describe('where it is offered', () => {
     expect(msg.content).not.toContain(rooms.finance)
   })
 
-  test('off: a shared chat, a chat others wrote in, a scheduled run, Slack, a confidential chat, a template or restricted run, a guest', async () => {
+  test('off: a scheduled run, Slack, a confidential chat, a template or restricted run, a guest (a shared chat and one others wrote in have it behind the read card: docs/decisions/20261126-shared-chat-everything.md)', async () => {
     const base = { rt: h.rt(), spec: { userId: 'bob', chatId: 'none', clientKind: 'web' }, shared: null, restricted: false, templateRun: false, otherAuthors: false }
     const off = (over: Record<string, unknown>) => lookingAtOff({ ...base, ...over } as never)
     expect(off({})).toBeNull()
-    expect(off({ shared: { kind: 'project' } })).toBe('a shared chat')
-    expect(off({ otherAuthors: true })).toBe('a chat other people wrote in')
+    expect(off({ shared: { kind: 'project' } })).toBeNull()
+    expect(off({ otherAuthors: true })).toBeNull()
     expect(off({ spec: { ...base.spec, clientKind: 'schedule' } })).toBe('a scheduled run')
     expect(off({ spec: { ...base.spec, clientKind: 'slack' } })).toBe('a question from Slack')
     expect(off({ restricted: true })).toBe('a run limited to one task')
@@ -276,9 +276,9 @@ describe('where it is offered', () => {
     expect(mark(r.chatId)).toBe(1)
   })
 
-  test('never a sub-agent\'s, a shared chat\'s or a guest\'s tool; after a room read it goes on without the room card; it marks the chat as outside (fails closed)', () => {
+  test('never a sub-agent\'s or a guest\'s tool (a shared chat\'s behind its read card); after a room read it goes on without the room card; it marks the chat as outside (fails closed)', () => {
     expect(PARENT_ONLY_TOOLS.has('looking_at')).toBe(true)
-    expect(SHARED_TOOLS.has('looking_at')).toBe(false)
+    expect(SHARED_TOOLS.has('looking_at')).toBe(true)
     expect(GUEST_TURN_TOOLS.has('looking_at')).toBe(false)
     expect(ROOMS_SEEN_READ_ONLY_TOOLS.has('looking_at')).toBe(true)
     expect(OWN_CHAT_TEAM_TOOLS.has('looking_at')).toBe(false)

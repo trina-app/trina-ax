@@ -47,7 +47,7 @@ import { refusesUnsandboxed, registersLinkHandler } from '../common/linux'
 import { AppWindow, type AllowAllOutcome } from './app-window'
 import { workFilesVersion } from './work-files'
 import { scanAsk } from '../common/work-files'
-import { GOOGLE_SIGNIN_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION } from '@mycel/shared/desktop-bridge'
+import { BROWSER_BRIDGE_VERSION, GOOGLE_SIGNIN_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION } from '@mycel/shared/desktop-bridge'
 import { debug } from './debug'
 import { HostClassifier } from './pane/classify'
 import { openExternal } from './security'
@@ -407,7 +407,7 @@ function registerIpc() {
   // team page bridge (shared/src/desktop-bridge.ts); store: a Mac App Store or Microsoft Store build, where Settings >
   // Apps offers no installer
   ipcMain.on('bridge:info', (e) => {
-    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, downloads: !process.mas, localApps: process.mas ? 0 : LOCAL_APPS_BRIDGE_VERSION, dictation: process.mas ? 0 : dictation.version(), googleSignIn: GOOGLE_SIGNIN_BRIDGE_VERSION } : null
+    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, downloads: !process.mas, localApps: process.mas ? 0 : LOCAL_APPS_BRIDGE_VERSION, dictation: process.mas ? 0 : dictation.version(), googleSignIn: GOOGLE_SIGNIN_BRIDGE_VERSION, paneVersion: BROWSER_BRIDGE_VERSION } : null
   })
   // voice input on this Mac (main/dictation.ts): the team page's top frame only; the sound comes in as samples, the
   // words go back to that page alone, and a reload or another page ends its recording

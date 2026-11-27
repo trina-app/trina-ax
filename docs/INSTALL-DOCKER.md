@@ -271,3 +271,7 @@ docker compose down -v     # also deletes the volume: all team data. Only after 
 | `kernel.yama.ptrace_scope is 0` | On the host: `sysctl -w kernel.yama.ptrace_scope=1` and add it to `/etc/sysctl.d/` |
 
 Logs: `docker compose logs trina-ax`. Status: `docker compose exec trina-ax mycel-ctl status`.
+
+A server that runs but stops answering is found by the bootstrap's watchdog (every 30 seconds, 10 failures in a row).
+It only logs it (`watchdog:` lines) unless `"watchdog": {"kill": true}` is in the container's `server.json`
+([Configuration](CONFIGURATION.md)); then it restarts the server, at most 3 times an hour.

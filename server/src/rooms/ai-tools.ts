@@ -2,7 +2,6 @@
 // A leaf module: the chat turn (chat/turn.ts, chat/tools.ts) and the tool socket (mcp/socket.ts) read it. (It began as
 // the room AI's list, docs/DECISIONS.md "대화방의 트리나"; that AI was removed, "Room @트리나 code removed".)
 import { FILE_TOOLS } from '@mycel/shared'
-import type { CardAlwaysKind } from '@mycel/shared/api'
 import { hwpOutputPath } from '../files/hwpx-check'
 import { commentDocxOutput, editOfficeOutput, makeFileOutputPath, pdfOutputPath, stampOutputOf } from '../tools/make-file-path'
 
@@ -29,17 +28,13 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
   'change_banner_text',
 ])
 
-/** Tools a shared chat gets only while the person whose turn it is has "Always allow" on for the tool's card (Rule A,
- * decisions 1 and 2 of docs/decisions/20261123-ask-registry-findings.md): their choice holds in shared chats too. Without
- * it the tool is not offered there (it would only refuse). Each keeps all its own checks of who may change what. */
-export const SHARED_UNDER_ALWAYS: Readonly<Record<string, CardAlwaysKind>> = {
-  change_project_members: 'project_members', change_folder_access: 'folder_access', skill_files: 'skill_files',
-}
-
 /**
  * The only tools a shared project chat gets (docs/DECISIONS.md "Shared project chats"; an allowlist: a tool added later
- * is not offered there until it is listed). Its transcript is seen by everyone who sees its project, so: no private
- * memories (only the asker's memories kept in that chat, from the asker's own words), no chat title, no Google Drive, no room reading (rooms, room_read, room_file, save_room_file). Posting is there (docs/DECISIONS.md "Sending
+ * is not offered there until it is listed). Since docs/decisions/20261126-shared-chat-everything.md it holds every tool
+ * of a private chat but other chats' memories (only the asker's memories kept in that chat, from the asker's own words):
+ * each runs for the asker's own request with their own access, behind its own card (a change), the shared chat's read
+ * card (a place some people here cannot open: rooms, files shared with the asker, what they have open) or the
+ * once-per-place notice (the asker's own Google Drive and Slack). Posting is there (docs/DECISIONS.md "Sending
  * to a person or a room from a shared chat"): post_to_room sends as the person whose turn it is, after their yes on its
  * card, which only they see; it brings nothing into the chat. The connections' tools are not listed here: chat/tools.ts
  * adds them in a shared chat from the connections' provider in its shared mode, each call behind the asker's card where
@@ -63,8 +58,8 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   'edit_office',
   // many renames in one call (tools/file-moves.ts), like rename_file: what each names counts as read (namedPaths)
   'rename_files',
-  // the original of a Gmail attachment the asker's connection gave in this chat (tools/save-connector-file.ts; drive:
-  // refuses in a shared chat)
+  // the original of a Gmail attachment the asker's connection gave in this chat, or of a Google Drive file behind the
+  // Drive notice (tools/save-connector-file.ts)
   'save_connector_file',
   // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts), and its copy into the team
   // folder behind the wider-audience card
@@ -105,14 +100,24 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   // asker said here is kept in the asker's own memory, other people's words are checked as tool output, and only the
   // memories kept in this very chat are seen or changed here. A member's only (SHARED_MEMBER_ONLY_TOOLS)
   'remember', 'forget',
+  // the rest of a private chat's tools (docs/decisions/20261126-shared-chat-everything.md): the chat's title (everyone
+  // here sees it, as a rename on the screen), skills moved or renamed behind move_skill's card, project members, folder
+  // access and a skill's files behind their own cards (the person's Always still skips them), connecting a service on
+  // the asker's own card, the asker's team chat rooms, files shared with them, what they have open and their folders
+  // behind the read card, and their Google Drive behind the once-per-place notice (chat/tools.ts)
+  'set_title', 'move_skill', 'change_project_members', 'change_folder_access', 'skill_files', 'connect_service',
+  'rooms', 'room_read', 'room_file', 'save_room_file', 'shared_with_me', 'looking_at', 'my_folders',
+  'drive_search', 'drive_list', 'drive_read',
   // the demo's banner words (tools/demo-banner.ts; offered only on a demo with a banner kit): a local tool like make_file,
   // the banner saved into the project's folder through the write gates (WRITE_TARGET_ARGS, SAVE_CARD_TOOLS). Missing
   // here, a shared project chat never had it: the AI took 13 steps and saved a junk SVG (demo re-test 11-22)
   'change_banner_text',
 ])
 
-/** Tools of SHARED_TOOLS a guest's turn in a shared chat never gets (a guest keeps no memories there) */
-export const SHARED_MEMBER_ONLY_TOOLS: ReadonlySet<string> = new Set(['remember', 'forget'])
+/** Tools of SHARED_TOOLS a guest's turn in a shared chat never gets (a guest keeps no memories there; the chat's title
+ * stays as before the members' tools came in: guest limits stay, docs/decisions/20261126-shared-chat-everything.md).
+ * A guest's room tools keep their own limit (only the group chat they were invited to: chat/room-tools.ts) */
+export const SHARED_MEMBER_ONLY_TOOLS: ReadonlySet<string> = new Set(['remember', 'forget', 'set_title'])
 
 /** The arguments that name where a call writes, per tool: a shared chat's read card counts them only when something
  * is there already (chat/turn.ts sharedSources); every other path argument counts as a read. */

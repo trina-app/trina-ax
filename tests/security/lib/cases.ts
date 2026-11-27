@@ -669,6 +669,9 @@ export const SPECS: Record<string, Spec> = {
 
   // ---- browser relay (own session/window) ----
   pollCalls: { build: (c) => c.get('/api/browser/calls?windowId=win-xxxxxxxx&waitMs=1'), scope: 'self' },
+  // a file_upload ticket: nobody's here (any made-up ticket is the same 404 for every signed-in caller; another person's
+  // real ticket too: tests/unit/b-browser-upload.test.ts)
+  browserUpload: { build: (c) => c.get(`/api/browser/uploads/${'A'.repeat(43)}`), scope: 'nobody' },
   postResult: { build: (c) => c.post('/api/browser/results', { callId: 'nope', ok: false, error: 'x' }), scope: 'self',
     check: (r) => { /* unknown call -> 404; never another window's */ } },
   // ---- local relay: apps on the person's computer (own session/window) ----
@@ -895,6 +898,12 @@ export const SPECS: Record<string, Spec> = {
   managedNotices: { build: (c) => c.get('/api/managed/notices'), scope: 'byLevel' },
   updateStatus: { build: (c) => c.get('/api/admin/update'), scope: 'byLevel' },
   startUpdate: { skipPositive: true, build: (c) => c.post('/api/admin/update', { password: 'wrong-pass' }), scope: 'byLevel' },
+  // Health "Restart…" (system/restart.ts): owner and admins; a wrong password is refused before anything; "now" while
+  // one waits is the owner's; nothing waits in the matrix (409 for the allowed)
+  restartStatus: { build: (c) => c.get('/api/admin/restart'), scope: 'byLevel' },
+  startRestart: { skipPositive: true, build: (c) => c.post('/api/admin/restart', { what: 'server', when: 'idle', password: 'wrong-pass' }), scope: 'byLevel' },
+  restartNow: { skipPositive: true, build: (c) => c.post('/api/admin/restart/now', { password: 'wrong-pass' }), scope: 'byLevel' },
+  cancelRestart: { skipPositive: true, build: (c) => c.del('/api/admin/restart'), scope: 'byLevel' },
   // office mode automatic updates (admin and owner): status is null outside office mode; "now" re-asks the password
   officeUpdateStatus: { build: (c) => c.get('/api/admin/office-update'), scope: 'byLevel' },
   officeClaudeMcpNotice: { build: (c) => c.get('/api/admin/office-claude-mcp-notice'), scope: 'byLevel' },

@@ -307,5 +307,34 @@
     return { ok: false, error: `${r} is not a form control.` };
   };
 
-  window.__claude = { ref, get, tree, find, text, center, describe, setValue, passwordFocused, passwordAt, passwordRef };
+  /**
+   * The file field behind an element (file_upload): the input itself, a label's control, a file input inside it, or the
+   * only file input near it (up to four parents up: a "파일첨부" button next to its hidden input). null: none (the
+   * desktop then clicks it and takes the file picker it opens).
+   */
+  const isFile = (el) => !!el && el.tagName === "INPUT" && (el.getAttribute("type") ?? "").toLowerCase() === "file";
+  const fileInputOf = (el) => {
+    if (!el) return null;
+    if (isFile(el)) return el;
+    if (el.tagName === "LABEL" && isFile(el.control)) return el.control;
+    const label = el.closest ? el.closest("label") : null;
+    if (label && isFile(label.control)) return label.control;
+    const inside = el.querySelectorAll ? el.querySelectorAll('input[type="file" i]') : [];
+    if (inside.length === 1) return inside[0];
+    let up = el.parentElement;
+    for (let i = 0; up && i < 4; i++, up = up.parentElement) {
+      const near = up.querySelectorAll('input[type="file" i]');
+      if (near.length === 1) return near[0];
+      if (near.length > 1) return null;
+    }
+    return null;
+  };
+  const uploadTarget = (r) => fileInputOf(get(r));
+  const uploadTargetAt = (x, y) => {
+    let el = document.elementFromPoint(x, y);
+    while (el && el.shadowRoot) { const i = el.shadowRoot.elementFromPoint(x, y); if (!i || i === el) break; el = i; }
+    return fileInputOf(el);
+  };
+
+  window.__claude = { ref, get, tree, find, text, center, describe, setValue, passwordFocused, passwordAt, passwordRef, uploadTarget, uploadTargetAt };
 })();

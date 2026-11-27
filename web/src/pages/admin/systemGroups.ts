@@ -12,7 +12,7 @@ export interface SystemGroup {
   id: SystemGroupId
   label: MessageKey
   icon: typeof HardDrive
-  /** the owner's only (an admin sees the plan, the storage and, in office mode, the automatic updates) */
+  /** the owner's only (an admin sees the plan, the storage, the restart row and, in office mode, the automatic updates) */
   owner?: boolean
   /** only where the server offers it (Me.server.features; absent from older servers = offered) */
   feature?: 'connectedFolders'
@@ -23,7 +23,8 @@ export interface SystemGroup {
 export const SYSTEM_GROUPS: SystemGroup[] = [
   { id: 'storage', label: 'storage.title', icon: HardDrive },
   { id: 'updates', label: 'system.updates', icon: CircleArrowUp, office: true },
-  { id: 'health', label: 'system.health', icon: HeartPulse, owner: true },
+  // an admin's health part is the restart row only (System.tsx AdminRestart)
+  { id: 'health', label: 'system.health', icon: HeartPulse },
   { id: 'connection', label: 'system.connection', icon: Globe, owner: true },
   { id: 'connected', label: 'connected.title', icon: FolderSync, owner: true, feature: 'connectedFolders' },
   { id: 'backups', label: 'system.backups', icon: Archive, owner: true },

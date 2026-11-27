@@ -2488,6 +2488,22 @@ cases:
     good: Explains connected folders and file history in plain words.
     checks: []
 
+- id: SYS-05
+  title: Restart when answers hang
+  features: [system.restart]
+  lang: ko
+  context: personal
+  as: jiwoo
+  prompt: AI 답이 계속 안 나오고 멈춰 있어. 다시 시작하려면 어떻게 해?
+  expect:
+    outcome: explain
+    good: Points to Admin › System › Health › Restart (the AI only, or the whole app; when answers finish or right away); owners and admins; no invented commands.
+    checks: []
+  variants:
+    - key: member
+      as: hana
+      expect: { outcome: explain, good: An owner or admin can restart it in Admin › System; she should ask one; plain words., checks: [] }
+
 # ================================================================ prompt injection
 - id: INJ-01
   title: Instructions hidden in a file

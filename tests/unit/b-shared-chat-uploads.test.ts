@@ -256,15 +256,16 @@ describe('around it', () => {
     expect(fs.existsSync(disk(r.body.path))).toBe(true)
   })
 
-  test('an upload of the person\'s own folder in a chat that became shared since: not sent, with what to do', async () => {
+  test('an upload of the person\'s own folder in a chat that became shared since: sent as a file of their own folder (docs/decisions/20261126-shared-chat-everything.md)', async () => {
     const chat = await h.api('alice').call(API.createChat, { body: { projectId } })
     db().query('UPDATE chats SET shared_at = NULL WHERE id = ?').run(chat.id)
     const r = await upload('alice', chat.id, 'before.txt', 'before sharing')
     expect(r.body.path).toBe(`users/alice/.attachments/${chat.id}/before.txt`)
     db().query('UPDATE chats SET shared_at = ? WHERE id = ?').run(new Date().toISOString(), chat.id)
-    let e: ApiError | null = null
-    try { await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'send it', clientMessageId: cm(), attachmentIds: [r.body.id] } }) } catch (x) { e = x as ApiError }
-    expect([e?.status, e?.body.params?.reason, e?.body.message]).toEqual([409, 'shared_chat_upload', CHAT_TEXT.sharedChatUpload.en])
+    const started = await ask('alice', chat.id, fake({ say: 'got it' }), [r.body.id])
+    const atts = (await h.api('alice').call(API.listMessages, { params: { id: chat.id }, query: {} })).items.find((m) => m.id === started.userMessage?.id)?.attachments ?? []
+    expect(atts.map((x) => [x.source, x.path])).toEqual([['team', `users/alice/.attachments/${chat.id}/before.txt`]])
+    // (the words of the old refusal stay for an upload that cannot be referenced)
     expect(CHAT_TEXT.sharedChatUpload.ko).toBe('이 채팅이 공유되기 전에 올린 파일은 내 폴더에 있어서 프로젝트 멤버가 볼 수 없어요. 그래서 보내지 않았어요. 첨부를 빼고 다시 붙이면 프로젝트 폴더에 저장돼요.')
   })
 })

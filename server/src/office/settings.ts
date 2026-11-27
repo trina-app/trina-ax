@@ -59,6 +59,9 @@ export interface OfficeSettings {
   includeVpn: boolean
   /** documents mode with the document kit (docs/decisions/20261124-office-mac-doc-kit.md): on unless TEAMAX_DOCUMENTS_MODE=0 */
   documentsMode: boolean
+  /** the supervisor's watchdog restarts a server that stopped answering (office/watchdog.ts); off = log only (the
+   * default for now, docs/decisions/20261127-restart.md) */
+  watchdogKill: boolean
   /** who may connect to the office port: 'subnet' (the Mac's own office subnets, the default), 'any', or CIDRs */
   allowFrom: 'subnet' | 'any' | string[]
   /** the internet address through a Cloudflare Tunnel (app.example.com), null = none (docs/OFFICE.md "인터넷 주소") */
@@ -149,6 +152,7 @@ export function settingsFrom(home: string, e: Record<string, string>): OfficeSet
     caConstraints: e.TEAMAX_CA_CONSTRAINTS !== '0',
     includeVpn: e.TEAMAX_INCLUDE_VPN === '1',
     documentsMode: e.TEAMAX_DOCUMENTS_MODE !== '0',
+    watchdogKill: e.TEAMAX_WATCHDOG_KILL === '1',
     allowFrom: parseAllowFrom(e.TEAMAX_ALLOW_FROM),
     publicHost: parsePublicHost(e.TEAMAX_PUBLIC_HOST),
     publicAllowFrom: (() => { const a = parseAllowFrom(e.TEAMAX_PUBLIC_ALLOW_FROM); return Array.isArray(a) ? a : [] })(),
@@ -246,6 +250,8 @@ export function settingsText(s: OfficeSettings): string {
     line('TEAMAX_INCLUDE_VPN', s.includeVpn ? 1 : 0),
     '# documents mode: the AI builds Word, PowerPoint and Excel files with the document kit (0 = off)',
     line('TEAMAX_DOCUMENTS_MODE', s.documentsMode ? 1 : 0),
+    '# 1: restart the server when it stops answering for about 5 minutes (at most 3 times an hour); 0: only log it',
+    line('TEAMAX_WATCHDOG_KILL', s.watchdogKill ? 1 : 0),
     line('TEAMAX_ALLOW_FROM', Array.isArray(s.allowFrom) ? s.allowFrom.join(',') : s.allowFrom),
     '# internet address through a Cloudflare Tunnel (teamax public-address set|off); empty = none',
     line('TEAMAX_PUBLIC_HOST', s.publicHost),

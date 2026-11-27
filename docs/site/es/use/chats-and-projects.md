@@ -168,6 +168,18 @@ Pulse **Compartir** (**Guardar** si ya estaba compartido). Si sale con cambios s
   **Continuar**. Enviar un correo o un archivo sigue preguntándole en su tarjeta, y un archivo del equipo que algunas
   personas del chat no pueden abrir le pregunta antes. El mensaje de otra persona nunca puede usar sus herramientas. Sus
   recuerdos de otros chats se quedan fuera.
+- **Todo lo demás también funciona aquí.** La IA puede ponerle nombre al chat, mover o renombrar habilidades, mover
+  archivos del equipo a la papelera, cambiar los miembros de un proyecto o quién puede abrir una carpeta (cada cosa en su
+  tarjeta de siempre, que solo usted ve), leer sus salas de chat del equipo, los archivos que sus compañeros compartieron
+  con usted, lo que tiene abierto, sus carpetas, su Google Drive y Slack, y conectar un servicio nuevo en su tarjeta.
+  Cuando traería algo que algunas personas del chat no pueden abrir (una sala en la que no están, un archivo compartido
+  solo con usted), le pregunta antes. Un archivo que adjuntó antes de compartir el chat puede volver a adjuntarse, como un
+  archivo de su propia carpeta.
+- **Adjuntar archivos en el navegador de la app de escritorio.** Pida a la IA que adjunte archivos del equipo, o archivos
+  enviados en el chat, a una página en la que tenga la sesión iniciada (la respuesta de un correo web, un formulario): los
+  pone en el campo de archivo de la página como si los eligiera usted, hasta 20 archivos y 100 MB a la vez, y los ve en la
+  página. Enviar sigue siendo el botón de la propia página, cuando usted lo diga. Necesita la app de escritorio al día;
+  Aside y otras apps de su computadora no pueden adjuntar archivos.
 - Un chat de un proyecto personal sigue siendo suyo: **Compartir** le ofrece sacarlo antes del proyecto. Un chat de un proyecto del equipo se comparte
   con los miembros del proyecto (consulte [Proyectos](#proyectos)).
 

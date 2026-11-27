@@ -599,7 +599,9 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
   const leftSec = upd ? Math.floor((Date.parse(upd.until) - Date.now()) / 1000) - 30 : 0
   if (upd && (data.timeout_sec ?? 120) > leftSec) {
     const fits = leftSec >= 10 ? ` or keep timeout_sec at ${leftSec} or less` : ''
-    return { ...text(`Not started: a Trina update is waiting for running tasks to finish and restarts the server soon, which would stop this command. Run it with job=true (a job keeps running through the update, and the person gets a notice when it ends)${fits}, or tell the person to try again after the update.`, true), summary: `${what} -> update waiting` }
+    const why = upd.kind === 'restart' ? 'an admin asked to restart Trina once the running tasks finish, which' : 'a Trina update is waiting for running tasks to finish and restarts the server soon, which'
+    const after = upd.kind === 'restart' ? 'the restart' : 'the update'
+    return { ...text(`Not started: ${why} would stop this command. Run it with job=true (a job keeps running through ${after}, and the person gets a notice when it ends)${fits}, or tell the person to try again after ${after}.`, true), summary: `${what} -> ${upd.kind === 'restart' ? 'restart' : 'update'} waiting` }
   }
   const jobName = data.job ? (data.log_name ?? newJobName()) : null
   // the log is per person: a job or dev server with the same name would write over it

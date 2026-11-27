@@ -498,16 +498,15 @@ describe('chat events are not replayed to someone taken out of a people-shared c
 })
 
 describe('QA TC-3625: after a thread was quoted, "add them to the project" in a shared chat', () => {
-  test('a shared chat does not offer change_project_members, and its prompt tells the AI to say so plainly (delete_files is there for the AI\'s own files only, QA TC-7332)', async () => {
+  test('a shared chat offers change_project_members (its card; docs/decisions/20261126-shared-chat-everything.md), and its prompt says who changes the members when the asker may not', async () => {
     const c = await h.api('alice').call(API.createChat, { body: { projectId } })
     const tools = (await ask('alice', c.id, fake({ echo: 'tools' }))).done.content
     expect(tools).toContain('read')
-    expect(tools.split(',')).not.toContain('change_project_members')
+    expect(tools.split(',')).toContain('change_project_members')
     expect(tools.split(',')).toContain('delete_files')
     const sys = (await ask('alice', c.id, fake({ echo: 'system' }))).done.content
     expect(sys).toContain("Only an admin changes this project's members")
-    expect(sys).toContain("putting other people's team files in the trash")
-    expect(sys).toContain('say plainly')
+    expect(sys).not.toContain('Not available in a shared chat')
     // a person's own chat in the same project does have them (the card is reachable there)
     const own = await h.api('alice').call(API.createChat, { body: { projectId, private: true } })
     const mine = (await ask('alice', own.id, fake({ echo: 'tools' }))).done.content

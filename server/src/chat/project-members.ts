@@ -4,13 +4,13 @@
 // after the person's yes on ONE server card. The owner asked for it (2026-11-10, "이것도 가능하면 좋지 않을까?") after the
 // AI answered that it had no tool; an independent review set the rules below (M1–M5, S1–S2, N1–N7).
 //
-// - Where: the person's own chat with the person there. Refused up front (refusal()) in a scheduled run, a room, a
-//   shared project chat, a confidential chat, a chat other people wrote in, a question from Slack or a Slack thread's
-//   chat (exec.fromSlack), a draft / judge / merge chat, and for a sub-agent. Never offered in rooms, shared or
-//   confidential chats (chat/tools.ts add()), an approved template run, FILE_TOOLS or the remote connector. The person's
-//   own "Always allow" for members changes lifts the scheduled run, the shared chat (where it is then offered) and the
-//   chat others wrote in (Rule A, docs/decisions/20261123-ask-registry-findings.md); every check of who may manage the
-//   project stays. A guest is always refused.
+// - Where: the person's own chat, a shared chat and a chat other people wrote in, with the person there (behind the
+//   card: docs/decisions/20261126-shared-chat-everything.md). Refused up front (refusal()) in a scheduled run, a room, a
+//   confidential chat, a question from Slack or a Slack thread's chat (exec.fromSlack), a draft / judge / merge chat,
+//   and for a sub-agent. Never offered in rooms or confidential chats (chat/tools.ts add()), an approved template run,
+//   FILE_TOOLS or the remote connector. The person's own "Always allow" for members changes lifts the scheduled run
+//   (Rule A, docs/decisions/20261123-ask-registry-findings.md); every check of who may manage the project stays. A
+//   guest is always refused.
 // - Read rooms (M1): a chat that read rooms by the one rule of chat/read-rooms.ts (chats.rooms_seen, a room's side chat,
 //   or a "> " quote in the person's messages on this branch: "Ask Trina about this" quotes another person's message
 //   there) gets the card with the room line first (roomsSeenWhy). It is the call's only card (rooms/ai-tools.ts
@@ -307,7 +307,8 @@ export function projectMembersRefusal(exec: Pick<MembersExec, 'spec' | 'shared' 
   if (exec.restricted || exec.templateRun) return no('limited run', { kind: 'mode', mode: 'a run limited to one task' }, `${ownChat}, or change them on ${panel(L)}`)
   // a guest never changes members (before any Always: theirs never reaches the checks below)
   if (isGuestUser(exec.rt.db, exec.spec.userId)) return no('guest', { kind: 'mode', mode: 'a guest\'s chat' }, `a project member who manages it can change them on ${panel(L)}`)
-  // the person's own Always for members changes holds in their scheduled run, a shared chat and a chat others wrote in
+  // a shared chat and a chat others wrote in: the card as in the person's own chat (docs/decisions/
+  // 20261126-shared-chat-everything.md); the person's own Always for members changes holds in their scheduled run too
   // (Rule A, decision 2 of docs/decisions/20261123-ask-registry-findings.md); who may manage the project and every name
   // are checked as always (run() below: mayManageProject, accessEditable, the plan)
   // a task made without its card (schedules.quiet) adds nobody to a project, whatever the person's Always (it opens the
@@ -315,9 +316,7 @@ export function projectMembersRefusal(exec: Pick<MembersExec, 'spec' | 'shared' 
   if (exec.spec.clientKind === 'schedule' && quietRun(exec.rt.db, exec.spec.turnId)) return no('quiet schedule', { kind: 'mode', mode: 'a scheduled task made without its card (it never shares anything)' }, `${ownChat}, or change them on ${panel(L)}`)
   const always = alwaysHere(exec.alwaysPlace?.(), 'project_members') === 'on'
   if (exec.spec.clientKind === 'schedule' && !always) return no('scheduled run', cardReason('unattended'), `${cardNext('unattended', 'in a chat of their own')}, or change them on ${panel(L)}`)
-  if (exec.shared && !always) return no('shared chat', { kind: 'mode', mode: 'a shared project chat', why: 'everyone in the project reads and writes it' }, `${ownChat}, or change them on ${panel(L)}`)
   if (confidentialChat(exec.rt.db, exec.spec.chatId)) return no('confidential chat', { kind: 'mode', mode: 'a confidential chat (safe operations)' }, `the user can change them on ${panel(L)}`)
-  if (exec.otherAuthors && !always) return no('other authors', { kind: 'mode', mode: 'a chat other people wrote in', why: 'one of their messages could ask for the change' }, `${ownChat}, or change them on ${panel(L)}`)
   if (exec.fromSlack) return no('slack', { kind: 'mode', mode: 'a question from Slack or a Slack thread\'s chat' }, `the user can ask in the app's AI chat, or change them on ${panel(L)}`)
   return null
 }
@@ -556,8 +555,8 @@ export function projectMembersTool(exec: MembersExec): Tool {
   function findProject(user: Principal, name: string | undefined): { r: ProjectRow; own: boolean } | { reason: string; text: string } {
     const L = spec.locale
     const mine = chatProject()
-    // a shared chat (only under the person's own Always): this chat's own project only, so no other project's name or
-    // members reach the people here (independent review); its members see this project already
+    // a shared chat: this chat's own project only, so no other project's name or members reach the people here
+    // (independent review); its members see this project already
     if (exec.shared) {
       const sameAsMine = !!mine && (name === undefined || [mine.name, mine.folder_path, mine.folder_path.slice(mine.folder_path.lastIndexOf('/') + 1)].some((x) => compactName(x) === compactName(name.replace(/^\/+|\/+$/g, ''))))
       if (!sameAsMine) return { reason: 'shared_other_project', text: refusal({ done: NONE, why: { kind: 'mode', mode: 'a shared chat', why: 'here only this chat\'s own project\'s members can be changed' }, next: `${ownChat}, or change them on ${panel(L)}` }) }
