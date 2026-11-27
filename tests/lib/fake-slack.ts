@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto'
 
 /** `refused`: the error Slack answered with (the call did nothing: a refused post is not in the thread) */
 export interface Call { method: string; token: string | null; args: Record<string, string>; at: number; refused?: string }
-export type Fail = { error?: string; status?: number; retryAfter?: number; hang?: boolean; lost?: boolean; match?: (args: Record<string, string>) => boolean }
+export type Fail = { error?: string; status?: number; retryAfter?: number; hang?: boolean; lost?: boolean; delayMs?: number; match?: (args: Record<string, string>) => boolean }
 export interface FakeUser { name: string; team_id: string; real_name?: string; email?: string; is_bot?: boolean; deleted?: boolean; enterprise_id?: string }
 export interface FakeSlack {
   url: string
@@ -38,7 +38,8 @@ export interface FakeSlack {
   responses: { path: string; body: Record<string, unknown> }[]
   scopes: string[]
   opens: number
-  /** the next call of a method (the next one `match` accepts) fails like this; hang: no answer until the client gives up
+  /** the next call of a method (the next one `match` accepts) fails like this; hang: no answer until the client gives up;
+   * delayMs (alone): the usual answer, that much later
    * (recorded as a call, it reached Slack, unless `lost`: it never arrived). A list: the next calls, one each, in order. */
   failNext: Record<string, Fail | Fail[]>
   /** channels conversations.info calls shared with another organization; `unknown`: no is_ext_shared in the answer */
@@ -124,9 +125,13 @@ export function startFakeSlack(): FakeSlack {
         else delete fake.failNext[method]
         // held until the client gives up (its own time limit), then nothing is answered
         if (f.hang) { await new Promise<void>((done) => { req.signal.addEventListener('abort', () => done()); setTimeout(done, 60_000) }); return new Response('', { status: 504 }) }
-        call.refused = f.status === 429 ? 'ratelimited' : f.error ?? 'internal_error'
-        if (f.status === 429) return new Response('', { status: 429, headers: { 'retry-after': String(f.retryAfter ?? 1) } })
-        return json({ ok: false, error: f.error ?? 'internal_error' })
+        // delayMs alone: answered as usual, only later
+        if (f.delayMs !== undefined && !f.error && !f.status) await Bun.sleep(f.delayMs)
+        else {
+          call.refused = f.status === 429 ? 'ratelimited' : f.error ?? 'internal_error'
+          if (f.status === 429) return new Response('', { status: 429, headers: { 'retry-after': String(f.retryAfter ?? 1) } })
+          return json({ ok: false, error: f.error ?? 'internal_error' })
+        }
       }
       const bot = token === fake.botToken, app = token === fake.appToken || (!!token && fake.otherAppTokens.includes(token))
       // the bot's reads of `channels`: it must be in the conversation, with the history scope of its kind

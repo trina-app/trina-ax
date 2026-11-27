@@ -1619,6 +1619,26 @@ describe('the Home tab (Slack Marketplace: help, support, the AI-accuracy note)'
   })
 })
 
+describe('removed while Slack is asked (a question in flight)', () => {
+  test('nothing of the workspace is written again after Remove deleted it: no one-time link, no chat, no request', async () => {
+    expect((await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())).status).toBe(200)
+    expect((await call('dana', 'POST', '/api/admin/slack/enabled', { enabled: true })).json.enabled).toBe(true)
+    await waitFor(async () => (await call('dana', 'GET', '/api/admin/slack')).json.state === 'connected')
+    const count = (t: string) => (h.ctx.db.query(`SELECT count(*) n FROM ${t}`).get() as { n: number }).n
+    // an unlinked person asks; Slack answers who they are only after Remove ran
+    h.ctx.db.query("DELETE FROM slack_links WHERE slack_user_id = 'U0NOMAIL'").run()
+    h.ctx.db.query("DELETE FROM slack_link_tokens WHERE slack_user_id = 'U0NOMAIL'").run()
+    fake.failNext['users.info'] = { delayMs: 600, match: (a) => a.user === 'U0NOMAIL' }
+    const sent = linksTo('U0NOMAIL').length
+    mention('U0NOMAIL', 'hello')
+    await waitFor(() => fake.of('users.info').some((c) => c.args.user === 'U0NOMAIL'))
+    expect((await call('dana', 'DELETE', '/api/admin/slack')).status).toBe(200)
+    await Bun.sleep(900)
+    for (const t of ['slack_link_tokens', 'slack_threads', 'slack_requests', 'slack_links']) expect([t, count(t)]).toEqual([t, 0])
+    expect(linksTo('U0NOMAIL').length).toBe(sent)
+  })
+})
+
 describe('the own app\'s bot token is refused by Slack', () => {
   test('Admin says so in a state of its own (not Connected) and offers new tokens; saving tokens again clears it', async () => {
     expect((await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())).status).toBe(200)

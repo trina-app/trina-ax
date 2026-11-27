@@ -526,10 +526,11 @@ export class SlackConnector {
     this.scrubAudit()
   }
 
-  /** The Slack user ids in the audit log's Slack rows (`detail.slackUser`: linked, unlinked, refused) are removed once
+  /** The Slack user ids and channel ids in the audit log's Slack rows (`detail.slackUser`: linked, unlinked, refused;
+   * `detail.channel`: posted) are removed once
    * the workspace's links are gone; the rows keep what happened, who did it and when (the team's security record). */
   private scrubAudit() {
-    this.db.query("UPDATE audit_log SET detail = json_remove(detail, '$.slackUser') WHERE action LIKE 'slack.%' AND json_valid(detail) AND json_type(detail, '$.slackUser') IS NOT NULL").run()
+    this.db.query("UPDATE audit_log SET detail = json_remove(detail, '$.slackUser', '$.channel') WHERE action LIKE 'slack.%' AND json_valid(detail) AND (json_type(detail, '$.slackUser') IS NOT NULL OR json_type(detail, '$.channel') IS NOT NULL)").run()
   }
 
   /** What memory holds of Slack (the thread given with a question, people's names, shared conversations) */
@@ -1400,6 +1401,9 @@ export class SlackConnector {
     catch (e) { this.log.info('slack home tab not published', { reason: e instanceof SlackApiError ? e.code : 'unknown' }) }
   }
 
+  /** the bot token saved now is still this one (not removed, not replaced while Slack was asked) */
+  private sameToken(bot: string): boolean { return this.tokens()?.bot === bot }
+
   /** true the first time a key is seen (event id or message), across restarts and processes */
   private seen(key: string): boolean {
     return this.db.query('INSERT OR IGNORE INTO slack_events (key, seen_at) VALUES (?, ?)').run(key, iso(this.now())).changes === 1
@@ -1449,6 +1453,8 @@ export class SlackConnector {
     // where it was asked and the thread so far, for this turn's instructions only (read.ts; the bot token, read now,
     // never stored)
     try { await askedContext(this, tk.bot, who.id, q, chatId) } catch (e) { this.log.warn('slack thread context failed', { err: String(e) }) }
+    // removed (in Slack or with Remove) while Slack was asked: nothing of it is written again after its data was deleted
+    if (!this.sameToken(tk.bot)) { this.asked.delete(chatId); return }
     let started
     try {
       const fresh = existing ? null : newChatEngine(this.ctx, person, {}, locale)
@@ -1516,6 +1522,8 @@ export class SlackConnector {
     const names = { display: m.name, real: m.realName, handle: m.handle }
     const token = crypto.randomBytes(32).toString('base64url')
     let made = false, late: ReturnType<typeof linkWaitOf> = null
+    // removed (in Slack or with Remove) while Slack was asked: no link is kept after its data was deleted
+    if (!this.sameToken(bot)) return
     this.db.transaction(() => {
       // two questions at once: the second sees the first's link (the check above ran before the wait for Slack)
       if ((late = tooSoon())) return
