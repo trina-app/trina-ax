@@ -46,6 +46,9 @@ export class Sidecar {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
     this.db = new Database(path.join(dir, 'state.db'), { create: true })
     this.db.exec('PRAGMA journal_mode = WAL')
+    // a list that the next night's run rebuilds from the disk: no sync per commit (WAL keeps it consistent; a power
+    // loss may lose the last few rows, which are listed again)
+    this.db.exec('PRAGMA synchronous = NORMAL')
     this.db.exec(`CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime REAL NOT NULL, sha TEXT, kind TEXT,
       real TEXT, fields TEXT, via TEXT, read_at TEXT, tries INTEGER NOT NULL DEFAULT 0, chain TEXT, ino TEXT, batch TEXT)`)
     for (const c of ['chain', 'ino', 'batch']) { try { this.db.exec(`ALTER TABLE files ADD COLUMN ${c} TEXT`) } catch { /* there already */ } }

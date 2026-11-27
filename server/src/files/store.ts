@@ -55,7 +55,10 @@ export function openToRead(abs: string, seen?: fs.Stats): { fd: number; st: fs.S
 
 /** The bytes of a regular, singly-linked file (no link followed in its last name; `seen`: see openToRead), read from
  * the one descriptor that was opened. */
-export function readRegular(abs: string, maxBytes = 200 * 1024 * 1024, seen?: fs.Stats): { bytes: Buffer; st: fs.Stats } {
+/** What readRegular / readRegularAsync read whole into memory at most, unless the caller says otherwise. */
+export const READ_REGULAR_MAX = 200 * 1024 * 1024
+
+export function readRegular(abs: string, maxBytes = READ_REGULAR_MAX, seen?: fs.Stats): { bytes: Buffer; st: fs.Stats } {
   const { fd, st } = openToRead(abs, seen)
   try {
     if (st.size > maxBytes) throw new ToolError('file is too large')
@@ -68,7 +71,7 @@ export function readRegular(abs: string, maxBytes = 200 * 1024 * 1024, seen?: fs
 
 /** readRegular without holding the server: the same refusals and `seen`, the bytes read in awaited pieces of at most
  * 4 MiB (the page check's pictures and scripts, up to 40 MB a page: review of batch 3, #379). */
-export async function readRegularAsync(abs: string, maxBytes = 200 * 1024 * 1024, seen?: fs.Stats): Promise<{ bytes: Buffer; st: fs.Stats }> {
+export async function readRegularAsync(abs: string, maxBytes = READ_REGULAR_MAX, seen?: fs.Stats): Promise<{ bytes: Buffer; st: fs.Stats }> {
   const { fd, st } = openToRead(abs, seen)
   try {
     if (st.size > maxBytes) throw new ToolError('file is too large')
@@ -125,6 +128,24 @@ export function sha256Regular(abs: string, seen?: fs.Stats): string {
     const buf = Buffer.allocUnsafe(Math.min(4 * 1024 * 1024, Math.max(1, st.size)))
     for (let pos = 0; pos < st.size;) {
       const n = fs.readSync(fd, buf, 0, Math.min(buf.length, st.size - pos), pos)
+      if (n <= 0) break
+      h.update(buf.subarray(0, n)); pos += n
+    }
+    return h.digest('hex')
+  } finally { fs.closeSync(fd) }
+}
+
+/** sha256Regular without holding the server: the same refusals, `seen` and length rule, the bytes read in awaited
+ * 4 MiB pieces. For a file of any size outside authorize() (sha256Regular has no limit: 20 GB held the event loop for
+ * minutes). Callers that act on the answer check the file again after it (it may change while it is hashed). */
+export async function sha256RegularAsync(abs: string, seen?: fs.Stats): Promise<string> {
+  const { fd, st } = openToRead(abs, seen)
+  try {
+    const h = crypto.createHash('sha256')
+    const buf = Buffer.allocUnsafe(Math.min(4 * 1024 * 1024, Math.max(1, st.size)))
+    for (let pos = 0; pos < st.size;) {
+      const at = pos
+      const n = await new Promise<number>((res, rej) => fs.read(fd, buf, 0, Math.min(buf.length, st.size - at), at, (e, got) => (e ? rej(e) : res(got))))
       if (n <= 0) break
       h.update(buf.subarray(0, n)); pos += n
     }
@@ -206,12 +227,14 @@ function storeBlob(root: string, kind: 'history' | 'trash', bytes: Uint8Array): 
 
 /** Keep the pre-write version in .system/history and record it in file_versions.
  * `by`: whose save replaces it (author_id / turn_id); saved_by / saved_turn_id: whose save produced it (timeline.ts). */
-export function saveVersion(db: Database, root: string, rel: string, bytes: Uint8Array, by: { userId: string; turnId: string | null }, kind: 'edit' | 'restore' = 'edit') {
+export function saveVersion(db: Database, root: string, rel: string, bytes: Uint8Array, by: { userId: string; turnId: string | null }, kind: 'edit' | 'restore' = 'edit'): { id: string; storage: string } {
   const storage = storeBlob(root, 'history', bytes)
-  insertVersion(db, { id: newId(), rel, sha256: sha256(bytes), size: bytes.length, by, kind, storage })
+  const id = newId()
+  insertVersion(db, { id, rel, sha256: sha256(bytes), size: bytes.length, by, kind, storage })
+  return { id, storage }
 }
 
-/** One file_versions row of stored content (saveVersion, place.ts snapshotVersion). */
+/** One file_versions row of stored content (saveVersion, place.ts commitVersion). */
 export function insertVersion(db: Database, o: { id: string; rel: string; sha256: string; size: number; by: { userId: string; turnId: string | null }; kind: 'edit' | 'restore'; storage: string }) {
   const origin = contentOrigin(db, o.rel, o.sha256)
   const v = (db.query('SELECT COALESCE(MAX(version), 0) + 1 AS v FROM file_versions WHERE path = ?').get(o.rel) as { v: number }).v

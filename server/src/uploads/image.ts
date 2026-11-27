@@ -7,6 +7,7 @@ import { heicRefusal, heicToJpeg, heicTools, isHeic, PREVIEW_INPUT_MAX } from '.
 import { CONVERT_RSS_MIB, imageSlot } from '../files/vision'
 import { makeWorkDir, runIsolated } from '../tools/isolate'
 import { exifOrientation } from './metadata'
+import { copyOffLoop } from '../files/copy-off-loop'
 
 export function imageSize(b: Uint8Array): { width: number; height: number } | null {
   const v = new DataView(b.buffer, b.byteOffset, b.byteLength)
@@ -196,7 +197,7 @@ export async function makeThumbnail(src: string, dstBase: string, max = 320, wor
   const work = makeWorkDir(workBase)
   try {
     const input = path.join(work, 'in' + path.extname(src).toLowerCase().replace(/[^.a-z0-9]/g, ''))
-    fs.copyFileSync(src, input)
+    await copyOffLoop(src, input)
     const scale = `scale='min(${max},iw)':'min(${max},ih)':force_original_aspect_ratio=decrease`
     // every picture comes on stdout, never as a file in the work folder: a converter taken over by the image could
     // leave a link to another file there, and the server would copy that file as the thumbnail (tools/isolate.ts

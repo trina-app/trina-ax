@@ -42,8 +42,8 @@ describe('a copy whose name is taken never steps around a hidden sibling', () =>
     expect(names()).toEqual(before)
   })
 
-  test('folder share (copyFolderTree): no "drafts (3)"', () => {
-    expect(() => componentC(A.ctx).files.copyFolderTree('alice', 'users/alice/drafts', 'shared')).toThrow()
+  test('folder share (copyFolderTree): no "drafts (3)"', async () => {
+    await expect(componentC(A.ctx).files.copyFolderTree('alice', 'users/alice/drafts', 'shared')).rejects.toThrow()
     expect(names()).toEqual(before)
   })
 

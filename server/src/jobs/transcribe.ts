@@ -23,6 +23,7 @@ import { ToolError } from '../policy/errors'
 import { diskReserve, diskStat, DiskSpaceUnknown, type DiskStat } from '../system/disk-stat'
 import { extOf, MAC_AUDIO_EXT, macAudioTools, macDecode, macWavPiece, macWavSeconds, type MacAudioTools } from './mac-audio'
 import { keepSpeech, silent, soundOf, UNSURE_FIRST_P, type Sound } from './no-speech'
+import { copyOffLoop } from '../files/copy-off-loop'
 
 export const WHISPER_MODELS = {
   tiny: { file: 'ggml-tiny.bin', size: 77_691_713, sha256: 'be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21' },
@@ -274,7 +275,7 @@ export async function transcribe(cfg: TranscribeConfig, input: string, name: str
       // the input's name only keeps a known audio / video extension: ffmpeg picks demuxers by extension, and some
       // (m3u8 playlists, ffconcat) open further files or URLs
       const src = path.join(work, converterInputName(name))
-      fs.copyFileSync(input, src, fs.constants.COPYFILE_FICLONE)
+      await copyOffLoop(input, src)
       let audio = path.basename(src)
       if (cfg.ffmpegBin) audio = await convertToWav(cfg.ffmpegBin, work, audio, h, loc, 0.5)
       else if (mac) audio = await macToWav(mac, work, audio, h, loc, 0.5)

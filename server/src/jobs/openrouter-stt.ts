@@ -18,6 +18,7 @@ import { MAC_AUDIO_EXT } from './mac-audio'
 import { confidence, keepLongRetry, languageCode, LONG_PIECE_SEC, longRetryLanguage, scoreSegments, UNSURE_LOGPROB, type ScoredAnswer } from './speech-language'
 import { keepSpeech, NO_SPEECH_LOGPROB, NO_SPEECH_PROB, silent, soundOf, UNSURE_NO_SPEECH, type Sound } from './no-speech'
 import { meterSeconds } from '../credentials/hosted-speech'
+import { copyOffLoop } from '../files/copy-off-loop'
 
 /** formats the API takes as they are (when there is no ffmpeg) */
 const DIRECT = new Set(['wav', 'mp3', 'flac', 'ogg', 'm4a', 'aac'])
@@ -297,7 +298,7 @@ export async function transcribeOpenRouter(cfg: TranscribeConfig, key: string, m
     if (cfg.ffmpegBin) {
       // the input's name keeps only a known audio / video extension (see transcribe.ts)
       const src = path.join(work, converterInputName(name))
-      fs.copyFileSync(input, src, fs.constants.COPYFILE_FICLONE)
+      await copyOffLoop(input, src)
       // what ffmpeg wrote is read without following a link: a converter taken over by the file could leave a link to
       // any file the server can read in place of audio.wav, and that file would go to OpenRouter (tools/isolate.ts)
       const wavName = await convertToWav(cfg.ffmpegBin, work, path.basename(src), h, loc, 0.1)
@@ -313,7 +314,7 @@ export async function transcribeOpenRouter(cfg: TranscribeConfig, key: string, m
       }
     } else if (mac) {
       const src = path.join(work, converterInputName(name))
-      fs.copyFileSync(input, src, fs.constants.COPYFILE_FICLONE)
+      await copyOffLoop(input, src)
       // read back without following a link, like ffmpeg's WAV above
       audio = readOutput(work, await macToWav(mac, work, path.basename(src), h, loc, 0.1, { plain: true, maxBytes: OPENROUTER_MAX_BYTES, tooLarge: TOO_LARGE }), OPENROUTER_MAX_BYTES)
       format = 'wav'
