@@ -254,7 +254,7 @@ const ko = {
   // "Create a team for free" (ui/welcome.ts create screens, main/create-team.ts)
   'start.title': '시작하기',
   'start.create': '무료로 팀 만들기',
-  'start.createSub': '무료 · 카드 없이 1~2분이면 준비돼요',
+  'start.createSub': '카드 없이 · 1~2분이면 준비돼요',
   'start.join': '초대 링크로 들어가기',
   'start.demo': '먼저 둘러볼게요',
   'start.signupWeb': '웹사이트에서 팀 만들기',
@@ -585,7 +585,7 @@ const en: Strings = {
   // "Create a team for free" (ui/welcome.ts create screens, main/create-team.ts)
   'start.title': 'Get started',
   'start.create': 'Create a team for free',
-  'start.createSub': 'Free, no card · ready in a minute or two',
+  'start.createSub': 'No card · ready in a minute or two',
   'start.join': 'Join with an invite link',
   'start.demo': 'Just look around first',
   'start.signupWeb': 'Make a team on the website',
@@ -913,7 +913,7 @@ const id: Strings = {
   // "Create a team for free" (ui/welcome.ts create screens, main/create-team.ts)
   'start.title': 'Mulai',
   'start.create': 'Buat tim gratis',
-  'start.createSub': 'Gratis, tanpa kartu · siap dalam 1–2 menit',
+  'start.createSub': 'Tanpa kartu · siap dalam 1–2 menit',
   'start.join': 'Masuk dengan tautan undangan',
   'start.demo': 'Lihat-lihat dulu',
   'start.signupWeb': 'Buat tim di situs web',
@@ -1241,7 +1241,7 @@ const ja: Strings = {
   // "Create a team for free" (ui/welcome.ts create screens, main/create-team.ts)
   'start.title': 'はじめる',
   'start.create': '無料でチームを作成',
-  'start.createSub': '無料・カード不要 · 1〜2分で準備できます',
+  'start.createSub': 'カード不要 · 1〜2分で準備できます',
   'start.join': '招待リンクで参加',
   'start.demo': 'まずは見てみる',
   'start.signupWeb': 'ウェブサイトでチームを作成',
@@ -1569,7 +1569,7 @@ const es: Strings = {
   // "Create a team for free" (ui/welcome.ts create screens, main/create-team.ts)
   'start.title': 'Empezar',
   'start.create': 'Crear un equipo gratis',
-  'start.createSub': 'Gratis, sin tarjeta · listo en uno o dos minutos',
+  'start.createSub': 'Sin tarjeta · listo en uno o dos minutos',
   'start.join': 'Unirse con un enlace de invitación',
   'start.demo': 'Solo quiero echar un vistazo',
   'start.signupWeb': 'Crear un equipo en el sitio web',
@@ -1897,7 +1897,7 @@ const zh: Strings = {
   // "Create a team for free" (ui/welcome.ts create screens, main/create-team.ts)
   'start.title': '开始',
   'start.create': '免费创建团队',
-  'start.createSub': '免费，无需银行卡 · 一两分钟即可完成',
+  'start.createSub': '无需银行卡 · 一两分钟即可完成',
   'start.join': '通过邀请链接加入',
   'start.demo': '先随便看看',
   'start.signupWeb': '在网站上创建团队',

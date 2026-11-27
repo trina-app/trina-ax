@@ -101,4 +101,11 @@ describe('desktop S0: create and join are quiet rows like the team rows', () => 
   test('the create line is short in every language', () => {
     for (const [loc, s] of Object.entries(STRINGS)) expect(s['start.createSub'].length, loc).toBeLessThanOrEqual(48)
   })
+  test('the create line does not say "free" again under a title that already says it', () => {
+    const free: Record<string, RegExp> = { ko: /무료/, en: /free/i, id: /gratis/i, ja: /無料/, es: /gratis/i, zh: /免费/ }
+    for (const [loc, s] of Object.entries(STRINGS)) {
+      expect(s['start.create'], loc).toMatch(free[loc])
+      expect(s['start.createSub'], loc).not.toMatch(free[loc])
+    }
+  })
 })

@@ -22,7 +22,7 @@ In:
   (a "+" for create, a link icon for join), the title, and for create a short muted subline. The "+" tile is the
   screen's one accent; the rows themselves use the team rows' hover fill.
 - A hairline divides the team list from the action rows (only when teams are listed).
-- The create subline gets shorter in all six languages ("Free, no card · ready in a minute or two").
+- The create subline gets shorter in all six languages and stops repeating "free" from the title ("No card · ready in a minute or two").
 - "Just look around first ↗" stays a small muted ghost link, aligned with the rows.
 - Language becomes a compact footer control (a globe icon and the select, no visible "Language" word; its accessible
   name stays "Language").
