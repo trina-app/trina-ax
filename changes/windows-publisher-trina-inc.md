@@ -1,1 +1,0 @@
-- Windows now shows **Trina Inc.** as the publisher of Trina AX in Apps & features and in the file details, matching the signature. It showed "TreeSoop". The Mac app's copyright line and the Linux package's maintainer name the same.
