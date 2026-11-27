@@ -31,6 +31,7 @@ import { usageShares } from '../../lib/usage-share'
 import { costParts, costText } from '../../lib/usage-cost'
 import { Tooltip } from '../../components/Tooltip'
 import { AdminBarActions, BarAdd, BarMore } from './barActions'
+import { isUnversionedClaude, modelDisplayName } from '@mycel/shared'
 
 type GroupBy = 'user' | 'engine' | 'model' | 'day' | 'group' | 'credential' | 'skill'
 type Range = 'today' | '7d' | '30d' | 'month' | 'custom'
@@ -68,6 +69,15 @@ function CostCell({ amount, row = false, tip = false }: { amount: { costUsd: num
   if (!p.partial) return <>{p.usd}</>
   const mark = <span className="ml-1 text-warn" aria-label={t('usage.unpricedMark')} data-testid={row ? 'usage-unpriced' : undefined}>+?</span>
   return <>{p.usd}{tip ? <Tooltip label={t('usage.unpricedMark')}>{mark}</Tooltip> : mark}</>
+}
+
+/** A model's name in Admin › Usage: the rows, the chart and the model filter all name it here. The server names it as
+ * people read it ("Claude Haiku 5.5"); a Claude id with no version is usage from before the real model was recorded,
+ * marked as earlier ("Claude Haiku (earlier, version not recorded)") rather than merged into the versioned row: which
+ * version answered then is not known. No model: the default model. */
+export function usageModelName(key: string, label: string, t: (k: 'composer.defaultModel' | 'usage.modelNoVersion', p?: { name: string }) => string): string {
+  if (key === '') return t('composer.defaultModel')
+  return isUnversionedClaude(key) && label === modelDisplayName(key) ? t('usage.modelNoVersion', { name: label }) : label
 }
 
 export default function Usage() {
@@ -119,7 +129,7 @@ export default function Usage() {
   const set = (k: keyof typeof filters) => (v: string) => setFilters((f) => ({ ...f, [k]: v }))
   // known engines by their product name (Claude, Codex, API); anything else keeps the report's own label
   const engineName = (k: string, label = k) => ENGINE_LABEL[k as keyof typeof ENGINE_LABEL] ?? label
-  const modelName = (k: string, label: string) => (k === '' ? t('composer.defaultModel') : label)
+  const modelName = (k: string, label: string) => usageModelName(k, label, t)
   // removed connections have no label: with more than one, a number tells them apart (QA TC-068)
   const removed = (facets?.credentials ?? []).filter((c) => !c.label).map((c) => c.key)
   const removedName = (k: string) => {

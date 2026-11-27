@@ -1,7 +1,8 @@
 // One click under an answer of a room's Trina side chat (docs/DECISIONS.md "Trina side chat: send here"): the answer
 // goes to where it belongs at once, no picker, search or note. An answer to a question about a room message: "스레드에
 // 보내기" (that message's thread) with ▾ for "대화방에 보내기"; any other answer: "대화방에 보내기" (lib/sideChatSend.ts
-// decides which). A quiet text button, as the side chat's "Share to room" was. Sent, it is one line for this page's
+// decides which). A quiet text button, as the side chat's "Share to room" was, with the shared send icon (the AI chat's
+// "대화방에 보내기", components/messages/MessageActions.tsx); its words stay because one click sends. Sent, it is one line for this page's
 // session (store/sideChats.ts sends): "✓ 스레드에 보냈어요 · 보기" ("앞부분만" when the server cut it: there is no warning
 // before sending any more), the focus on 보기, said in a status region. 보기 is the panel's (`onView`: the thread at the
 // reply, or the room at the message). When the server asks first (linked files, material some members cannot see), only
@@ -17,7 +18,7 @@
 // its yes is on its way. The focus moves (to 보기, or back to the button) only while it is still here: not out of the
 // box the person went on typing in.
 import clsx from 'clsx'
-import { Check, ChevronDown, MessageSquareShare } from 'lucide-react'
+import { Check, ChevronDown } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { SIDE_CHAT_SEND, uuidv7, type Room } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
@@ -29,6 +30,7 @@ import { useSideChats, type SendHereState } from '../../store/sideChats'
 import { RoomOptionLabel } from '../chat/RoomRefMenu'
 import { ShareConfirm, startAttach, useConfirmStep, type ConfirmAsk } from '../chat/ShareToRoom'
 import { MenuButton } from './MenuButton'
+import { ActionIcon } from '../messages/MessageActions'
 
 export type SentHere = NonNullable<SendHereState['sent']>
 type To = 'thread' | 'room'
@@ -100,7 +102,7 @@ export function SendHere({ chatId, answerId, answer, roomId, target, onView }: {
       patch({ sent, sending: false, attempt: null })
       if (direct) {
         const id = r.message.id
-        toast({ level: 'success', text: t(sentKey(sent)), ms: 10_000, action: { label: t('postedCard.undo'), run: () => void useRooms.getState().remove(roomId, id).then(() => { patch({ sent: undefined }); toast({ level: 'info', text: t('postedCard.undone') }) }, (e) => toast({ level: 'error', text: errorText(e, locale, t('postedCard.undoFailed')) })) } })
+        toast({ level: 'success', text: t(sentKey(sent)), ms: 10_000, action: { label: t('common.undo'), run: () => void useRooms.getState().remove(roomId, id).then(() => { patch({ sent: undefined }); toast({ level: 'info', text: t('postedCard.undone') }) }, (e) => toast({ level: 'error', text: errorText(e, locale, t('postedCard.undoFailed')) })) } })
       }
     } catch (e) {
       // refused (4xx): nothing went, the next click is a new one; no answer or a server failure: it may have gone, so
@@ -132,7 +134,7 @@ export function SendHere({ chatId, answerId, answer, roomId, target, onView }: {
         // the thread, with the room one choice away (▾)
         <span ref={box} className="flex items-center" data-testid="send-here">
           <button ref={control} type="button" disabled={busy} aria-busy={busy} onClick={() => void send('thread')} className={clsx(BTN, 'pr-1')} data-testid="send-here-thread">
-            <MessageSquareShare size={13} aria-hidden />
+            <ActionIcon id="sendToChat" size={13} />
             {SIDE_CHAT_SEND.thread[locale]}
           </button>
           <MenuButton
@@ -140,14 +142,14 @@ export function SendHere({ chatId, answerId, answer, roomId, target, onView }: {
             icon={<ChevronDown size={13} aria-hidden />}
             muted
             buttonClassName="touch-hit"
-            items={[{ label: SIDE_CHAT_SEND.room[locale], icon: <MessageSquareShare size={14} aria-hidden />, onSelect: () => { control.current?.focus(); void send('room') }, testId: 'send-here-room-item' }]}
+            items={[{ label: SIDE_CHAT_SEND.room[locale], icon: <ActionIcon id="sendToChat" size={14} />, onSelect: () => { control.current?.focus(); void send('room') }, testId: 'send-here-room-item' }]}
             testId="send-here-more"
           />
         </span>
       ) : (
         <span ref={box} className="flex items-center" data-testid="send-here">
           <button ref={control} type="button" disabled={busy} aria-busy={busy} onClick={() => void send('room')} className={BTN} data-testid="send-here-room">
-            <MessageSquareShare size={13} aria-hidden />
+            <ActionIcon id="sendToChat" size={13} />
             {SIDE_CHAT_SEND.room[locale]}
           </button>
         </span>

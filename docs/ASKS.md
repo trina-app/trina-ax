@@ -26,6 +26,8 @@ confirm dialogs, and the system prompts of the desktop, menu bar and phone apps.
 5. Set **Rule A**: OK, VIOLATION (it asks again for the person's own action after Always, per chat or per call) or
    OPEN (an owner decision is needed). A new VIOLATION needs the owner's OK in the PR.
 6. Update the file's row in "Code index" (the number of matching lines and the ids) and, for a new kind, "Kinds".
+7. Decide **auto mode** for a new kind: its `auto` value in "Kinds" (`ask` unless the card is free of the floor of
+   [decisions/20261125-auto-mode.md](decisions/20261125-auto-mode.md)), and the same value in `AUTO_KINDS`.
 
 ## Fields
 
@@ -65,10 +67,10 @@ switch); "ask every time" counts the rest (most are one-off confirms of the pers
 | Rooms (대화방) | 5 | 4 | 1 | 0 | 0 |
 | AI questions (AI의 질문) | 2 | 0 | 2 | 0 | 0 |
 | When guests are there (게스트가 있을 때) | 4 | 0 | 4 | 0 | 0 |
-| Screen confirm dialogs (화면 확인창) | 101 | 4 | 97 | 0 | 0 |
+| Screen confirm dialogs (화면 확인창) | 102 | 4 | 98 | 0 | 0 |
 | Sign-in, setup and updates (로그인·설정·업데이트) | 15 | 7 | 8 | 0 | 0 |
 | System permissions (시스템 권한) | 21 | 18 | 3 | 0 | 0 |
-| **all** | 218 | 75 | 143 | 0 | 0 |
+| **all** | 219 | 75 | 144 | 0 | 0 |
 
 ## Registry
 
@@ -94,7 +96,7 @@ switch); "ask every time" counts the rest (most are one-off confirms of the pers
 
 | id | where | trigger | text (en / ko) | buttons | always | revoke | scheduled | guests | reason | rule A |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `share.read` | `server/src/chat/turn.ts:4471` | In a shared chat, a read of a place some people in the chat cannot open. Asked once per place per answer. | The AI wants to read {sources}. {m} of the {n} people who see this chat can't open it… / AI가 {sources}을(를) 읽으려고 해요. 이 채팅을 보는 {n}명 중 {m}명은 이곳을 열 수 없어요… (`sharedReadConfirm`) | Read and share / Always allow / Don't read | `card:shared_read` | Settings › 트리나에게 허용한 것 | runs under Always; a guest among the people: refused | Always holds with a guest too (one Always, decision 20261123-one-always-allow) | shows-private-to-others | OK |
+| `share.read` | `server/src/chat/turn.ts:4471` | In a shared chat, a read of a place some people in the chat cannot open, also a team file the person's call attaches through a connection (confirmSharedAttach; a no sends nothing: `sharedAttachSkipped`, decision 20261126-shared-chat-own-tools). Asked once per place per answer. | The AI wants to read {sources}. {m} of the {n} people who see this chat can't open it… / AI가 {sources}을(를) 읽으려고 해요. 이 채팅을 보는 {n}명 중 {m}명은 이곳을 열 수 없어요… (`sharedReadConfirm`) | Read and share / Always allow / Don't read | `card:shared_read` | Settings › 트리나에게 허용한 것 | runs under Always; a guest among the people: refused | Always holds with a guest too (one Always, decision 20261123-one-always-allow) | shows-private-to-others | OK |
 | `share.skill` | `server/src/chat/turn.ts:4471` | The same path, for a group skill some people in the chat may not use. | The AI wants to use the skill of {sources}… / AI가 {sources}의 스킬을 쓰려고 해요… (`sharedSkillConfirm`) | Read and share / Always allow / Don't read | `card:shared_read` | Settings › 트리나에게 허용한 것 | as `share.read` | as `share.read` | shows-private-to-others | OK |
 | `share.copy` | `server/src/chat/turn.ts:4471` | The same path, for a copy into the chat's files or work folder. | …copy files from {sources} into this chat… / AI가 {sources}에서 파일을 읽어 이 채팅으로 복사하려고 해요… (`sharedCopyWorkConfirm`, `sharedCopyChatConfirm`) | Read and share / Always allow / Don't read | `card:shared_read` | Settings › 트리나에게 허용한 것 | as `share.read` | as `share.read` | shows-private-to-others | OK |
 | `share.files` | `server/src/chat/share-with-person.ts:309` | `share_with_person` after every check. Skipped when the asker's own message asked for exactly this share (every file and person named, or a title that resolves to one person), also in a shared or project chat nobody else wrote in and after content others wrote, never after a room read or with a guest; or under Always. The share card offers 취소 for 10 s (docs/decisions/20261123-do-then-undo.md). | Share {n} files with {who}? They can only view them… / {who}님에게 파일 {n}개를 공유할까요? (`fileShareAsk*`) | Share / Always allow / Don't share | `card:share_files` | Settings › 트리나에게 허용한 것 | runs under Always, else refused at once | a guest is never a recipient; with a guest in a shared chat, Always counts only when the asker named every recipient | sends-to-others, shows-private-to-others | OK |
@@ -124,6 +126,8 @@ switch); "ask every time" counts the rest (most are one-off confirms of the pers
 | `conn.connect.drive` | `server/src/chat/connect-service.ts:382` | Drive is set up for the team and the person is not connected. | Connect Google account / Google 계정 연결 (`drive.connect`) | Connect Google account / Connect for the team (admin) / Not now | none | n/a | skipped | n/a | other:sign-in | OK |
 | `conn.connect.google_app` | `server/src/chat/connect-service.ts:382` | A person asks for Gmail, Calendar, Docs or Sheets that they can connect and have not. | Connect {name}; for an owner or admin also Connect it once for the whole team… (`connect.teamWay`) | Owner or admin: Connect for the team / Connect my own / Not now. Member: Connect my {name} / Not now | none | n/a | skipped | n/a | other:sign-in | OK |
 | `conn.shared` | `server/src/chat/turn.ts` confirmSharedConnection and `server/src/integrations/connections/tools.ts` sharedGate | Shared project or shared chat, the person's first use of that connection (their own or the team's) there. Once per person, connection and place (the project, or the chat when it is in no project); never in a private chat (decision 20261123-shared-connector-warning-once). | Other people in this chat can also see what the AI gets from {service}. / 이 채팅의 다른 사람도 {service}에서 가져온 내용을 볼 수 있어요. (`sharedConnectionWarn`) | Continue (계속) | per person, connection and place (`connector_tool`, shared, `warned`); an Always from the old card still counts | Settings › 트리나에게 허용한 것 (removing it shows the notice again) | runs once seen there, else refused | a team connection is refused while a guest sees the chat | shows-private-to-others | OK |
+| `conn.shared.browser` | `server/src/chat/turn.ts` confirmSharedBrowser and `server/src/chat/tools.ts` browserTool | Shared project or shared chat, the person's first use of their own in-app browser there (a turn from their desktop window). Once per person and place; never in a private chat (decision 20261126-shared-chat-own-tools). | Other people in this chat can also see what the AI gets from your browser. / 이 채팅의 다른 사람도 AI가 내 브라우저에서 가져온 내용을 볼 수 있어요. (`sharedBrowserWarn`) | Continue (계속) | per person and place (`card_always_allow` kind `seen:browser:<place>`, listed as `connector_tool` "Browser", `warned`) | Settings › 트리나에게 허용한 것 (removing it shows the notice again) | opens nothing without it | a guest among the people is said on the notice | shows-private-to-others | OK |
+| `browser.shared.change` | `server/src/chat/turn.ts` confirmSharedBrowserChange and `server/src/chat/tools.ts` browserTool | A shared chat where someone else wrote or a guest is among the people: an in-app browser call that acts (anything but the page reads `read_page`, `get_page_text`, `find`, `tabs_context`, console and network reads), after the place's notice (security review of #647, decision 20261126-shared-chat-own-tools). The same call again in the answer goes on. | Other people wrote in this chat, so the AI asks before it acts in your browser. {ai} wants to do this: {what}. Allow it? / 이 채팅에는 다른 사람이 쓴 메시지가 있어서, AI가 내 브라우저에서 무언가를 하기 전에 먼저 물어봐요… (`sharedBrowserConfirm`) | Allow once / Always allow / Don't allow | `card:room_change` (the person's Always for changes after other people's words) | Settings › 트리나에게 허용한 것 | runs under Always, else refused | Always holds with a guest too | shows-private-to-others, sends-to-others | OK |
 | `conn.read.unsure` | `server/src/integrations/connections/tools.ts:873` | Shared chat; a read-only tool whose name looks like a change or an export. | Read from {name}: {what} / {name}에서 읽어 와요: {what} (`unsureRead`) | Allow / Always allow / Always allow all of {name} / Don't allow | per connector tool; Allow covers the rest of the answer; or "Always allow all of {name}" (every tool of that connection, per person; decision 20261123-one-always-allow) | Settings › 트리나에게 허용한 것 | runs under Always, else refused | Always holds with a guest too (one Always, decision 20261123-one-always-allow) | security | OK |
 | `conn.write` | `server/src/integrations/connections/tools.ts:720` | A change at a service (MCP write tool, `api_request`, a Google app send) where the connection is not set to send without asking. Skipped when the person's own message asked for it, the same tool and recipients were approved in this chat, or the tool only makes something new (the create tier: the service marks it `destructiveHint: false`, a create verb and no other change, message, share or money word, no recipient; not after a room read or in a run; in a shared chat only while nobody else wrote there, and a create's short answer does not end it: decision 20261123-shared-connector-warning-once). A call repeated with the same arguments while its card waits shares that card. (docs/decisions/20261123-do-then-undo.md). | The AI wants to send this to {name}: {what} / AI가 {name}에 이 내용을 보내려고 해요: {what} (`confirm`) | Send once / Always allow / Don't send | per connection (own connection's write rule, or a per-person allow on a team connection) | Settings › 트리나에게 허용한 것 (`connector_send`, `send:<connection>`); also the connection's write rule in Settings › Connectors | runs under Always; else refused | guests have no connectors | sends-to-others, irreversible | OK (decision 6; decision 20261123-ask-registry-findings) |
 | `conn.write.noalways` | `server/src/integrations/connections/tools.ts:728` | As `conn.write` with no Always offered: a Slack turn, the team switch off, a demo server, and in a shared chat every send to others, every team-connection change, `api_request`, a call with team files. | as `conn.write` | Send / Don't send | none | n/a | refused | same | sends-to-others | OK, kept exception: in a shared chat a send to others asks every time (decision 20261122-connector-always-allow; decision 20261123-ask-registry-findings) |
@@ -210,10 +214,11 @@ step the person starts; scheduled runs never reach them. "hidden for guests" mea
 | `card.render` | `web/src/components/chat/AskCard.tsx:154` | Draws every AI card above: server yes/no, three buttons (once / always / no) with the note line, radios for 4+ choices, the AI's own question, the office-address, dev-site and connect cards. The labels and the Always come from the server. | Please check / 확인해 주세요 (`ask.serverTitle`); The AI has a question / AI가 확인하고 싶어 해요 (`ask.title`) | from the server | decided by the server | Settings › 트리나에게 허용한 것 | a scheduled task's card shows again in the schedule's edit dialog | decided by the server | other:render | OK |
 | `card.batch` | `web/src/components/chat/AskCard.tsx:347` | Server cards of one answer with the same group key (`AskUserRequest.batch`: a tool's own, else `tool:<name>` stamped by `server/src/chat/turn.ts` waitForPerson) and the same buttons show as ONE card: what happens to how many, each item on a line with a tick, the summary once, one set of buttons. One press answers each (unticked: its card's no, sent first); a late press works the same (waiting cards). "Always allow" on one card of a kind answers every other open card of that kind of the answer (`server/src/chat/open-questions.ts` recordAnswer, TurnExec.answer), so their calls run with no further ask. | Move 3 skills to the team's skills? / 스킬 3개를 팀 스킬로 옮길까요? (`batchMoveMany`); {n} things to confirm / 확인할 일 {n}개 (`ask.batchMany`) | the cards' own | the cards' own kind; one press covers all | Settings › 트리나에게 허용한 것 | as each card | as each card | other:render | OK |
 | `ui.chat.secretSend` | `web/src/components/chat/SecretWarning.tsx:42` | Sending text that looks like a key or password. | This looks like a key or password… / 키나 비밀번호 같아요… (`composer.secretWarning`) | Edit / Send anyway | none | n/a | n/a | same | security | OK |
-| `ui.chat.delete` | `web/src/components/chat/chatActions.ts:174` | Delete a chat. | Delete this chat? / 기록을 삭제할까요? (`chat.deleteTitle`) | Cancel / Delete | none | n/a | n/a | own chats only | irreversible | OK |
-| `ui.chat.leave` | `web/src/components/chat/chatActions.ts:263` | Leave a chat shared with me. | Leave "{title}"? / "{title}"에서 나갈까요? (`chat.leaveTitle`) | Cancel / Leave | none | n/a | n/a | same | irreversible | OK |
+| `ui.chat.delete` | `web/src/components/chat/chatActions.ts` (through `web/src/lib/destructive.ts`) | Delete a chat. | Delete this chat? / 채팅을 삭제할까요? (`chat.deleteTitle`) | Cancel / Delete | none | n/a | n/a | own chats only | irreversible | OK |
+| `ui.chat.leave` | `web/src/components/chat/chatActions.ts` (through `web/src/lib/destructive.ts`) | Leave a chat shared with me. | Leave "{title}"? / "{title}"에서 나갈까요? (`chat.leaveTitle`) | Cancel / Leave | none | n/a | n/a | same | irreversible | OK |
 | `ui.chat.shareDiscard` | `web/src/components/chat/ChatShareDialog.tsx:221` | Closing the chat Share dialog with unsaved picks. | Discard changes? / 변경 사항을 버릴까요? (`chat.share.discardTitle`) | Keep editing / Discard | none | n/a | n/a | n/a | other:unsaved | OK |
 | `ui.chat.threadDelete` | `web/src/components/chat/ChatThreadPanel.tsx:300` | Delete my reply in a chat thread. | Delete this reply? / 이 답글을 삭제할까요? (`chat.thread.deleteTitle`) | Cancel / Delete | none | n/a | n/a | same | irreversible | OK |
+| `ui.auto_mode.intro` | `web/src/components/chat/AutoModePill.tsx:13` | The first tap on the composer's auto mode pill that turns it on, once per browser (docs/decisions/20261125-auto-mode.md). Later taps change it at once; turning it off never asks. | Turn on auto mode? / 자동 모드를 켤까요? (`autoMode.intro.title`) | Turn on auto mode / Cancel | none (a one-off notice; the browser keeps that it was shown) | the pill or Settings › 트리나에게 허용한 것 turns auto mode off | n/a | hidden for guests (no auto mode) | other:mode-switch | OK |
 | `ui.file.discardEdit` | `web/src/components/FilePanel.tsx:309` | Closing the file panel with unsaved edits. | Discard your changes? / 고친 내용을 버릴까요? (`preview.discardTitle`) | Cancel / Discard | none | n/a | n/a | n/a | other:unsaved | OK |
 | `ui.share.file` | `web/src/components/FileShareDialog.tsx:84` | The file Share dialog: pick people, then Share (no second confirm). | Share / 공유 (`fileShare.share`) | Share | none | n/a | n/a | guests are never offered | sends-to-others | OK |
 | `ui.share.fileAskOwner` | `web/src/components/FileShareDialog.tsx:222` | Someone who may not share asks the owner. | Ask {owner} / {owner}님에게 요청 (`fileShare.askOwner`) | Ask {owner} | none | n/a | n/a | hidden for guests | sends-to-others | OK |
@@ -235,12 +240,12 @@ step the person starts; scheduled runs never reach them. "hidden for guests" mea
 | `ui.files.trash.restore.widen` | `web/src/pages/Files.tsx:1928` | Trash › Restore into a folder that is shared now. | Show it to more people? (`files.restoreWidenBody`) | Restore / Cancel | none | n/a | n/a | hidden for guests | shows-private-to-others | OK |
 | `ui.project.members` | `web/src/components/ProjectMembersDialog.tsx:75` | Saving project members when people are added or removed. | Let more people see it? / 볼 수 있는 사람을 늘릴까요? · Change the members? / 멤버를 바꿀까요? (`projects.widenTitle`, `projects.changeTitle`) | Cancel / Let them see it · Save | none | n/a | n/a | the body counts guests that go | shows-private-to-others | OK |
 | `ui.project.addMe` | `web/src/components/ProjectMembersDialog.tsx:113` | An owner or admin adds themselves to a project, only when the save also removes someone, adds a rule or restores the creator; adding only themselves goes with a notice. | Add yourself to '{name}'? / '{name}'에 나를 추가할까요? | Cancel / Add me | none | n/a | n/a | admin only | other:admin | OK |
-| `ui.project.leave` | `web/src/components/LeaveProject.tsx:31` | Leave a project. | Leave '{name}'? / '{name}'에서 나갈까요? | Cancel / Leave | none | n/a | n/a | same | irreversible | OK |
-| `ui.project.delete` | `web/src/components/projectActions.tsx:152` | Delete a project (to the trash, for good, or plain). | Move '{name}' to the trash? / '{name}' 프로젝트를 휴지통으로 옮길까요? | Cancel / Move to trash · Delete for good · Delete | none | n/a | n/a | the project's guests are switched off, the body says how many | irreversible | OK |
-| `ui.scheduled.delete` | `web/src/pages/Scheduled.tsx:671` | Delete a scheduled task. | Delete scheduled task / 예약 작업 삭제 (`schedules.deleteTitle`) | Delete / Cancel | none | n/a | n/a | hidden for guests | irreversible | OK |
+| `ui.project.leave` | `web/src/components/LeaveProject.tsx` (through `web/src/lib/destructive.ts`) | Leave a project. | Leave '{name}'? / '{name}'에서 나갈까요? | Cancel / Leave | none | n/a | n/a | same | irreversible | OK |
+| `ui.project.delete` | `web/src/components/projectActions.tsx` (through `web/src/lib/destructive.ts`) | Delete a project (to the trash, for good, or plain). | Move '{name}' to the trash? / '{name}' 프로젝트를 휴지통으로 옮길까요? | Cancel / Move to trash · Delete for good · Delete | none | n/a | n/a | the project's guests are switched off, the body says how many | irreversible | OK |
+| `ui.scheduled.delete` | `web/src/pages/Scheduled.tsx` (through `web/src/lib/destructive.ts`) | Delete a scheduled task. | Delete scheduled task / 예약 작업 삭제 (`schedules.deleteTitle`) | Delete / Cancel | none | n/a | n/a | hidden for guests | irreversible | OK |
 | `ui.sentFiles.delete` | `web/src/pages/SentFiles.tsx:63` | "Files you sent" › Delete (the message goes for everyone). | Delete {name}? / {name} 파일을 지울까요? (`sentFiles.confirmTitle`) | Delete / Cancel | none | n/a | n/a | same | irreversible | OK |
 | `ui.nav.sectionDelete` | `web/src/components/nav/SidebarSections.tsx:142` | Delete a sidebar section. | Delete the section '{name}'? / '{name}' 섹션을 지울까요? | Cancel / Delete section | none | n/a | n/a | same | irreversible | OK |
-| `ui.room.leave` | `web/src/components/rooms/RoomMenu.tsx:101` | Leave a group chat or private channel. | Leave this group chat? / 이 그룹 대화에서 나갈까요? | Cancel / Leave | none | n/a | n/a | a guest gets its own body | irreversible | OK |
+| `ui.room.leave` | `web/src/components/rooms/RoomMenu.tsx` (through `web/src/lib/destructive.ts`) | Leave a group chat or private channel. | Leave this group chat? / 이 그룹 대화에서 나갈까요? | Cancel / Leave | none | n/a | n/a | a guest gets its own body | irreversible | OK |
 | `ui.room.memberRemove` | `web/src/components/rooms/MembersDialog.tsx:51` | Remove someone from a group room. | Remove {name}? / {name}님을 내보낼까요? (`rooms.info.removeTitle`) | Cancel / Remove from chat | none | n/a | n/a | a guest subject gets its own body | other:access | OK |
 | `ui.room.messageDelete` | `web/src/components/rooms/RoomMessages.tsx:476` | Delete a room message. | Delete this message? / 메시지를 삭제할까요? (`rooms.deleteTitle`) | Cancel / Delete | none | n/a | n/a | same | irreversible | OK |
 | `ui.room.saveWiden` | `web/src/components/rooms/SaveToTeamSheet.tsx:91` | Save room files to a team folder people outside the conversation see. | Show it to more people? / 더 많은 사람이 보게 저장할까요? (`rooms.save.widenTitle`) | Cancel / Save | none | n/a | n/a | n/a | shows-private-to-others | OK |
@@ -274,7 +279,7 @@ step the person starts; scheduled runs never reach them. "hidden for guests" mea
 | `ui.settings.providers.deleteMine` | `web/src/pages/admin/Credentials.tsx:952` | Settings › AI accounts › remove my own connection. | Remove the connection '{label}'? / '{label}' 연결을 삭제할까요? | Delete / Cancel | none | n/a | n/a | same | irreversible | OK |
 | `ui.admin.credentials.delete` | `web/src/pages/admin/Credentials.tsx:95` | Admin › AI connections › remove a team connection. | Remove the connection '{label}'? / '{label}' 연결을 삭제할까요? (`credentials.deleteConfirm`) | Delete / Cancel | none | n/a | n/a | admin only | irreversible | OK |
 | `ui.admin.credentials.planAck` | `web/src/pages/admin/Credentials.tsx:733` | Adding a subscription connection: a required checkbox. | I have read the notice above / 위 안내를 확인했어요 (`credentials.planNoticeAck`) | checkbox + Save | none | n/a | n/a | same | other:provider-terms | OK |
-| `ui.admin.ai.sharedSubscriptions` | `web/src/pages/admin/TeamAiSettings.tsx:312` | The owner turns subscription sharing on. | Enable subscription sharing? / 구독 공유를 켤까요? (`credentials.sharedRiskTitle`) | Enable sharing / Cancel | none | n/a | n/a | admin only | security | OK |
+| `ui.admin.ai.sharedSubscriptions` | `web/src/pages/admin/TeamAiSettings.tsx:339` | The owner turns subscription sharing on. | Enable subscription sharing? / 구독 공유를 켤까요? (`credentials.sharedRiskTitle`) | Enable sharing / Cancel | none | n/a | n/a | admin only | security | OK |
 | `ui.admin.devEnv.accept` | `web/src/pages/admin/DevEnvTeam.tsx:115` | Turning the team dev environment on: a required checkbox. | I understand the risks and turn it on for the team / … (`devEnvTeam.accept`) | checkbox + Save | none | n/a | n/a | admin only | security | OK |
 | `ui.admin.folderSharing.discard` | `web/src/pages/admin/FolderSharing.tsx:160` | Leaving the folder-access panel with unsaved edits. | Discard your changes? / 바꾼 내용을 버릴까요? | Discard / Cancel | none | n/a | n/a | admin only | other:unsaved | OK |
 | `ui.admin.folderSharing.save` | `web/src/pages/admin/FolderSharing.tsx:300` | A save that widens, narrows or cuts people off. | Let # more people open it? / Take access away? (`folderAccess.confirm*`) | Give access / Cancel | none | n/a | n/a | admin only | shows-private-to-others, security | OK |
@@ -308,6 +313,7 @@ step the person starts; scheduled runs never reach them. "hidden for guests" mea
 | `ui.leave.unsaved` | `web/src/components/FilePanel.tsx:321` | Closing the browser tab with an unsaved file edit (the browser's own "Leave site?"). | (browser) | Leave / Stay | none | n/a | n/a | same | other:unsaved | OK |
 | `ui.leave.uploads` | `web/src/components/FolderUploads.tsx:33` and `web/src/store/roomUploads.ts:254` | Closing the tab while files or room files are still uploading. | (browser) | Leave / Stay | none | n/a | n/a | same | other:unsaved | OK |
 | `ui.leave.recording` | `web/src/lib/useVoiceInput.ts:603` | Closing the tab while a voice recording runs. | (browser) | Leave / Stay | none | n/a | n/a | same | other:unsaved | OK |
+| `ui.leave.aiDefaults` | `web/src/pages/admin/TeamAiSettings.tsx:105` | Reloading or closing the tab with a change to Admin › Team settings › AI defaults or Who picks the engine not saved. | (browser) | Leave / Stay | none | n/a | n/a | admin only | other:unsaved | OK |
 
 ### Sign-in, setup and updates (로그인·설정·업데이트)
 
@@ -361,70 +367,78 @@ Every card kind the code knows, and the entries that use it. The test compares t
 `CARD_ALWAYS_KINDS` (`always:`), `TurnRequest` (`request:`), `AiAllowance` (`allowance:`) and `CARD_LATER_TOOLS`
 (`waits:`).
 
-| kind | ids |
-|---|---|
-| `always:room_change` | `room.change`, `room.read`, `room.change.widen` |
-| `always:remember` | `memory.remember` |
-| `always:save_wider` | `save.wider`, `room.change.widen` |
-| `always:post_to_room` | `post.room`, `dialog.answer.room`, `ui.share.room` |
-| `always:shared_read` | `share.read`, `share.skill`, `share.copy`, `share.chat_file` |
-| `always:shared_save` | `share.save` |
-| `always:move_files` | `files.move`, `files.copy`, `files.copy.places`, `files.bulk.move`, `files.bulk.rename` |
-| `always:skill_files` | `skill.move`, `skill.copy`, `skill.files` |
-| `always:skill_save` | `skill.save`, `skill.own_change`, `skill.own_delete` |
-| `always:delete_files` | `files.delete` |
-| `always:project_members` | `project.members` |
-| `always:video` | `video.make` |
-| `always:big_download` | `download.big` |
-| `always:share_files` | `share.files` |
-| `always:post_files` | `post.room.files`, `dialog.answer.room` |
-| `always:share_folder` | `share.folder` |
-| `always:folder_access` | `folder.access`, `folder.access.many` |
-| `always:bulk_files` | `dev.bulk` |
-| `always:dev_login` | `dev.login` |
-| `request:ask_user` | `ai.ask_user`, `card.render` |
-| `request:browser_site` | `site.office` |
-| `request:connect_service` | `conn.connect.service`, `conn.connect.reconnect`, `conn.connect.template`, `conn.connect.drive`, `conn.connect.google_app` |
-| `request:dev_env_site` | `dev.site` |
-| `allowance:room_files` | `room.change` |
-| `allowance:card` | `card.render` |
-| `allowance:connector_tool` | `conn.shared`, `conn.read.unsure`, `conn.write.own` |
-| `allowance:site` | `site.web`, `site.office` |
-| `allowance:person_alias` | `post.room.pick`, `share.files.pick` |
-| `allowance:connector_send` | `conn.write` |
-| `allowance:picture` | `files.picture.notown` |
-| `waits:delete_files` | `files.delete`, `skill.own_delete` |
-| `waits:share_with_person` | `share.files` |
-| `waits:share_folder` | `share.folder`, `share.folder.stop` |
-| `waits:stop_sharing` | `unshare.files` |
-| `waits:web_fetch` | `site.web` |
-| `waits:save_url` | `site.web`, `download.big` |
-| `waits:preview_start` | `site.office`, `site.web` |
-| `waits:read_page` | `site.office`, `site.web` |
-| `waits:computer` | `site.office`, `site.web` |
-| `waits:form_input` | `site.office`, `site.web` |
-| `waits:navigate` | `site.office`, `site.web` |
-| `waits:find` | `site.office`, `site.web` |
-| `waits:get_page_text` | `site.office`, `site.web` |
-| `waits:javascript_tool` | `site.office`, `site.web` |
-| `waits:read_console_messages` | `site.office`, `site.web` |
-| `waits:read_network_requests` | `site.office`, `site.web` |
-| `waits:resize_window` | `site.office`, `site.web` |
-| `waits:tabs_context` | `site.office`, `site.web` |
-| `waits:tabs_create` | `site.office`, `site.web` |
-| `waits:tabs_select` | `site.office`, `site.web` |
-| `waits:tabs_close` | `site.office`, `site.web` |
-| `waits:browser_batch` | `site.office`, `site.web` |
-| `waits:post_to_room` | `post.room`, `post.room.files` |
-| `waits:change_project_members` | `project.members` |
-| `waits:change_folder_access` | `folder.access`, `folder.access.many` |
-| `waits:skill_files` | `skill.files` |
-| `waits:move_skill` | `skill.move`, `skill.copy` |
-| `waits:schedule_create` | `schedule.create` |
-| `waits:remember` | `memory.remember` |
-| `waits:write` | `share.read`, `share.save`, `room.change`, `room.change.widen`, `save.wider`, `skill.save`, `skill.own_change` |
-| `waits:edit` | `share.read`, `share.save`, `room.change`, `room.change.widen`, `save.wider`, `skill.save`, `skill.own_change` |
-| `waits:make_file` | `share.read`, `share.save`, `room.change`, `room.change.widen`, `save.wider`, `skill.save` |
+The `auto` column says what auto mode does with the kind ([decisions/20261125-auto-mode.md](decisions/20261125-auto-mode.md)):
+`auto` (no card; the call is free of the floor by its kind), `auto-if` (no card only when the call's own floor check
+passes and the chat read nothing of other people and nothing from outside), `ask` (the card always shows), `n/a` (not a
+permission: the AI's own questions, a pick between people, the web part that draws cards, a tool whose card waits). The
+test compares the `always:` rows with `AUTO_KINDS` (`shared/src/api/ai-allowances.ts`); every other row is `ask` or
+`n/a`, as no code path lets auto mode approve it. A kind with an entry whose reason is `irreversible` or `cost` is `ask`,
+and one with `sends-to-others` is never `auto`.
+
+| kind | ids | auto |
+|---|---|---|
+| `always:room_change` | `room.change`, `room.read`, `room.change.widen`, `browser.shared.change` | ask |
+| `always:remember` | `memory.remember` | ask |
+| `always:save_wider` | `save.wider`, `room.change.widen` | auto-if |
+| `always:post_to_room` | `post.room`, `dialog.answer.room`, `ui.share.room` | ask |
+| `always:shared_read` | `share.read`, `share.skill`, `share.copy`, `share.chat_file` | ask |
+| `always:shared_save` | `share.save` | ask |
+| `always:move_files` | `files.move`, `files.copy`, `files.copy.places`, `files.bulk.move`, `files.bulk.rename` | auto-if |
+| `always:skill_files` | `skill.move`, `skill.copy`, `skill.files` | auto-if |
+| `always:skill_save` | `skill.save`, `skill.own_change`, `skill.own_delete` | ask |
+| `always:delete_files` | `files.delete` | ask |
+| `always:project_members` | `project.members` | ask |
+| `always:video` | `video.make` | ask |
+| `always:big_download` | `download.big` | auto |
+| `always:share_files` | `share.files` | ask |
+| `always:post_files` | `post.room.files`, `dialog.answer.room` | ask |
+| `always:share_folder` | `share.folder` | ask |
+| `always:folder_access` | `folder.access`, `folder.access.many` | ask |
+| `always:bulk_files` | `dev.bulk` | auto |
+| `always:dev_login` | `dev.login` | ask |
+| `request:ask_user` | `ai.ask_user`, `card.render` | n/a |
+| `request:browser_site` | `site.office` | ask |
+| `request:connect_service` | `conn.connect.service`, `conn.connect.reconnect`, `conn.connect.template`, `conn.connect.drive`, `conn.connect.google_app` | ask |
+| `request:dev_env_site` | `dev.site` | ask |
+| `allowance:room_files` | `room.change` | ask |
+| `allowance:card` | `card.render` | n/a |
+| `allowance:connector_tool` | `conn.shared`, `conn.shared.browser`, `conn.read.unsure`, `conn.write.own` | ask |
+| `allowance:site` | `site.web`, `site.office` | ask |
+| `allowance:person_alias` | `post.room.pick`, `share.files.pick` | n/a |
+| `allowance:connector_send` | `conn.write` | ask |
+| `allowance:picture` | `files.picture.notown` | ask |
+| `waits:delete_files` | `files.delete`, `skill.own_delete` | n/a |
+| `waits:share_with_person` | `share.files` | n/a |
+| `waits:share_folder` | `share.folder`, `share.folder.stop` | n/a |
+| `waits:stop_sharing` | `unshare.files` | n/a |
+| `waits:web_fetch` | `site.web` | n/a |
+| `waits:save_url` | `site.web`, `download.big` | n/a |
+| `waits:preview_start` | `site.office`, `site.web` | n/a |
+| `waits:read_page` | `site.office`, `site.web` | n/a |
+| `waits:computer` | `site.office`, `site.web` | n/a |
+| `waits:form_input` | `site.office`, `site.web` | n/a |
+| `waits:navigate` | `site.office`, `site.web` | n/a |
+| `waits:find` | `site.office`, `site.web` | n/a |
+| `waits:get_page_text` | `site.office`, `site.web` | n/a |
+| `waits:javascript_tool` | `site.office`, `site.web` | n/a |
+| `waits:read_console_messages` | `site.office`, `site.web` | n/a |
+| `waits:read_network_requests` | `site.office`, `site.web` | n/a |
+| `waits:resize_window` | `site.office`, `site.web` | n/a |
+| `waits:tabs_context` | `site.office`, `site.web` | n/a |
+| `waits:tabs_create` | `site.office`, `site.web` | n/a |
+| `waits:tabs_select` | `site.office`, `site.web` | n/a |
+| `waits:tabs_close` | `site.office`, `site.web` | n/a |
+| `waits:browser_batch` | `site.office`, `site.web` | n/a |
+| `waits:post_to_room` | `post.room`, `post.room.files` | n/a |
+| `waits:change_project_members` | `project.members` | n/a |
+| `waits:change_folder_access` | `folder.access`, `folder.access.many` | n/a |
+| `waits:skill_files` | `skill.files` | n/a |
+| `waits:move_skill` | `skill.move`, `skill.copy` | n/a |
+| `waits:schedule_create` | `schedule.create` | n/a |
+| `waits:remember` | `memory.remember` | n/a |
+| `waits:write` | `share.read`, `share.save`, `room.change`, `room.change.widen`, `save.wider`, `skill.save`, `skill.own_change` | n/a |
+| `waits:edit` | `share.read`, `share.save`, `room.change`, `room.change.widen`, `save.wider`, `skill.save`, `skill.own_change` | n/a |
+| `waits:make_file` | `share.read`, `share.save`, `room.change`, `room.change.widen`, `save.wider`, `skill.save` | n/a |
 
 ## Code index
 
@@ -476,7 +490,7 @@ lines than the row fails the test; fewer passes.
 | `server/src/chat/skill-files.ts` | 2 | `skill.files` |
 | `server/src/chat/stop-sharing.ts` | 3 | `unshare.files` |
 | `server/src/chat/tools.ts` | 33 | `dev.bulk`, `dev.login`, `dev.site`, `skill.move`, `skill.copy`, `memory.remember`, `ai.ask_user`, `ai.ask_user.in_call`, `site.office`, `helper` |
-| `server/src/chat/turn.ts` | 30 | `room.change`, `room.read`, `room.change.widen`, `save.wider`, `share.read`, `share.skill`, `share.copy`, `share.save`, `share.chat_file`, `conn.shared`, `skill.save`, `skill.save.name_taken`, `ai.ask_user`, `definition`, `helper` |
+| `server/src/chat/turn.ts` | 33 | `room.change`, `room.read`, `room.change.widen`, `save.wider`, `share.read`, `share.skill`, `share.copy`, `share.save`, `share.chat_file`, `conn.shared`, `conn.shared.browser`, `browser.shared.change`, `skill.save`, `skill.save.name_taken`, `ai.ask_user`, `definition`, `helper` |
 | `server/src/devenv/tool.ts` | 1 | `dev.login` |
 | `server/src/integrations/connections/tools.ts` | 5 | `conn.shared`, `conn.write.noalways`, `conn.read.unsure`, `conn.write.own` |
 | `server/src/integrations/slack/service.ts` | 4 | `slack.post`, `slack.post.anyway`, `slack.link` |
@@ -495,13 +509,12 @@ lines than the row fails the test; fewer passes.
 | `web/src/components/FilePanel.tsx` | 2 | `ui.file.discardEdit`, `ui.leave.unsaved` |
 | `web/src/components/FolderUploads.tsx` | 1 | `ui.leave.uploads` |
 | `web/src/components/GuestInvite.tsx` | 1 | `ui.guest.convert` |
-| `web/src/components/LeaveProject.tsx` | 1 | `ui.project.leave` |
 | `web/src/components/ProjectMembersDialog.tsx` | 4 | `ui.project.members`, `ui.project.addMe` |
 | `web/src/components/chat/ChatShareDialog.tsx` | 1 | `ui.chat.shareDiscard` |
+| `web/src/components/chat/AutoModePill.tsx` | 1 | `ui.auto_mode.intro` |
 | `web/src/components/chat/ChatThreadPanel.tsx` | 1 | `ui.chat.threadDelete` |
 | `web/src/components/chat/ShareChat.tsx` | 1 | `ui.share.chatProject` |
 | `web/src/components/chat/ShareToRoom.tsx` | 3 | `ui.share.room`, `definition` |
-| `web/src/components/chat/chatActions.ts` | 2 | `ui.chat.delete`, `ui.chat.leave` |
 | `web/src/components/handover/HandoverNotice.tsx` | 1 | `ui.handover.remove` |
 | `web/src/components/integrations/AnswerDialog.tsx` | 1 | `ui.conn.requestDecline` |
 | `web/src/components/integrations/DriveConnector.tsx` | 2 | `ui.drive.confirmAccount` |
@@ -514,11 +527,9 @@ lines than the row fails the test; fewer passes.
 | `web/src/components/integrations/TemplatesView.tsx` | 1 | `ui.conn.templateDelete` |
 | `web/src/components/nav/SidebarSections.tsx` | 1 | `ui.nav.sectionDelete` |
 | `web/src/components/onboarding/TeamLinkPanel.tsx` | 1 | `ui.team.linkRevoke` |
-| `web/src/components/projectActions.tsx` | 1 | `ui.project.delete` |
 | `web/src/components/rooms/MakeProjectDialog.tsx` | 2 | `ui.room.makeProject` |
 | `web/src/components/rooms/MembersDialog.tsx` | 1 | `ui.room.memberRemove` |
 | `web/src/components/rooms/RoomComposer.tsx` | 1 | `room.mentionAll` |
-| `web/src/components/rooms/RoomMenu.tsx` | 1 | `ui.room.leave` |
 | `web/src/components/rooms/RoomMessages.tsx` | 1 | `ui.room.messageDelete` |
 | `web/src/components/rooms/SaveToTeamSheet.tsx` | 2 | `ui.room.saveWiden` |
 | `web/src/components/rooms/SendHere.tsx` | 1 | `ui.share.roomSideChat` |
@@ -530,6 +541,7 @@ lines than the row fails the test; fewer passes.
 | `web/src/components/settings/PushNotifications.tsx` | 1 | `ui.push.offEverywhere` |
 | `web/src/components/settings/SlackAccount.tsx` | 1 | `ui.slack.unlink` |
 | `web/src/components/ui.tsx` | 3 | `definition` |
+| `web/src/lib/destructive.ts` | 1 | `ui.chat.delete`, `ui.chat.leave`, `ui.project.leave`, `ui.project.delete`, `ui.scheduled.delete`, `ui.room.leave` |
 | `web/src/lib/push.ts` | 1 | `os.web.push` |
 | `web/src/lib/pwa.ts` | 1 | `os.web.install` |
 | `web/src/lib/recorder.ts` | 1 | `os.web.mic` |
@@ -538,7 +550,6 @@ lines than the row fails the test; fewer passes.
 | `web/src/pages/BrowserSettings.tsx` | 3 | `ui.settings.browser.allowAll`, `ui.settings.browser.clearSites` |
 | `web/src/pages/Files.tsx` | 14 | `ui.files.bulkMove.narrow`, `ui.files.bulkMove.widen`, `ui.files.bulkShare`, `ui.files.uploadClash`, `ui.files.move.widen`, `ui.files.move.narrow`, `ui.files.share`, `ui.files.trashUndo.widen`, `ui.files.restoreVersion`, `ui.files.restoreVersion.widen`, `ui.files.trash.restore.widen` |
 | `web/src/pages/Projects.tsx` | 1 | `not-an-ask` |
-| `web/src/pages/Scheduled.tsx` | 1 | `ui.scheduled.delete` |
 | `web/src/pages/SentFiles.tsx` | 2 | `ui.sentFiles.delete` |
 | `web/src/pages/Settings.tsx` | 3 | `ui.settings.security.signOutDevice`, `ui.settings.memory.clear`, `ui.settings.memory.forget` |
 | `web/src/pages/SlackLink.tsx` | 1 | `slack.link` |
@@ -553,7 +564,7 @@ lines than the row fails the test; fewer passes.
 | `web/src/pages/admin/SkillManagers.tsx` | 1 | `ui.admin.skillManagers.remove` |
 | `web/src/pages/admin/Slack.tsx` | 1 | `ui.admin.slack.remove` |
 | `web/src/pages/admin/System.tsx` | 5 | `ui.admin.system.askCleanup`, `ui.admin.system.changeMode`, `ui.admin.system.connectedRemove`, `ui.admin.system.connectFolder`, `ui.admin.system.restoreBackup` |
-| `web/src/pages/admin/TeamAiSettings.tsx` | 1 | `ui.admin.ai.sharedSubscriptions` |
+| `web/src/pages/admin/TeamAiSettings.tsx` | 2 | `ui.admin.ai.sharedSubscriptions`, `ui.leave.aiDefaults` |
 | `web/src/pages/admin/TeamSettings.tsx` | 3 | `ui.admin.team.iconRemove`, `ui.admin.team.removeAllShares`, `ui.admin.team.speechKeyRemove` |
 | `web/src/pages/admin/common.tsx` | 1 | `definition` |
 | `web/src/pages/admin/jobs.tsx` | 1 | `ui.admin.system.update` |

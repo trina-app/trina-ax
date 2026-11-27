@@ -42,7 +42,7 @@
 // sheet; the big name for screen readers only); its
 // files line is one row that opens the project's files on a screen of the 프로젝트 tab (ProjectFiles below,
 // /projects/:id/files, with no folder path line), so Back returns to the project.
-import { ArchiveRestore, ChevronLeft, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Import, Lock, Pencil, Pin, Plus, ScrollText, Trash2, UserPlus, X } from 'lucide-react'
+import { ArchiveRestore, ChevronLeft, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Import, Lock, Pin, Plus, ScrollText, UserPlus, X } from 'lucide-react'
 import { foldRuns, runsUnread, TaskRunsIcon, TaskRunsMark, taskRunsAttrs, taskRunsPath, type Run } from '../components/nav/TaskRunsRow'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { scheduleName } from '../lib/scheduleText'
@@ -103,7 +103,12 @@ import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
 import { SetupReturn } from '../components/onboarding/SetupReturn'
 import { useFocusAfterRemove } from './admin/common'
-import { deleteLabel, mayDelete, mayManage, mayRename, saveProjectName, trashProject, useDeleteProject, useProjectMenuItems, useRenameProject, PROJECT_NAME_MAX, type Deleted } from '../components/projectActions'
+import { deleteLabel, mayDelete, mayManage, mayRename, saveProjectName, trashProject, useDeleteProject, useProjectMenuItems, useProjectMenuLink, useRenameProject, PROJECT_NAME_MAX, type Deleted } from '../components/projectActions'
+import { menuItem, orderMenu } from '../components/menus/entityMenu'
+import { PRODUCT } from '@mycel/shared'
+import { clientKind } from '../lib/desktop'
+import { platform } from '../lib/pwa'
+import { pageOpenInAppHref } from '../lib/team-link'
 import { EditableTitle } from '../components/EditableTitle'
 import { isolate } from '../components/handover/isolate'
 import { LinkAskAccess } from '../components/LinkAskAccess'
@@ -762,6 +767,7 @@ function ProjectPage() {
   live.current = projectId
   useEffect(() => () => void (live.current = undefined), [])
   const renameProject = useRenameProject()
+  const copyMenuLink = useProjectMenuLink()
   const rename = async () => {
     if (!p) return
     const id = p.id
@@ -863,23 +869,22 @@ function ProjectPage() {
   // history with "Ask here" under it either (QA TC-1066)
   const canAsk = !outside && !p.inTrash
   // in the trash: no name menu (its note has 되돌리기 and 완전히 삭제; renaming it is not needed there)
+  // the one list's items and order (components/menus/entityMenu.tsx), as its row's "…": Copy link, Open in the app,
+  // Rename (the row's prompt), Project settings (the edit dialog: its instructions and shared-chats setting), Leave,
+  // Delete. The owner or an admin who is not a member: Copy link, Rename, Delete. In the trash: no name menu (its note
+  // has 되돌리기 and 완전히 삭제)
+  const appHref = pageOpenInAppHref({ scheme: PRODUCT.linkScheme, origin: globalThis.location?.origin ?? '', path: `/projects/${p.id}`, platform: platform(), client: clientKind(), phone })
   const menu = p.inTrash
     ? null
-    : outside
-      ? mayManage(p)
-        ? [
-            { label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: () => void rename(), testId: 'project-rename' },
-            ...(mayDelete(p) ? [{ label: deleteLabel(t, p), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'project-delete' }] : []),
-          ]
-        : null
-      : p.canEdit || p.leave
-        ? [
-            ...(p.canEdit ? [{ label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setEditing(true), testId: 'project-edit' }] : []),
-            // a member leaves it (components/LeaveProject.tsx); delete stays last
-            ...leaveItems(t, p, () => void leaveIt(), 'project-leave'),
-            ...(p.canEdit && mayDelete(p) ? [{ label: deleteLabel(t, p), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'project-delete' }] : []),
-          ]
-        : null
+    : orderMenu([
+        menuItem(t, 'copyLink', { onSelect: () => void copyMenuLink(p), testId: 'project-copy-link' }),
+        ...(appHref ? [menuItem(t, 'openInApp', { onSelect: () => { globalThis.location.href = appHref }, testId: 'project-open-in-app' })] : []),
+        ...(mayRename(p) ? [menuItem(t, 'rename', { onSelect: () => void rename(), testId: 'project-rename' })] : []),
+        ...(!outside && p.canEdit ? [menuItem(t, 'settings', { onSelect: () => setEditing(true), testId: 'project-edit' })] : []),
+        // a member leaves it (components/LeaveProject.tsx); delete stays last
+        ...(!outside ? leaveItems(t, p, () => void leaveIt(), 'project-leave') : []),
+        ...((outside ? mayManage(p) : p.canEdit) && mayDelete(p) ? [menuItem(t, 'delete', { label: deleteLabel(t, p), onSelect: () => void del(), testId: 'project-delete' })] : []),
+      ])
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       {phone ? (
@@ -1507,7 +1512,8 @@ function PrivateChatsNotice({ project, chats }: { project: Project; chats: Chat[
   const t = useT()
   const me = useMe()
   const safeOps = !!me?.server?.allChatsConfidential
-  const mine = chats.filter((c) => mayShareChat(c, project, safeOps))
+  // (a chat made with "Continue in a new chat" is private on purpose: never counted here, docs/decisions/20261126-chat-fork-tree.md)
+  const mine = chats.filter((c) => !c.forkedFrom && mayShareChat(c, project, safeOps))
   const key = noticeKey(me?.user.id ?? '', project.id)
   const [closed, setClosed] = useState(() => noticeClosed(key))
   const [open, setOpen] = useState(false)

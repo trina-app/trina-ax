@@ -3,6 +3,7 @@
 // team already signed in, with a one-time code (server/src/auth/app-signin.ts). Finding work files on the computer works
 // only in the Mac and Windows app; people who stay in the browser see one quiet line in the files step and in My files
 // (components/OpenAppLine.tsx). Pure rules here, unit-tested in web/test/unit/open-app.test.ts.
+import { OWNER_CLAIM_SETUP_PATH, readOwnerClaimFragment } from '@mycel/shared/cloud-protocol/owner-claim'
 import { openInAppHref } from './team-link'
 import { desktopPlatform, type DesktopPlatform, type Platform } from './pwa'
 
@@ -50,3 +51,9 @@ export function appSignInHref(o: { scheme: string; origin: string; code: string;
 export function readAppSignInCode(hash: string): string | null {
   return /^#c=([A-Za-z0-9_-]{43})$/.exec(hash)?.[1] ?? null
 }
+
+/** A hosted team made from the desktop app (docs/decisions/20261126-desktop-create-team.md): the app opens
+ * `/app-setup#c=<claim>` from the hosting console; the page makes the owner (pages/OpenApp.tsx AppSetup). */
+export const APP_SETUP_PATH = OWNER_CLAIM_SETUP_PATH
+/** The console's claim in /app-setup's address (`#c=<43 characters>`, nothing else), or null. */
+export const readAppSetupClaim = (hash: string): string | null => readOwnerClaimFragment(hash)

@@ -13,6 +13,7 @@ import { api, API, errorText, isApiError } from '../../lib/api'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { zoneDay } from '../../lib/format'
 import { intervalUnit, sourceName } from '../../lib/scheduleText'
+import { useTeamPlace } from '../../lib/teamPlace'
 import { useMeStrict } from '../../store/session'
 import AskCard from '../chat/AskCard'
 import FolderPicker from '../FolderPicker'
@@ -81,6 +82,7 @@ const fieldErr = (e: unknown, name: string) => (isApiError(e) ? e.body.fields?.[
 
 function TaskEdit({ s, tz, onClose, onSaved }: { s: Schedule; tz: string | null; onClose: () => void; onSaved: (s: Schedule) => void }) {
   const t = useT(), locale = useLocale()
+  const place = useTeamPlace()
   const [f, setF] = useState<TaskForm>(() => formOf(s, zoneDay(new Date(), tz)))
   const [projects, setProjects] = useState<Project[] | null>(null)
   // the save folder and its places: only taking places away here (the AI adds them when it makes the task)
@@ -227,7 +229,7 @@ function TaskEdit({ s, tz, onClose, onSaved }: { s: Schedule; tz: string | null;
           <Field label={t('schedules.field.saveFolder')} hint={t('schedules.field.saveFolderHint')} error={fieldErr(error, 'saveFolder')}>
             <div className="flex min-w-0 items-center gap-1" data-testid="schedule-edit-save-folder">
               {/* a phone: a value row with a chevron (it opens the folder picker), not an outline button */}
-              <Button onClick={() => setPicking(true)} className="min-w-0 truncate max-md:min-h-11 max-md:flex-1 max-md:justify-between max-md:border-transparent max-md:bg-subtle" data-testid="schedule-edit-save-pick"><span className="truncate">{saveFolder ?? t('schedules.saveFolderPick')}</span><ChevronRight size={16} className="shrink-0 text-faint md:hidden" aria-hidden /></Button>
+              <Button onClick={() => setPicking(true)} className="min-w-0 truncate max-md:min-h-11 max-md:flex-1 max-md:justify-between max-md:border-transparent max-md:bg-subtle" data-testid="schedule-edit-save-pick"><span className="truncate" title={saveFolder ?? undefined}>{saveFolder ? place(saveFolder) : t('schedules.saveFolderPick')}</span><ChevronRight size={16} className="shrink-0 text-faint md:hidden" aria-hidden /></Button>
               {saveFolder ? (
                 <IconButton label={t('schedules.removeSaveFolder')} onClick={() => { setSaveFolder(null); setNote(null) }} data-testid="schedule-edit-save-remove"><X size={14} /></IconButton>
               ) : <span className="text-xs text-faint">{t('schedules.saveFolderNoneFiles')}</span>}
@@ -238,8 +240,8 @@ function TaskEdit({ s, tz, onClose, onSaved }: { s: Schedule; tz: string | null;
               <ul className="flex flex-wrap gap-1.5" data-testid="schedule-edit-save-sources">
                 {(s.saveSources ?? []).filter((x) => kept.includes(x.key)).map((x) => (
                   <li key={x.key} className="inline-flex max-w-full items-center gap-0.5 rounded-full bg-subtle py-0.5 pr-0.5 pl-2.5 text-sm" data-testid="schedule-edit-save-source">
-                    <span className="truncate">{sourceName(x, t)}</span>
-                    <IconButton label={t('schedules.removeSource', { name: sourceName(x, t) })} compact className="p-0.5" onClick={() => { setKept((k) => k.filter((y) => y !== x.key)); setNote(null) }}><X size={13} /></IconButton>
+                    <span className="truncate">{sourceName(x, t, place)}</span>
+                    <IconButton label={t('schedules.removeSource', { name: sourceName(x, t, place) })} compact className="p-0.5" onClick={() => { setKept((k) => k.filter((y) => y !== x.key)); setNote(null) }}><X size={13} /></IconButton>
                   </li>
                 ))}
               </ul>

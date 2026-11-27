@@ -4,6 +4,8 @@ description: Trina AX puts Claude Code and Codex on one company server, with you
 ---
 
 :::note
+Want to see it first? [Try it in 1 minute, no sign-up](https://demo.trina.app).
+
 Just want to try it? Run the [local demo](get-started/quickstart.md). It needs no AI account.
 :::
 

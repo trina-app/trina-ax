@@ -6,7 +6,7 @@
 // bridge:work-files-scan and gets only the scan's result: it can neither read the window nor answer it (the two
 // channels below answer only a window this file opened, at its own address, in its top frame).
 import { BrowserWindow, ipcMain, type BaseWindow, type IpcMainEvent, type WebContents } from 'electron'
-import { PRODUCT } from '@mycel/shared'
+import { PRODUCT } from '@mycel/shared/product'
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { CONSENT_URL, ConsentGate, consentSender, parseMemory, type ConsentMemory, type ConsentView } from '../common/work-consent'
 import { APP_WEB_PREFERENCES, guardUiView } from './security'

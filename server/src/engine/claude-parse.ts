@@ -103,6 +103,8 @@ export class ClaudeStreamParser {
   maxTurns = false
   /** the input tokens of the model call under way (its message_start), of the main AI ('') and of each sub-agent */
   private callInput = new Map<string, number>()
+  /** the model of each open call (message_start), by the same key */
+  private callModel = new Map<string, string>()
   text = ''
   push(line: string): EngineEvent[] {
     let ev: any
@@ -136,12 +138,17 @@ export class ClaudeStreamParser {
       // and each sub-agent's: the turn counts them while the run goes on, so a used-up budget stops the answer before
       // the run's total comes (result below: it includes the sub-agents and replaces these)
       const key = parent ?? ''
-      if (e.type === 'message_start') this.callInput.set(key, inputOf(e.message?.usage))
+      if (e.type === 'message_start') {
+        this.callInput.set(key, inputOf(e.message?.usage))
+        if (typeof e.message?.model === 'string' && e.message.model) this.callModel.set(key, e.message.model.slice(0, 200))
+      }
       else if (e.type === 'message_delta' && e.usage && typeof e.usage === 'object') {
         // the main AI's call that ends without a tool call is the answer's last: counted, but never a reason to stop
         const continues = !!parent || e.delta?.stop_reason === 'tool_use'
-        out.push({ type: 'usage', running: true, inputTokens: Math.max(this.callInput.get(key) ?? 0, inputOf(e.usage)), outputTokens: num(e.usage.output_tokens), ...(continues ? { continues: true } : {}) })
+        const model = this.callModel.get(key)
+        out.push({ type: 'usage', running: true, inputTokens: Math.max(this.callInput.get(key) ?? 0, inputOf(e.usage)), outputTokens: num(e.usage.output_tokens), ...(continues ? { continues: true } : {}), ...(model ? { model } : {}) })
         this.callInput.delete(key)
+        this.callModel.delete(key)
       }
       if (parent) return out
       if (e.type === 'content_block_start' && e.content_block?.type === 'text') { this.textOpen = true; if (this.text && !this.text.endsWith('\n\n')) { this.text += '\n\n'; out.push({ type: 'text', delta: '\n\n' }) } }
@@ -197,11 +204,16 @@ export class ClaudeStreamParser {
       // tokens of the whole run: result.usage counts the main session only; modelUsage (per model) and total_cost_usd
       // include the sub-agents (review S7). Same sums as before: input = input + cache read + cache creation.
       const u = ev.usage ?? {}
-      const models = ev.modelUsage && typeof ev.modelUsage === 'object' ? Object.values(ev.modelUsage as Record<string, any>) : []
+      const entries = ev.modelUsage && typeof ev.modelUsage === 'object' ? Object.entries(ev.modelUsage as Record<string, any>) : []
+      const models = entries.map(([, m]) => m)
       const usage = models.length
         ? { inputTokens: models.reduce((a, m) => a + num(m?.inputTokens) + num(m?.cacheReadInputTokens) + num(m?.cacheCreationInputTokens), 0), outputTokens: models.reduce((a, m) => a + num(m?.outputTokens), 0) }
         : { inputTokens: num(u.input_tokens) + num(u.cache_read_input_tokens) + num(u.cache_creation_input_tokens), outputTokens: num(u.output_tokens) }
-      out.push({ type: 'usage', ...usage, costUsd: ev.total_cost_usd })
+      // the same split per model (its keys are the model ids that answered, Claude Code's own background calls on Haiku
+      // included): usage by model when no model proxy counted the turn (chat/turn.ts recordModelUsage)
+      const byModel = entries.filter(([id]) => typeof id === 'string' && id).slice(0, 20).map(([id, m]) => ({ model: id.slice(0, 200),
+        inputTokens: num(m?.inputTokens) + num(m?.cacheReadInputTokens) + num(m?.cacheCreationInputTokens), outputTokens: num(m?.outputTokens), ...(typeof m?.costUSD === 'number' && m.costUSD >= 0 ? { costUsd: m.costUSD } : {}) }))
+      out.push({ type: 'usage', ...usage, costUsd: ev.total_cost_usd, ...(byModel.length ? { byModel } : {}) })
       if (ev.stop_reason === 'refusal' || ev.terminal_reason === 'refusal') this.refused = true
       // Claude Code ends a run that reached --max-turns with result subtype "error_max_turns" (is_error true; newer
       // versions also say terminal_reason "max_turns"): the answer so far stands and the person may continue

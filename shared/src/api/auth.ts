@@ -1,7 +1,7 @@
 // Sign-in, the signed-in person, invites, first-run setup. Owner: A (server/src/routes/auth.ts).
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { ClientKind, DEFAULT_LOCALE, GuestDetail, EngineId, IsoTime, Locale, Ok, ReauthFields, Role, TextSize } from './common'
+import { ClientKind, DEFAULT_LOCALE, Effort, GuestDetail, EngineId, IsoTime, Locale, Ok, ReauthFields, Role, TextSize } from './common'
 import { endpoint, empty } from './endpoint'
 import { TEAM_ICON_VERSION_RE } from '../team-icon'
 import { NAME_FORBIDDEN, NAME_FORBIDDEN_FIELD } from '../name-chars'
@@ -48,6 +48,9 @@ export const Me = z.object({
     /** my "Allow all websites" is on for the AI's web reads (Settings › Browser; PUT /api/me/web-access), as it works
      * now: the team allows it and the warning I accepted is the current one. Absent: off (or an older server). */
     webAllowAll: z.literal(true).optional(),
+    /** my auto mode is on now (docs/decisions/20261125-auto-mode.md; PUT /api/ai-allowances/auto-mode). Absent: off, not
+     * available to me, or an older server. */
+    autoMode: z.literal(true).optional(),
   }),
   groups: z.array(z.object({ id: Uuid7, name: z.string() })),
   team: z.object({
@@ -87,6 +90,9 @@ export const Me = z.object({
      * a chat that read something from outside (server/src/integrations/connections/tools.ts gate). The connector pages
      * say so. Absent: on (the default), or an older server. */
     alwaysAllowOff: z.literal(true).optional(),
+    /** I may use auto mode (Admin › Team AI settings autoMode, with "Always allow" on; never a guest): the composer shows
+     * its pill. 'default': it starts on for people who did not choose. Absent: off, or an older server. */
+    autoMode: z.enum(['allowed', 'default']).optional(),
     /** the team's address for its members, an origin (https://acme.trina.app): what a new device puts in the app
      * (Settings › 앱 "팀 주소"). The relay address when the server is on a relay, else the public address it knows,
      * else for a server not on a relay the address it is reached at, with its port, http included
@@ -94,6 +100,9 @@ export const Me = z.object({
      * at (over the office network that is the office's own address). Signed-in people only (this answer); absent =
      * none known or an older server. */
     address: z.string().max(300).optional(),
+    /** I may send a problem report (Settings › About "문제 신고", 👎 under an answer): this server can send them and the
+     * team switch is on (Admin › Team settings problemReports); never for a guest. Absent: no entry points. */
+    problemReports: z.literal(true).optional(),
   }),
   session: z.object({
     id: Uuid7, client: ClientKind, expiresAt: IsoTime,
@@ -138,6 +147,10 @@ export const Me = z.object({
     /** Always true: folder sharing is always on (owner 2026-11-17). Kept only for web and app builds from before, which
      * show folder sharing only when it is true; current clients do not read it. */
     folderShares: z.literal(true).optional(),
+    /** this server can send problem reports to the <app> team (server/src/system/problem-reports.ts): 'hosted' (a team
+     * the hosting service runs) or 'self' (a self-installed server: the sheet says the report leaves it). Admin › Team
+     * settings shows the switch only then. Absent: none (an edition without a hosted service, MYCEL_PROBLEM_REPORTS=off). */
+    problemReports: z.enum(['hosted', 'self']).optional(),
   }),
   /** last password reset by an admin / owner recovery: settings shows "last reset: who, when" (tab 5). by null = owner recovery on the server Mac */
   passwordReset: z.object({ by: UserRef.nullable(), at: IsoTime }).nullable().optional(),
@@ -273,6 +286,28 @@ export const RedeemAppSignInBody = z.object({
   tokenMode: z.enum(['cookie']).default('cookie'),
 })
 
+/** A team made from the desktop app (server/src/auth/setup-console.ts, docs/decisions/20261126-desktop-create-team.md):
+ * the app opens `/app-setup#c=<claim>` from the hosting console; the page asks who the owner is (preview), then makes
+ * the owner and signs the app in (a desktop session, cookie). The claim's shape is checked by the server, which counts a
+ * bad one against the caller's address, so the schema only bounds its length. */
+export const ConsoleSetupPreviewBody = z.object({ claim: z.string().min(1).max(200) })
+export const ConsoleSetupPreview = z.object({
+  teamName: z.string(),
+  name: z.string(),
+  email: z.string(),
+  /** the owner signed in to the console with Google: the account is made with that Google account and no password;
+   * false: the page asks for a password (for the phone and other computers) */
+  google: z.boolean(),
+})
+export type ConsoleSetupPreview = z.infer<typeof ConsoleSetupPreview>
+export const ConsoleSetupBody = z.object({
+  claim: z.string().min(1).max(200),
+  /** required unless the owner signed in with Google (then refused); its strength is checked like every new password */
+  password: z.string().max(200).optional(),
+  client: z.literal('desktop').default('desktop'),
+  tokenMode: z.enum(['cookie']).default('cookie'),
+})
+
 /** Sign in with Google (server/src/auth/google-login.ts; docs/AGENTS/plan/20261122-0454-google-login.md). A person
  * connects their Google account in Settings › Security with their current password, then signs in with it. The answer
  * is Google's address to open in this window; Google comes back to this server, which signs in and opens `next`. */
@@ -294,6 +329,9 @@ export type GoogleStart = z.infer<typeof GoogleStart>
  * `<linkScheme>://open?url=<team>/login/google#code=<code>`, taken only for the team on screen (desktop/src/common/
  * address.ts googleSignInCode). */
 export const GOOGLE_APP_RETURN_PATH = '/login/google'
+/** Where the desktop app posts that code (API.claimDriveFlow, api/drive.ts): here so the desktop app can name the address
+ * without bundling the Drive schemas (tests/unit/desktop-shared-imports.test.ts). */
+export const CLAIM_DRIVE_FLOW_PATH = '/api/integrations/google-drive/claim'
 /** Where Google's return sends a phone app's flow: the address its auth session waits for (expo-web-browser
  * openAuthSessionAsync), with `#code=<code>` or `#error=<reason>`. The phone app keeps the same in
  * mobile/src/protocol.ts (GOOGLE_SIGNIN_RETURN_HOST; a test keeps them equal). */
@@ -354,7 +392,7 @@ export const UpdateMeBody = z.object({
   email: z.email().nullable().optional(),
   /** engine / model null = back to the team default ("내 기본 엔진/모델"); ignored for people who may not pick */
   /** `away` is not set here (PUT /api/me/away tells the team at once); one sent is dropped */
-  prefs: UserPrefs.omit({ away: true }).extend({ textSize: TextSize.optional(), engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional(), listFolds: ListFolds.nullable().optional(), historyView: HistoryView.nullable().optional(), mentionAllAsk: z.literal('off').nullable().optional(), goalCard: z.literal('hidden').nullable().optional(), preparedCard: z.literal('hidden').nullable().optional(), autoMemory: z.literal('off').nullable().optional() }).optional(),
+  prefs: UserPrefs.omit({ away: true }).extend({ textSize: TextSize.optional(), engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional(), effort: Effort.nullable().optional(), listFolds: ListFolds.nullable().optional(), historyView: HistoryView.nullable().optional(), mentionAllAsk: z.literal('off').nullable().optional(), goalCard: z.literal('hidden').nullable().optional(), preparedCard: z.literal('hidden').nullable().optional(), autoMemory: z.literal('off').nullable().optional() }).optional(),
 })
 
 /** PUT /api/me/web-access: my "Allow all websites" for the AI's web reads. Turning it on needs the version of the risk
@@ -397,6 +435,8 @@ export type MyUsage = z.infer<typeof MyUsage>
 export const AUTH = {
   setupStatus: endpoint({ method: 'GET', path: '/api/setup', auth: 'public', owner: 'A', response: SetupStatus, summary: 'Is first-run setup still needed (no owner yet)?' }),
   setup: endpoint({ method: 'POST', path: '/api/setup', auth: 'public', owner: 'A', status: 201, body: SetupBody, response: LoginResponse, summary: 'Create the team and its owner (only while no user exists; needs the setup token). Signs the owner in.' }),
+  setupConsolePreview: endpoint({ method: 'POST', path: '/api/setup/console/preview', auth: 'public', owner: 'A', body: ConsoleSetupPreviewBody, response: ConsoleSetupPreview, summary: 'A hosted team made from the desktop app, before its owner exists: the team name and who the owner is, from the hosting console\'s one-time claim (not spent).' }),
+  setupConsole: endpoint({ method: 'POST', path: '/api/setup/console', auth: 'public', owner: 'A', status: 201, body: ConsoleSetupBody, response: LoginResponse, summary: 'A hosted team made from the desktop app: make the owner from the hosting console\'s one-time claim (spent only after the account is made) and sign the app in.' }),
   login: endpoint({ method: 'POST', path: '/api/auth/login', auth: 'public', owner: 'A', body: LoginBody, response: LoginResponse, summary: 'Sign in with username + password (argon2id). Rate-limited per IP and per account.' }),
   logout: endpoint({ method: 'POST', path: '/api/auth/logout', auth: 'user', owner: 'A', allowWhilePasswordChange: true, response: empty, status: 204, summary: 'End this session and clear the cookie.' }),
   changePassword: endpoint({ method: 'POST', path: '/api/auth/password', auth: 'user', owner: 'A', allowWhilePasswordChange: true, body: ChangePasswordBody, response: Ok, summary: 'Change own password; ends every other session of this person.' }),

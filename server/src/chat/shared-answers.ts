@@ -141,11 +141,11 @@ export function answerRecords(db: Database, chatId: string): Map<string, AnswerR
   return out
 }
 
-export type NodeRow = { id: string; parent_id: string | null; role: string; runner: string | null; reads: string | null; left_out: string | null; created_at: string | null; shared_at?: string | null }
+export type NodeRow = { id: string; parent_id: string | null; role: string; runner: string | null; reads: string | null; left_out: string | null; created_at: string | null; shared_at?: string | null; withheld_copy?: number | null }
 /** One message of a chat as the walk needs it: an answer's record parsed once (`c` as a set; null: none or unreadable);
  * `late`: made from the cutover on and not before its chat was shared (hidden only by an x group: what it read is not
  * all known). */
-export interface Node { id: string; parent: string | null; answer: boolean; runner: string | null; late: boolean; rec: { reads: ParsedGroup[]; left: ReadonlySet<string> } | null }
+export interface Node { id: string; parent: string | null; answer: boolean; runner: string | null; late: boolean; rec: { reads: ParsedGroup[]; left: ReadonlySet<string> } | null; withheldCopy?: true }
 export interface ParsedGroup { c: ReadonlySet<string>; s: ReadSource[]; x: boolean; y: boolean; k: boolean }
 const NONE: readonly string[] = []
 
@@ -154,12 +154,13 @@ export function nodeOf(m: NodeRow, cutover: string | null): Node {
   const answer = m.role === 'assistant'
   const late = answer && afterCutover(cutover, m.created_at, m.shared_at)
   const rec = answer ? parseRecord(m.reads, m.left_out) : null
-  return { id: m.id, parent: m.parent_id, answer, runner: m.runner, late, rec: rec && { reads: rec.reads.map((g) => ({ c: new Set(g.c), s: g.s, x: !!g.x, y: !!g.y, k: !!g.k })), left: new Set(rec.left) } }
+  // (an answer a fork copied as one line, hidden from its person in the original: chat/fork.ts; hidden for good)
+  return { id: m.id, parent: m.parent_id, answer, runner: m.runner, late, rec: rec && { reads: rec.reads.map((g) => ({ c: new Set(g.c), s: g.s, x: !!g.x, y: !!g.y, k: !!g.k })), left: new Set(rec.left) }, ...(answer && m.withheld_copy ? { withheldCopy: true as const } : {}) }
 }
 
 /** A chat's messages with their turns' person and records, read and parsed once (any number of viewers then). */
 export function chatNodes(db: Database, chatId: string): Node[] {
-  const rows = db.query(`SELECT m.id, m.parent_id, m.role, t.user_id AS runner, r.reads, r.left_out, m.created_at, c.shared_at FROM messages m
+  const rows = db.query(`SELECT m.id, m.parent_id, m.role, t.user_id AS runner, r.reads, r.left_out, m.created_at, c.shared_at, m.withheld_copy FROM messages m
     JOIN chats c ON c.id = m.chat_id LEFT JOIN turns t ON t.id = m.turn_id LEFT JOIN shared_answer_reads r ON r.message_id = m.id
     WHERE m.chat_id = ? ORDER BY m.rowid`).all(chatId) as NodeRow[]
   const cutover = hiddenAnswersCutover(db)
@@ -195,6 +196,9 @@ export function withheldAmong(db: Database, rules: RuleSet, nodes: readonly Node
     return ok
   }
   const hiddenHere = (m: Node, above: readonly string[]): boolean => {
+    // a fork's copy of an answer that was hidden from its person in the shared chat: nothing of it was copied, and it
+    // stays one line (chat/fork.ts)
+    if (m.withheldCopy) return true
     if (!m.answer || (m.runner !== null && m.runner === viewer)) return false
     // from the cutover on nothing is hidden (rule a), but what an x group read is not all known (memories, a scope the
     // share's check could not tell): only its `c` sees it, as before
@@ -240,7 +244,7 @@ export function branchNodes(db: Database, chatId: string, messageId: string): No
   // UNION on the id alone: a broken parent loop ends at its first repeat
   const rows = db.query(`WITH RECURSIVE up(id) AS (SELECT ?2 UNION SELECT m.parent_id FROM messages m JOIN up ON m.id = up.id
       WHERE m.chat_id = ?1 AND m.parent_id IS NOT NULL)
-    SELECT m.id, m.parent_id, m.role, t.user_id AS runner, r.reads, r.left_out, m.created_at, c.shared_at FROM up JOIN messages m ON m.id = up.id AND m.chat_id = ?1
+    SELECT m.id, m.parent_id, m.role, t.user_id AS runner, r.reads, r.left_out, m.created_at, c.shared_at, m.withheld_copy FROM up JOIN messages m ON m.id = up.id AND m.chat_id = ?1
     JOIN chats c ON c.id = m.chat_id LEFT JOIN turns t ON t.id = m.turn_id LEFT JOIN shared_answer_reads r ON r.message_id = m.id
     ORDER BY m.rowid`).all(chatId, messageId) as NodeRow[]
   const cutover = hiddenAnswersCutover(db)
@@ -260,6 +264,8 @@ export function answerHiddenFrom(db: Database, files: FileService, chatId: strin
   const me = branch.find((n) => n.id === messageId)
   // not there (deleted meanwhile) or not an answer: nothing of it to hide
   if (!me || !me.answer) return out
+  // (a fork's one-line copy of a hidden answer: hidden from everyone)
+  if (me.withheldCopy) { for (const v of viewers) out.add(v); return out }
   if (me.late && !(me.rec?.reads.some((g) => g.x || g.k))) return out
   // only x groups: who is in them decides, no account or rule is read
   if (me.late && !me.rec!.reads.some((g) => g.k)) {

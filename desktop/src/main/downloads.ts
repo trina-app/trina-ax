@@ -14,7 +14,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, writeFile } from 'node:fs'
 import { basename } from 'node:path'
-import { PRODUCT } from '@mycel/shared'
+import { PRODUCT } from '@mycel/shared/product'
 import type { Session, WebContents } from 'electron'
 import { SaveBurst, downloadOutcome, pickDownloadPath, quarantineValue, runsCode, zoneIdentifierText } from '../common/downloads'
 import { debug } from './debug'

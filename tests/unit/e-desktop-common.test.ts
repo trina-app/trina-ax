@@ -6,8 +6,9 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
-import { answersAgain, asksOutside, certTrouble, desktopPagePath, firstRunLinks, googleSignInCode, healthVerdict, officeCertPage, offlineRetryDelay, OFFLINE_RETRY_MS, linkFromArgv, LINK_SCHEME, readDesktopLink, retypablePath, startupLinkTarget, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, onThisComputer, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
+import { answersAgain, asksOutside, certTrouble, desktopPagePath, googleSignInCode, healthVerdict, officeCertPage, offlineRetryDelay, OFFLINE_RETRY_MS, linkFromArgv, LINK_SCHEME, readDesktopLink, retypablePath, startupLinkTarget, hostOf, isGatewayDown, isLoopbackHost, isSignInPath, onThisComputer, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
 import { resumePage } from '../../desktop/src/common/update-guard'
+import { claimPage, consoleOrigin, createLinks, DEMO_URL, freePlanLines, noticeAction, noticeForError, offerFromProbe, oldSetupPage, PRICING_URL, startSteps, teamHost, CREATE_NOTICES } from '../../desktop/src/common/create-team'
 import { errorResult, MAX_ITEMS, toBrowserResult } from '../../desktop/src/common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, UI_LOCALES, type UiKey, type UiLocale } from '../../desktop/src/common/i18n'
 import { parseKeyCombo, redactUrl } from '../../desktop/src/common/input'
@@ -205,14 +206,72 @@ describe('first run: what the team address answered, the help screens, the host 
     expect(hostOf('http://acme.localhost:19883')).toBe('acme.localhost:19883')
     expect(parseTeamAddress('https://bücher.de')).toMatchObject({ ok: true, host: 'xn--bcher-kva.de' })
   })
-  test('"no team yet" links: no signup in the Mac App Store build, and its docs link has no pricing', () => {
-    expect(firstRunLinks({ macAppStore: false, korean: true })).toEqual({ signup: `https://${SERVICE_HOSTS.accountHost}/`, docs: INSTALL_DOCS })
-    const mas = firstRunLinks({ macAppStore: true, korean: true })
-    expect(mas.signup).toBeNull()
-    expect(mas.docs).toBe('https://github.com/trina-app/trina-ax/blob/main/docs/INSTALL-LINUX.md')
-    expect(firstRunLinks({ macAppStore: true, korean: false }).docs).toEndWith('/docs/INSTALL-LINUX.en.md')
-    // the store build's page links no plans, no signup and not the product site (which has both)
-    for (const f of ['docs/INSTALL-LINUX.md', 'docs/INSTALL-LINUX.en.md']) expect(readFileSync(join(import.meta.dir, '../..', f), 'utf8')).not.toMatch(/#pricing|\/signup|account\.trina\.app|https:\/\/ax\.trina\.app/i)
+  test('first-run links: the demo in every build; no plans in the Mac App Store build (App Review 3.1.1)', () => {
+    const console = `https://${SERVICE_HOSTS.accountHost}`
+    expect(createLinks({ macAppStore: false, console })).toEqual({ demo: 'https://demo.trina.app', pricing: 'https://ax.trina.app/pricing', console })
+    expect(createLinks({ macAppStore: true, console })).toEqual({ demo: DEMO_URL, pricing: null, console })
+    expect(PRICING_URL).toBe('https://ax.trina.app/pricing')
+    // the store build's notices offer nothing that makes, starts or buys a team: no plans, no console, no resume, retry
+    // or waiting list; opening an owned team stays
+    for (const n of CREATE_NOTICES) {
+      const a = noticeAction(n, true)
+      expect(['plans', 'console', 'resume', 'retry', 'waitlist']).not.toContain(a as string)
+    }
+    expect(noticeAction('freeUsed', false)).toBe('plans')
+    expect(noticeAction('freeUsed', true)).toBeNull()
+    expect(noticeAction('hasTeam', true)).toBe('open')
+    // the main process hides the create row, the console and the pricing link in the store build
+    const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
+    expect(main).toContain("ipcMain.on('ui:create-start', (e) => fromShell(e) && !storeScreens && createTeam?.start())")
+    expect(main).toContain("kind === 'console' && !storeScreens ? links.console")
+    expect(main).toContain('const storeScreens = process.mas === true || (dev && process.env.MYCEL_DESKTOP_TEST_STORE')
+    const welcomeUi = readFileSync(join(import.meta.dir, '../../desktop/src/ui/welcome.ts'), 'utf8')
+    expect(welcomeUi).toContain("const rows = () => state.offer === 'yes' && !state.store")
+    // the create flow never sends a store sign-in's token to create, resume, retry or the waiting list
+    const flow = readFileSync(join(import.meta.dir, '../../desktop/src/main/create-team.ts'), 'utf8')
+    expect(flow).toContain("if (v.screen !== 'name' || v.busy || this.o.store) return")
+    expect(flow).toContain('if (!team || this.o.store) return')
+    expect(flow).toContain('if (this.o.store) return\n')
+  })
+  test('the console: the account host; a development run may name 127.0.0.1 over http or another https host', () => {
+    const fallback = `https://${SERVICE_HOSTS.accountHost}`
+    expect(consoleOrigin({ packaged: false, env: {} })).toBe(fallback)
+    expect(consoleOrigin({ packaged: false, env: { MYCEL_CONSOLE_ORIGIN: 'http://127.0.0.1:19140' } })).toBe('http://127.0.0.1:19140')
+    expect(consoleOrigin({ packaged: false, env: { MYCEL_CONSOLE_ORIGIN: 'https://console.example.test' } })).toBe('https://console.example.test')
+    for (const bad of ['http://localhost:1', 'http://example.com', 'https://u:p@example.com', 'https://example.com/path', 'javascript:alert(1)', 'nope'])
+      expect(consoleOrigin({ packaged: false, env: { MYCEL_CONSOLE_ORIGIN: bad } })).toBe(fallback)
+    // a packaged app never takes it
+    expect(consoleOrigin({ packaged: true, env: { MYCEL_CONSOLE_ORIGIN: 'http://127.0.0.1:19140' } })).toBe(fallback)
+    // the console without the flow (404) keeps the first screen as it was; 401 offers it; anything else is not known
+    expect(offerFromProbe(401)).toBe('yes')
+    expect(offerFromProbe(404)).toBe('no')
+    for (const s of [null, 200, 500, 502, 302]) expect(offerFromProbe(s)).toBe('unknown')
+  })
+  test('the owner claim address: the team own origin, exactly /app-setup#c=<43>, else nothing is opened', () => {
+    const claim = 'Zm9vYmFyYmF6cXV4MDEyMzQ1Njc4OWFiY2RlZmdoaWo'
+    const team = 'https://acme.trina.app'
+    expect(claimPage(`${team}/app-setup#c=${claim}`, team)).toBe(`/app-setup#c=${claim}`)
+    for (const bad of [`https://evil.example/app-setup#c=${claim}`, `${team}/app-setup?x=1#c=${claim}`, `${team}/app-setup#c=${claim}&x=1`, `${team}/app-setup#c=${claim.slice(1)}`, `${team}/setup#c=${claim}`, `https://u:p@acme.trina.app/app-setup#c=${claim}`, 'garbage', ''])
+      expect(claimPage(bad, team)).toBeNull()
+    // an older team server's setup link: on the team's own origin only
+    expect(oldSetupPage(`${team}/setup#t=abc`, team)).toBe('/setup#t=abc')
+    expect(oldSetupPage('https://evil.example/setup#t=abc', team)).toBeNull()
+    expect(oldSetupPage(undefined, team)).toBeNull()
+  })
+  test('the create screens: the plan lines, the steps, the address and each refusal its own line', () => {
+    expect(freePlanLines({ maxActiveMembers: 3, maxConcurrency: 1, diskGB: 5, termsUrl: 'https://x.test/t', privacyUrl: 'https://x.test/p', termsVersion: '1' }).map((l) => l.key))
+      .toEqual(['create.planMembers', 'create.planAnswers', 'create.planDisk', 'create.planSleeps'])
+    expect(freePlanLines({ maxActiveMembers: null, maxConcurrency: 1, diskGB: 5, termsUrl: 'https://x.test/t', privacyUrl: 'https://x.test/p', termsVersion: '1' })[0]).toEqual({ key: 'create.planMembersAny' })
+    expect(startSteps(0)).toEqual(['later', 'later', 'later'])
+    expect(startSteps(2)).toEqual(['done', 'now', 'later'])
+    expect(startSteps(4)).toEqual(['done', 'done', 'done'])
+    expect(teamHost('acme')).toBe(`acme.${SERVICE_HOSTS.teamDomain}`)
+    const lines = ['free_not_allowed', 'capacity_full', 'free_awake_limit', 'waitlist', 'network_limit', 'email_unverified', 'no_free_region'].map(noticeForError)
+    expect(new Set(lines).size).toBe(lines.length)
+    expect(lines).not.toContain('failed')
+    expect(noticeForError('slug_unavailable')).toBeNull()
+    expect(noticeForError('something_new')).toBe('failed')
+    for (const l of Object.keys(STRINGS) as UiLocale[]) for (const n of ['notice.awakeLimit', 'notice.capacityFull'] as const) expect(STRINGS[l][n]).not.toMatch(/mail/i)
   })
   test('the first connect to an address the hosted service does not run asks once', () => {
     const ask = (typed: string, known = false, confirmed = false) => { const p = parseTeamAddress(typed); if (!p.ok) throw new Error(p.error); return asksOutside({ hosted: p.hosted, dev: p.dev, known, confirmed }) }
@@ -321,7 +380,7 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
   })
   test('the page opens only on a team the app already has, by exact origin; any other link goes to ④', () => {
     const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
-    const opener = win.slice(win.indexOf('  private openLinkedPage(raw: string): boolean {'), win.indexOf('  /** The "no team yet" screen'))
+    const opener = win.slice(win.indexOf('  private openLinkedPage(raw: string): boolean {'), win.indexOf('  /** The create screens changed'))
     expect(opener).toContain('const page = desktopPagePath(raw)')
     expect(opener).toContain('this.teams.teams.find((x) => x.origin === page.origin)')
     expect(opener).toContain('if (!page || !known) return false')
@@ -357,6 +416,30 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
     // a page that failed to load is logged without its fragment
     const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
     expect(win).toContain("debug('team page failed to load', code, url.split('#')[0])")
+  })
+  test('a new team owner setup page (/app-setup#c=<claim>) is never read from a link: only the create flow opens it', () => {
+    const claim = 'Zm9vYmFyYmF6cXV4MDEyMzQ1Njc4OWFiY2RlZmdoaWo'
+    const team = `https://acme.${TEAM_DOMAIN}`
+    // a claim in a link would make whoever opens it the owner of the sender's team, signed in as them
+    expect(readDesktopLink(link(`${team}/app-setup#c=${claim}`))).toEqual({ ok: false, error: 'invalid' })
+    for (const inner of [`${team}/app-setup#c=${claim}x`, `${team}/app-setup#c=${claim.slice(1)}`, `${team}/app-setup#c=${claim}&x=1`, `${team}/app-setup?c=${claim}`, `${team}/app-setup?x=1#c=${claim}`, `${team}/app-setup`, `${team}/APP-SETUP/#c=${claim}`])
+      expect(readDesktopLink(link(inner))).toEqual({ ok: false, error: 'invalid' })
+    // the sign-in link still works from outside
+    expect(readDesktopLink(link(`${team}/app-signin#c=${claim}`))).toMatchObject({ ok: true, entryPath: `/app-signin#c=${claim}` })
+    expect(readDesktopLink(`${link(`${team}/app-setup`)}#c=${claim}`)).toBeNull()
+    expect(readDesktopLink(link(`http://acme.${TEAM_DOMAIN}/app-setup#c=${claim}`))).toEqual({ ok: false, error: 'insecure' })
+    // the first-run box refuses it, typed or pasted
+    expect(parseTeamAddress(`${team}/app-setup#c=${claim}`)).toEqual({ ok: false, error: 'invalid' })
+    expect(desktopPagePath(link(`${team}/app-setup#c=${claim}`))).toBeNull()
+    expect(retypablePath(`/app-setup#c=${claim}`)).toBe('/')
+    // an update restart never opens it again; the address shows on it
+    expect(resumePage('t1', `${team}/app-setup#c=${claim}`, [team])).toBeNull()
+    expect(resumePage('t1', `${team}/APP-SETUP`, [team])).toBeNull()
+    expect(isSignInPath('/app-setup')).toBe(true)
+    // the create flow never logs the claim address: only the team origin
+    const flow = readFileSync(join(import.meta.dir, '../../desktop/src/main/create-team.ts'), 'utf8')
+    expect(flow).toContain("debug('create: opening the new team', origin)")
+    expect(flow.match(/debug\(/g)?.length).toBe(1)
   })
   test('the link in a command line (Windows, Linux; a second instance)', () => {
     const l = link('https://acme.trina.app/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk')

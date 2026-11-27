@@ -55,20 +55,20 @@ for (const width of [1440, 390] as const) {
       const edited = `민지님, 다음 주부터 같이 써요!\n${url}`
       await box.fill(edited)
       await page.getByTestId('team-link-copy-message').click()
-      await expect(page.getByTestId('team-link-copy-message')).toContainText('복사됨')
+      await expect(page.getByTestId('team-link-copy-message')).toContainText('복사했어요')
       expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(edited)
       // copied: "다 했어요" is the one primary now
       await expect(page.getByTestId('invite-step-done')).toHaveAttribute('data-sent', 'true')
       await expect(page.getByTestId('invite-step-done')).toHaveClass(/bg-accent /)
       await expect(page.getByTestId('team-link-copy-message')).not.toHaveClass(/bg-accent /)
-      // emptied: nothing to copy, and the off button says what it does, not "복사됨" (QA TC-2846)
+      // emptied: nothing to copy, and the off button says what it does, not "복사했어요" (QA TC-2846)
       await box.fill('')
       await expect(page.getByTestId('team-link-copy-message')).toBeDisabled()
       await expect(page.getByTestId('team-link-copy-message')).toHaveText('메시지 복사')
-      // copied, then changed: "복사됨" goes at once
+      // copied, then changed: "복사했어요" goes at once
       await box.fill(edited)
       await page.getByTestId('team-link-copy-message').click()
-      await expect(page.getByTestId('team-link-copy-message')).toContainText('복사됨')
+      await expect(page.getByTestId('team-link-copy-message')).toContainText('복사했어요')
       await box.fill(edited.replace('다음 주', '이번 주'))
       await expect(page.getByTestId('team-link-copy-message')).toHaveText('메시지 복사')
       expect(realErrors(errors)).toEqual([])

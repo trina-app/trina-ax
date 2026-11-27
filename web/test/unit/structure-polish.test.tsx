@@ -173,12 +173,12 @@ describe('A: the "⋯" items per kind and role', () => {
     expect(mayMakeTeamProject(meAs('guest', 'members'))).toBe(false)
     expect(mayMakeTeamProject(null)).toBe(false)
   })
-  test('a named private channel and an unnamed group chat: Make it a project, before Copy link', () => {
-    expect(roomMenuActions({ kind: 'group', name: 'Launch' }, false, true)).toEqual(['pin', 'notify', 'makeProject', 'copyLink', 'leave'])
-    expect(roomMenuActions({ kind: 'group' }, false, true)).toEqual(['pin', 'notify', 'makeProject', 'copyLink', 'leave'])
+  test('a named private channel and an unnamed group chat: Make it a project, after Copy link (the one list: docs/decisions/20261126-shared-menus.md)', () => {
+    expect(roomMenuActions({ kind: 'group', name: 'Launch' }, false, true)).toEqual(['pin', 'notify', 'copyLink', 'makeProject', 'leave'])
+    expect(roomMenuActions({ kind: 'group' }, false, true)).toEqual(['pin', 'notify', 'copyLink', 'makeProject', 'leave'])
   })
   test('a 1:1: New project with {name}; a hidden or gone one: none', () => {
-    expect(roomMenuActions({ kind: 'dm' }, false, true)).toEqual(['pin', 'notify', 'dmProject', 'copyLink', 'hide'])
+    expect(roomMenuActions({ kind: 'dm' }, false, true)).toEqual(['pin', 'notify', 'copyLink', 'dmProject', 'hide'])
     expect(roomMenuActions({ kind: 'dm', hidden: true }, false, true)).toEqual(['notify', 'copyLink', 'show'])
     expect(roomMenuActions({ kind: 'dm', gone: true }, false, true)).toEqual(['pin', 'notify', 'copyLink', 'hide'])
   })

@@ -21,6 +21,8 @@
 //   @fake {"saySplit": "한글"}               one text delta whose stdout line is written in two pieces, cut inside
 //                                            the first multi-byte character (the launcher reads them separately)
 //   @fake {"refuseUnless": "sonnet"}         refuse unless --model contains the word
+//   @fake {"modelUsage": {"claude-opus-5-5": {"inputTokens": 9, "outputTokens": 3}}}  (Claude) the run's result names
+//                                            its tokens per model like Claude Code's result.modelUsage
 //   @fake {"fail": "rate limit exceeded"}    end with an engine error
 //   @fake {"claudeFail": "usage limit"}     the same, as Claude only (Codex goes on: the limit fallback)
 //   @fake {"crashOnce": true}                exit 3 without output the first time in this chat folder
@@ -288,6 +290,7 @@ async function tool(name: string, args: unknown, expectImage = false, inspectIma
   return text
 }
 
+let resultModelUsage: Record<string, unknown> | null = null
 function finish(o: { error?: string; refused?: boolean; maxTurns?: boolean } = {}) {
   if (stopped) return
   closeBlock()
@@ -303,7 +306,7 @@ function finish(o: { error?: string; refused?: boolean; maxTurns?: boolean } = {
     if (o.refused) out({ type: 'stream_event', event: { type: 'message_delta', delta: { stop_reason: 'refusal' } } })
     if (o.maxTurns) out({ type: 'result', subtype: 'error_max_turns', is_error: true, num_turns: turnsUsed + 1, session_id: sessionId, usage: { input_tokens: 100, output_tokens: 20 }, total_cost_usd: 0.001 })
     else out({ type: 'result', subtype: o.error ? 'error_during_execution' : 'success', is_error: !!o.error, result: o.error ?? answer, session_id: sessionId, num_turns: turnsUsed + 1,
-      stop_reason: o.refused ? 'refusal' : 'end_turn', usage: { input_tokens: 100, output_tokens: 20 }, total_cost_usd: 0.001 })
+      stop_reason: o.refused ? 'refusal' : 'end_turn', usage: { input_tokens: 100, output_tokens: 20 }, total_cost_usd: 0.001, ...(resultModelUsage ? { modelUsage: resultModelUsage } : {}) })
   }
   stopped = true
   try { br?.kill() } catch {}
@@ -583,6 +586,7 @@ for (const d of directives) {
     out({ type: 'stream_event', event: { type: 'message_delta', delta: { stop_reason: d.callUsage.last ? 'end_turn' : 'tool_use' }, usage: { output_tokens: Number(d.callUsage.output ?? 0) } } })
   }
   else if (d.saySplit !== undefined) await saySplit(String(d.saySplit))
+  else if (d.modelUsage !== undefined) resultModelUsage = d.modelUsage
   else if (d.refuseUnless !== undefined) { if (!String(model).includes(d.refuseUnless)) finish({ refused: true }) }
   else if (d.fail) finish({ error: String(d.fail) })
   else if (d.claudeFail) { if (!codex) finish({ error: String(d.claudeFail) }) }

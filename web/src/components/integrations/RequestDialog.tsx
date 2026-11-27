@@ -109,7 +109,7 @@ export function RequestRow({ r, onWithdraw, onAskAgain }: { r: IntegrationReques
       </div>
       {waiting ? (
         <>
-          <IconButton label={t('integrations.requests.copyLink')} onClick={() => void copy()} data-testid="integration-request-copy"><Link2 size={15} /></IconButton>
+          <IconButton label={t('rooms.menu.copyLink')} onClick={() => void copy()} data-testid="integration-request-copy"><Link2 size={15} /></IconButton>
           <IconButton label={t('integrations.requests.withdraw')} danger onClick={onWithdraw} data-testid="integration-request-withdraw"><Undo2 size={15} /></IconButton>
         </>
       ) : r.state !== 'connected' && (

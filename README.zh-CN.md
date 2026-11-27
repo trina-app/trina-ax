@@ -7,6 +7,8 @@
 <b>整个团队共用的 AI。</b><br>
 Trina AX 把团队的文件、技能和工具集中在一台服务器上。每个人的 AI 都从这里开始。<br>同事的 AI 会话，点开就能接着做。AI 打开的每个文件，都会按提问者本人的权限检查。
 
+<a href="https://demo.trina.app"><img src="docs/images/readme/v4/try-demo-zh.png" height="40" alt="无需注册，1 分钟试用"></a>
+
 <a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-zh.png" height="40" alt="下载 Mac 版"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-zh.png" height="40" alt="下载 Windows 版"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="在 App Store 下载"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="在 Google Play 下载"></a><br>
 <sub>Linux：.deb 和 AppImage（x64、arm64）见<a href="https://ax.trina.app/download">下载页面</a></sub>
 

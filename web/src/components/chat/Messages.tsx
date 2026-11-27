@@ -6,9 +6,10 @@
 // rooms/SendHere.tsx), regenerate, branch switch. A side chat's question shows without the thread its quote names
 // (shared rooms.ts hideThreadRef), in copy and edit too (an edit keeps it while the quote's header stays).
 // Like Claude: an answer is plain text in the column, with no picture beside it; its actions stay under the newest
-// answer and show on older ones when the pointer or focus is on them. A phone has no hover: there a message's actions
-// (copy, edit, retry) show once the message is tapped, the newest answer's always; until then they are hidden from
-// sight only (screen readers and a keyboard still reach them), and the branch switch ("‹ 1 / 2 ›") always shows.
+// answer and show on older ones when the pointer or focus is on them. A touch screen has no hover: there a long press on
+// a message opens its actions as one sheet, the same sheet as every message's (components/messages/MessageActions.tsx);
+// on a phone the row stays under the newest answer only, the others are hidden from sight only (screen readers and a
+// keyboard still reach them), and the branch switch ("‹ 1 / 2 ›") always shows. A tap shows nothing.
 // A file sent with a message is a small card above the bubble: its name, its type and its size; a picture is its
 // thumbnail, which opens the image viewer (components/ImageViewer.tsx), with the chat's other pictures by ← →.
 // A shared project chat (docs/DECISIONS.md "Shared project chats"): every question, mine too, has its sender's picture
@@ -18,7 +19,7 @@
 import { tileUpdated, updatedLine } from '../../lib/chatFileVersions'
 import { useTeamPlace } from '../../lib/teamPlace'
 import clsx from 'clsx'
-import { AlertTriangle, BookmarkPlus, Check, ChevronDown, ChevronLeft, ChevronRight, CirclePause, Copy, History, Info, Loader2, MessageSquareReply, MessageSquareShare, MessagesSquare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
+import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Info, Loader2, MessagesSquare, Paperclip, Play, Shapes, Square } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, answerEndsInFailure, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, sideQuoteOf, skillLabel, type Attachment, type EngineId, type SideQuote, type UserRef } from '@mycel/shared/api'
@@ -28,7 +29,8 @@ import { formAnswers } from '../../lib/skillForm'
 import { skillByName, splitCommand, useSkillList } from '../../lib/skillTitles'
 import { useAutoGrow } from '../../lib/autoGrow'
 import { formatNumber, formatResetDay, formatResetTime, formatSize } from '../../lib/format'
-import { openArtifact, openFilePreview, openTeamFile, useSidePanel } from '../../lib/sidePanel'
+import { openArtifact, useSidePanel } from '../../lib/sidePanel'
+import { openMessageFile } from '../../lib/messageFiles'
 import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
 import { useChatArtifacts } from '../../lib/useArtifacts'
 import { useLocale, useT } from '../../i18n'
@@ -51,7 +53,7 @@ import AiAccessButton from './AiAccessButton'
 import NotReadyButton from './NotReadyButton'
 import { isNoAiReason } from '../../lib/aiAccess'
 import { adminPath, chatErrorText, usageLimitOf, usageLimitText } from '../../lib/chatErrors'
-import { Button, CopyButton, IconButton, inputCls, useCopy, useMediaQuery } from '../ui'
+import { Button, IconButton, inputCls, useMediaQuery } from '../ui'
 import AskCard, { BatchCard } from './AskCard'
 import { gathers, groupCards, groupKey, showsAsBatch } from '../../lib/cardBatch'
 import TodoCard, { todoStepOf } from './TodoCard'
@@ -63,9 +65,10 @@ import ScheduledCard from './ScheduledCard'
 import ConnectCard from './ConnectCard'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import SuggestSkillDialog from '../SuggestSkillDialog'
+import ProblemReportSheet, { type ReportedAnswer } from '../ProblemReportSheet'
 import ShareToRoom from './ShareToRoom'
 import { SendHere, SendHereNote, type SentHere } from '../rooms/SendHere'
-import { MenuButton, useLongPress, type MenuItem } from '../rooms/MenuButton'
+import { ActionIcon, MessageActions, MessageActionSheet, useMessagePress, type MessageAction } from '../messages/MessageActions'
 import { keepThreadRef, shownQuestion, type SendTarget } from '../../lib/sideChatSend'
 import FileSummary from './FileSummary'
 import SourcesList from './SourcesList'
@@ -101,39 +104,10 @@ export { ENGINE_LABEL }
 
 /** a message's actions on a screen with a mouse: shown while the pointer or focus is on the message */
 const ON_HOVER = 'transition [@media(hover:hover)]:opacity-0 group-focus-within:opacity-100 group-hover:opacity-100'
-/** a message's actions on a phone (a touch screen under 768px) until the message is tapped: out of sight and out of the
- * way of the finger (not an invisible button that takes the tap), but still read by a screen reader and shown once a
- * keyboard's focus is in them */
-export const UNTIL_TAP = 'max-md:pointer-coarse:not-focus-within:sr-only'
-
-/** A room's side chat on a phone (`pressMenu`, CHATS-17): a message's actions as the room's messages have them, a long
- * press opening them as a sheet (components/rooms/MenuButton.tsx), not icons that show on a tap. The icons stay out of
- * sight only (UNTIL_TAP: screen readers and a keyboard still reach them); a computer or a tablet keeps them. A finger
- * held in a text box or on a control of the message (an ask card's box, a link's own button) is no long press of it. */
-function usePhonePress(on: boolean) {
-  const [signal, setSignal] = useState(0)
-  const long = useLongPress(() => {
-    if (window.matchMedia?.('(min-width: 48rem)').matches) return
-    setSignal((n) => n + 1)
-  })
-  if (!on) return { signal, handlers: {} }
-  return {
-    signal,
-    handlers: {
-      ...long,
-      onPointerDown: (e: React.PointerEvent) => {
-        if ((e.target as Element).closest?.('textarea, input, select, button, a, [role="dialog"], [role="menu"], [data-testid="ask-card"], [data-testid="connect-card"]')) return
-        long.onPointerDown(e)
-      },
-    },
-  }
-}
-/** the side chat's sheet: its hidden button, opened by the long press */
-function PressSheet({ signal, items, title }: { signal: number; items: MenuItem[]; title?: string }) {
-  const t = useT()
-  if (!items.length) return null
-  return <MenuButton label={t('rooms.messageMenu')} className="absolute top-0 right-0" buttonClassName="hidden!" testId="side-message-menu" openSignal={signal} items={items} sheetTitle={title} />
-}
+/** a message's actions on a phone (a touch screen under 768px), where its long press opens them as a sheet: out of sight
+ * and out of the way of the finger (not an invisible button that takes the touch), but still read by a screen reader and
+ * shown once a keyboard's focus is in them */
+export const IN_SHEET = 'max-md:pointer-coarse:not-focus-within:sr-only'
 
 /** "notes.txt" -> "TXT": the file's type on its card (none for a name without one) */
 const typeOf = (name: string) => {
@@ -239,7 +213,7 @@ export function AttachmentView({ a, align = 'end', chatId }: { a: Attachment; al
   // every attachment opens the file panel; a format without a viewer shows the notice and a download button there
   return (
     <>
-      <button type="button" className={clsx(cls, 'text-left hover:bg-hover')} onClick={(e) => !fileMenu.guard(e) && (kept ? openFilePreview({ source: 'chat', chatId: chatId!, fileId: a.id, name: a.name }) : openTeamFile(a.path))} title={team ? t('composer.teamFile', { path: a.path }) : t('common.preview')} data-source={a.source ?? 'upload'} {...drag} {...fileMenu.bind}>
+      <button type="button" className={clsx(cls, 'text-left hover:bg-hover')} onClick={(e) => !fileMenu.guard(e) && openMessageFile(kept ? { source: 'chat', chatId: chatId!, fileId: a.id, name: a.name } : { source: 'team', path: a.path, name: a.name })} title={team ? t('composer.teamFile', { path: a.path }) : t('common.preview')} data-source={a.source ?? 'upload'} {...drag} {...fileMenu.bind}>
         {body}
       </button>
       {fileMenu.menu}
@@ -424,13 +398,13 @@ function CardAnswerLine({ m, showAuthor, busy, onSelectBranch }: { m: ViewMessag
 
 /** `showAuthor`: a shared chat, every question shows who asked (MessageAuthor); `canEdit` false: not mine to edit (a
  * shared chat); `sideChat`: a room's side chat, whose questions may quote a room message or file (UserText) */
-export function UserMessage(props: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void; showAuthor?: boolean; canEdit?: boolean; sideChat?: boolean; /** a room's side chat panel: a phone's long press opens the actions (usePhonePress) */ pressMenu?: boolean }) {
+export function UserMessage(props: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void; showAuthor?: boolean; canEdit?: boolean; sideChat?: boolean }) {
   const { m } = props
   if (m.cardAnswer && !m.local) return <CardAnswerLine m={m as ViewMessage & { cardAnswer: NonNullable<ViewMessage['cardAnswer']> }} showAuthor={!!props.showAuthor} busy={props.busy} onSelectBranch={props.onSelectBranch} />
   return <WrittenMessage {...props} />
 }
 
-function WrittenMessage({ m, chatId, busy, onEdit, onSelectBranch, showAuthor = false, canEdit = true, sideChat = false, pressMenu = false }: Parameters<typeof UserMessage>[0]) {
+function WrittenMessage({ m, chatId, busy, onEdit, onSelectBranch, showAuthor = false, canEdit = true, sideChat = false }: Parameters<typeof UserMessage>[0]) {
   const t = useT()
   const [editing, setEditing] = useState(false)
   // the box shows a "#" room token as "#<title>"; what is sent again keeps its room (lib/roomRefs.ts); a side chat's
@@ -452,26 +426,22 @@ function WrittenMessage({ m, chatId, busy, onEdit, onSelectBranch, showAuthor = 
   const long = m.content.length > 1200 || m.content.split('\n').length > 18
   const [open, setOpen] = useState(!long)
   const run = useFormRun(m.content)
-  // phones: the actions show once the message is tapped; in a side chat panel a long press opens them (usePhonePress)
-  const [tapped, setTapped] = useState(false)
-  const shut = pressMenu || !tapped
-  const press = usePhonePress(pressMenu && !m.local && !editing)
-  const { copy } = useCopy()
+  // a touch screen: a long press opens the actions as the shared sheet; a phone hides the row (IN_SHEET)
+  const press = useMessagePress(!m.local && !editing)
   const startEdit = () => {
     setDraft(fromWire(shown).text)
     setEditing(true)
   }
-  const pressItems: MenuItem[] = pressMenu && !m.local && !editing ? [
-    ...(shown ? [{ label: t('common.copy'), icon: <Copy size={14} aria-hidden />, onSelect: () => void copy(shown).then(() => toast({ level: 'success', text: t('common.copied') }), () => {}), testId: 'side-message-copy' }] : []),
-    ...(canEdit ? [{ label: t('chat.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: startEdit, testId: 'side-message-edit' }] : []),
+  const actions: MessageAction[] = !m.local && !editing ? [
+    ...(shown ? [{ id: 'copy' as const, label: t('common.copy'), copy: { text: () => shown }, menuTestId: 'side-message-copy' }] : []),
+    ...(canEdit ? [{ id: 'edit' as const, label: t('chat.edit'), run: startEdit, testId: 'edit-message', menuTestId: 'side-message-edit' }] : []),
   ] : []
   const branched = m.branch.count > 1
   // someone else's file from their computer that I may not open is left out (the server leaves it out too): never a
   // nameless "0 B" tile (QA TC-2022). A team file I may not open still says "unavailable"
   const shownAttachments = m.attachments.filter((a) => !(a.unavailable && a.source !== 'team'))
   return (
-    <div className={clsx('group flex min-w-0 flex-col items-end gap-2', pressMenu && 'relative max-md:pointer-coarse:select-none max-md:pointer-coarse:[-webkit-touch-callout:none]')} data-testid="user-message" data-message-id={m.id} onClick={() => setTapped(true)} {...press.handlers}>
-      {pressMenu && <PressSheet signal={press.signal} items={pressItems} />}
+    <div className={clsx('group flex min-w-0 flex-col items-end gap-2', press.box)} data-testid="user-message" data-message-id={m.id} data-selecting={press.selecting ? '' : undefined} {...press.bind}>
       {showAuthor && <MessageAuthor author={m.author} />}
       {shownAttachments.length > 0 && (
         <div className="flex max-w-[85%] flex-wrap items-end justify-end gap-2">
@@ -554,18 +524,13 @@ function WrittenMessage({ m, chatId, busy, onEdit, onSelectBranch, showAuthor = 
       )}
       {!m.local && !editing && (
         // phones: the branch switch stays in sight; without one the row takes no room until the tap
-        <div className={clsx('flex items-center gap-1 select-none', ON_HOVER, shut && !branched && UNTIL_TAP)} data-testid="message-actions">
+        <div className={clsx('flex items-center gap-1 select-none', ON_HOVER, !branched && IN_SHEET)} data-testid="message-actions">
           <BranchNav m={m} onSelect={onSelectBranch} disabled={busy} />
-          <span className={clsx('flex items-center gap-1 md:contents', shut && UNTIL_TAP)} data-testid="message-actions-tap">
-            <CopyButton text={shown} />
-            {canEdit && (
-              <IconButton label={t('chat.edit')} onClick={startEdit} data-testid="edit-message">
-                <Pencil size={13} />
-              </IconButton>
-            )}
-          </span>
+          <MessageActions layout="row" actions={actions} className={clsx('flex items-center gap-1 md:contents', IN_SHEET)} testId="message-actions-tap" />
         </div>
       )}
+      {/* the long press's sheet (last: the message's own rows come first) */}
+      <MessageActionSheet signal={press.signal} actions={actions.length ? [...actions, { id: 'selectText', label: t('messages.selectText'), run: press.selectText, menuTestId: 'message-select-text' }] : []} testId="side-message-menu" />
     </div>
   )
 }
@@ -682,8 +647,8 @@ export function AssistantMessage({
   canRegenerate = true,
   ownAnswer = true,
   canSuggest: canSuggestHere = true,
-  pressMenu = false,
   onThread,
+  reportConversation = false,
 }: {
   m: ViewMessage
   chatId: string
@@ -713,14 +678,13 @@ export function AssistantMessage({
   ownAnswer?: boolean
   /** false: "스킬로 제안" is not offered (a shared chat, phase 1: the server refuses it) */
   canSuggest?: boolean
-  /** a room's side chat panel: on a phone a long press opens copy, retry and the model as a sheet, as a room's message
-   * does (usePhonePress); "스레드에 보내기" / "대화방에 보내기" stays under the answer (docs/DECISIONS.md "Trina side chat:
-   * send here") */
-  pressMenu?: boolean
   /** a shared chat (docs/decisions/20261116-chat-answer-threads.md): "Reply in thread" on a finished answer and the
    * thread's line under it; `focus` puts the caret in the thread's box. Absent: no thread (a chat of one person, a room's
    * side chat: never shared) */
   onThread?: (focus: boolean) => void
+  /** 👎's sheet may offer "이 답변과 질문 함께 보내기": my own question in my own chat of one person (not shared, not in a
+   * project, not a side chat; docs/decisions/20261126-problem-reports.md). The server checks it again. */
+  reportConversation?: boolean
 }) {
   const t = useT()
   const locale = useLocale()
@@ -783,12 +747,12 @@ export function AssistantMessage({
     : null
   const [suggesting, setSuggesting] = useState(false)
   const [sharing, setSharing] = useState(false)
-  // phones: an older answer's actions show once it is tapped
-  const [tapped, setTapped] = useState(false)
-  const untilTap = pressMenu || (!isLast && !tapped)
+  const [reporting, setReporting] = useState<ReportedAnswer | null>(null)
+  // phones: an older answer's row is in its long-press sheet only (IN_SHEET); the newest keeps its row in sight in the AI
+  // chat; a room's side chat keeps every answer's row in the sheet (CHATS-17), only its send button stays in sight
+  const inSheet = !isLast || !!sendHere
   const branched = m.branch.count > 1
-  const press = usePhonePress(pressMenu && !streaming)
-  const { copy } = useCopy()
+  const press = useMessagePress(!streaming)
   const answeredBy = useAnsweredBy(m)
   // the AI limit used up is a known state, not a failure: a calm notice with when it starts again, and nothing to try
   // again (it would be refused until then; owner rule: never an error's look for a known state)
@@ -808,17 +772,28 @@ export function AssistantMessage({
   const sendHereOn = !!sendHere && shareable && sendable
   // an answer that can have a thread: finished (done or stopped), not hidden from me
   const threadable = !!onThread && !m.withheld && (m.status === 'done' || m.status === 'stopped')
-  const pressItems: MenuItem[] = pressMenu && !streaming ? [
-    ...(m.content ? [{ label: t('chat.copyAnswer'), icon: <Copy size={14} aria-hidden />, onSelect: () => {
-      let rich: string | undefined
-      try { rich = answerHtml(m.content) } catch { rich = undefined }
-      void copy(m.content, rich).then(() => toast({ level: 'success', text: t('common.copied') }), () => {})
-    }, testId: 'side-answer-copy' }] : []),
-    // (not while an answer runs: the icon is disabled then, and a sheet item cannot be)
-    ...(canRetry && !busy ? [{ label: t('chat.regenerate'), icon: <RotateCcw size={14} aria-hidden />, onSelect: () => onRegenerate(m), testId: 'side-answer-regenerate' }] : []),
-    // a guest has no skills (docs/DECISIONS.md "Guests: only what they were invited to")
-    ...(canSuggest && !guest && finished ? [{ label: t('suggest.button'), icon: <BookmarkPlus size={14} aria-hidden />, onSelect: () => setSuggesting(true), testId: 'side-answer-suggest' }] : []),
-  ] : []
+  // 👎 (docs/decisions/20261126-problem-reports.md): a finished answer, where this server sends reports and the team allows
+  // it (a guest never: Me.team.problemReports is absent for them)
+  const reportable = !!meNow?.team?.problemReports && !streaming && !m.local && (m.status === 'done' || m.status === 'error' || m.status === 'stopped')
+  const openReport = () => {
+    const question = m.parentId ? useChats.getState().threads[chatId]?.messages.find((x) => x.id === m.parentId)?.content ?? '' : ''
+    setReporting({ messageId: m.id, conversation: reportConversation && !m.withheld ? { question, answer: m.content } : null })
+  }
+  // the answer's actions, in the row (a computer, the newest answer on a phone) and in the long-press sheet: the same
+  // ones with the same icons (components/messages/MessageActions.tsx); the sheet leaves out what cannot run now
+  const copyAction: MessageAction[] = m.content ? [{ id: 'copy', label: t('chat.copyAnswer'), copy: { text: () => m.content, html: () => answerHtml(m.content) }, menuTestId: 'side-answer-copy' }] : []
+  const threadAction: MessageAction[] = threadable ? [{ id: 'thread', label: t('rooms.replyInThread'), run: () => onThread!(true), testId: 'reply-in-thread', menuTestId: 'answer-sheet-thread' }] : []
+  // send to a room: a finished answer to a room I am in, as my message (ShareToRoom); a room's side chat has its own
+  // one-click send under the answer instead (SendHere)
+  const shareAction: MessageAction[] = shareable && sendable && !sendHere ? [{ id: 'sendToChat', label: t('chat.shareToRoom'), run: () => setSharing(true), testId: 'share-to-room', menuTestId: 'answer-sheet-share' }] : []
+  // the newest failed answer has "Try again" in its error box: one control for one action
+  const retryAction: MessageAction[] = canRetry ? [{ id: 'regenerate', label: t('chat.regenerate'), run: () => onRegenerate(m), disabled: busy, testId: 'regenerate', menuTestId: 'side-answer-regenerate' }] : []
+  // a guest has no skills (docs/DECISIONS.md "Guests: only what they were invited to")
+  const suggestAction: MessageAction[] = canSuggest && !guest && finished ? [{ id: 'suggestSkill', label: t('suggest.button'), run: () => setSuggesting(true), testId: 'suggest-skill', menuTestId: 'side-answer-suggest' }] : []
+  const reportAction: MessageAction[] = reportable ? [{ id: 'report', label: t('problemReport.thumbsDown'), run: openReport, testId: 'report-answer', menuTestId: 'side-answer-report' }] : []
+  const rowMore = [...threadAction, ...shareAction, ...retryAction, ...suggestAction, ...reportAction]
+  // (not while an answer runs: the row's retry is off then, and the sheet leaves it out)
+  const sheetActions: MessageAction[] = streaming ? [] : [...copyAction, ...(m.content ? [{ id: 'selectText' as const, label: t('messages.selectText'), run: press.selectText, menuTestId: 'message-select-text' }] : []), ...rowMore.filter((a) => !a.disabled)]
 
   // after the work and before the final answer: the to-do card, "the provider is busy", "thinking…"
   const between = (
@@ -852,9 +827,9 @@ export function AssistantMessage({
   }
 
   return (
-    <div className={clsx('group', pressMenu && 'relative max-md:pointer-coarse:select-none max-md:pointer-coarse:[-webkit-touch-callout:none]')} data-testid="assistant-message" data-message-id={m.id} data-status={m.status} aria-busy={streaming} onClick={() => setTapped(true)} {...press.handlers}>
-      {/* the model that answered is the sheet's title (the ⓘ it replaces said only that) */}
-      {pressMenu && <PressSheet signal={press.signal} items={pressItems} title={answeredBy ?? undefined} />}
+    <div className={clsx('group', press.box)} data-testid="assistant-message" data-message-id={m.id} data-status={m.status} aria-busy={streaming} data-selecting={press.selecting ? '' : undefined} {...press.bind}>
+      {/* the model that answered is the sheet's title */}
+      <MessageActionSheet signal={press.signal} actions={sheetActions} title={answeredBy ?? undefined} testId="side-message-menu" />
       <div className="min-w-0 text-reading">
         {switchedFrom && m.engine && (
           <div className="mb-3 flex items-center gap-2 text-xs text-faint">
@@ -934,7 +909,7 @@ export function AssistantMessage({
                     only "another model" (when there is one), never "Try again" (QA TC-f3-01) */}
                 {!(usage?.cause === 'provider' && (!usageUntil || Date.parse(usageUntil) > Date.now())) && (
                   <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
-                    <RotateCcw size={13} aria-hidden /> {t('common.retry')}
+                    <ActionIcon id="regenerate" size={13} /> {t('common.retry')}
                   </Button>
                 )}
                 {/* the AI could not start on the server: another model starts the same way and fails the same (QA TC-3521) */}
@@ -974,46 +949,22 @@ export function AssistantMessage({
           </p>
         )}
         {!streaming && (
-          // phones: an older answer's actions and model name wait for a tap, its branch switch stays in sight; without
-          // one the row takes no room until then
-          // (a side chat panel: the send button stays in sight under every finished answer, the icons wait for a long press)
+          // phones: an older answer's actions and model name are in its long-press sheet, its branch switch stays in sight;
+          // without one the row takes no room
+          // (a side chat: the send button stays in sight under every finished answer)
           // (a phone: the 44 px tap boxes touch, no gap, so the icons stand 44 px apart, the closest a 44 px target allows)
-          <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1 select-none max-md:gap-0', !isLast && ON_HOVER, untilTap && !branched && !(pressMenu && sendHereOn) && UNTIL_TAP)} data-testid="answer-actions">
-            <span className={clsx('flex items-center gap-1 max-md:gap-0 md:contents', untilTap && UNTIL_TAP)} data-testid="answer-actions-tap">
-              {m.content && <CopyButton text={m.content} html={() => answerHtml(m.content)} label={t('chat.copyAnswer')} className="touch-hit" />}
-            </span>
-            {/* send to a room: a finished answer to a room I am in, as my message (ShareToRoom); a room's side chat sends it
-                to its room or the asked message's thread with one click (SendHere), in sight in its panel on a phone too */}
+          <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1 select-none max-md:gap-0', !isLast && ON_HOVER, inSheet && !branched && !sendHereOn && IN_SHEET)} data-testid="answer-actions">
+            <MessageActions layout="row" actions={copyAction} className={clsx('flex items-center gap-1 max-md:gap-0 md:contents', inSheet && IN_SHEET)} testId="answer-actions-tap" />
+            {/* a room's side chat sends the answer to its room or the asked message's thread with one click (SendHere), in
+                sight in its panel on a phone too */}
             {sendHereOn && (
-              <span className={clsx('flex items-center md:contents', untilTap && !pressMenu && UNTIL_TAP)} data-testid="answer-actions-send">
+              <span className="flex items-center md:contents" data-testid="answer-actions-send">
                 <SendHere chatId={chatId} answerId={m.id} answer={m.content} roomId={sendHere!.roomId} target={sendHere!.target} onView={sendHere!.onView} />
               </span>
             )}
-            <span className={clsx('flex items-center gap-1 max-md:gap-0 md:contents', untilTap && UNTIL_TAP)} data-testid="answer-actions-tap-more">
-              {threadable && (
-                <IconButton label={t('rooms.replyInThread')} onClick={() => onThread!(true)} className="touch-hit" data-testid="reply-in-thread">
-                  <MessageSquareReply size={13} />
-                </IconButton>
-              )}
-              {shareable && sendable && !sendHere && (
-                <IconButton label={t('chat.shareToRoom')} onClick={() => setSharing(true)} className="touch-hit" data-testid="share-to-room">
-                  <MessageSquareShare size={13} />
-                </IconButton>
-              )}
-              {/* the newest failed answer has "Try again" in its error box: one control for one action */}
-              {canRetry && (
-                <IconButton label={t('chat.regenerate')} disabled={busy} onClick={() => onRegenerate(m)} className="touch-hit" data-testid="regenerate">
-                  <RotateCcw size={13} />
-                </IconButton>
-              )}
-              {canSuggest && !guest && m.content && m.status === 'done' && (
-                <IconButton label={t('suggest.button')} onClick={() => setSuggesting(true)} className="touch-hit" data-testid="suggest-skill">
-                  <BookmarkPlus size={13} />
-                </IconButton>
-              )}
-            </span>
+            <MessageActions layout="row" actions={rowMore} className={clsx('flex items-center gap-1 max-md:gap-0 md:contents', inSheet && IN_SHEET)} testId="answer-actions-tap-more" />
             <BranchNav m={m} onSelect={onSelectBranch} disabled={busy} />
-            {(m.model || m.engine) && !(m.status === 'error' && reason === 'engine_start_failed') && <AnsweredBy m={m} className={clsx(untilTap && UNTIL_TAP)} />}
+            {(m.model || m.engine) && !(m.status === 'error' && reason === 'engine_start_failed') && <AnsweredBy m={m} className={clsx(inSheet && IN_SHEET)} />}
           </div>
         )}
         {/* the thread under it: always in sight (a phone too), the line opens it */}
@@ -1022,6 +973,7 @@ export function AssistantMessage({
         {suggesting && (
           <SuggestSkillDialog source={{ kind: 'message', chatId, messageId: m.id }} initialContent={m.content} onClose={() => setSuggesting(false)} />
         )}
+        {reporting && <ProblemReportSheet answer={reporting} onClose={() => setReporting(null)} />}
         {sharing && <ShareToRoom chatId={chatId} messageId={m.id} answer={m.content} roomId={shareRoomId} onClose={() => setSharing(false)} />}
       </div>
     </div>

@@ -36,7 +36,7 @@ import { switchTeam, useTeamSwitchWay } from '../../lib/teamSwitch'
 import { connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { useLocale, useT } from '../../i18n'
 import { SETTINGS_GROUPS, browserTabShown, sectionMatches, settingsPageName, settingsTabs, type SettingsTab } from '../../pages/settingsTabs'
-import { useNoticeUnread } from '../../store/inbox'
+import { useActivityUnread } from '../../store/inbox'
 import { useCachedRead } from '../../store/listCache'
 import { isAdmin, useMeStrict, useSession } from '../../store/session'
 import { toast } from '../../store/ui'
@@ -276,8 +276,8 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
   const t = useT()
   const me = useMeStrict()
   const logout = useLogout()
-  // the 나 tab's count (the app's own notices: mentions and thread replies are counted on 대화)
-  const inbox = useNoticeUnread()
+  // the 나 tab's count: every unread notice (the one Activity)
+  const inbox = useActivityUnread()
   const groups = SETTINGS_GROUPS.map((g) => tabs.filter((x) => x.group === g && !PHONE_TOP.has(x.id) && !PHONE_FOLDED.has(x.id))).filter((g) => g.length)
   // a free-roam demo: no sign-out (QA TC-5623; AccountMenu.tsx says why)
   const freeRoam = useFreeRoam()

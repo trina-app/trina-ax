@@ -39,6 +39,7 @@ export const FEATURES: Feature[] = [
   { id: 'auth.signin', name: 'Sign in and sign out', area: 'Sign-in & account', endpoints: ['login', 'logout', 'me', 'health'], screens: ['/login'] },
   { id: 'auth.password', name: 'Change password (also a forced temporary one)', area: 'Sign-in & account', endpoints: ['changePassword'], screens: ['/password', '/settings/security/password'] },
   { id: 'auth.app-signin', name: 'Continue in the desktop app after setup, signed in with a one-time code', area: 'Sign-in & account', endpoints: ['appSignIn', 'redeemAppSignIn'], screens: ['/open-app', '/app-signin'] },
+  { id: 'auth.setup-console', name: 'A hosted team made from the desktop app: its owner from the hosting console\'s sign-in', area: 'Sign-in & account', endpoints: ['setupConsolePreview', 'setupConsole'], screens: ['/app-setup'] },
   { id: 'auth.google', name: 'Sign in with Google: connect a Google account with the password, then sign in with it', area: 'Sign-in & account', endpoints: ['startGoogleSignIn', 'redeemGoogleSignIn', 'myGoogle', 'connectGoogle', 'disconnectGoogle'], screens: ['/login/google'] },
   { id: 'auth.google-signup', name: 'Sign up with Google: the first owner, invited people and team links make their account with Google, no password', area: 'Sign-in & account', endpoints: ['startGoogleSetup', 'startGoogleInvite', 'startGoogleJoin'], screens: ['/invite'] },
   { id: 'auth.google-reauth', name: 'Accounts without a password (made with Google): confirm with Google where others type their password again, and set a first password', area: 'Sign-in & account', endpoints: ['startGoogleReauth', 'googleReauthState', 'setPassword'], screens: ['/settings/security', '/settings/security/password'] },
@@ -60,7 +61,7 @@ export const FEATURES: Feature[] = [
   { id: 'chat.edit-regenerate', name: 'Edit a question, regenerate, answer branches', area: 'AI chat', endpoints: ['editMessage', 'regenerate', 'selectBranch'] },
   { id: 'chat.cards', name: 'AI questions, confirmations and connect cards in a turn', area: 'AI chat', endpoints: ['listTurnRequests', 'answerTurn', 'connectTurn', 'turnRequestDetail'] },
   { id: 'chat.sources', name: 'Answer sources', area: 'AI chat', endpoints: ['messageSources'] },
-  { id: 'chat.share', name: 'Share a chat (with its project, or with chosen people and groups) or an answer to a room', area: 'AI chat', endpoints: ['shareChat', 'shareAnswerToRoom', 'getChatAudience', 'putChatAudience', 'previewChatAudience', 'hideChat', 'unhideChat', 'leaveChat', 'userSharedChats', 'chatFile', 'linkAccess', 'requestLinkAccess', 'answerAccessRequest', 'chatFileAccess', 'requestChatFile', 'chatFileVersions', 'saveChatFile', 'restoreChatFileVersion'] },
+  { id: 'chat.share', name: 'Share a chat (with its project, or with chosen people and groups) or an answer to a room; continue a chat (shared or mine) in a new chat only I see, under it in my history', area: 'AI chat', endpoints: ['shareChat', 'forkChat', 'shareAnswerToRoom', 'getChatAudience', 'putChatAudience', 'previewChatAudience', 'hideChat', 'unhideChat', 'leaveChat', 'userSharedChats', 'chatFile', 'linkAccess', 'requestLinkAccess', 'answerAccessRequest', 'chatFileAccess', 'requestChatFile', 'chatFileVersions', 'saveChatFile', 'restoreChatFileVersion'] },
   { id: 'chat.threads', name: 'Threads on AI answers in shared chats (people talk under an answer; the AI reads it when asked, or someone sends it)', area: 'AI chat', endpoints: ['listChatThread', 'sendChatThreadReply', 'deleteChatThreadReply', 'markChatThreadRead'], screens: ['/c/:chatId/t/:messageId'] },
   { id: 'chat.message-notices', name: 'New messages in a chat shared with people tell the others (unread number, push, desktop), Mute this chat (@mentions only in threads on AI answers)', area: 'AI chat', endpoints: ['muteChat', 'unmuteChat'], screens: ['/c/:chatId/m/:target'] },
   { id: 'chat.engine', name: 'Pick the AI engine and model', area: 'AI chat', endpoints: ['chatEngines'] },
@@ -71,7 +72,7 @@ export const FEATURES: Feature[] = [
   { id: 'chat.browser', name: 'The AI uses the browser (desktop app)', area: 'AI chat', endpoints: ['pollCalls', 'postResult'], screens: ['/settings/browser'] },
   { id: 'chat.web-access', name: 'Allow all websites for the AI', area: 'AI chat', endpoints: ['setMyWebAccess'] },
   { id: 'chat.memory', name: 'What the AI remembers about me', area: 'AI chat', endpoints: ['*Memor*'], screens: ['/settings/memory'] },
-  { id: 'chat.allowances', name: 'What I allowed the AI in advance', area: 'AI chat', endpoints: ['*AiAllowance*'], screens: ['/settings/allowances'] },
+  { id: 'chat.allowances', name: 'What I allowed the AI in advance', area: 'AI chat', endpoints: ['*AiAllowance*', 'getAutoMode', 'setAutoMode'], screens: ['/settings/allowances'] },
   { id: 'chat.ai-access', name: 'Can I use AI now: ask the owner, AI not ready', area: 'AI chat', endpoints: ['getAiAccess', 'requestAiAccess', 'tellAiNotReady'] },
 
   // ---------------- Projects ----------------
@@ -165,6 +166,7 @@ export const FEATURES: Feature[] = [
   { id: 'settings.list', name: 'Settings list and search', area: 'Settings', screens: ['/settings'] },
   { id: 'settings.notifications', name: 'Notifications and inbox', area: 'Settings', endpoints: ['*Notification*'], screens: ['/settings/notifications'] },
   { id: 'settings.push', name: 'Push notifications on phones and computers', area: 'Settings', endpoints: ['*Push*', 'reportMyComputer'] },
+  { id: 'settings.problem-reports', name: 'Report a problem to the Trina AX team (Settings › About, 👎 under an answer)', area: 'Settings', endpoints: ['sendProblemReport'], screens: ['/settings/about'] },
   { id: 'settings.apps', name: 'Apps to install', area: 'Settings', screens: ['/settings/apps'] },
   { id: 'settings.about', name: 'About this app', area: 'Settings', screens: ['/settings/about'] },
 

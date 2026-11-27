@@ -307,6 +307,10 @@ export const TEXT = {
   cardAlwaysNote: t('항상 허용하면 웹페이지나 파일을 읽은 뒤에도 이런 확인은 다시 묻지 않아요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.', "With Always allow, Trina won't ask about this kind of change again, even after reading web pages or files. Undo it in Settings › Allowed for Trina.", 'Dengan Selalu izinkan, Trina tidak akan menanyakan perubahan seperti ini lagi, bahkan setelah membaca halaman web atau file. Batalkan di Pengaturan › Diizinkan untuk Trina.', "常に許可すると、Webページやファイルを読んだ後でも、この種類の確認は二度と聞きません。設定 › トリナに許可したこと で元に戻せます。", "Con Permitir siempre, Trina no volverá a preguntar por este tipo de cambio, ni siquiera tras leer páginas web o archivos. Puede deshacerlo en Configuración › Permisos para Trina.", "选择始终允许后，即使读过网页或文件，Trina也不会再就这类修改询问你。可以在设置 › 允许Trina做的事中撤销。"),
   /** cardAlwaysNote for a kind without a line of its own (QA TC-ask2-15: "이런 확인" did not say what Always allow covers,
    * and a copy card after Always allow on read and save looked like a broken promise): {what} is ALWAYS_WHAT[kind] */
+  // auto mode (docs/decisions/20261125-auto-mode.md): the step a card it approved leaves in the answer, and the line when
+  // it pauses in a chat (AUTO_DAY_LIMIT)
+  autoModeStep: t('자동 모드로 진행했어요: {what}', 'Done in auto mode: {what}', 'Dilakukan dalam mode otomatis: {what}', '自動モードで進めました: {what}', 'Hecho en modo automático: {what}', '已在自动模式下完成：{what}'),
+  autoModePaused: t('자동 모드를 잠시 멈췄어요. 이 대화에서 오늘 자동 승인이 많아서 다시 물어볼게요.', 'Auto mode paused. It approved many steps in this chat today, so Trina asks again.', 'Mode otomatis dijeda. Mode ini sudah menyetujui banyak langkah di obrolan ini hari ini, jadi Trina bertanya lagi.', '自動モードを一時停止しました。このチャットで今日たくさん自動承認したので、また確認します。', 'Modo automático en pausa. Hoy aprobó muchos pasos en este chat, así que Trina vuelve a preguntar.', '自动模式已暂停。今天在这个聊天中自动批准了很多步骤，所以Trina会重新询问。'),
   cardAlwaysNoteKind: t('항상 허용하면 앞으로 {what} 다시 묻지 않아요. 파일이나 메시지가 시켜도 마찬가지예요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.', 'With Always allow, Trina no longer asks {what}, even when a file or message tells it to. Undo it in Settings › Allowed for Trina.', 'Dengan Selalu izinkan, Trina tidak lagi bertanya {what}, bahkan saat file atau pesan menyuruhnya. Batalkan di Pengaturan › Diizinkan untuk Trina.', '常に許可にすると、今後トリナは{what}も確認しません。ファイルやメッセージに指示された場合も同じです。設定 › トリナに許可したこと で元に戻せます。', 'Con Permitir siempre, Trina ya no pregunta {what}, incluso cuando un archivo o un mensaje se lo pide. Puede deshacerlo en Configuración › Permisos para Trina.', '选择始终允许后，Trina{what}不会再询问你，即使是文件或消息让它这样做。可以在设置 › 允许Trina做的事中撤销。'),
   /** cardAlwaysNote for the wider-audience card (save_wider), shorter (docs/decisions/20261122-widening-card-wording.md);
    * it still says that it holds after reading files or web pages */
@@ -490,6 +494,11 @@ export const TEXT = {
   // threads on AI answers in shared chats (chat/threads.ts)
   chatThreadFull: t('이 스레드는 답글이 가득 찼어요. 채팅에서 이어가 주세요.', 'This thread is full. Continue in the chat.', 'Utas ini sudah penuh. Lanjutkan di obrolan.', 'このスレッドは返信がいっぱいです。チャットで続けてください。', 'Este hilo está lleno. Continúe en el chat.', '这个话题的回复已满。请在对话中继续。'),
   chatThreadNotShared: t('이 채팅은 이제 공유되지 않아서 답글을 달 수 없어요.', "This chat isn't shared anymore, so no new replies.", 'Obrolan ini tidak dibagikan lagi, jadi tidak bisa dibalas.', 'このチャットは共有されなくなったため、返信できません。', 'Este chat ya no se comparte, así que no admite respuestas nuevas.', '这个对话已不再共享，所以不能再回复。'),
+  // "Continue in a chat only you see" (chat/fork.ts)
+  forkNothingYet: t('아직 이어 갈 내용이 없어요. 답이 끝나면 다시 해 주세요.', 'There is nothing to continue from yet. Try again when the answer has finished.', 'Belum ada yang bisa dilanjutkan. Coba lagi setelah jawabannya selesai.', 'まだ続ける内容がありません。回答が終わってからもう一度お試しください。', 'Todavía no hay nada que continuar. Inténtelo de nuevo cuando termine la respuesta.', '还没有可以继续的内容。请等回答结束后再试。'),
+  forkNotHere: t('이 채팅은 새 채팅에서 이어 할 수 없어요.', "This chat can't be continued in a new chat.", 'Obrolan ini tidak bisa dilanjutkan di obrolan baru.', 'このチャットは新しいチャットで続けられません。', 'Este chat no se puede continuar en un chat nuevo.', '这个对话不能在新对话中继续。'),
+  // a new fork's title: the original's with this after it (docs/decisions/20261126-chat-fork-tree.md)
+  forkTitleSuffix: t(' (이어서)', ' (continued)', ' (lanjutan)', '（続き）', ' (continuación)', '（续）'),
   sharedChatSafeOps: t("이 팀의 보안 설정 때문에 공유 채팅을 이어갈 수 없어요. 내 채팅에서 물어봐 주세요.", "Your team's security settings don't allow continuing shared chats. Ask in a chat of your own.", "Pengaturan keamanan tim Anda tidak mengizinkan obrolan bersama dilanjutkan. Tanyakan di obrolan Anda sendiri.", "チームのセキュリティ設定により、共有チャットは続けられません。自分のチャットで質問してください。", "La configuración de seguridad de su equipo no permite continuar chats compartidos. Pregunte en un chat propio.", "你团队的安全设置不允许继续共享对话。请在你自己的对话中提问。"),
   /** a save of a chat's file where it cannot be edited (chat/chat-file-edit.ts): a project chat, the trash, not text */
   chatFileReadOnly: t('이 파일은 여기서 고칠 수 없어요. 내려받아서 고쳐 주세요.', "This file can't be edited here. Download it to edit it.", 'Berkas ini tidak bisa diedit di sini. Unduh untuk mengeditnya.', 'このファイルはここでは編集できません。ダウンロードして編集してください。', 'Este archivo no se puede editar aquí. Descárguelo para editarlo.', '这个文件不能在这里编辑。请下载后编辑。'),
@@ -638,6 +647,39 @@ export const TEXT = {
     "このチャットの他の人も、AIが{service}から取得した内容を見られます。ゲスト（チーム外の人）もいます。",
     'Las demás personas de este chat también pueden ver lo que la IA obtenga de {service}, incluido un invitado (alguien de fuera del equipo).',
     '这个对话里的其他人也能看到 AI 从{service}获取的内容，其中包括访客（团队以外的人）。'),
+  /** the one notice before a person's first use of their in-app browser in a shared project or shared chat (chat/turn.ts
+   * confirmSharedBrowser; docs/decisions/20261126-shared-chat-own-tools.md): one button, Continue, shown once there */
+  sharedBrowserWarn: t('이 채팅의 다른 사람도 AI가 내 브라우저에서 가져온 내용을 볼 수 있어요.',
+    'Other people in this chat can also see what the AI gets from your browser.',
+    'Orang lain di obrolan ini juga bisa melihat apa yang AI ambil dari browser Anda.',
+    "このチャットの他の人も、AIがあなたのブラウザーから取得した内容を見られます。",
+    'Las demás personas de este chat también pueden ver lo que la IA obtenga de su navegador.',
+    '这个对话里的其他人也能看到 AI 从你的浏览器获取的内容。'),
+  /** ...when a guest sees the chat (someone outside the team) */
+  sharedBrowserWarnGuest: t('이 채팅의 다른 사람도 AI가 내 브라우저에서 가져온 내용을 볼 수 있어요. 여기에는 게스트(팀 밖의 사람)도 있어요.',
+    'Other people in this chat can also see what the AI gets from your browser, including a guest (someone outside the team).',
+    'Orang lain di obrolan ini juga bisa melihat apa yang AI ambil dari browser Anda, termasuk tamu (orang di luar tim).',
+    "このチャットの他の人も、AIがあなたのブラウザーから取得した内容を見られます。ゲスト（チーム外の人）もいます。",
+    'Las demás personas de este chat también pueden ver lo que la IA obtenga de su navegador, incluido un invitado (alguien de fuera del equipo).',
+    '这个对话里的其他人也能看到 AI 从你的浏览器获取的内容，其中包括访客（团队以外的人）。'),
+  /** a shared chat where other people wrote or a guest is among the people: the asker's card before the AI acts in their
+   * own browser (chat/turn.ts confirmSharedBrowserChange; docs/decisions/20261126-shared-chat-own-tools.md) */
+  sharedBrowserConfirm: t('이 채팅에는 다른 사람이 쓴 메시지가 있어서, AI가 내 브라우저에서 무언가를 하기 전에 먼저 물어봐요. {ai}가 이 작업을 하려고 해요: {what}. 하게 할까요?',
+    "Other people wrote in this chat, so the AI asks before it acts in your browser. {ai} wants to do this: {what}. Allow it?",
+    'Orang lain menulis di obrolan ini, jadi AI bertanya dulu sebelum bertindak di browser Anda. {ai} ingin melakukan ini: {what}. Izinkan?',
+    "このチャットにはほかの人が書いたメッセージがあるため、AIがあなたのブラウザーで操作する前に確認します。{ai}がこの操作をしようとしています：{what}。許可しますか？",
+    "Otras personas escribieron en este chat, así que la IA pregunta antes de actuar en su navegador. {ai} quiere hacer esto: {what}. ¿Lo permite?",
+    "这个对话里有其他人写的消息，所以 AI 在你的浏览器里操作前会先问你。{ai}想做这件事：{what}。允许吗？"),
+  /** the browser's name where a list names it beside connections (Settings › Allowed for Trina: its one shared notice) */
+  browserName: t('브라우저', 'Browser', 'Browser', "ブラウザー", 'Navegador', '浏览器'),
+  /** a team file the asker's call would send in a shared chat, after their no on the file read card (chat/turn.ts
+   * confirmSharedAttach): the call's step, and what the AI says */
+  sharedAttachSkipped: t('그 파일은 이 채팅 사람 중 일부가 열 수 없어서, 보내지 않았어요.',
+    "Not sent: some people in this chat can't open that file.",
+    'Tidak dikirim: sebagian orang di obrolan ini tidak bisa membuka berkas itu.',
+    "このチャットの一部の人がそのファイルを開けないため、送りませんでした。",
+    'No se envió: algunas personas de este chat no pueden abrir ese archivo.',
+    '未发送：这个对话里有些人打不开那个文件。'),
   sharedConnectionContinue: t('계속', 'Continue', 'Lanjutkan', "続ける", 'Continuar', '继续'),
   sharedConnectionOnce: t('허용', 'Allow', 'Izinkan', "許可", "Permitir", "允许"),
   // the dev environment's login card (devenv/tool.ts: a command that can use a login after teammates changed files):
@@ -687,6 +729,15 @@ export const ALWAYS_WHAT = {
   share_files: t('내 파일을 사람들에게 공유할 때', 'before it shares your files with people', 'sebelum membagikan file Anda kepada orang lain', 'あなたのファイルを人に共有するとき', 'antes de compartir sus archivos con personas', '在把你的文件共享给别人时'),
   bulk_files: t('프로젝트 폴더에 새 파일을 많이 둘 때', 'before it keeps many new files in a project folder', 'sebelum menyimpan banyak file baru di folder proyek', 'プロジェクトフォルダーに新しいファイルをたくさん置くとき', 'antes de dejar muchos archivos nuevos en una carpeta de proyecto', '在项目文件夹中保留大量新文件时'),
   dev_login: t('팀원이 파일을 바꾼 뒤 개발 환경에서 로그인을 쓰는 명령을 실행할 때', 'before it runs a dev environment command that can use a login after teammates changed files', 'sebelum menjalankan perintah lingkungan pengembangan yang dapat memakai login setelah rekan tim mengubah file', 'チームメイトがファイルを変更した後、開発環境でログインを使うコマンドを実行するとき', 'antes de ejecutar en el entorno de desarrollo un comando que puede usar un inicio de sesión después de que sus compañeros cambiaran archivos', '在队友更改文件后，于开发环境中运行可能使用登录的命令时'),
+} as const
+
+/** What a card auto mode approved did, for its step (autoModeStep's {what}); only the kinds AUTO_KINDS lets go. */
+export const AUTO_WHAT = {
+  big_download: t('1GB 넘는 파일 내려받기', 'download a file over 1 GB', 'mengunduh file di atas 1 GB', '1GBを超えるファイルのダウンロード', 'descargar un archivo de más de 1 GB', '下载超过1GB的文件'),
+  bulk_files: t('새 파일을 프로젝트 폴더에 두기', 'keep the new files in the project folder', 'menyimpan file baru di folder proyek', '新しいファイルをプロジェクトフォルダーに置く', 'dejar los archivos nuevos en la carpeta del proyecto', '把新文件留在项目文件夹中'),
+  save_wider: t('더 많은 사람이 보는 곳에 내 파일로 만든 것 저장', 'save what was made from your files where more people see it', 'menyimpan hasil dari file Anda di tempat yang dilihat lebih banyak orang', 'あなたのファイルから作ったものを、より多くの人が見る場所に保存', 'guardar lo hecho con sus archivos donde más personas lo ven', '把用你的文件做成的内容保存到更多人能看到的位置'),
+  move_files: t('내 파일 옮기기·복사·이름 바꾸기', 'move, copy or rename your files', 'memindahkan, menyalin, atau mengganti nama file Anda', 'あなたのファイルの移動・コピー・名前変更', 'mover, copiar o renombrar sus archivos', '移动、复制或重命名你的文件'),
+  skill_files: t('내 스킬 옮기기·복사·파일 바꾸기', 'move, copy or change files of your own skills', 'memindahkan, menyalin, atau mengubah file skill Anda sendiri', '自分のスキルの移動・コピー・ファイル変更', 'mover, copiar o cambiar archivos de sus propias habilidades', '移动、复制或更改你自己的技能文件'),
 } as const
 
 export function tr(key: keyof typeof TEXT, locale: Locale, vars: Record<string, string> = {}): string {

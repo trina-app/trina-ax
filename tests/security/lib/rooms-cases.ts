@@ -240,6 +240,9 @@ export const ROOM_SPECS: Record<string, Spec> = {
   // "이 방에서는 항상 허용" (rooms/ai-grants.ts): each person lists their own; an id that is not theirs answers like one that
   // is not there (another person's grant)
   listAiAllowances: { build: (c) => c.get('/api/ai-allowances'), scope: 'self' },
+  // auto mode: each person's own value only (off always works; on is 409 while the team does not allow it)
+  getAutoMode: { build: (c) => c.get('/api/ai-allowances/auto-mode'), scope: 'self' },
+  setAutoMode: { build: (c) => c.put('/api/ai-allowances/auto-mode', { on: false, via: 'settings' }), scope: 'self' },
   deleteAiAllowance: { build: (c) => c.del('/api/ai-allowances/019a0000-0000-7000-8000-00000000a11f'), scope: 'nobody' },
   // everyone opens their DM with frank (an active member); the DM itself is checked by the cases below
   createRoom: {

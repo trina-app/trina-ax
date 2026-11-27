@@ -266,7 +266,7 @@ function useSubmit() {
  * typed and Caps Lock is named, which catches a typo better than typing blind twice. `caps` goes on the password
  * inputs' onKeyDown and onKeyUp; the row goes under the last password field.
  */
-function usePasswordReveal() {
+export function usePasswordReveal() {
   const [show, setShow] = useState(false)
   const [capsOn, setCapsOn] = useState(false)
   const caps = (e: React.KeyboardEvent) => setCapsOn(e.getModifierState?.('CapsLock') ?? false)
@@ -276,7 +276,7 @@ function usePasswordReveal() {
 /** A password field with its eye button inside, at the field's right edge (before, the button had a row of its own
  * under the field, which pushed a phone's button under the keyboard: QA TC-272). `reveal` is shared by the fields of
  * one form, so one tap shows both of a password change; `eye` is false on the second of them (one button is enough). */
-function PasswordField({ label, hint, error, reveal, eyeTestId, eye = true, ...props }: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'className'> & { label: string; hint?: string; error?: string | null; reveal: ReturnType<typeof usePasswordReveal>; eyeTestId?: string; eye?: boolean; 'data-testid': string }) {
+export function PasswordField({ label, hint, error, reveal, eyeTestId, eye = true, ...props }: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'className'> & { label: string; hint?: string; error?: string | null; reveal: ReturnType<typeof usePasswordReveal>; eyeTestId?: string; eye?: boolean; 'data-testid': string }) {
   const t = useT()
   const { show, caps, toggle } = reveal
   const name = show ? t('auth.hidePassword') : t('auth.showPassword')
@@ -931,7 +931,7 @@ function JoinChoices({ path, children, lean = false, browser = false }: { path: 
   const onAndroid = platform() === 'android'
   const copied = () => {
     setManual('copied')
-    toast({ level: 'success', text: t('auth.linkCopied') })
+    toast({ level: 'success', text: t('rooms.menu.linkCopied') })
   }
   // the copy runs inside the tap; when it worked, the tap's own navigation to the store goes ahead (no scripted
   // navigation after an await: Safari and iOS web views treat those differently). When it did not, the page stays,
@@ -939,7 +939,7 @@ function JoinChoices({ path, children, lean = false, browser = false }: { path: 
   const tap = (e: React.MouseEvent<HTMLAnchorElement>) => {
     const r = copyInTap(link, { doc: document, clipboard: navigator.clipboard })
     if (r.now) {
-      toast({ level: 'success', text: t('auth.linkCopied') })
+      toast({ level: 'success', text: t('rooms.menu.linkCopied') })
       return
     }
     e.preventDefault()

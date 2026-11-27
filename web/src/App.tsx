@@ -52,7 +52,7 @@ import { ChunkErrorBoundary } from './components/ChunkErrorBoundary'
 import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './components/ui'
 import { StatusDialogHost } from './components/StatusMessage'
 import { AcceptInvite, ForcedPassword, GoogleReturn, InviteGoogleBack, InviteWhileSignedIn, Login, ResetPassword, Setup, signedInHome, TeamJoin } from './pages/Auth'
-import { AppSignIn, OpenApp } from './pages/OpenApp'
+import { AppSetup, AppSignIn, OpenApp } from './pages/OpenApp'
 import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
 import { ImageViewerHost } from './components/ImageViewer'
@@ -343,6 +343,8 @@ function Gate() {
     return (
       <Routes>
         <Route path="/setup" element={<Setup />} />
+        {/* a team made from the desktop app, opened where setup is still offered (this machine, the dev server) */}
+        <Route path="/app-setup" element={<AppSetup />} />
         <Route path="*" element={<Navigate to={`/setup${location.search}`} replace />} />
       </Routes>
     )
@@ -361,6 +363,8 @@ function Gate() {
         <Route path="/reset-password/:token" element={<ResetPassword />} />
         {/* the desktop app's one-time sign-in (pages/OpenApp.tsx): the code is after # (never in a path or a log) */}
         <Route path="/app-signin" element={<AppSignIn />} />
+        {/* a team made from the desktop app: the hosting console's claim is after # (pages/OpenApp.tsx AppSetup) */}
+        <Route path="/app-setup" element={<AppSetup />} />
         <Route path="/slack/done" element={<Suspense fallback={<Splash />}><SlackDone signedIn={false} /></Suspense>} />
         <Route path="*" element={<Navigate to={`/login${next}`} replace />} />
       </Routes>
@@ -461,6 +465,8 @@ function Gate() {
         <Route path="/open-app" element={<NotForGuests><OpenApp /></NotForGuests>} />
         {/* the desktop app's one-time sign-in while someone is signed in: the code replaces that session */}
         <Route path="/app-signin" element={<AppSignIn />} />
+        {/* a team made from the desktop app, right after its owner is made (pages/OpenApp.tsx AppSetup) */}
+        <Route path="/app-setup" element={<AppSetup />} />
         {/* the desktop app's Google sign-in while someone is signed in: the same person signs in again, another is refused */}
         <Route path="/login/google" element={<GoogleReturn />} />
       </Routes>

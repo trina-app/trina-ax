@@ -14,6 +14,7 @@ import { fail } from '../http/errors'
 import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setPassword, setup, setupStatusFor } from '../auth/accounts'
 import { authOf, installAuth } from '../auth/service'
 import { mintAppSignIn, redeemAppSignIn, voidAppSignInCodes } from '../auth/app-signin'
+import { consoleSetup, previewConsoleSetup } from '../auth/setup-console'
 import { disconnectGoogle, finishGoogleBroker, googleAppLoginAvailable, googleReauthStatus, googleSignInPageAvailable, myGoogle, startGoogleConnect, startGoogleReauth, startGoogleSignIn } from '../auth/google-login'
 import { redeemGoogleApp } from '../auth/google-login-apps'
 import { startGoogleInvite, startGoogleSetup, withInviteGoogle, withSetupGoogle } from '../auth/google-signup'
@@ -69,6 +70,9 @@ export const authRoutes: RouteModule = {
       return { ...s, googleAppSignIn: true as const, ...(googleSignInPageAvailable(ctx, c.req.url) ? { googleSignIn: true as const } : {}) }
     })
     kit.handle(API.setup, ({ c, body }) => setup(c, ctx, body))
+    // a hosted team made from the desktop app: the owner from the hosting console's one-time claim (auth/setup-console.ts)
+    kit.handle(API.setupConsolePreview, ({ c, body }) => previewConsoleSetup(c, ctx, body))
+    kit.handle(API.setupConsole, ({ c, body }) => consoleSetup(c, ctx, body))
     // Sign up with Google (auth/google-signup.ts): the setup token checked as POST /api/setup does, then Google
     kit.handle(API.startGoogleSetup, ({ c, body }) => startGoogleSetup(c, ctx, body))
     kit.handle(API.login, ({ c, body }) => login(c, ctx, body))
@@ -153,7 +157,7 @@ export const authRoutes: RouteModule = {
         // own default engine / model: only for people who may pick (others' requests keep their theme etc.); null = back
         // to the team default
         const next: Record<string, unknown> = { ...cur, ...filterEnginePrefs(ctx, auth.user, body.prefs) }
-        if (!canChooseEngine(ctx, auth.user)) { delete next.engine; delete next.model }
+        if (!canChooseEngine(ctx, auth.user)) { delete next.engine; delete next.model; delete next.effort }
         for (const [k, v] of Object.entries(next)) if (v === undefined || v === null) delete next[k]
         sets.push('prefs = ?'); args.push(JSON.stringify(next))
       }

@@ -1,10 +1,12 @@
 // Tiny DOM helpers and the preload API types for the desktop's own screens (no framework: two small screens).
-import { PRODUCT, type DesktopPaneState } from '@mycel/shared'
+import { PRODUCT } from '@mycel/shared/product'
+import type { DesktopPaneState } from '@mycel/shared/desktop-bridge'
 import { fillPlurals } from '@mycel/shared/plural'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import type { UiKey, UiLocale } from '../common/i18n'
 import type { PaneActivity } from '../common/pane-activity'
 import type { FindResult } from '../common/find-bar'
+import type { CreateOffer, CreateView } from '../common/create-team'
 
 export interface WelcomeState {
   mode: 'welcome' | 'team' | 'offline'
@@ -14,8 +16,12 @@ export interface WelcomeState {
   offline: { address: string; auto?: boolean } | null
   /** a kit build's team address to fill in on the first run */
   suggested?: string | null
-  /** the "no team yet" screen offers [팀 만들기] (not in the Mac App Store build) */
-  signup?: boolean
+  /** the console offers "Create a team for free"; `checking`: not known yet */
+  offer?: CreateOffer | 'checking'
+  /** the Mac App Store build: no create row, no plans */
+  store?: boolean
+  /** the create screens */
+  create?: CreateView
   /** screen ④: a link from outside waits for a yes */
   link?: { id: number; host: string; hosted: boolean } | null
   /** a link from outside that cannot open a team */
@@ -62,8 +68,8 @@ export interface MycelUi {
     onState(cb: (s: WelcomeState) => void): () => void
     /** `confirmed`: the person said yes to an address the hosted service does not run (error 'confirmOutside') */
     add(address: string, confirmed?: boolean): Promise<AddTeamResult | null>
-    /** the "no team yet" screen's buttons; the main process picks the address */
-    openLink(kind: 'signup' | 'docs'): void
+    /** the first-run and create screens' links; the main process picks the address */
+    openLink(kind: 'demo' | 'pricing' | 'console' | 'terms' | 'privacy' | 'consoleTerms' | 'consolePrivacy'): void
     /** screen ④'s answer for the host it showed: the connect result, or null (nothing done) */
     answerLink(yes: boolean, host: string): Promise<AddTeamResult | null>
     /** ④ is on screen for this offer */
@@ -76,6 +82,18 @@ export interface MycelUi {
     retry(): void
     /** "Other teams" on the cannot-reach card: the app stops trying that team again by itself */
     leftOffline(): void
+  }
+  /** "Create a team for free" (main/create-team.ts) */
+  create: {
+    start(): void
+    signIn(): void
+    google(): void
+    sendCode(email: string): void
+    verify(code: string): void
+    otherEmail(): void
+    cancel(): void
+    submit(name: string, slug: string, agreedAt: number): void
+    act(kind: string): void
   }
   /** the find bar (Cmd/Ctrl+F) over the view it searches */
   find: {

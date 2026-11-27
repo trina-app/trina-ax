@@ -2,13 +2,13 @@
 // TRINA-24: an AI question the message box answers (lib/askAnswer.ts BoxAnswers) has no second text box or secrets line
 // on its card, only a line saying to type below; elsewhere (a room's AI status, Settings: no provider) and on the
 // server's own checks the card keeps its box.
-// CHATS-17: in a room's side chat panel (pressMenu) a phone's long press on a message opens its actions as a sheet,
+// CHATS-17: in a room's side chat panel a phone's long press on a message opens its actions as a sheet,
 // as a room message does; the icons are out of sight under every answer (the newest too), the send-here button stays.
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import type { TurnRequest } from '@mycel/shared/api'
 import AskCard from '../../src/components/chat/AskCard'
-import { AssistantMessage, UNTIL_TAP, UserMessage } from '../../src/components/chat/Messages'
+import { AssistantMessage, IN_SHEET, UserMessage } from '../../src/components/chat/Messages'
 import { BoxAnswers } from '../../src/lib/askAnswer'
 import { CHAT, msg } from './fixtures'
 import { FakeEvent, installDom, mount, removeDom } from './dom-host'
@@ -77,8 +77,8 @@ test('TRINA-24: the card keeps its box where no message box answers it', async (
   }
 })
 
-const sideAnswer = (m: ReturnType<typeof msg>, isLast: boolean, pressMenu: boolean, onRegenerate: (m: { id: string }) => void = () => {}) => (
-  <AssistantMessage m={m} chatId={CHAT} isLast={isLast} busy={false} switchedFrom={null} onRegenerate={onRegenerate} onSelectBranch={() => {}} onAskOwnFolder={() => {}} shareable sendHere={{ roomId: 'room-1', target: null, onView: () => {} }} canSuggest={false} pressMenu={pressMenu} />
+const sideAnswer = (m: ReturnType<typeof msg>, isLast: boolean, side: boolean, onRegenerate: (m: { id: string }) => void = () => {}) => (
+  <AssistantMessage m={m} chatId={CHAT} isLast={isLast} busy={false} switchedFrom={null} onRegenerate={onRegenerate} onSelectBranch={() => {}} onAskOwnFolder={() => {}} shareable sendHere={side ? { roomId: 'room-1', target: null, onView: () => {} } : undefined} canSuggest={false} />
 )
 
 test('CHATS-17: in the side chat panel the icons wait for a long press under every answer; the send button stays in sight', async () => {
@@ -86,22 +86,22 @@ test('CHATS-17: in the side chat panel the icons wait for a long press under eve
   const q = msg({ role: 'user', content: 'a question' })
   const page = await mount(
     <MemoryRouter>
-      <UserMessage m={q} chatId={CHAT} busy={false} onEdit={() => {}} onSelectBranch={() => {}} sideChat pressMenu />
+      <UserMessage m={q} chatId={CHAT} busy={false} onEdit={() => {}} onSelectBranch={() => {}} sideChat />
       <div data-testid="newest">{sideAnswer(newest, true, true)}</div>
     </MemoryRouter>,
   )
   try {
     const cls = (box: string, id: string) => page.get(box).querySelector(`[data-testid="${id}"]`)!.className
-    expect(cls('newest', 'answer-actions-tap')).toContain(UNTIL_TAP)
-    expect(cls('newest', 'answer-actions-tap-more')).toContain(UNTIL_TAP)
-    expect(cls('newest', 'answer-actions')).not.toContain(UNTIL_TAP)
-    expect(cls('newest', 'answer-actions-send')).not.toContain(UNTIL_TAP)
+    expect(cls('newest', 'answer-actions-tap')).toContain(IN_SHEET)
+    expect(cls('newest', 'answer-actions-tap-more')).toContain(IN_SHEET)
+    expect(cls('newest', 'answer-actions')).not.toContain(IN_SHEET)
+    expect(cls('newest', 'answer-actions-send')).not.toContain(IN_SHEET)
     expect(page.get('newest').querySelector('[data-testid="send-here-room"]')).not.toBeNull()
     // a tap no longer brings the icons (the long press does)
     await page.click(page.get('newest').querySelector('[data-testid="assistant-message"]')!)
-    expect(cls('newest', 'answer-actions-tap')).toContain(UNTIL_TAP)
+    expect(cls('newest', 'answer-actions-tap')).toContain(IN_SHEET)
     await page.click('user-text')
-    expect(page.get('user-message').querySelector('[data-testid="message-actions-tap"]')!.className).toContain(UNTIL_TAP)
+    expect(page.get('user-message').querySelector('[data-testid="message-actions-tap"]')!.className).toContain(IN_SHEET)
     // still there, named, for a screen reader and the keyboard
     expect(page.get('newest').querySelector('[data-testid="regenerate"]')!.getAttribute('aria-label')).toBeTruthy()
   } finally {
@@ -115,7 +115,7 @@ test('CHATS-17: a long press on a side chat answer opens copy and retry as a she
   const retried: string[] = []
   const page = await mount(
     <MemoryRouter>
-      <UserMessage m={q} chatId={CHAT} busy={false} onEdit={() => {}} onSelectBranch={() => {}} sideChat pressMenu />
+      <UserMessage m={q} chatId={CHAT} busy={false} onEdit={() => {}} onSelectBranch={() => {}} sideChat />
       <div data-testid="answer">{sideAnswer(a, true, true, (x) => void retried.push(x.id))}</div>
     </MemoryRouter>,
   )
@@ -133,7 +133,7 @@ test('CHATS-17: a long press on a side chat answer opens copy and retry as a she
     expect(page.find('side-answer-regenerate')).not.toBeNull()
     // the send button is not in the sheet: it is under the answer
     const sheet = page.get('answer').querySelector('[role="menu"]')!
-    expect(sheet.querySelectorAll('button').map((b) => b.getAttribute('data-testid'))).toEqual(['side-answer-copy', 'side-answer-regenerate'])
+    expect(sheet.querySelectorAll('button').map((b) => b.getAttribute('data-testid'))).toEqual(['side-answer-copy', 'message-select-text', 'side-answer-regenerate'])
     // (the finger lifting right after the long press is no pick: MenuButton)
     await page.settle(450)
     await page.click('side-answer-regenerate')
@@ -147,12 +147,14 @@ test('CHATS-17: a long press on a side chat answer opens copy and retry as a she
   }
 })
 
-test('CHATS-17: the full AI chat keeps its tap pattern (the newest answer shows its icons)', async () => {
+test('the full AI chat: the newest answer keeps its row in sight, and a long press opens the same sheet', async () => {
   const a = msg({ role: 'assistant', content: 'the answer', status: 'done' })
   const page = await mount(<MemoryRouter><div data-testid="answer">{sideAnswer(a, true, false)}</div></MemoryRouter>)
   try {
-    expect(page.get('answer').querySelector('[data-testid="answer-actions-tap"]')!.className).not.toContain(UNTIL_TAP)
-    expect(page.find('side-message-menu')).toBeNull()
+    expect(page.get('answer').querySelector('[data-testid="answer-actions-tap"]')!.className).not.toContain(IN_SHEET)
+    // the sheet's hidden button is there (one sheet for every surface), closed
+    expect(page.find('side-message-menu')).not.toBeNull()
+    expect(page.find('side-answer-copy')).toBeNull()
   } finally {
     await page.unmount()
   }

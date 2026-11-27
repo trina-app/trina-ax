@@ -26,7 +26,7 @@ import { createGroup, deleteGroup, listGroups, updateGroup } from '../admin/grou
 import { explainEdit, explainFolder, explainNewPerson, explainPerson, explainTree } from '../admin/access-explain'
 import { oftenAskedSwitched } from '../chat/often-asked'
 import { isGuestUser } from '../credentials/guest-ai'
-import { BROWSER_POLICY_CHANGED, GUEST_FILE_LIMIT_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, SPEECH_CHANGED, updateTeamSettings, WEB_ACCESS_CHANGED } from '../admin/settings'
+import { AUTO_MODE_CHANGED, BROWSER_POLICY_CHANGED, GUEST_FILE_LIMIT_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, SPEECH_CHANGED, updateTeamSettings, WEB_ACCESS_CHANGED } from '../admin/settings'
 import { teamPolicyOff } from '../tools/web-allow-all'
 import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
 import { credentialsOf, noticeOwners } from '../credentials/store'
@@ -66,7 +66,7 @@ async function enginesResponse(ctx: AppContext, cache: EngineStatusCache, locale
   const engines = await Promise.all(EngineId.options.map((id) => cache.get(id, enabled[id], locale)))
   return {
     // company keys are AI connections now (Admin > AI connections); the field stays empty until the next release
-    engines, defaultEngine: s.defaultEngine, defaultModel: s.defaultModel, concurrency: s.concurrency, concurrencyMax: concurrencyMax(), accounts: [],
+    engines, defaultEngine: s.defaultEngine, defaultModel: s.defaultModel, defaultEffort: s.defaultEffort ?? null, concurrency: s.concurrency, concurrencyMax: concurrencyMax(), accounts: [],
     memberChoice: memberChoice(ctx), limitFallback: limitFallbackOn(ctx), limitFallbackAvailable: limitFallbackAvailable(ctx),
   }
 }
@@ -320,7 +320,7 @@ export const adminRoutes: RouteModule = {
       const codexOn = enabled.codex && !codexOffHere(ctx)
       if (body.limitFallback === true && !codexOn) fail('conflict', msg('limitFallbackNeedsCodex', locale))
       // "다른 AI로 대신 답하기" decides who has AI too (credentials/access.ts): a change of it is told like the others
-      const before = { enabled: enginesEnabled(ctx.db), memberChoice: memberChoice(ctx), defaultEngine: s.defaultEngine, defaultModel: s.defaultModel, limitFallback: limitFallbackOn(ctx) }
+      const before = { enabled: enginesEnabled(ctx.db), memberChoice: memberChoice(ctx), defaultEngine: s.defaultEngine, defaultModel: s.defaultModel, defaultEffort: s.defaultEffort ?? null, limitFallback: limitFallbackOn(ctx) }
       ctx.db.transaction(() => {
         if (body.enabled) setEnginesEnabled(ctx.db, body.enabled)
         if (body.memberChoice) setMemberChoice(ctx, body.memberChoice)
@@ -332,10 +332,11 @@ export const adminRoutes: RouteModule = {
         ...(body.defaultEngine !== undefined ? { defaultEngine: body.defaultEngine } : {}),
         ...(body.defaultModel !== undefined ? { defaultModel: body.defaultModel } : body.defaultEngine !== undefined && body.defaultEngine !== s.defaultEngine ? { defaultModel: null } : {}),
         ...(body.concurrency !== undefined ? { concurrency: body.concurrency } : {}),
+        ...(body.defaultEffort !== undefined ? { defaultEffort: body.defaultEffort } : {}),
       })
       audit(ctx.db, { actor: auth.user.id, action: 'engines.update', target: null, detail: body as Record<string, unknown> })
       const after = getTeamSettings(ctx.db)
-      if (JSON.stringify(before) !== JSON.stringify({ enabled: enginesEnabled(ctx.db), memberChoice: memberChoice(ctx), defaultEngine: after.defaultEngine, defaultModel: after.defaultModel, limitFallback: limitFallbackOn(ctx) }))
+      if (JSON.stringify(before) !== JSON.stringify({ enabled: enginesEnabled(ctx.db), memberChoice: memberChoice(ctx), defaultEngine: after.defaultEngine, defaultModel: after.defaultModel, defaultEffort: after.defaultEffort ?? null, limitFallback: limitFallbackOn(ctx) }))
         ctx.services.realtime.publishEach(() => ENGINE_CHOICE_CHANGED)
       return enginesResponse(ctx, engineCache, locale)
     })
@@ -422,6 +423,10 @@ export const adminRoutes: RouteModule = {
       if ('roomEmail' in changed) void mailInOf(ctx).sync()
       // desktop apps re-read the browser policy from GET /api/me (off: "Allow all websites" goes back to asking)
       if ('browserAllowAll' in changed || 'webAllowAll' in changed) ctx.services.realtime.publishEach(() => BROWSER_POLICY_CHANGED)
+      // auto mode (chat/auto-mode.ts): its own audit row, and every composer shows or hides the pill (Me.team.autoMode);
+      // the team's "Always allow" switch turns auto mode off too
+      if ('autoMode' in changed) audit(ctx.db, { actor: auth.user.id, action: 'admin.auto_mode', target: null, detail: { from: cur.autoMode ?? 'off', to: next.autoMode ?? 'off' } })
+      if ('autoMode' in changed || 'roomAlwaysAllow' in changed) ctx.services.realtime.publishEach(() => AUTO_MODE_CHANGED)
       // composers show or hide the mic (Me.team.voiceInput)
       if ('speechProvider' in changed) ctx.services.realtime.publishEach(() => SPEECH_CHANGED)
       // guests' room boxes read their file limit again (Me.team.uploadMaxBytes); nobody else is told

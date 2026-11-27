@@ -10,9 +10,13 @@ import { app as electronApp, BaseWindow, dialog, nativeTheme, net, Notification,
 import { COMPUTER_REPORT_PATH, ComputerReporter, readSystemActivity, SYSTEM_ACTIVITY_EVERY_MS, type SystemActivity } from '../common/system-activity'
 import { join } from 'node:path'
 import { applyMePolicy } from '../common/me-policy'
-import { PRODUCT, WEB_ALLOW_ALL_RISK, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
-import { API, CSRF_HEADER, GOOGLE_APP_RETURN_PATH, Health, Me } from '@mycel/shared/api'
-import { answersAgain, asksOutside, certTrouble, checkTeam, desktopPagePath, firstRunLinks, googleSignInCode, hostLineNow, hostOf, isShownTeamStart, isSignInPath, signInCode, officeCertPage, offlineRetryDelay, onThisComputer, originOf, parseTeamAddress, readDesktopLink, retypablePath, startupLinkTarget, teamLabel, type AddressError, type CertTrouble, type HealthAnswer } from '../common/address'
+import { PRODUCT } from '@mycel/shared/product'
+import { WEB_ALLOW_ALL_RISK } from '@mycel/shared/web-allow-all'
+import type { DesktopConnection, DesktopPaneState } from '@mycel/shared/desktop-bridge'
+import { CSRF_HEADER } from '@mycel/shared/api/common'
+import { CLAIM_DRIVE_FLOW_PATH, GOOGLE_APP_RETURN_PATH, Me } from '@mycel/shared/api/auth'
+import { Health } from '@mycel/shared/api/system'
+import { answersAgain, asksOutside, certTrouble, checkTeam, desktopPagePath, googleSignInCode, hostLineNow, hostOf, isShownTeamStart, isSignInPath, signInCode, officeCertPage, offlineRetryDelay, onThisComputer, originOf, parseTeamAddress, readDesktopLink, retypablePath, startupLinkTarget, teamLabel, type AddressError, type CertTrouble, type HealthAnswer } from '../common/address'
 import { LinkGate, type WakeAnswer } from '@mycel/shared/team-link'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
@@ -42,6 +46,7 @@ import { DirectDownloads } from './downloads'
 import { PAGE_BUSY_GLOBAL, resumePage, type Resume, type ResumeWindow } from '../common/update-guard'
 import { findTarget } from '../common/find-bar'
 import { FindBar } from './find-bar'
+import type { CreateOffer, CreateView } from '../common/create-team'
 
 export type Mode = 'welcome' | 'team' | 'offline'
 
@@ -54,8 +59,13 @@ export interface WelcomeState {
   offline: { address: string; auto: boolean } | null
   /** a kit build's team address, filled in on the first-run screen while no team is remembered (common/kit.ts) */
   suggested: string | null
-  /** the "no team yet" screen offers [팀 만들기] (not in the Mac App Store build: App Review 3.1.1) */
-  signup: boolean
+  /** the console offers "Create a team for free" (GET /api/app/v1/me answered 401; 404: an older hosting service, the
+   * first-run screen stays as it was). `checking`: not known yet */
+  offer: CreateOffer | 'checking'
+  /** the Mac App Store build: no create row, no plans or prices; "Already made a team? Sign in" (App Review 3.1.1) */
+  store: boolean
+  /** the create screens (main/create-team.ts) */
+  create: CreateView
   /** screen ④: a link from outside waits for the person's yes (the host it would connect to; hosted: run by the hosted
    * service). Nothing is fetched before the yes. */
   link: { id: number; host: string; hosted: boolean } | null
@@ -92,8 +102,11 @@ export interface AppWindowOptions {
   suggestedTeam?: string | null
   /** the app answers the team page's file input with its own dialog (common/file-chooser.ts answersFileChoosers) */
   answerFileChoosers?: boolean
-  /** the Mac App Store build: no signup link on the first-run screen (common/address.ts firstRunLinks) */
+  /** the Mac App Store build: no create row and no plans on the first-run screen (common/create-team.ts createLinks) */
   macAppStore?: boolean
+  /** the create screens now, and whether the console offers them (main/create-team.ts, main/console-signin.ts) */
+  createView?: () => CreateView
+  createOffer?: () => CreateOffer | 'checking'
   /** the computer's Downloads folder, where the team page's downloads go with no save window (main/downloads.ts);
    * null keeps the save window (the Mac App Store build) */
   downloadsDir?: () => string | null
@@ -435,7 +448,9 @@ export class AppWindow {
       canGoBack: Boolean(this.team && this.app),
       offline: this.mode === 'offline' && this.team ? { address: this.team.origin, auto: this.offlineWatching } : null,
       suggested: this.teamList().length ? null : (this.o.suggestedTeam ?? null),
-      signup: firstRunLinks({ macAppStore: this.o.macAppStore === true, korean: false }).signup !== null,
+      offer: this.o.createOffer?.() ?? 'no',
+      store: this.o.macAppStore === true,
+      create: this.o.createView?.() ?? { screen: 'off' },
       link: (() => { const l = this.linkGate.pending(); return l ? { id: l.id, host: l.host, hosted: l.hosted } : null })(),
       linkError: this.linkError,
       waking: this.waking,
@@ -457,7 +472,7 @@ export class AppWindow {
       post: async (o, c) => {
         // the team was closed or switched meanwhile: its session is not the one that started the sign-in any more
         if (this.team?.id !== teamId || app.webContents.isDestroyed()) return 409
-        const res = await ses.fetch(o + API.claimDriveFlow.path, {
+        const res = await ses.fetch(o + CLAIM_DRIVE_FLOW_PATH, {
           method: 'POST',
           headers: { 'content-type': 'application/json', [CSRF_HEADER]: '1' },
           body: JSON.stringify({ code: c }),
@@ -546,10 +561,27 @@ export class AppWindow {
     return true
   }
 
-  /** The "no team yet" screen's buttons: the address is chosen here, never taken from the screen. */
-  firstRunLink(kind: 'signup' | 'docs'): string | null {
-    const links = firstRunLinks({ macAppStore: this.o.macAppStore === true, korean: this.o.locale() === 'ko' })
-    return kind === 'signup' ? links.signup : links.docs
+  /** The create screens changed: the first-run screen shows them (over a team that is open: Back on them returns) */
+  createChanged(shown: boolean) {
+    if (shown && this.mode !== 'welcome') this.showWelcome()
+    else this.sendWelcome()
+  }
+
+  /**
+   * A team the person made from this app (main/create-team.ts): remembered if new (its address as the console gave it,
+   * with the name the person typed) and opened at `path` (its owner setup page `/app-setup#c=<claim>`, an older
+   * server's setup link, or its start). No health check and no "not run by us" question: the console named it.
+   */
+  async openCreatedTeam(origin: string, label: string, path: string) {
+    const known = this.teams.teams.find((x) => x.origin === origin)
+    let id = known?.id
+    if (!known) {
+      const r = addTeam(this.teams, origin, label.trim() || teamLabel(origin), this.o.store.newTeamId(), new Date().toISOString())
+      this.saveTeams(r.file)
+      id = r.team.id
+    }
+    // (the team open already: openTeam loads the page there)
+    await this.openTeam(id!, path)
   }
 
   /** Sign in with Google's return (docs/decisions/20261122-google-login-apps.md): the team's window, at the address it
@@ -1240,14 +1272,17 @@ export class AppWindow {
   }
 
   private async loadOrigin(origin: string, path: string) {
-    if (!this.app || !this.team) return
+    const app = this.app, team = this.team
+    if (!app || !team) return
     const prev = this.currentOrigin
-    if (prev && prev !== origin) await mirrorSessionCookie(this.app.webContents.session, prev, origin).catch(() => false)
-    else if (origin !== this.team.origin) await mirrorSessionCookie(this.app.webContents.session, this.team.origin, origin).catch(() => false)
+    if (prev && prev !== origin) await mirrorSessionCookie(app.webContents.session, prev, origin).catch(() => false)
+    else if (origin !== team.origin) await mirrorSessionCookie(app.webContents.session, team.origin, origin).catch(() => false)
+    // the team was closed or replaced while the cookie was copied: nothing to load (the new team loads its own)
+    if (this.app !== app || app.webContents.isDestroyed()) return
     this.currentOrigin = origin
     this.updateTitle()
     this.sendConnection()
-    await this.app.webContents.loadURL(origin + path).catch(() => {})
+    await app.webContents.loadURL(origin + path).catch(() => {})
   }
 
   connection(): DesktopConnection | null {
@@ -1344,7 +1379,10 @@ export class AppWindow {
 
   /** Network may have changed: switch to the office address when it answers, back to the team address when not. */
   async recheck(force: boolean) {
-    if (!this.team || !this.app || this.mode !== 'team') return
+    // not before the team's first load has chosen its address (openTeam: pickOrigin, then loadOrigin): the window's
+    // focus at start came in between and moved a page still on about:blank (a team on this computer then went back to
+    // the list as if it had not answered). openTeam checks again itself once the page is loaded (scheduleRecheck)
+    if (!this.team || !this.app || this.mode !== 'team' || !this.currentOrigin) return
     if (!force && Date.now() - this.lastCheck < 30_000) return
     this.lastCheck = Date.now()
     const d = this.team.direct
@@ -1363,10 +1401,13 @@ export class AppWindow {
 
   private async switchTo(origin: string, direct: string | null) {
     if (!this.app) return
+    // the page the team shows now, on the address it shows; anything else (about:blank before the first load, an error
+    // page) is the team's start: `about:blank` has the path "blank", which made `https://<office>blank/`
     let path = '/'
     try {
-      const u = new URL(this.app.webContents.getURL())
-      path = u.pathname + u.search + u.hash
+      const url = this.app.webContents.getURL()
+      const u = new URL(url)
+      if (this.currentOrigin && originOf(url) === this.currentOrigin) path = u.pathname + u.search + u.hash
     } catch {
       path = '/'
     }

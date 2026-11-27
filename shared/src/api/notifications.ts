@@ -434,12 +434,12 @@ export function activityTabHas(item: Pick<InboxNotification, 'code' | 'room' | '
   if (tab === 'mentions') return item.code === 'room.mention' || room.reason === 'mention' || room.reason === 'everyone'
   return !!room.thread
 }
-/** GET /api/notifications: `unreadCount` counts every unread row; `roomUnreadCount` is its part that is conversation rows
- * (mentions, replies in threads I follow) of rooms I did not mute, which the rooms list counts too (a phone's 나 tab
- * leaves them to 대화); `noticeUnreadCount` the unread notices that are not conversation rows at all (the computer's 활동:
- * its list and its rail mark; older servers omit it). `only=rooms`: the conversation rows alone
- * (a phone's 멘션·스레드), `only=notices`: the other notices alone (활동's list beside the rail); the counts the same.
- * "Mark all as read" with `only=notices` reads those alone. */
+/** GET /api/notifications: `unreadCount` counts every unread row (a followed thread's reply the person turned off stays
+ * listed, uncounted): Activity's number, on the rail and the phone's 나 tab (docs/decisions/20261126-one-activity.md).
+ * `roomUnreadCount` is its part that is conversation rows (mentions, replies in threads I follow) of rooms I did not
+ * mute; `noticeUnreadCount` the unread notices that are not conversation rows at all (older servers omit it); both for
+ * older windows. `only=rooms`: the conversation rows alone (store/chatMentions.ts), `only=notices`: the other notices
+ * alone; the counts the same. "Mark all as read" with `only=notices` reads those alone. */
 export const NotificationsOnly = z.enum(['rooms', 'notices'])
 export const NOTIFICATIONS = {
   getNotification: endpoint({ method: 'GET', path: '/api/notifications/:id', auth: 'user', owner: 'B', response: InboxNotification, summary: 'Read an own notification without marking read; current-access filtered and never cached.' }),

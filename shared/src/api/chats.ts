@@ -1,7 +1,7 @@
 // Chats, messages, turn control, projects, ask_user answers. Owner: B (server/src/routes/chats.ts).
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { Access, EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common'
+import { Access, Effort, EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common'
 import { endpoint, empty, stream } from './endpoint'
 import { SealedSecret } from './credentials'
 import { AudienceSplit, Chat, type Step, ChatFileVersion, ChatThreadReply, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
@@ -247,6 +247,8 @@ export const CreateChatBody = z.object({
   title: z.string().max(200).optional(),
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),
+  /** the depth (Effort); null = not chosen. Same rule as engine and model: only people who may pick */
+  effort: Effort.nullable().optional(),
   /** "Only me" (docs/DECISIONS.md "Team project chats shared by default"): a chat in a team project starts shared with
    * its members unless this is true; then it is its creator's alone until they share it (POST /api/chats/:id/share).
    * Ignored outside team projects (every other chat is one person's anyway). */
@@ -257,6 +259,11 @@ export const UpdateChatBody = z.object({
   projectId: Uuid7.nullable().optional(),
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),
+  /** the depth (Effort); null = not chosen. Same rule as engine and model: only people who may pick */
+  effort: Effort.nullable().optional(),
+  /** "Move out on its own" / "목록에서 따로 두기": a chat I continued from another leaves the chat it sits under in my
+   * history and is a row of its own (the "Continued from" line stays). Only null; nothing re-attaches. */
+  forkParent: z.null().optional(),
 })
 /** What the composer may offer this person (GET /api/engines). */
 export const ChatEngines = z.object({
@@ -265,8 +272,12 @@ export const ChatEngines = z.object({
   /** the team default (new chats of people who may not pick, and of people without their own default) */
   defaultEngine: EngineId,
   defaultModel: z.string().nullable(),
-  /** engines this person may pick, with their models; empty when canChoose is false */
-  engines: z.array(z.object({ id: EngineId, label: z.string(), models: z.array(z.object({ id: z.string(), label: z.string() })) })),
+  /** the team's default depth (null = 보통). Absent from older servers. */
+  defaultEffort: Effort.nullable().optional(),
+  /** engines this person may pick, with their models; empty when canChoose is false. `effort`: the engine takes a depth
+   * (Claude Code with --effort, Codex; not the API engine). `billing`: how this person's connection of the engine is
+   * paid, for the model hints: 'limit' = a subscription with usage limits, 'cost' = an API key paid per use. */
+  engines: z.array(z.object({ id: EngineId, label: z.string(), models: z.array(z.object({ id: z.string(), label: z.string() })), effort: z.boolean().optional(), billing: z.enum(['limit', 'cost']).optional() })),
 })
 export type ChatEngines = z.infer<typeof ChatEngines>
 export const DeletedChat = z.object({ id: Uuid7, deletedAt: IsoTime, purgeAt: IsoTime })
@@ -325,6 +336,8 @@ export const SendMessageBody = z.object({
    * than the chat's gets 403 */
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),
+  /** the depth (Effort); null = not chosen. Same rule as engine and model: only people who may pick */
+  effort: Effort.nullable().optional(),
   /** client-generated id; resending the same clientMessageId after a reconnect returns the first result (idempotent) */
   clientMessageId: z.string().min(8).max(64),
   /** ignored: the box of an AI chat mentions nobody, a person is mentioned in a thread under an AI answer
@@ -357,6 +370,8 @@ export type ChatQueueSnapshot = z.infer<typeof ChatQueueSnapshot>
 export const RegenerateBody = z.object({
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),
+  /** the depth (Effort); null = not chosen. Same rule as engine and model: only people who may pick */
+  effort: Effort.nullable().optional(),
   timeZone: TurnTimeZone,
 })
 /** Edit a user message: adds a sibling user message (same parent) and answers it. Team-folder file changes of the
@@ -366,11 +381,15 @@ export const EditMessageBody = z.object({
   attachmentIds: z.array(Uuid7).max(MESSAGE_ATTACHMENTS_MAX).default([]),
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),
+  /** the depth (Effort); null = not chosen. Same rule as engine and model: only people who may pick */
+  effort: Effort.nullable().optional(),
   clientMessageId: z.string().min(8).max(64),
   timeZone: TurnTimeZone,
 })
 /** Show another branch: messageId is any message; the chat's active leaf becomes the newest leaf under it. */
 export const SelectBranchBody = z.object({ messageId: Uuid7 })
+/** POST /api/chats/:id/fork: the end of the branch to copy (the one on screen); absent: the chat's current branch */
+export const ForkChatBody = z.object({ leafId: Uuid7.optional() })
 export const StopResponse = z.object({ stopped: z.boolean(), turnId: Uuid7.nullable() })
 
 // ---------------- ask_user / browser site confirmation ----------------
@@ -725,7 +744,7 @@ export const CHATS = {
   chatEngines: endpoint({ method: 'GET', path: '/api/engines', auth: 'user', owner: 'B', response: ChatEngines, summary: 'Whether the caller may pick the engine / model, the team default, and the engines + models they may pick.' }),
   getChat: endpoint({ method: 'GET', path: '/api/chats/:id', auth: 'user', owner: 'B', response: Chat, summary: 'One own chat, or a shared project chat I can see.' }),
   getChatQueue: endpoint({ method: 'GET', path: '/api/chats/:id/queue', auth: 'user', owner: 'B', response: ChatQueueSnapshot, summary: 'Own chat queue snapshot; advisory rank and epoch/revision for reconnect recovery.' }),
-  updateChat: endpoint({ method: 'PATCH', path: '/api/chats/:id', auth: 'user', owner: 'B', body: UpdateChatBody, response: Chat, summary: 'Rename, move to a project, change engine/model. A shared chat: its creator only, and it never changes project (409 shared_chat_move).' }),
+  updateChat: endpoint({ method: 'PATCH', path: '/api/chats/:id', auth: 'user', owner: 'B', body: UpdateChatBody, response: Chat, summary: 'Rename, move to a project, change engine/model, or give a chat I continued from another a row of its own in my history ("Move out on its own", forkParent: null; its place in the list only, not its last activity; audited chat.fork_detach). A shared chat: its creator only, and it never changes project (409 shared_chat_move).' }),
   deleteChat: endpoint({ method: 'DELETE', path: '/api/chats/:id', auth: 'user', owner: 'B', response: DeletedChat, summary: 'Move to chat trash (purged after the team\'s chat retention). Stops a running turn. A shared chat: its creator or an editor of its project (audited when someone else); it is in its creator\'s trash and in the deleter\'s.' }),
   restoreChat: endpoint({ method: 'POST', path: '/api/chats/:id/restore', auth: 'user', owner: 'B', response: Chat, summary: 'Bring a chat back from the trash.' }),
   pinChat: endpoint({ method: 'POST', path: '/api/chats/:id/pin', auth: 'user', owner: 'B', response: Chat, summary: 'Pin a chat I can see to the top of my chat list ("Pin to top"), for me only (a shared project chat too). Pinned already: unchanged. At most 50 pins (409 chat_pins_full). My other windows hear it (chat.updated).' }),
@@ -736,6 +755,7 @@ export const CHATS = {
   putChatWaiting: endpoint({ method: 'PUT', path: '/api/chats/:id/waiting', auth: 'user', owner: 'B', body: PutChatWaitingBody, response: empty, status: 204, summary: 'A shared chat I may continue: how many of my messages wait there for the running answer to end (0: none). The server keeps it in memory for 45 s after the last call; a send there while someone else has waited longer is refused (409 shared_chat_next, naming nobody); a first place whose holder does not send within 12 s of holding someone back goes to the back of the line. The others see only how many other people wait (Chat.shared.waiting), told when someone starts or stops waiting. At most 30 a minute per person and chat (429). A chat of one person: nothing kept.' }),
   stop: endpoint({ method: 'POST', path: '/api/chats/:id/stop', auth: 'user', owner: 'B', response: StopResponse, summary: 'Stop the running or queued turn of this chat (a shared chat: only the person whose turn it is).' }),
   shareAnswerToRoom: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/share-to-room', auth: 'user', owner: 'B', body: ShareAnswerToRoomBody, response: ShareAnswerToRoomResult, summary: 'Post a finished answer of my own AI chat to a room I am in, as my message (my note, then the answer as a quote), or as a reply in a message\'s thread there (threadRootId: a room\'s side chat). When some member cannot open a file it links to, or it carries content from material some cannot see, it first answers "confirm": a row per linked file and one provenance line, as counts and places I may look myself (never who), with a confirmKey; sent again with that key it posts, attaching the linked files asked for (attach). Older clients: confirm = the number of people. Rate-limited and notified like any message; audited. The AI\'s post_to_room tool (the person\'s own chat, after their yes on one server card) goes through the same checks and is audited with via ai.' }),
+  forkChat: endpoint({ method: 'POST', path: '/api/chats/:id/fork', auth: 'user', owner: 'B', status: 201, body: ForkChatBody, response: Chat, summary: 'Continue a chat in a new chat only I see, named "<title> (continued)": my own chat ("Continue in a new chat": everything on the branch, in its project while I see it) or a shared one ("Continue in a new chat only you see": in its project, a chat shared with people outside projects, as I see it now: other people\'s names kept, an answer hidden from me one line, a chat file by reference while I may still open it there). Its finished messages up to the end of the branch; the AI goes on from my own session of it (Claude Code) or from the copied history. The new chat sits under the chat in my history (Chat.forkParents). The original is not changed and nobody is told. Later edits there do not follow. Another person\'s chat that is not shared: 404. 409 with reason safe_ops, fork_not_here (a side chat or a scheduled run) or fork_nothing (no finished answer yet); 403 fork_guest (a guest outside their project or without AI). Audited (chat.fork).' }),
   shareChat: endpoint({ method: 'POST', path: '/api/chats/:id/share', auth: 'user', owner: 'B', body: ShareChatBody, response: ShareChatResult, summary: 'Share my private chat with its project\'s members (a team project that shares its chats). First a check of every branch: when its answers carry content from material some of them cannot see, or may have used my personal memories (or with ask), it answers "confirm" (how many, the places I may look myself, never who) with a confirmKey; sent again with that key it shares. Never undone. 409 with reason project_not_sharing, project_personal, project_in_trash, safe_ops, already_shared, scheduled_run, chat_busy or share_hidden. Rate-limited like a room message; audited.' }),
   getChatAudience: endpoint({ method: 'GET', path: '/api/chats/:id/audience', auth: 'user', owner: 'B', response: ChatAudience, summary: 'Who a chat I can see is shared with: for a chat outside projects shared with people and groups, the people and groups by name (a group\'s size and the count only for its creator and admins when a group is in it); a shared project chat or my private chat lists nobody. Anyone who cannot see the chat gets the 404 of a missing chat.' }),
   previewChatAudience: endpoint({ method: 'POST', path: '/api/chats/:id/audience/preview', auth: 'user', owner: 'B', body: ChatAudiencePreviewBody, response: ChatAudiencePreview, summary: 'Dry run of a save of who sees a chat outside projects (its creator only, the same refusals as a save, chat_busy while a turn runs): what the people the list brings in would see that they could not before (counts of answers and places I may look myself, never who), and the key a save must carry. Nothing is saved. At most 60 a minute per person (429); the same list and chat state answers from a 60-second cache.' }),

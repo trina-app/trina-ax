@@ -7,14 +7,15 @@
 // A shared project chat (docs/DECISIONS.md "Shared project chats") offers only what the person may do: rename for its
 // creator, delete for its creator or a project editor, never a move (it stays in its project) and never a share (it is
 // shared). With nothing to offer the title is a plain heading. A shared chat also offers "Continue in a chat only you
-// see" (docs/DECISIONS.md "Team project chats shared by default"): a new "Only me" chat in the same project with my
-// last question in its box, where my memories and apps work (the AI points here when asked for one in a shared chat).
+// see" (docs/decisions/20261126-chat-fork.md): a new chat only I see in the same project with this conversation so far,
+// where my memories and apps work (the AI points here when asked for one in a shared chat); my own chat "Fork", and a
+// fork under a chat "Detach to top level" (docs/decisions/20261126-chat-fork-tree.md, components/chat/forkItems.tsx).
 // No "Share" here any more: it is the button at the top right of the chat's header (docs/DECISIONS.md "Share in the title
 // row"; pages/Chat.tsx, components/HeaderShare.tsx), one place for it. A chat someone shared with me offers "Hide from my list" (its creator never hides it) and "Leave this chat", and "Continue in a chat
-// only you see" opens Home's box there (no project) with my last question.
-// "Open in the app" (QA TC-2266; lib/team-link.ts chatOpenInAppHref) opens this chat in the desktop app, in a computer's
-// web browser on macOS or Windows only (not at phone width, not inside the apps).
-import { Bell, BellOff, EyeOff, FolderInput, Link2, Lock, LogOut, Monitor, Pencil, Pin, PinOff, Trash2 } from 'lucide-react'
+// only you see" makes the copy outside projects.
+// "Open in the app" (QA TC-2266; lib/team-link.ts pageOpenInAppHref) opens this chat in the desktop app, in a computer's
+// web browser on macOS or Windows only (not at phone width, not inside the apps); a room's and a project's menus have it too.
+// The items and their order are the one list's (components/menus/entityMenu.tsx; docs/decisions/20261126-shared-menus.md).
 import { PRODUCT } from '@mycel/shared'
 import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
@@ -22,43 +23,42 @@ import { useMe } from '../../store/session'
 import { mayHideChat, mayLeaveChat } from '../../lib/sharedChat'
 import { clientKind } from '../../lib/desktop'
 import { platform } from '../../lib/pwa'
-import { chatOpenInAppHref } from '../../lib/team-link'
+import { pageOpenInAppHref } from '../../lib/team-link'
 import { useMediaQuery } from '../ui'
-import { TitleMenu, type TitleMenuItem } from '../TitleMenu'
+import { TitleMenu } from '../TitleMenu'
+import { menuItem, orderMenu } from '../menus/entityMenu'
 import { useCopyChatLink } from './copyChatLink'
 import { moveLabel } from './ChatProject'
+import { useForkItems } from './forkItems'
 
-type MenuChat = Pick<Chat, 'projectId'> & Partial<Pick<Chat, 'id' | 'title' | 'shared' | 'confidential' | 'deletedAt' | 'pinnedAt' | 'sideRoomId' | 'schedule' | 'muted'>>
+type MenuChat = Pick<Chat, 'projectId'> & Partial<Pick<Chat, 'id' | 'title' | 'shared' | 'confidential' | 'deletedAt' | 'pinnedAt' | 'sideRoomId' | 'schedule' | 'muted' | 'forkParents'>>
 
-export function ChatTitleMenu({ chat, title, compact, onPin, onMute, onRename, onMove, onDelete, onPrivately, onHide, onLeave }: { chat: MenuChat; title: string; compact?: boolean; onPin?: () => void; onMute?: () => void; onRename?: () => void; onMove?: () => void; onDelete?: () => void; onPrivately?: () => void; onHide?: () => void; onLeave?: () => void }) {
+export function ChatTitleMenu({ chat, title, compact, onPin, onMute, onRename, onMove, onDelete, onFork, onDetach, onHide, onLeave }: { chat: MenuChat; title: string; compact?: boolean; onPin?: () => void; onMute?: () => void; onRename?: () => void; onMove?: () => void; onDelete?: () => void; onFork?: () => void; onDetach?: () => void; onHide?: () => void; onLeave?: () => void }) {
   const t = useT()
   const me = useMe()
-  const safeOps = !!me?.server.allChatsConfidential
+  const forkItems = useForkItems(chat, { testId: 'chat', onFork, onDetach })
   const copyLink = useCopyChatLink()
   const phone = useMediaQuery('(max-width: 767.98px)')
-  const appHref = chat.id && !chat.deletedAt ? chatOpenInAppHref({ scheme: PRODUCT.linkScheme, origin: typeof location === 'undefined' ? '' : location.origin, chatId: chat.id, platform: platform(), client: clientKind(), phone }) : null
-  const items: TitleMenuItem[] = [
-    ...(chat.id && onPin
-      ? [chat.pinnedAt
-        ? { label: t('chat.unpin'), icon: <PinOff size={14} aria-hidden />, onSelect: onPin, testId: 'chat-unpin' }
-        : { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: onPin, testId: 'chat-pin' }]
-      : []),
-    // a shared chat is a conversation: "Mute this chat" / "Unmute this chat", as the row's "···" (chat/message-notices.ts;
-    // a project chat I never wrote in has no row of mine but its project's)
-    ...(chat.id && chat.shared && !chat.deletedAt && onMute
-      ? [chat.muted
-        ? { label: t('chat.unmute'), icon: <Bell size={14} aria-hidden />, onSelect: onMute, testId: 'chat-unmute' }
-        : { label: t('chat.mute'), icon: <BellOff size={14} aria-hidden />, onSelect: onMute, testId: 'chat-mute' }]
-      : []),
-    ...(chat.id ? [{ label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: () => void copyLink({ id: chat.id!, shared: chat.shared, projectId: chat.projectId, confidential: chat.confidential, deletedAt: chat.deletedAt, sideRoomId: chat.sideRoomId }), testId: 'chat-copy-link' }] : []),
-    ...(appHref ? [{ label: t('auth.openInApp'), icon: <Monitor size={14} aria-hidden />, onSelect: () => { location.href = appHref }, testId: 'chat-open-in-app' }] : []),
-    ...(onRename ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: onRename, testId: 'chat-rename' }] : []),
-    ...(onMove ? [{ label: t(moveLabel(chat)), icon: <FolderInput size={14} aria-hidden />, onSelect: onMove, testId: 'chat-project-move' }] : []),
-    ...(chat.id && chat.shared && !safeOps && onPrivately ? [{ label: t('chat.continuePrivately'), icon: <Lock size={14} aria-hidden />, onSelect: onPrivately, testId: 'chat-continue-privately' }] : []),
-    ...(onHide && me && mayHideChat(chat, me.user.id) ? [{ label: t('chat.hide'), icon: <EyeOff size={14} aria-hidden />, onSelect: onHide, testId: 'chat-hide' }] : []),
-    ...(onLeave && me && mayLeaveChat(chat, me.user.id) ? [{ label: t('chat.leave'), icon: <LogOut size={14} aria-hidden />, onSelect: onLeave, danger: true, testId: 'chat-leave' }] : []),
-    ...(onDelete ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: onDelete, danger: true, testId: 'chat-delete' }] : []),
-  ]
+  const appHref = chat.id && !chat.deletedAt ? pageOpenInAppHref({ scheme: PRODUCT.linkScheme, origin: typeof location === 'undefined' ? '' : location.origin, path: `/c/${chat.id}`, platform: platform(), client: clientKind(), phone }) : null
+  // the one list's order (components/menus/entityMenu.tsx), as the row's "···"
+  const items = orderMenu([
+    ...(chat.id && onPin ? [menuItem(t, chat.pinnedAt ? 'unpin' : 'pin', { onSelect: onPin, testId: chat.pinnedAt ? 'chat-unpin' : 'chat-pin' })] : []),
+    // a chat shared with people is a conversation: "Mute this chat" / "Unmute this chat", as the row's "···"
+    // (chat/message-notices.ts); a project's shared chat tells nothing but a mention, so it has no Mute (docs/decisions/
+    // 20261126-project-chat-mention-only.md)
+    ...(chat.id && chat.shared && !chat.projectId && !chat.deletedAt && onMute ? [menuItem(t, chat.muted ? 'unmute' : 'mute', { onSelect: onMute, testId: chat.muted ? 'chat-unmute' : 'chat-mute' })] : []),
+    ...(chat.id ? [menuItem(t, 'copyLink', { onSelect: () => void copyLink({ id: chat.id!, shared: chat.shared, projectId: chat.projectId, confidential: chat.confidential, deletedAt: chat.deletedAt, sideRoomId: chat.sideRoomId }), testId: 'chat-copy-link' })] : []),
+    ...(appHref ? [menuItem(t, 'openInApp', { onSelect: () => { location.href = appHref }, testId: 'chat-open-in-app' })] : []),
+    ...(onRename ? [menuItem(t, 'rename', { onSelect: onRename, testId: 'chat-rename' })] : []),
+    ...(onMove ? [menuItem(t, 'move', { label: t(moveLabel(chat)), onSelect: onMove, testId: 'chat-project-move' })] : []),
+    // Fork (my own chat) or "Continue in a chat only you see" (a shared one), and Detach to top level for a fork under a
+    // chat (components/chat/forkItems.tsx: only where the server forks it; a guest only in their own project's chat
+    // while they have AI)
+    ...forkItems,
+    ...(onHide && me && mayHideChat(chat, me.user.id) ? [menuItem(t, 'hide', { onSelect: onHide, testId: 'chat-hide' })] : []),
+    ...(onLeave && me && mayLeaveChat(chat, me.user.id) ? [menuItem(t, 'leave', { label: t('chat.leave'), onSelect: onLeave, testId: 'chat-leave' })] : []),
+    ...(onDelete ? [menuItem(t, 'delete', { onSelect: onDelete, testId: 'chat-delete' })] : []),
+  ])
   if (!items.length)
     return (
       <h1 className="min-w-0 truncate px-1.5 font-medium text-ink" title={title} data-testid="chat-title">

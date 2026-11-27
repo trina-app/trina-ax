@@ -1,14 +1,22 @@
-// Does this release ship the Windows installer? (owner, 2026-11-26; docs/RELEASE-CI.md 11장 "윈도우는 일주일에 한 번";
-// docs/decisions/20261126-windows-weekly.md). The Windows app is signed with SSL.com eSigner, and its plan counts every
-// signing (3–4 a release: the app exe, the uninstaller, the installer). So the Mac app, the office zip, the Linux
-// server and the phone ship with every release, and the Windows installer about once a week. On the other days the
-// office feed keeps naming the last Windows build (scripts/release/publish.ts --keep-windows), so Windows users always
-// have a working installer and update.
+// Does this release ship the Windows installer? (owner, 2026-11-26; docs/RELEASE-CI.md 11장 "윈도우는 바뀔 때만";
+// docs/decisions/20261126-windows-weekly.md, docs/decisions/20261126-windows-when-changed.md). The
+// Windows app is signed with SSL.com eSigner, and its plan counts every signing (3–4 a release: the app exe, the
+// uninstaller, the installer). The Windows app is the desk shell only: the team's pages come from the team server, so
+// a web or server change reaches Windows users without a new installer. So the Mac app, the office zip, the Linux
+// server and the phone ship with every release, and the Windows installer only when the Windows app itself changed
+// (scripts/release/windows-inputs.ts), at most about once a week. On the other days the office feed keeps naming the
+// last Windows build (scripts/release/publish.ts --keep-windows), so Windows users always have a working installer and
+// update.
 //
+//   bun scripts/release/windows-cadence.ts last --tag <tag> --releases <releases.json>
+//       prints tag=<the last release on this channel with the installer> (empty: none, or unreadable releases), the
+//       tag release.yml checks out next to this one to compare the Windows app with
 //   bun scripts/release/windows-cadence.ts decide --tag <tag> --notes <notes file> --releases <releases.json>
 //       [--input tag|yes|no] [--signing <provider>] [--limit <signings a month>]
+//       [--last-tree <folder> --last-tree-tag <tag>]   (that tag's checkout, node_modules installed; this one is .)
 //
-// The rule (decideWindows), worked out from the repository's GitHub Releases only (no other state):
+// The rule (decideWindows), worked out from the repository's GitHub Releases and the checkouts of this tag and the last
+// Windows release's tag (no other state):
 //   - a run again of a tag that already has a GitHub Release does what its first run did (the installer is there, or
 //     its body says Windows was skipped): a version's office manifest never changes its Windows app (publish.ts
 //     versionManifestAction)
@@ -16,9 +24,15 @@
 //   - signing on, and the signed Windows releases of the last 30 days x SIGNINGS_PER_RELEASE plus this one would pass
 //     the monthly limit: a forced release stops here (before anything is built), an automatic one skips Windows
 //   - a tag message line `Windows: yes` (or the input yes) ships it: a hotfix for Windows
-//   - otherwise it ships when the last release on this channel with the installer (a stable tag: the last stable one;
-//     a beta tag: any, a stable release is also the beta channel's) is 7 or more days old (calendar days in Korea), when
-//     there is none, or when signing is on and that installer is unsigned (the first signed build goes out at once)
+//   - it ships when there is no last release on this channel with the installer (a stable tag: the last stable one; a
+//     beta tag: any, a stable release is also the beta channel's), or when signing is on and that installer is unsigned
+//     (the first signed build goes out at once)
+//   - the Windows app is compared with that release's (windows-inputs.ts: the bundles desktop/build.ts makes, the
+//     packaging files, Electron and electron-builder). The same: no Windows installer, on any day
+//   - a bridge version the team's pages check against the app changed (windows-inputs.ts bridgeVersions): it ships
+//     now, whatever the day, or the new server's pages would refuse that feature on every Windows desk ("too old")
+//   - otherwise (changed, or it cannot tell: no checkout, a build that fails) it ships when that release is 7 or more
+//     days old (calendar days in Korea), else a later release sends it
 // The line is taken out of the notes file (it becomes the release notes), like `Rollout: all`. Releases that cannot be read
 // (the API did not answer) leave Windows out with a warning: they never stop the Mac, server and phone release. Prints windows=true|false
 // and windows_last=<tag> (the release whose installer stays on the feed on a skip day) for $GITHUB_OUTPUT; the reason
@@ -26,10 +40,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { RELEASE_CHANNEL } from '../../shared/src/release-channel'
+import { bridgeVersions, changedBridges, changedParts, windowsFingerprint } from './windows-inputs'
 
 /** the published Windows installer's name (release.yml build-windows, the website's WIN_ASSET) */
 export const WIN_ASSET = /^.+-Setup-.+-win-x64\.exe$/
-/** days between two Windows releases */
+/** at least this many days between two Windows releases (unless a bridge version changed) */
 export const WINDOWS_EVERY_DAYS = 7
 /** what one Windows build may sign: the app exe, the uninstaller, the installer, and one retry */
 export const SIGNINGS_PER_RELEASE = 4
@@ -38,7 +53,7 @@ export const DEFAULT_MONTHLY_LIMIT = 20
 /** the GitHub Release body's line on a release without a new Windows installer (github-release in release.yml) */
 export const SKIP_LINE_START = '**Windows:** no new Windows installer in this release'
 export const skipLine = (last: string | null) =>
-  `${SKIP_LINE_START} (it is published about once a week)${last ? `; the current Windows installer is the one of ${last}` : ''}.`
+  `${SKIP_LINE_START} (a new one comes when the Windows app changes, at most about once a week)${last ? `; the current Windows installer is the one of ${last}` : ''}.`
 
 export type WindowsChoice = 'yes' | 'no'
 
@@ -116,6 +131,16 @@ export interface WindowsContext {
   signed?: (r: GhRelease) => boolean | null
   /** signings a month (WINDOWS_SIGNING_MONTHLY_LIMIT) */
   limit?: number
+  /** what changed in the Windows app since the last release with the installer (windows-inputs.ts); `unknown` (why)
+   * or absent: it cannot tell (no checkout of that release, a build that failed), then the 7 days alone decide */
+  change?: WindowsChange | { unknown: string }
+}
+
+export interface WindowsChange {
+  /** the fingerprint parts that differ (none: the same Windows app) */
+  parts: string[]
+  /** the bridge versions that differ, "NAME 1 → 2" */
+  bridges: string[]
 }
 
 export interface WindowsDecision {
@@ -187,9 +212,29 @@ export function decideWindows(c: WindowsContext): WindowsDecision {
   if (forced === 'yes') return { windows: true, last: lastTag, reason: `${by} says "Windows: yes"` }
   if (!last) return { windows: true, last: null, reason: 'no earlier release has the Windows installer' }
   if (c.signing && c.signed?.(last) === false) return { windows: true, last: lastTag, reason: `${lastTag}'s Windows installer is unsigned and signing is on: the first signed one goes out now` }
+  const change = c.change && 'parts' in c.change ? c.change : null
+  const unknown = c.change && 'unknown' in c.change ? c.change.unknown : null
+  if (change?.bridges.length) return { windows: true, last: lastTag, reason: `the team's pages and the Windows app changed a bridge version since ${lastTag} (${change.bridges.join(', ')}): the Windows app of ${lastTag} would be too old for the new server, so it goes out now` }
+  if (change && !change.parts.length) return { windows: false, last: lastTag, reason: `the Windows app is the same as ${lastTag}'s (only the web, the server or other apps changed): no new Windows installer` }
+  const what = change ? `the Windows app changed since ${lastTag} (${list(change.parts)})` : `it cannot tell whether the Windows app changed since ${lastTag}${unknown ? ` (${unknown})` : ''}`
+  const warn = unknown ? { warn: true } : {}
   const days = kstDay(c.now.getTime()) - kstDay(publishedAt(last))
-  if (days >= WINDOWS_EVERY_DAYS) return { windows: true, last: lastTag, reason: `the last Windows installer (${lastTag}) is ${days} days old` }
-  return { windows: false, last: lastTag, reason: `the last Windows installer (${lastTag}) is ${days} day(s) old; the next one comes from ${WINDOWS_EVERY_DAYS} days (a "Windows: yes" line in the tag message sends one now)` }
+  if (days >= WINDOWS_EVERY_DAYS) return { windows: true, last: lastTag, reason: `${what}, and that installer is ${days} days old`, ...warn }
+  return { windows: false, last: lastTag, reason: `${what}, but that installer is ${days} day(s) old; the next one comes from ${WINDOWS_EVERY_DAYS} days (a "Windows: yes" line in the tag message sends one now)`, ...warn }
+}
+
+const list = (parts: string[]) => (parts.length > 6 ? `${parts.slice(0, 6).join(', ')} and ${parts.length - 6} more` : parts.join(', '))
+
+/** What changed in the Windows app between the checkout at `lastTree` and the one at `tree` (each with its
+ * node_modules); `unknown` when it cannot tell. */
+export async function windowsChange(tree: string, lastTree: string): Promise<WindowsChange | { unknown: string }> {
+  try {
+    const before = await windowsFingerprint(lastTree)
+    const now = await windowsFingerprint(tree)
+    return { parts: changedParts(before, now), bridges: changedBridges(bridgeVersions(lastTree), bridgeVersions(tree)) }
+  } catch (e) {
+    return { unknown: `the Windows app could not be built for the comparison: ${(e as Error).message.slice(0, 300)}` }
+  }
 }
 
 /** the installer's first bytes, from the release feed (the same file, published with the release), else GitHub */
@@ -227,13 +272,22 @@ function arg(a: string[], name: string): string | undefined {
   return i >= 0 ? a[i + 1] : undefined
 }
 
-export async function main(argv: string[], o: { out?: (s: string) => void; err?: (s: string) => void; fetch?: typeof fetch; now?: Date } = {}): Promise<WindowsDecision> {
+export async function main(argv: string[], o: { out?: (s: string) => void; err?: (s: string) => void; fetch?: typeof fetch; now?: Date; compare?: typeof windowsChange } = {}): Promise<WindowsDecision> {
   const out = o.out ?? ((s: string) => process.stdout.write(s))
   const err = o.err ?? ((s: string) => process.stderr.write(s))
   const [cmd, ...a] = argv
   const tag = arg(a, '--tag'), notesFile = arg(a, '--notes'), releasesFile = arg(a, '--releases')
+  if (cmd === 'last' && tag && releasesFile) {
+    let last: GhRelease | null = null
+    try {
+      const releases = JSON.parse(fs.readFileSync(path.resolve(releasesFile), 'utf8')) as GhRelease[]
+      if (Array.isArray(releases)) last = lastWindowsRelease(releases, tag, tag.includes('-'))
+    } catch {} // decide says it (no Windows today)
+    out(`tag=${last?.tag_name ?? ''}\n`)
+    return { windows: false, last: last?.tag_name ?? null, reason: 'last' }
+  }
   if (cmd !== 'decide' || !tag || !notesFile || !releasesFile) {
-    throw new Error('usage: windows-cadence.ts decide --tag <tag> --notes <notes file> --releases <releases.json> [--input tag|yes|no] [--signing <provider>] [--limit <n>]')
+    throw new Error('usage: windows-cadence.ts last --tag <tag> --releases <releases.json> | decide --tag <tag> --notes <notes file> --releases <releases.json> [--input tag|yes|no] [--signing <provider>] [--limit <n>] [--last-tree <folder> --last-tree-tag <tag>]')
   }
   const limitArg = arg(a, '--limit')?.trim()
   const limit = limitArg ? Number(limitArg) : DEFAULT_MONTHLY_LIMIT
@@ -261,7 +315,16 @@ export async function main(argv: string[], o: { out?: (s: string) => void; err?:
     const ask = new Set([lastWindowsRelease(releases, tag, prerelease), ...signedRecently({ releases, tag, now })].filter((r): r is GhRelease => !!r))
     for (const r of ask) signed.set(r.tag_name, await fetchSigned(r, { fetch: o.fetch }))
   }
-  const d = decideWindows({ tag, prerelease: tag.includes('-'), line: parsed.windows, input: arg(a, '--input'), releases, now, signing, signed: (r) => signed.get(r.tag_name) ?? null, limit })
+  // the Windows app against the last Windows release's: its checkout must be that very tag
+  const last = lastWindowsRelease(releases, tag, tag.includes('-'))
+  const lastTree = arg(a, '--last-tree')?.trim(), lastTreeTag = arg(a, '--last-tree-tag')?.trim()
+  let change: WindowsChange | { unknown: string } | undefined
+  if (last && lastTree && lastTreeTag === last.tag_name && fs.existsSync(path.join(lastTree, 'desktop'))) {
+    change = await (o.compare ?? windowsChange)(path.resolve(arg(a, '--tree') ?? '.'), path.resolve(lastTree))
+  } else if (last) {
+    change = { unknown: `no checkout of ${last.tag_name} to compare with${lastTreeTag ? ` (the one given is ${lastTreeTag})` : ''}` }
+  }
+  const d = decideWindows({ tag, prerelease: tag.includes('-'), line: parsed.windows, input: arg(a, '--input'), releases, now, signing, signed: (r) => signed.get(r.tag_name) ?? null, limit, change })
   if (parsed.windows) fs.writeFileSync(notesPath, parsed.notes)
   err(`${d.warn ? '::warning::' : '::notice::'}${d.windows ? `The Windows installer is in this release` : 'No Windows installer in this release'}: ${d.reason}\n`)
   out(`windows=${d.windows}\nwindows_last=${d.last ?? ''}\n`)

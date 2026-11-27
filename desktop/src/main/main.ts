@@ -16,15 +16,22 @@
  *   MYCEL_DESKTOP_TEST_FILE_CHOOSER  1: answer the team page's file input with the app's own dialog, as the Mac App
  *                              Store build does (common/file-chooser.ts)
  *   MYCEL_DESKTOP_TEST_DOWNLOADS  a folder that stands in for the computer's Downloads folder (main/downloads.ts)
+ *   MYCEL_CONSOLE_ORIGIN       the hosting console the app signs in to for "Create a team for free" (http only on
+ *                              127.0.0.1, else https; common/create-team.ts consoleOrigin)
+ *   MYCEL_DESKTOP_TEST_STORE   1: the first-run and create screens as in the Mac App Store build (no create row, no plans)
+ *   MYCEL_DESKTOP_TEST_CREATE_POLL_MS  how often the starting screen asks the console (main/create-team.ts)
  *   MYCEL_DESKTOP_TEST_PASSWORD_STORE  Linux: gnome-libsecret | kwallet5 | kwallet6, the keyring Chromium uses (Playwright's
  *                              Electron loader sets --password-store=basic, Electron's fixed-key fallback, which "Apps on
  *                              your computer" refuses to seal settings with)
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
-import { app, clipboard, ClipboardItem, dialog, Menu, nativeImage, nativeTheme, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions, type WebContents } from 'electron'
-import { APP_DOWNLOADS, DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION, PRODUCT } from '@mycel/shared'
-import { BrowserCall, LocalCall, LOCAL_APPS_BRIDGE_VERSION, type LocalResult } from '@mycel/shared/api'
+import { app, clipboard, ClipboardItem, dialog, Menu, nativeImage, nativeTheme, net, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions, type WebContents } from 'electron'
+import { APP_DOWNLOADS } from '@mycel/shared/app-downloads'
+import { DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION } from '@mycel/shared/desktop-bridge'
+import { PRODUCT } from '@mycel/shared/product'
+import { BrowserCall } from '@mycel/shared/api/browser'
+import { LocalCall, LOCAL_APPS_BRIDGE_VERSION, type LocalResult } from '@mycel/shared/api/local-apps'
 import { errorResult } from '../common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, type UiKey, type UiLocale } from '../common/i18n'
 import { isOwnUiUrl, isTrustedAppSender, UI_SCHEME } from '../common/trust'
@@ -40,7 +47,7 @@ import { refusesUnsandboxed, registersLinkHandler } from '../common/linux'
 import { AppWindow, type AllowAllOutcome } from './app-window'
 import { workFilesVersion } from './work-files'
 import { scanAsk } from '../common/work-files'
-import { GOOGLE_SIGNIN_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION } from '@mycel/shared'
+import { GOOGLE_SIGNIN_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION } from '@mycel/shared/desktop-bridge'
 import { debug } from './debug'
 import { HostClassifier } from './pane/classify'
 import { openExternal } from './security'
@@ -51,6 +58,10 @@ import { onLaunch, takeResume } from './update-launch'
 import { SignInReturn } from '../common/sign-in-return'
 import { forwardLink, linkSocketPath, listenForLinks } from './link-forward'
 import { handoffLog, setHandoffLogDir } from './handoff-log'
+import { ConsoleSignIn } from './console-signin'
+import { CreateTeam } from './create-team'
+import { consoleOrigin, createLinks } from '../common/create-team'
+import { APP_PRIVACY_PATH, APP_TERMS_PATH } from '@mycel/shared/cloud-protocol/owner-claim'
 import { execFile } from 'node:child_process'
 /** macOS's own tool that (re)registers an app bundle with LaunchServices */
 const LSREGISTER = '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister'
@@ -219,6 +230,11 @@ async function refuseUnsandboxed() {
 }
 
 let win: AppWindow | undefined
+/** "Create a team for free" (main/create-team.ts): made when the app is ready (its user data folder) */
+let consoleSignIn: ConsoleSignIn | undefined
+let createTeam: CreateTeam | undefined
+/** the Mac App Store build's first-run and create screens (a development run may ask for them: MYCEL_DESKTOP_TEST_STORE) */
+const storeScreens = process.mas === true || (dev && process.env.MYCEL_DESKTOP_TEST_STORE === '1')
 /** a connector sign-in's one-time return address on 127.0.0.1, for the team the window shows (common/sign-in-return.ts) */
 const signInReturn = new SignInReturn({ current: () => win?.team?.origin })
 /** apps on this computer as connectors (main/local-apps.ts): made when the app is ready (its user data folder) */
@@ -306,12 +322,30 @@ function registerIpc() {
   // welcome / team list
   ipcMain.handle('ui:welcome-state', (e) => (fromShell(e) ? win!.welcomeState() : null))
   ipcMain.handle('ui:add-team', (e, address: string, confirmed: unknown) => (fromShell(e) ? win!.addTeam(String(address), confirmed === true) : null))
-  // the "no team yet" screen: the address is the app's own (AppWindow.firstRunLink), the screen only names which
+  // the first-run and create screens' links: the address is the app's own (common/create-team.ts createLinks, the Free
+  // plan's terms as the console sent them), the screen only names which
   ipcMain.on('ui:open-link', (e, kind: unknown) => {
-    if (!fromShell(e) || (kind !== 'signup' && kind !== 'docs')) return
-    const url = win!.firstRunLink(kind)
-    if (url) void shell.openExternal(url).catch(() => {})
+    if (!fromShell(e) || !consoleSignIn) return
+    const links = createLinks({ macAppStore: storeScreens, console: consoleSignIn.origin })
+    const v = createTeam?.view()
+    const plan = v?.screen === 'name' ? v.plan : null
+    const url = kind === 'demo' ? links.demo : kind === 'pricing' ? links.pricing : kind === 'console' && !storeScreens ? links.console : kind === 'terms' ? plan?.termsUrl : kind === 'privacy' ? plan?.privacyUrl
+      // the sign-in screen's terms and privacy line: the console's own pages (also in the store build: no plans there)
+      : kind === 'consoleTerms' ? links.console + APP_TERMS_PATH : kind === 'consolePrivacy' ? links.console + APP_PRIVACY_PATH : null
+    if (url && (url.startsWith('https://') || url === links.console || url === links.console + APP_TERMS_PATH || url === links.console + APP_PRIVACY_PATH)) openExternal(url)
   })
+  // the create screens (main/create-team.ts)
+  ipcMain.on('ui:create-start', (e) => fromShell(e) && !storeScreens && createTeam?.start())
+  ipcMain.on('ui:create-signin', (e) => fromShell(e) && createTeam?.signInAgain())
+  ipcMain.on('ui:create-google', (e) => fromShell(e) && createTeam?.google())
+  ipcMain.on('ui:create-send-code', (e, email: unknown) => fromShell(e) && typeof email === 'string' && void createTeam?.sendCode(email.slice(0, 300)))
+  ipcMain.on('ui:create-verify', (e, code: unknown) => fromShell(e) && typeof code === 'string' && void createTeam?.verifyCode(code.slice(0, 20)))
+  ipcMain.on('ui:create-other-email', (e) => fromShell(e) && createTeam?.otherEmail())
+  ipcMain.on('ui:create-cancel', (e) => fromShell(e) && createTeam?.cancel())
+  ipcMain.on('ui:create-submit', (e, name: unknown, slug: unknown, agreedAt: unknown) => {
+    if (fromShell(e) && typeof name === 'string' && typeof slug === 'string' && typeof agreedAt === 'number') void createTeam?.submit(name.slice(0, 200), slug.slice(0, 60), agreedAt)
+  })
+  ipcMain.on('ui:create-act', (e, kind: unknown) => fromShell(e) && typeof kind === 'string' && void createTeam?.act(kind))
   // the host strip above the team's sign-in pages
   ipcMain.handle('ui:hostbar-state', (e) => (fromHostbar(e) ? win!.hostbarState() : null))
   ipcMain.on('ui:hostbar-teams', (e) => fromHostbar(e) && win!.showWelcome())
@@ -627,6 +661,32 @@ async function createWindow() {
     // the confirm opened or closed: the open team's page says so while it waits (it can sit behind other windows)
     onAsking: (team, s) => { if (win?.team?.id === team && win.app && !win.app.webContents.isDestroyed()) win.app.webContents.send('bridge:local-asking', s) },
   })
+  consoleSignIn ??= new ConsoleSignIn({
+    origin: consoleOrigin({ packaged: app.isPackaged, env: process.env }),
+    userData: app.getPath('userData'),
+    fetch: (url, init) => net.fetch(url, init),
+    openExternal,
+    locale,
+    donePage: () => t(locale(), 'create.browserDone'),
+  })
+  const signin = consoleSignIn
+  createTeam ??= new CreateTeam({
+    signin,
+    store: storeScreens,
+    userData: app.getPath('userData'),
+    locale,
+    timeZone: () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    changed: () => win?.createChanged(createTeam?.view().screen !== 'off'),
+    openTeam: async (origin, label, path) => { await win?.openCreatedTeam(origin, label, path) },
+    pollMs: dev && Number(process.env.MYCEL_DESKTOP_TEST_CREATE_POLL_MS) > 0 ? Number(process.env.MYCEL_DESKTOP_TEST_CREATE_POLL_MS) : undefined,
+  })
+  const create = createTeam
+  // whether the console offers "Create a team for free" (asked once without a token; asked again later while unknown)
+  const offer = () => {
+    const known = signin.knownOffer()
+    if (known === null || known === 'unknown') void signin.probe().then((v) => { if (v !== known) win?.createChanged(false) })
+    return known ?? 'checking'
+  }
   // the app restarted by itself to install an update: the page and window come back as they were (once)
   const resume = takeResume(app.getPath('userData'))
   win = new AppWindow({
@@ -638,7 +698,9 @@ async function createWindow() {
     classifier: new HostClassifier(testPublic, testMapped),
     suggestedTeam: kit.team,
     answerFileChoosers: answersFileChoosers(process.mas === true, app.isPackaged, process.env.MYCEL_DESKTOP_TEST_FILE_CHOOSER),
-    macAppStore: process.mas === true,
+    macAppStore: storeScreens,
+    createView: () => create.view(),
+    createOffer: offer,
     // the Mac App Store build may not write to Downloads without the save window: it keeps the window
     downloadsDir: () => (process.mas ? null : (!app.isPackaged && process.env.MYCEL_DESKTOP_TEST_DOWNLOADS) || app.getPath('downloads')),
     onTeamsChanged: () => buildMenu(),
@@ -654,7 +716,11 @@ async function createWindow() {
   const initial = dev ? process.env.MYCEL_DESKTOP_TEAM : undefined
   // set by the developer for this run: no "not run by us" question
   if (initial) await win.addTeam(initial, true)
-  else if (await win.openLast(resume?.page ?? null, launchLink)) launchLink = null
+  // a team was being made when the app closed: back to its starting screen ("You can close the app")
+  else if (create.pending()) {
+    win.showWelcome()
+    create.start()
+  } else if (await win.openLast(resume?.page ?? null, launchLink)) launchLink = null
   if (launchLink) {
     const link = launchLink
     launchLink = null

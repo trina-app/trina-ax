@@ -177,7 +177,7 @@ const LABEL = {
   // Files › Shared with me: the files panel's section of files and folders shared with the person (web filesPanel.shared)
   sharedWithMe: t('나에게 공유된 파일', 'Shared with me', 'Dibagikan ke saya', '自分に共有されたファイル', 'Compartidos conmigo', '与我共享的文件'),
   // a shared project chat's title menu (web chat.continuePrivately)
-  continuePrivately: t('나만 보는 채팅에서 이어 하기', 'Continue in a chat only you see', 'Lanjutkan di obrolan yang hanya Anda lihat', '自分だけのチャットで続ける', 'Continuar en un chat que solo ve usted', '在只有你能看到的对话中继续'),
+  continuePrivately: t('나만 보는 새 채팅에서 이어 하기', 'Continue in a new chat only you see', 'Lanjutkan di obrolan baru yang hanya Anda lihat', '自分だけの新しいチャットで続ける', 'Continuar en un chat nuevo que solo ve usted', '在只有你能看到的新对话中继续'),
   // the button under an answer in a person's own chat that suggests it as a new skill (web suggest.button)
   suggest: t('스킬로 제안', 'Suggest as skill', 'Usulkan sebagai skill', 'スキルとして提案', 'Sugerir como habilidad', '建议为技能'),
 } satisfies Record<string, L5>

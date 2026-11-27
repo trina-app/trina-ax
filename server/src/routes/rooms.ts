@@ -3,6 +3,7 @@
 // in advance, rooms/ai-grants.ts). Logic: server/src/rooms/*. Every handler takes the person from the session; the
 // request never names an author or another member's read position.
 import { dropAlways, dropPictureAlways, listAlways, listPictureAlways } from '../chat/always-allow'
+import { dropBrowserWarned, listBrowserWarned } from '../chat/browser-notice'
 import { dropSendAllow, dropToolAllow, listSendAllows, listToolAllows } from '../integrations/connections/tool-allow'
 import { dropSiteAllow, listSiteAllows } from '../tools/site-allow'
 import { dropAlias, listAliases } from '../chat/person-aliases'
@@ -18,6 +19,8 @@ import { httpError } from '../team-files/errors'
 import { fileOpener, roomsOf } from '../rooms/service'
 import { roomFilesOf } from '../rooms/files'
 import { deleteGrant, listGrants } from '../rooms/ai-grants'
+import { autoModeAvailable, autoModeOn, autoModeTeam, recentAutoApprovals, setAutoMode } from '../chat/auto-mode'
+import { AUTO_MODE_CHANGED } from '../admin/settings'
 import { keptMediaCache } from '../auth/media-key'
 import { mapErrors } from '../team-files/errors'
 import { savedFiles, savePlan, saveToTeam } from '../rooms/save-to-team'
@@ -114,8 +117,19 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.unpinRoom, ({ auth, params }) => rooms.unpin(auth.user.id, params.id))
     // "이 방에서는 항상 허용" (rooms/ai-grants.ts): my own only; another person's id answers like one that is not there
     // "Always allow" on a kind of card (chat/always-allow.ts) first, then the room folders
-    kit.handle(API.listAiAllowances, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return { items: [...listAlways(ctx.db, auth.user.id), ...listPictureAlways(ctx.db, auth.user.id), ...listToolAllows(ctx.db, auth.user.id), ...listSendAllows(ctx.db, auth.user.id), ...listSiteAllows(ctx.db, auth.user.id), ...listAliases(ctx.db, auth.user.id), ...listGrants(ctx.db, auth.user.id)].sort((x, y) => (x.createdAt < y.createdAt ? 1 : x.createdAt > y.createdAt ? -1 : 0)) } })
-    kit.handle(API.deleteAiAllowance, ({ auth, params }) => { if (!(params.id.startsWith('card:') ? dropAlways(ctx.db, auth.user.id, params.id) : params.id.startsWith('picture:') ? dropPictureAlways(ctx.db, auth.user.id, params.id) : params.id.startsWith('tool:') ? dropToolAllow(ctx.db, auth.user.id, params.id) : params.id.startsWith('send:') ? dropSendAllow(ctx.db, auth.user.id, params.id) : params.id.startsWith('site:') ? dropSiteAllow(ctx.db, auth.user.id, params.id) : params.id.startsWith('alias:') ? dropAlias(ctx.db, auth.user.id, params.id) : deleteGrant(ctx.db, auth.user.id, params.id))) fail('not_found') })
+    kit.handle(API.listAiAllowances, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return { items: [...listAlways(ctx.db, auth.user.id), ...listPictureAlways(ctx.db, auth.user.id), ...listToolAllows(ctx.db, auth.user.id), ...listBrowserWarned(ctx.db, auth.user.id, c.get('locale')), ...listSendAllows(ctx.db, auth.user.id), ...listSiteAllows(ctx.db, auth.user.id), ...listAliases(ctx.db, auth.user.id), ...listGrants(ctx.db, auth.user.id)].sort((x, y) => (x.createdAt < y.createdAt ? 1 : x.createdAt > y.createdAt ? -1 : 0)) } })
+    // auto mode (chat/auto-mode.ts, docs/decisions/20261125-auto-mode.md): my own value, and the cards it approved for me
+    const autoState = (userId: string) => ({ available: autoModeAvailable(ctx.db, userId), on: autoModeOn(ctx.db, userId), team: autoModeTeam(ctx.db), recent: recentAutoApprovals(ctx.db, userId) })
+    kit.handle(API.getAutoMode, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return autoState(auth.user.id) })
+    kit.handle(API.setAutoMode, ({ auth, body }) => {
+      const before = autoModeOn(ctx.db, auth.user.id)
+      if (body.on && !autoModeAvailable(ctx.db, auth.user.id)) fail('conflict', 'Your team does not let you use auto mode.', { params: { reason: 'auto_mode_off' } })
+      const on = setAutoMode(ctx.db, auth.user.id, body.on, body.via)
+      // my other windows and devices: the pill follows (GET /api/me)
+      if (on !== before) ctx.services.realtime.publish(auth.user.id, AUTO_MODE_CHANGED)
+      return autoState(auth.user.id)
+    })
+    kit.handle(API.deleteAiAllowance, ({ auth, params }) => { if (!(params.id.startsWith('card:') ? dropAlways(ctx.db, auth.user.id, params.id) : params.id.startsWith('picture:') ? dropPictureAlways(ctx.db, auth.user.id, params.id) : params.id.startsWith('tool:') ? dropToolAllow(ctx.db, auth.user.id, params.id) : params.id.startsWith('bseen:') ? dropBrowserWarned(ctx.db, auth.user.id, params.id) : params.id.startsWith('send:') ? dropSendAllow(ctx.db, auth.user.id, params.id) : params.id.startsWith('site:') ? dropSiteAllow(ctx.db, auth.user.id, params.id) : params.id.startsWith('alias:') ? dropAlias(ctx.db, auth.user.id, params.id) : deleteGrant(ctx.db, auth.user.id, params.id))) fail('not_found') })
 
     // a small file in one request (larger ones: an upload session with target room, uploads/sessions.ts). The body was
     // streamed to a temp file and hashed on the way (http/multipart.ts); create() moves it into the room's folder (a

@@ -9,12 +9,10 @@
 // notifications/chat-answers.ts). "Mute this chat" (chat_mutes): no notices for that person there. Reading the chat
 // (POST /api/chats/:id/seen) or writing in it reads them. Ids only: never a message's text or the chat's title in a row.
 //
-// A team project's shared chat is a conversation as well (owner 2026-11-22, docs/decisions/
-// 20261122-project-chat-notices-threads-mention-only.md): the same notices for the people who see it now
-// (Audiences.ofChat: the project's readers, no guest but the chat's own creator, nobody while its folder is in the
-// trash). A chat started "Only me" in a project is not shared and tells nobody. Projects can be large: the fan-out reads
-// who is active, who muted the chat and everyone's preferences in one query each, writes in one transaction, and asks
-// nothing per person but the insert.
+// A team project's shared chat is not (owner 2026-11-26, docs/decisions/20261126-project-chat-mention-only.md, which
+// replaces the 11-22 rule): someone else's message there, a new chat or one I wrote in, gives me no notice, no unread
+// number, no push and no ring. Only a mention of me notifies (a thread under an AI answer, chat/threads.ts). Older
+// project rows are never read (unreadOf's callers ask isConversationRow first; migration 457 read them).
 import type { Database } from 'bun:sqlite'
 import { inQuietHours, plainLabel, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -22,7 +20,7 @@ import { newId } from '../db'
 import { teamTimeZone } from '../admin/settings'
 import { getPreferences, getPreferencesOf, pushEventEnabled, type Preferences } from '../notifications/preferences'
 import { chatOpenFor } from '../notifications/chat-answers'
-import { isSharedRow } from './chat-audience'
+import { isPeopleRow } from './chat-audience'
 import { Audiences } from './shared'
 import { answerHiddenFrom } from './shared-answers'
 import type { ChatRow } from './store'
@@ -31,9 +29,9 @@ import { activeName, chatPlace, previewFiles, pushPreview } from '../notificatio
 import { plainMarkdown } from '../rooms/inbox'
 
 type Kind = 'message' | 'answer'
-/** A chat whose people's messages tell the others: one shared with people (#339) or a team project's shared chat (both
- * are isSharedRow; a project chat started "Only me" is neither). */
-export const isConversationRow = (r: Pick<ChatRow, 'shared_at' | 'project_id' | 'people_shared_at'>): boolean => isSharedRow(r)
+/** A chat whose people's messages tell the others: one shared with people (#339) only. A team project's shared chat is
+ * not (docs/decisions/20261126-project-chat-mention-only.md): its people hear of it only by a mention in a thread. */
+export const isConversationRow = (r: Pick<ChatRow, 'shared_at' | 'project_id' | 'people_shared_at'>): boolean => isPeopleRow(r)
 /** My unread notices and mute in one chat (chatView, the push badge). */
 export type Unread = { n: number; muted: boolean }
 /** a notice that may ring now, per person: the message (the chat.updated `notice`) */
@@ -162,14 +160,17 @@ export function noteSharedAnswer(ctx: AppContext, chat: ChatIds, answerId: strin
 }
 
 /** Asked before and after each send (push-service.ts SOURCES wanted): a person's message, unread, made outside quiet
- * hours and still outside them, the room default not "nothing", the chat not muted, the message still there, and the
- * chat still the person's to see. */
+ * hours and still outside them, the room default not "nothing", the chat not muted, the message still there, the chat
+ * still shared with people (not a project's) and still the person's to see. */
 export function chatMessageWanted(ctx: AppContext, notificationId: string, now = Date.now()): boolean {
   const n = noticeOf(ctx.db, notificationId)
   if (!n || n.kind !== 'message' || n.read_at || n.suppressed || n.quiet) return false
   if (!mayRing(getPreferences(ctx.db, n.user_id), teamTimeZone(ctx.db), now)) return false
   if (isMuted(ctx.db, n.user_id, n.chat_id)) return false
   if (!ctx.db.query('SELECT 1 FROM messages WHERE id = ? AND chat_id = ?').get(n.source_id, n.chat_id)) return false
+  // a project's shared chat pushes nothing now (an older notice there, made before 2026-11-26, never goes)
+  const chat = ctx.db.query('SELECT shared_at, project_id, people_shared_at FROM chats WHERE id = ?').get(n.chat_id) as Pick<ChatRow, 'shared_at' | 'project_id' | 'people_shared_at'> | null
+  if (!chat || !isConversationRow(chat)) return false
   return chatOpenFor(ctx, n.user_id, n.chat_id)
 }
 

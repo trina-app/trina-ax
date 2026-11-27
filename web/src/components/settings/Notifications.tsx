@@ -9,8 +9,8 @@ import { formatDate, formatSize } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { accessChanged, reloadAsked } from '../../store/live'
 import { peekCached, rememberCached } from '../../store/listCache'
-import { useInboxUnread, useNoticeUnread } from '../../store/inbox'
-import { ErrorNote, Skeleton, Switch, useMediaQuery } from '../ui'
+import { useInboxUnread } from '../../store/inbox'
+import { ErrorNote, Skeleton, Switch } from '../ui'
 import { changeRoomSound, useRoomSoundOn } from '../../store/roomSound'
 import { PushNotifications } from './PushNotifications'
 import { DesktopNotifications } from './DesktopNotifications'
@@ -145,6 +145,14 @@ export function templateText(item: Pick<InboxNotification, 'code' | 'template' |
   }
   if (!tp) return t('notifications.event.integration.template')
   return t(tp.signIn ? 'notifications.event.integration.templateNamedSignIn' : 'notifications.event.integration.templateNamed', { name: tp.name })
+}
+
+/** A chat thread notice as a conversation row's line (Activity, the 활동 panel): the row shows who above or before it
+ * and the chat beside it, so the line names neither ("Replied in a thread."), never "QA Member: QA Member replied …". */
+export function chatThreadRowLine(item: Pick<InboxNotification, 'chatThread'>, t: T): string {
+  const th = item.chatThread
+  if (!th || th.gone) return t('notifications.event.chat.thread_replyGone')
+  return t(th.mention ? 'notifications.event.chat.thread_mentionLine' : 'notifications.event.chat.thread_replyLine')
 }
 
 /** The words of a notice of the app's own. A scheduled run names its task while the task is there (the person's own
@@ -340,11 +348,8 @@ export function Notifications() {
   // a free-roam demo (store/demo.ts): no phone notifications and no push to this device (server/src/demo/guard.ts
   // refuses web push and phone devices); the inbox and the rooms' and work's choices stay
   const freeRoam = useFreeRoam()
-  // a phone counts each unread thing once across its tabs: the 나 tab's count, without the conversation rows that 대화
-  // counts (store/inbox.ts); a computer, the whole Inbox
-  const phone = useMediaQuery('(max-width: 767.98px)')
-  const whole = useInboxUnread(), notices = useNoticeUnread()
-  const unread = phone ? notices : whole
+  // every unread notice, the number 활동 and the 나 tab show
+  const unread = useInboxUnread()
   // as the server last said them here (store/listCache.ts): a visit after the first shows the switches at once and
   // reads them again behind it
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(() => peekCached<NotificationPreferences>(PREFERENCES_KEY) ?? null)

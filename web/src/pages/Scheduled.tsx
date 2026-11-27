@@ -23,6 +23,7 @@ import { putCached, readSchedules, scheduleKey, SHARED, useCachedRead } from '..
 import { chatChanged, reloadAsked, schedulesChanged } from '../store/live'
 import { useMeStrict } from '../store/session'
 import { toast } from '../store/ui'
+import { destructive } from '../lib/destructive'
 import AskCard from '../components/chat/AskCard'
 import { copyRoomIds, WithRoomNames } from '../components/RoomNames'
 import { ScheduleEditDialog } from '../components/settings/ScheduleEditDialog'
@@ -30,7 +31,7 @@ import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
 import { TitleMenu } from '../components/TitleMenu'
 import { MenuButton } from '../components/rooms/MenuButton'
 import { PhoneBarAction } from '../components/phone/PhoneBarAction'
-import { Button, EmptyState, ErrorNote, IconButton, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, inputCls, pageColumn, useMediaQuery } from '../components/ui'
+import { Button, EmptyState, ErrorNote, IconButton, Modal, PageHeader, Skeleton, StickyHeader, inputCls, pageColumn, useMediaQuery } from '../components/ui'
 import { Tooltip } from '../components/Tooltip'
 import { ListHeading, ListRow } from '../components/list/List'
 
@@ -172,6 +173,7 @@ function NewTaskSheet({ onTemplate }: { onTemplate: () => void }) {
 
 function ScheduleCard({ s }: { s: Schedule }) {
   const t = useT(), locale = useLocale()
+  const place = useTeamPlace()
   const waiting = scheduleState(s) === 'review'
   return (
     // one column (phones): a plain row of the list (hairlines between rows, no filled card); two columns keep the cards
@@ -181,12 +183,12 @@ function ScheduleCard({ s }: { s: Schedule }) {
         <span className="min-w-0 truncate text-row font-medium">{scheduleName(s, t)}</span>
         {waiting && <ShieldAlert size={14} className="shrink-0 text-warn" aria-hidden />}
       </span>
-      <span className="mt-1 line-clamp-2 text-label leading-5 text-muted">{s.templateId ? schedulePreview(s) : <WithRoomNames text={s.prompt} />}</span>
+      <span className="mt-1 line-clamp-2 text-label leading-5 text-muted">{s.templateId ? schedulePreview(s, place) : <WithRoomNames text={s.prompt} />}</span>
       <span className={clsx('mt-1.5 block truncate text-xs', waiting ? 'text-warn' : 'text-faint')}>{cardLine(s, t, locale)}</span>
       {/* where its runs may save without asking, like a template's folders; a lapsed one asks to be checked again */}
       {s.saveFolder && (
         <span className={clsx('mt-1 block truncate text-xs', s.saveLapsed ? 'text-warn' : 'text-faint')} data-testid="schedule-card-save" data-lapsed={s.saveLapsed ? 'yes' : undefined}>
-          {saveLine(s, t)}
+          {saveLine(s, t, place)}
           {s.saveLapsed && <><span aria-hidden> · </span><span className="font-medium text-accent-text">{t('schedules.review')}</span></>}
         </span>
       )}
@@ -458,7 +460,9 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
     ? t(runNowShown ? (state === 'completed' ? 'scheduled.completedRunHint' : 'scheduled.expiredRunHint') : `schedules.${state}Hint`)
     : waiting ? t('schedules.reviewHint') : state === 'paused' ? t('schedules.pausedHint') : ''
   const long = !s.templateId && (s.prompt.length > 180 || s.prompt.split('\n').length > 3)
-  const ran = s.lastRunAt || s.lastChatId || s.running
+  // the next run in the details only when the status line under the title does not say it (a task that waits for a check
+  // again says that there, and still runs)
+  const nextHere = s.enabled && !!s.nextRunAt && !(state === 'on' && status)
   // when the last run ended (a "Run now" run too: it moves only lastChatId); older servers: the last run at its time
   const lastAt = s.lastOutcomeAt ?? s.lastRunAt
   return (
@@ -560,19 +564,23 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
             )}
             {/* what its card lets runs save and send without asking */}
             {!s.templateId && s.saveFolder && (
-              <p className={clsx('mt-1', s.saveLapsed && 'text-warn')} data-testid="schedule-save-folder">{saveLine(s, t)}</p>
+              <p className={clsx('mt-1', s.saveLapsed && 'text-warn')} data-testid="schedule-save-folder">{saveLine(s, t, place)}</p>
             )}
             {!s.templateId && s.saveFolder && !!s.saveSources?.length && (
-              <p className="mt-0.5 text-xs text-faint" data-testid="schedule-save-sources">{t('scheduled.saveSources', { list: s.saveSources.map((x) => sourceName(x, t)).join(', ') })}</p>
+              <p className="mt-0.5 text-xs text-faint" data-testid="schedule-save-sources">{t('scheduled.saveSources', { list: s.saveSources.map((x) => sourceName(x, t, place)).join(', ') })}</p>
             )}
             {!s.templateId && !!s.personalSends?.length && (
               <p className="mt-1" data-testid="schedule-sends">{t('scheduled.sends', { list: s.personalSends.map((x) => `${x.name} · ${x.pins.map((p) => `'${p}'`).join(', ')}`).join('; ') })}</p>
             )}
           </Side>
-          <Side label={t('scheduled.details')} testId="schedule-details">
-            {s.enabled && s.nextRunAt && <p>{t('schedules.next', { time: when(s.nextRunAt) })}</p>}
-            {lastAt ? <p>{t('scheduled.lastRunAt', { time: when(lastAt) })}</p> : !ran && <p>{t('scheduled.noRuns')}</p>}
-          </Side>
+          {/* what the title's status line and the runs do not say already: "다음 실행" is under the title while the task
+              is on, "아직 실행한 적이 없어요" under Runs (QA after #651: each was there twice) */}
+          {(nextHere || lastAt) && (
+            <Side label={t('scheduled.details')} testId="schedule-details">
+              {nextHere && <p>{t('schedules.next', { time: when(s.nextRunAt!) })}</p>}
+              {lastAt && <p>{t('scheduled.lastRunAt', { time: when(lastAt) })}</p>}
+            </Side>
+          )}
         </div>
       </div>
     </div>
@@ -670,15 +678,25 @@ export function ScheduledTask() {
   const [editing, setEditing] = useState(false)
   const remove = async (x: Schedule) => {
     const generation = life.current
-    if (!(await confirmDialog({ title: t('schedules.deleteTitle'), body: t('schedules.deleteBody', { title: scheduleName(x, t) }), confirm: t('schedules.delete'), danger: true }))) return
-    if (generation !== life.current) return
-    try {
-      await api.call(API.deleteSchedule, { params: { id: x.id } })
-      drop(x.id)
-      if (generation !== life.current) return
-      if (x.needsReview) schedulesChanged.emit()
-      navigate('/scheduled', { replace: true })
-    } catch (e) { fail(e) }
+    // lib/destructive.ts: its confirm, then "Scheduled task deleted." (no undo: the server keeps no deleted task)
+    await destructive({
+      confirm: { title: t('schedules.deleteTitle'), body: t('schedules.deleteBody', { title: scheduleName(x, t) }), confirm: t('common.delete') },
+      run: async () => {
+        if (generation !== life.current) return false
+        try {
+          await api.call(API.deleteSchedule, { params: { id: x.id } })
+        } catch (e) {
+          fail(e)
+          return false
+        }
+        drop(x.id)
+        if (generation !== life.current) return true
+        if (x.needsReview) schedulesChanged.emit()
+        navigate('/scheduled', { replace: true })
+        return true
+      },
+      done: () => ({ text: t('schedules.deleted'), level: 'success' }),
+    })
   }
   const project = s?.projectId ? projects?.find((p) => p.id === s.projectId) ?? null : null
   // a phone: "Edit" in the top bar and a red "Delete" row at the end of the page, as an iOS app has them (the name is
@@ -705,7 +723,7 @@ export function ScheduledTask() {
                 testId="schedule-menu"
                 items={[
                   { label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setEditing(true), testId: 'schedule-edit' },
-                  { label: t('schedules.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void remove(s), danger: true, testId: 'schedule-delete' },
+                  { label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void remove(s), danger: true, testId: 'schedule-delete' },
                 ]}
               />
             </>
@@ -727,7 +745,7 @@ export function ScheduledTask() {
         )}
         {phone && s && (
           <button type="button" onClick={() => void remove(s)} className="mt-8 flex min-h-11 w-full items-center justify-center rounded-lg bg-subtle px-4 text-sm font-medium text-danger" data-testid="schedule-delete-row">
-            {t('schedules.delete')}
+            {t('common.delete')}
           </button>
         )}
       </div>

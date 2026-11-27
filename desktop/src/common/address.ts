@@ -3,9 +3,9 @@
 // here it gets the desktop's rules: the hosted team domain, and plain http only for this machine (development).
 // Pure: no Electron, unit-tested in tests/unit/e-desktop-common.test.ts and tests/unit/team-link.test.ts.
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
-import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
+import { PRODUCT } from '@mycel/shared/product'
 import { classifyHostStatic } from './netaddr'
-import { GOOGLE_APP_RETURN_PATH } from '@mycel/shared/api'
+import { GOOGLE_APP_RETURN_PATH } from '@mycel/shared/api/auth'
 import { mayBeAsleep, parseTeamInput, readAppLink, relayAnswer, relayRename, wakeTeam, type RelayAnswer, type TeamInput, type TeamInputError, type TeamInputOptions, type WakeAnswer, type WakeSteps } from '@mycel/shared/team-link'
 
 export { hostLineNow, hostLineShown, isLoopbackHost, isSignInPath } from '@mycel/shared/team-link'
@@ -32,17 +32,19 @@ export const LINK_SCHEME: string = PRODUCT.linkScheme
  * domains), read with the box's rules but stricter: https only, and never this machine (a link from a web page must
  * not point the app, its team view and its bridge at a local port). Typed addresses keep http to this machine for
  * development. Only here, the team's one-time sign-in link (`/app-signin#c=<code>`, the web's "Continue in the Mac
- * app") is read too; the box and the phone refuse it (shared/src/team-link.ts appSignIn). null: not a link for this app. */
+ * app") is read too; the box and the phone refuse it (shared/src/team-link.ts appSignIn). A new team's owner setup page
+ * (`/app-setup#c=<claim>`) is refused here as everywhere: from outside it would make the person who opens it the owner
+ * of the sender's team (the create flow opens it itself, main/create-team.ts). null: not a link for this app. */
 export function readDesktopLink(raw: string): TeamInput | null {
   const p = readAppLink(raw, { ...DESKTOP_INPUT, loopbackHttp: false, scheme: LINK_SCHEME, universal: false, appSignIn: true })
   return p?.ok && p.loopback ? { ok: false, error: 'insecure' } : p
 }
 
 /** The page a link opens, as the first-run box may be given it again (the "renamed" answer's next address goes back
- * through parseTeamAddress): a one-time sign-in link's page is not one the box reads, so it is the team's start there.
+ * through parseTeamAddress): a one-time sign-in or setup link's page is not one the box reads, so it is the team's start there.
  * The code is spent or dead by then anyway. */
 export function retypablePath(entryPath: string): string {
-  return /^\/app-signin(?:[/?#]|$)/i.test(entryPath) ? '/' : entryPath
+  return /^\/app-(?:signin|setup)(?:[/?#]|$)/i.test(entryPath) ? '/' : entryPath
 }
 
 /** An id in a page address: the server's ids (uuidv7) and nothing that could move the path (no `.`, `%`, `/`, `\`). */
@@ -328,19 +330,3 @@ export function asksOutside(o: { hosted: boolean; dev: boolean; known: boolean; 
   return !o.hosted && !o.dev && !o.known && !o.confirmed
 }
 
-
-/**
- * Where the "no team yet" screen's buttons go, chosen here and opened by the main process (never an address from the
- * screen). `signup`: the hosted service's account site, null in the Mac App Store build (App Review 3.1.1: no call to
- * action for a purchase outside the app; the signup leads to a paid plan). `docs`: how to install a team server: the
- * docs site's install page, or in the Mac App Store build the repository's install guide, which has no signup or
- * pricing link (the docs site's install page links the plans).
- */
-export function firstRunLinks(o: { macAppStore: boolean; korean: boolean }): { signup: string | null; docs: string } {
-  const guide = `${SOURCE_CODE.repository}/blob/main/docs/INSTALL-LINUX${o.korean ? '' : '.en'}.md`
-  if (o.macAppStore) return { signup: null, docs: guide }
-  return { signup: `https://${SERVICE_HOSTS.accountHost}/`, docs: INSTALL_DOCS }
-}
-
-/** The docs site's install page (docs/site/operate/install.md; scripts/docs/build.ts publishes the site there). */
-export const INSTALL_DOCS = 'https://ax.trina.app/docs/operate/install'

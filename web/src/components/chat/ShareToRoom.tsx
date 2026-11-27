@@ -129,7 +129,7 @@ export default function ShareToRoom({ chatId, messageId, answer, onClose, roomId
       const files = r.message.files.length
       const sentId = r.message.id
       const text = files ? t('shareRoom.sentFiles', { room: label(to), n: files }) : t('shareRoom.sent', { room: label(to) })
-      if (direct) toast({ level: 'success', text, ms: 10_000, action: { label: t('postedCard.undo'), run: () => void useRooms.getState().remove(to.id, sentId).then(() => toast({ level: 'info', text: t('postedCard.undone') }), (e) => toast({ level: 'error', text: errorText(e, locale, t('postedCard.undoFailed')) })) } })
+      if (direct) toast({ level: 'success', text, ms: 10_000, action: { label: t('common.undo'), run: () => void useRooms.getState().remove(to.id, sentId).then(() => toast({ level: 'info', text: t('postedCard.undone') }), (e) => toast({ level: 'error', text: errorText(e, locale, t('postedCard.undoFailed')) })) } })
       else toast({ level: 'success', text, action: { label: t('shareRoom.open'), run: () => navigateTo(`/rooms/${to.id}`) } })
       // the video's MP4 was not ready: it went as its page (review of #363)
       if (r.videoAsPage) toast({ level: 'info', text: t('shareRoom.videoAsPage') })

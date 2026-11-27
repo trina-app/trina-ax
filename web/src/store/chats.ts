@@ -3,7 +3,7 @@
 // events keep it current, and after a reconnect that the server could not resume (reset/resync) everything is
 // reloaded from REST.
 import { create } from 'zustand'
-import { CARD_NEWS_ARTIFACT_KEY, DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, uuidv7, type Attachment, type Chat, type ChatQueueSnapshot, type EngineId, type Message, type ServerEvent, type ServerEventData, type TurnConnectBody, type TurnConnectResult, type TurnRequest, type TurnStarted } from '@mycel/shared/api'
+import { CARD_NEWS_ARTIFACT_KEY, DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, uuidv7, type Attachment, type Chat, type ChatQueueSnapshot, type Effort, type EngineId, type Message, type ServerEvent, type ServerEventData, type TurnConnectBody, type TurnConnectResult, type TurnRequest, type TurnStarted } from '@mycel/shared/api'
 import { api, API, ApiError, isNetworkError } from '../lib/api'
 import { optimisticEdits, optimisticPending } from '../lib/optimistic'
 import { waitForUpdate, waitsForUpdate } from '../lib/serverUpdating'
@@ -99,6 +99,8 @@ export interface SendInput {
   projectId?: string | null
   engine?: EngineId
   model?: string | null
+  /** a new chat's depth (CreateChatBody.effort); a chat's own depth is set on the chat (PATCH), as its model is */
+  effort?: Effort | null
   /** messages that waited for an answer (store/sendQueue.ts): the same messages always go with the same id */
   clientMessageId?: string
   /** the server still has an answer running in this chat (409): the message is taken back instead of "not sent" */
@@ -312,7 +314,7 @@ export function keepChatPlace(chatId: string, place: ChatPlace | null) {
 }
 
 /** A chat's fields that a change made here (lib/optimistic.ts, components/chat/chatActions.ts) sets, by its key's field */
-const PENDING_FIELDS: Record<string, (keyof Chat)[]> = { pin: ['pinnedAt'], title: ['title'], engine: ['engine', 'model'], project: ['projectId', 'folderId'], folder: ['folderId'] }
+const PENDING_FIELDS: Record<string, (keyof Chat)[]> = { pin: ['pinnedAt'], title: ['title'], engine: ['engine', 'model', 'effort'], project: ['projectId', 'folderId'], folder: ['folderId'], fork: ['forkParents'] }
 
 /** A chat read or heard while a change of mine to it (a pin, its name, engine, project, folder) is still on its way: it
  * keeps that value on screen (the copy may be from before it; the change's own answer decides). */
@@ -327,7 +329,7 @@ function keepPending(s: Pick<ChatsState, 'chats' | 'others'>, c: Chat): Chat {
     else out[k] = now[k]
   }
   // a name, engine or project stamps the chat: the row stays where it went
-  if (now.updatedAt > c.updatedAt && fields.some((f) => f !== 'pin' && f !== 'folder')) out.updatedAt = now.updatedAt
+  if (now.updatedAt > c.updatedAt && fields.some((f) => f !== 'pin' && f !== 'folder' && f !== 'fork')) out.updatedAt = now.updatedAt
   return out as Chat
 }
 
@@ -763,7 +765,7 @@ export const useChats = create<ChatsState>((set, get) => {
       const session = generation
       let chatId = o.chatId
       if (!chatId) {
-        const chat = await api.call(API.createChat, { body: { projectId: o.projectId ?? null, engine: o.engine, model: o.model ?? undefined, ...(o.sideRoomId ? { sideRoomId: o.sideRoomId } : {}), ...(o.private ? { private: true } : {}) } })
+        const chat = await api.call(API.createChat, { body: { projectId: o.projectId ?? null, engine: o.engine, model: o.model ?? undefined, ...(o.effort ? { effort: o.effort } : {}), ...(o.sideRoomId ? { sideRoomId: o.sideRoomId } : {}), ...(o.private ? { private: true } : {}) } })
         if (session !== generation) throw new Error('Session changed while creating the chat')
         get().upsertChat(chat)
         chatId = chat.id

@@ -25,13 +25,12 @@ import clsx from 'clsx'
 import { sharedNote } from '../lib/sharedNote'
 import { composerInset } from '../components/chat/composerBox'
 import { GuestNoAi, useGuestAiOff, useGuestNoAi } from '../components/GuestView'
-import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
 import { ArrowDown, ChevronLeft, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId, type Project } from '@mycel/shared/api'
+import { chatErrorReason, uuidv7, type Attachment, type Chat, type Effort, type EngineId, type Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { isPeopleShared, noLongerMemberOf, noLongerSharedWith, privateInTeamProject, refusalKey, refusalReason, shareKindOf, sharedRights } from '../lib/sharedChat'
 import { answerTooLong, BoxAnswers, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
@@ -63,7 +62,7 @@ import { LinkAskAccess } from '../components/LinkAskAccess'
 import Composer, { type ComposerHandle, type EngineChoice } from '../components/chat/Composer'
 import { changeChat, trashChat, useChatActions } from '../components/chat/chatActions'
 import { AssistantMessage, UserMessage } from '../components/chat/Messages'
-import { ChatEventLine, eventsBetween, useAudienceEvents } from '../components/chat/ChatEvents'
+import { ChatEventLine, ForkedFromLine, eventsBetween, useAudienceEvents } from '../components/chat/ChatEvents'
 import { ImageGroup, ViewerMeta } from '../components/ImageViewer'
 import QueuedMessages from '../components/chat/QueuedMessages'
 import { ChatProjectCrumb, MoveToProjectDialog } from '../components/chat/ChatProject'
@@ -71,7 +70,6 @@ import type { EnginePick } from '../components/chat/EngineMenu'
 import { ChatTitleMenu } from '../components/chat/ChatTitleMenu'
 import { PrivateChatMark, SharedByLine, SharedChatMark, SharedReadOnly, sharedByOf } from '../components/chat/SharedChat'
 import { WhoSeesLine } from '../components/chat/WhoSees'
-import { askPrivately, askPrivatelyHome, lastOwnQuestion } from '../components/chat/privateAsk'
 import { openChatShare, startShare, useSharedWithNames } from '../components/chat/ChatShareDialog'
 import { HeaderShare, WhoSeesWords } from '../components/HeaderShare'
 import { ProjectRoomButton } from '../components/rooms/ProjectRoomButton'
@@ -226,6 +224,9 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   // a shared project chat: what this person may do in it, whose question is being answered (not mine), and read-only
   // while safe operations are on
   const shared = chat?.shared
+  // Fork / "Continue in a chat only you see" (POST /api/chats/:id/fork; components/chat/chatActions.ts fork): from the
+  // end of the branch on screen (my own unsent messages left out)
+  const forkHere = (c: Chat) => void actions.fork(c, (useChats.getState().threads[c.id]?.messages ?? []).filter((m) => !m.local).at(-1)?.id)
   const rights = sharedRights(chat, me.user.id)
   const othersTurn = shared?.answering ?? null
   const sharedLine = sharedNote(chat)
@@ -279,6 +280,8 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
       // everyone in it opens the Share dialog: its creator to change it, anyone else its read-only list (QA TC-7265)
       onOpen={people ? (!chat.deletedAt ? () => openChatShare(chat) : undefined) : shared && project?.membersEditable ? () => setMembers(true) : undefined}
       openLabel={people ? t(rights.creator ? 'chat.share.changeWho' : 'chat.share.seeWho') : undefined}
+      // a chat made with "Continue in a new chat": only mine, where it came from, the original unchanged
+      {...(chat.forkedFrom ? { forkedFrom: chat.forkedFrom } : {})}
     />
   ) : undefined
   // Share at the top right of the header (docs/DECISIONS.md "Share in the title row"; components/HeaderShare.tsx), the
@@ -365,14 +368,15 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
 
   const messages = thread.messages
   // a chat shared with people: the files its creator added as copies (docs/decisions/20261121-share-chat-files.md) open
-  // for every link to their old place, for everyone (one file, not two); a link that does not open for me offers to ask
-  // the creator to add it (components/ChatFileAsk.tsx)
-  const peopleChat = isPeopleShared(chat)
+  // for every link to their old place, for everyone (one file, not two). In any shared chat (a shared project chat too)
+  // a link that does not open for me asks the server what I can do (components/ChatFileAsk.tsx): ask the creator to add
+  // a file the chat made, or ask to view a teammate's file someone linked here (QA after #651), else one plain line
+  const sharedChat = !!shared
   const chatLinks = useMemo(() => {
     const copies = new Map<string, PreviewFile>()
     for (const m of messages) for (const a of m.role === 'assistant' ? m.attachments : []) if (a.source === 'chat' && a.origin === 'shared-copy' && a.from) copies.set(a.from, { source: 'chat', chatId, fileId: a.id, name: a.name })
-    return copies.size || peopleChat ? { chatId, copies, ask: peopleChat && shared?.by.id !== me.user.id } : null
-  }, [messages, chatId, peopleChat, shared?.by.id, me.user.id])
+    return copies.size || sharedChat ? { chatId, copies, ask: sharedChat } : null
+  }, [messages, chatId, sharedChat])
   const running = runningMessage(messages)
 
   // ?answer=: scroll to it and mark it (`data-focused`, no look: only the place) for a moment, once it is read; gone (or
@@ -404,6 +408,9 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   /** who asked the question an answer answers (a shared chat: edit, regenerate and "send to a room" are for one's own) */
   const askedBy = (m: { parentId: string | null }) => messages.find((x) => x.id === m.parentId)?.author?.id
   const mine = (id: string | undefined) => !shared || id === me.user.id
+  // who asked, above each question: a shared chat, and a chat of mine that holds other people's questions (a fork of a
+  // shared chat keeps their names: docs/decisions/20261126-chat-fork.md)
+  const authorsShown = !!shared || messages.some((x) => x.role === 'user' && !!x.author && x.author.id !== me.user.id)
   // a shared chat: the running answer is mine to stop only when I asked; someone else's turn holds the box instead
   const runningMine = shared ? (!!running && mine(askedBy(running))) || messages.some((m) => m.local?.state === 'sending') : busy
 
@@ -591,15 +598,17 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   /** the picker shows the new engine / model at once; a refusal puts it back with one toast (lib/optimistic.ts) */
   const onEngine = async (e: EngineChoice) => {
     if (!chat) return
-    type Pick = { engine: EngineId; model: string | null; updatedAt: string }
+    type Pick = { engine: EngineId; model: string | null; effort: Effort | null; updatedAt: string }
+    // the depth stays the chat's own when only the model changes (EngineChoice.effort undefined)
+    const effort = e.effort !== undefined ? e.effort : chat.effort ?? null
     await changeChat<Pick>({
       chat,
       field: 'engine',
-      from: { engine: chat.engine, model: chat.model, updatedAt: chat.updatedAt },
-      to: { engine: e.engine ?? chat.engine, model: e.model ?? null, updatedAt: new Date().toISOString() },
+      from: { engine: chat.engine, model: chat.model, effort: chat.effort ?? null, updatedAt: chat.updatedAt },
+      to: { engine: e.engine ?? chat.engine, model: e.model ?? null, effort, updatedAt: new Date().toISOString() },
       apply: (c, v) => ({ ...c, ...v }),
-      send: () => api.call(API.updateChat, { params: { id: chatId }, body: { engine: e.engine, model: e.model ?? null } }),
-      confirmed: (c) => ({ engine: c.engine, model: c.model, updatedAt: c.updatedAt }),
+      send: () => api.call(API.updateChat, { params: { id: chatId }, body: { engine: e.engine, model: e.model ?? null, ...(e.effort !== undefined ? { effort: e.effort } : {}) } }),
+      confirmed: (c) => ({ engine: c.engine, model: c.model, effort: c.effort ?? null, updatedAt: c.updatedAt }),
       onShown: setChat,
     })
   }
@@ -791,9 +800,13 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
               onRename={rights.creator ? () => void actions.rename(chat, setChat) : undefined}
               onMove={rights.canMove ? () => setMovingProject(true) : undefined}
               onDelete={rights.canDelete ? () => void actions.remove(chat) : undefined}
-              // a shared chat: the same question again in a chat only I see, in its project (my last question here); a
-              // chat shared with people: Home's box, no project
-              onPrivately={shared ? () => (chat.projectId ? askPrivately(navigate, chat.projectId, lastOwnQuestion(chat.id, me?.user.id)) : askPrivatelyHome(navigate, lastOwnQuestion(chat.id, me?.user.id))) : undefined}
+              // a fork of this chat, only mine, with the conversation so far (a shared chat: "Continue in a chat only you
+              // see", in its project; a chat shared with people: outside projects), the AI going on from it. Refused for
+              // a shared chat (an older server, a guest where they may not start one): the old way, my last question in a
+              // new chat's box. Not before an answer has finished here
+              onFork={messages.some((m) => m.role === 'assistant' && m.status === 'done') ? () => forkHere(chat) : undefined}
+              // a fork under a chat in my history: to the top of it (its "이어 왔어요" line stays)
+              onDetach={rights.creator ? () => void actions.detachFork(chat, setChat) : undefined}
               onHide={() => void actions.hide(chat)}
               onLeave={() => void actions.leave(chat)}
             />
@@ -829,6 +842,8 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
           <BoxAnswers.Provider value={chat?.deletedAt || readOnly ? null : (question?.request.requestId ?? null)}>
           <ChatLinks.Provider value={chatLinks}>
           <ImageGroup>
+            {/* a chat made by "Continue in a chat only you see": where it came from, above its first message */}
+            {chat?.forkedFrom && messages.length > 0 && !thread.nextCursor && !loading && <ForkedFromLine from={chat.forkedFrom} />}
             {messages.map((m, i) => {
               // who changed its people since the message before (a chat shared with people; nothing before the oldest
               // message read while older ones are still to load)
@@ -839,7 +854,7 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
                   <Fragment key={m.id}>
                     {before}
                     <ViewerMeta sender={{ kind: 'user', user: m.author ?? (shared ? null : me.user) }} at={m.createdAt}>
-                      <UserMessage m={m} chatId={chatId} busy={rowsBusy} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={!!shared} canEdit={!readOnly && mine(m.author?.id)} sideChat={!!chat?.sideRoomId} />
+                      <UserMessage m={m} chatId={chatId} busy={rowsBusy} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={authorsShown} canEdit={!readOnly && mine(m.author?.id)} sideChat={!!chat?.sideRoomId} />
                     </ViewerMeta>
                   </Fragment>
                 )
@@ -849,7 +864,7 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
                 <Fragment key={m.id}>
                 {before}
                 <ViewerMeta sender={{ kind: 'ai' }} at={m.createdAt}>
-                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={rowsBusy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} shareRoomId={chat?.sideRoomId ?? undefined} canRegenerate={!readOnly && mine(askedBy(m))} ownAnswer={mine(askedBy(m))} canSuggest={!shared} onThread={shared && !chat?.sideRoomId ? (focus) => openThread(m.id, focus) : undefined} />
+                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={rowsBusy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} shareRoomId={chat?.sideRoomId ?? undefined} canRegenerate={!readOnly && mine(askedBy(m))} ownAnswer={mine(askedBy(m))} canSuggest={!shared} onThread={shared && !chat?.sideRoomId ? (focus) => openThread(m.id, focus) : undefined} reportConversation={!shared && !chat?.projectId && !chat?.sideRoomId && mine(askedBy(m))} />
                 </ViewerMeta>
                 </Fragment>
               )
@@ -884,10 +899,10 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
           {/* one suggestion under the newest answer: the welcome invite on the first result, else schedule or PPT */}
           {/* (not for a guest: no team skills, schedules or welcome invite are theirs, and the server refuses it) */}
           {!guestHere && <ResultSuggestion chatId={chatId} messages={messages} busy={busy} onSend={(text) => void onSend(text, []).catch(fail)} />}
-          {/* the newest answer failed for want of AI: its own line has the button, one is enough */}
-          {!noAiError(messages.at(-1)) && <AiAccessBanner />}
           <Composer
             ref={composer}
+            // "no usable AI" above the box, unless the newest answer failed for want of AI: its own line has the button
+            aiBand={!noAiError(messages.at(-1))}
             draftId={chatId}
             ensureChat={async () => chatId}
             running={runningMine}
@@ -895,7 +910,7 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
             answering={question ? { question: question.request.question, onAnswer: (text) => onAnswer(question.request.requestId, text) } : undefined}
             choiceWaiting={choosing}
             onStop={() => stop(chatId)}
-            engine={{ engine: chat?.engine, model: chat?.model }}
+            engine={{ engine: chat?.engine, model: chat?.model, effort: chat?.effort ?? null }}
             onEngine={choose && rights.creator ? onEngine : undefined}
             engines={engines}
             models={models}
@@ -944,7 +959,9 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   )
 }
 
-/** "복원": the chat is back at once (the banner goes, the box comes); a refusal puts it back in the trash with a toast */
+/** "실행 취소", the word of the delete toast's own button for the same thing (docs/decisions/20261126-shared-menus.md:
+ * undo is 실행 취소; QA after #651): the chat is back at once (the banner goes, the box comes); a refusal puts it back in
+ * the trash with a toast */
 function TrashedBanner({ chat, onShown }: { chat: Chat; onShown: (c: Chat) => void }) {
   const t = useT()
   const locale = useLocale()
@@ -954,7 +971,7 @@ function TrashedBanner({ chat, onShown }: { chat: Chat; onShown: (c: Chat) => vo
       <Trash2 size={16} className="shrink-0" aria-hidden />
       <span className="flex-1">{t('chat.inTrash', { date: formatDate(purge, locale) })}</span>
       <Button size="sm" onClick={() => void trashChat(chat, false, { onShown })} data-testid="chat-trash-restore">
-        <RotateCcw size={14} aria-hidden /> {t('common.restore')}
+        <RotateCcw size={14} aria-hidden /> {t('common.undo')}
       </Button>
     </div>
   )

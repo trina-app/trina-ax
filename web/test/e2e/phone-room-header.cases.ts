@@ -132,10 +132,11 @@ export function roomHeaderCases() {
     await shot(page, 'tc257-1-menu')
     const items = menu.getByRole('menuitem')
     const ids = await items.evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.testid))
-    expect(ids).toEqual(['room-menu-next-thread', 'room-menu-search', 'room-menu-pin', 'row-section-move', 'room-menu-invite', 'room-menu-notify', 'room-menu-apps', 'room-menu-make-project', 'room-menu-link', 'room-menu-leave'])
+    expect(ids).toEqual(['room-menu-next-thread', 'room-menu-search', 'room-menu-pin', 'row-section-move', 'room-menu-notify', 'room-menu-link', 'room-menu-rename', 'room-menu-make-project', 'room-menu-invite', 'room-menu-apps', 'room-menu-leave'])
     const labels = await items.allInnerTexts()
     expect(new Set(labels).size).toBe(labels.length)
-    await expect(page.getByTestId('room-menu-rename')).toHaveCount(0)
+    // 이름 바꾸기 is in the phone header's menu too, as in every menu (docs/decisions/20261126-shared-menus.md)
+    await expect(page.getByTestId('room-menu-rename')).toHaveCount(1)
     // 알림 설정 says the level now; it opens the four choices (the bell's), one sheet in place of the other
     await expect(page.getByTestId('room-menu-notify')).toHaveText(/알림 설정\s*· 모든 메시지/)
     await page.getByTestId('room-menu-notify').tap()

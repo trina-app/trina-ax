@@ -428,7 +428,7 @@ export function CredentialRow({ c, target, owner, checking, personal, ownDelete,
                   {!personal && <button role="menuitem" type="button" className={item} onClick={onCheck} disabled={checking} data-testid="credential-check">{checking ? t('credentials.checking') : t('credentials.check')}</button>}
                   {onUp && <button role="menuitem" type="button" className={item} onClick={onUp}>{t('credentials.moveUp')}</button>}
                   {onDown && <button role="menuitem" type="button" className={item} onClick={onDown}>{t('credentials.moveDown')}</button>}
-                  {!personal && <button role="menuitem" type="button" className={item} onClick={onEdit}>{t('credentials.rename')} · {t('credentials.changeTarget')} · {t('credentials.spendLimit')}</button>}
+                  {!personal && <button role="menuitem" type="button" className={item} onClick={onEdit}>{t('chat.rename')} · {t('credentials.changeTarget')} · {t('credentials.spendLimit')}</button>}
                   {!personal && <button role="menuitem" type="button" className={item} onClick={onReplace}>{SUBSCRIPTION.has(c.kind) ? t('credentials.reconnect') : t('credentials.replace')}</button>}
                   <button role="menuitem" type="button" className={item} onClick={onToggle}>{c.disabled ? t('credentials.enable') : t('credentials.disable')}</button>
                   <button role="menuitem" type="button" className="block w-full px-3 py-1.5 text-left text-danger hover:bg-danger-soft" onClick={onRemove}>{t('common.delete')}</button>

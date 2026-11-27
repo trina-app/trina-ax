@@ -2,7 +2,8 @@
 // page script. `bun run build` (desktop/). Shared code (@mycel/shared, zod) is bundled; only electron is external.
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { PRODUCT } from '@mycel/shared'
+import { PRODUCT } from '@mycel/shared/product'
+import { BUNDLE_ENTRIES, COPIED, UI_PAGES } from './build-entries'
 import { parseKit } from './src/common/kit'
 import { ensureElectron } from './scripts/ensure-electron'
 import { reportReleaseNotices, writeReleaseNotices } from '../scripts/release-notices'
@@ -24,22 +25,11 @@ async function one(entry: string, outName: string, opts: Partial<Parameters<type
   }
 }
 
-await Promise.all([
-  one('src/main/main.ts', 'main.cjs', node),
-  one('src/preload/app.ts', 'preload-app.cjs', node),
-  one('src/preload/ui.ts', 'preload-ui.cjs', node),
-  one('src/preload/consent.ts', 'preload-consent.cjs', node),
-  one('src/ui/welcome.ts', 'ui/welcome.js', { target: 'browser', format: 'esm', minify: prod }),
-  one('src/ui/pane.ts', 'ui/pane.js', { target: 'browser', format: 'esm', minify: prod }),
-  one('src/ui/hostbar.ts', 'ui/hostbar.js', { target: 'browser', format: 'esm', minify: prod }),
-  one('src/ui/findbar.ts', 'ui/findbar.js', { target: 'browser', format: 'esm', minify: prod }),
-  one('src/ui/consent.ts', 'ui/consent.js', { target: 'browser', format: 'esm', minify: prod }),
-])
+await Promise.all(BUNDLE_ENTRIES.map(([entry, outName, target]) => one(entry, outName, target === 'node' ? node : { target: 'browser', format: 'esm', minify: prod })))
 // the screens' <title>: the product name from shared/src/product.ts (the one place it is written)
 const html = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-for (const f of ['welcome.html', 'pane.html', 'hostbar.html', 'findbar.html', 'consent.html']) writeFileSync(join(out, 'ui', f), readFileSync(join(root, 'src/ui', f), 'utf8').replace(/__PRODUCT_NAME_HTML__/g, () => html(PRODUCT.displayName)))
-cpSync(join(root, 'src/ui/ui.css'), join(out, 'ui', 'ui.css'))
-cpSync(join(root, 'src/main/pane/page-script.js'), join(out, 'page-script.js'))
+for (const f of UI_PAGES) writeFileSync(join(out, 'ui', f), readFileSync(join(root, 'src/ui', f), 'utf8').replace(/__PRODUCT_NAME_HTML__/g, () => html(PRODUCT.displayName)))
+for (const [from, to] of COPIED) cpSync(join(root, from), join(out, to))
 // a kit build for one team (src/common/kit.ts): TEAMAX_KIT_TEAM=<team address> [TEAMAX_KIT_LOCALE=ko|en|id|ja|es|zh]
 const kitEnv = { team: process.env.TEAMAX_KIT_TEAM || undefined, locale: process.env.TEAMAX_KIT_LOCALE || undefined }
 if (kitEnv.team || kitEnv.locale) {

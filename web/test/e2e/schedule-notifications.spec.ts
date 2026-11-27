@@ -44,7 +44,7 @@ test('templates stay dormant, select readable source/private output, and reuse t
   expect(requests).toHaveLength(2)
   expect(requests[0]).toEqual(requests[1])
   expect(requests[1]).toMatchObject({ templateId: 'weekly-summary', sourcePath: 'shared', time: '08:30', weekday: 1, outputPath: 'users/olga/reports' })
-  await expect(page.getByTestId('schedule-list')).toContainText('shared → users/olga/reports')
+  await expect(page.getByTestId('schedule-list')).toContainText('전사 공유 → 내 파일 › reports')
   await expect(page.getByTestId('schedule-list')).not.toContainText('internal template prompt')
 })
 
@@ -196,7 +196,7 @@ for (const timezoneId of ['Asia/Jakarta', 'UTC']) {
         await page.getByTestId('schedule-menu').click()
         await page.getByTestId('schedule-delete').click()
         await expect(page.getByRole('dialog')).toContainText(dict['schedules.deleteBody'].replace('{title}', 'Completed once'))
-        await page.getByRole('dialog').getByRole('button', { name: dict['schedules.delete'], exact: true }).click()
+        await page.getByRole('dialog').getByRole('button', { name: dict['common.delete'], exact: true }).click()
         await expect(page).toHaveURL(/\/scheduled$/)
         await expect(page.getByTestId('schedule-item').filter({ hasText: 'Completed once' })).toHaveCount(0)
         expect(deleted).toEqual(['completed'])

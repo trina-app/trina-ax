@@ -45,7 +45,8 @@
 // shown or opened: a fast Enter opens the top row shown at that moment. The highlighted row is kept by its key, so
 // results arriving above it do not move it.
 import clsx from 'clsx'
-import { Bell, BookMarked, Paperclip, Cable, CalendarClock, CalendarPlus, Check, ChevronDown, CornerDownLeft, File as FileIcon, FileSearch, Folder, FolderKanban, FolderOpen, FolderPlus, Gauge, Image as ImageIcon, Link2, MessageSquare, MoreHorizontal, Pencil, Plus, Shield, Trash2, UserPlus, X } from 'lucide-react'
+import { Bell, BookMarked, Paperclip, Cable, CalendarClock, CalendarPlus, Check, ChevronDown, CornerDownLeft, File as FileIcon, FileSearch, Folder, FolderKanban, FolderOpen, FolderPlus, Gauge, Image as ImageIcon, MessageSquare, MoreHorizontal, Plus, Shield, UserPlus, X } from 'lucide-react'
+import { menuItem, orderMenu } from './menus/entityMenu'
 import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { matchPath, useLocation, useNavigate } from 'react-router-dom'
 import { nameMatch, nearNames, parseSearch, searchWords } from '@mycel/shared'
@@ -335,6 +336,12 @@ function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; 
   const navigate = useNavigate()
   const chatActions = useChatActions()
   const copyChatLink = useCopyChatLink()
+  // a chat result's "⋯" (its row's popup, a phone's sheet): the one list's items and order (components/menus/entityMenu.tsx)
+  const rowItems = (chat: Chat, select: (fn: () => unknown) => () => void) => orderMenu([
+    menuItem(t, 'copyLink', { onSelect: select(() => copyChatLink(chat)), testId: 'search-row-copy-link' }),
+    menuItem(t, 'rename', { onSelect: select(() => chatActions.rename(chat)), testId: 'search-row-rename' }),
+    menuItem(t, 'delete', { onSelect: select(() => chatActions.remove(chat)), testId: 'search-row-delete' }),
+  ])
   const ref = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -1141,11 +1148,7 @@ function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; 
         </div>
         {menu?.row.chat && (
           <div role="menu" aria-label={t('search.rowActions')} data-testid="search-row-menu" className="absolute right-6 z-10 w-44 rounded-xl border border-line bg-surface p-1 shadow-xl" style={{ top: menu.top }}>
-            {[
-              { label: t('chat.rename'), icon: Pencil, run: () => void chatActions.rename(menu.row.chat!) },
-              { label: t('rooms.menu.copyLink'), icon: Link2, run: () => void copyChatLink(menu.row.chat!) },
-              { label: t('common.delete'), icon: Trash2, run: () => void chatActions.remove(menu.row.chat!), danger: true },
-            ].map((m, i) => (
+            {rowItems(menu.row.chat, (fn) => () => void fn()).map((m, i) => (
               <button
                 key={m.label}
                 type="button"
@@ -1161,10 +1164,12 @@ function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; 
                 }}
                 onClick={() => {
                   onClose()
-                  m.run()
+                  m.onSelect()
                 }}
+                data-testid={m.testId}
               >
-                <m.icon size={15} aria-hidden /> {m.label}
+                {m.icon}
+                {m.label}
               </button>
             ))}
           </div>
@@ -1181,11 +1186,7 @@ function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; 
             buttonClassName="hidden!"
             openSignal={sheet.long ? 1 : 0}
             openRequest={sheet.long ? 0 : 1}
-            items={[
-              { label: t('chat.rename'), icon: <Pencil size={18} aria-hidden />, onSelect: () => { onClose(); void chatActions.rename(sheet.row.chat!) }, testId: 'search-row-rename' },
-              { label: t('rooms.menu.copyLink'), icon: <Link2 size={18} aria-hidden />, onSelect: () => { onClose(); void copyChatLink(sheet.row.chat!) }, testId: 'search-row-copy-link' },
-              { label: t('common.delete'), icon: <Trash2 size={18} aria-hidden />, onSelect: () => { onClose(); void chatActions.remove(sheet.row.chat!) }, danger: true, testId: 'search-row-delete' },
-            ]}
+            items={rowItems(sheet.row.chat, (fn) => () => { onClose(); void fn() })}
           />
         )}
         <div className="hidden shrink-0 items-center gap-5 border-t border-line px-5 py-2.5 text-xs text-faint sm:flex" data-testid="search-hints">

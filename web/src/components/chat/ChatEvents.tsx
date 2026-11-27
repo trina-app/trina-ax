@@ -3,6 +3,7 @@
 // restored {file} to version {n}", QA TC-v1c-01), in the rooms' event style (a quiet centred line). Read with the chat's audience (GET /api/chats/:id/audience `events`) for a chat shared with people, again
 // whenever how many see it or how many messages it has changes.
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { ChatAudience } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
@@ -39,4 +40,25 @@ export function ChatEventLine({ e }: { e: AudienceEvent }) {
     : e.kind === 'restored' ? t('chat.event.restored', { actor: e.actor, file: e.names[0] ?? '', n: e.version ?? 1 })
     : t(e.kind === 'added' ? 'chat.event.added' : 'chat.event.removed', { actor: e.actor, names })
   return <p className="text-center text-xs break-words text-faint" title={formatDateTime(e.at, locale)} data-testid="chat-event" data-kind={e.kind}>{text}</p>
+}
+
+/** A chat made by "Continue in a chat only you see" (Chat.forkedFrom, docs/decisions/20261126-chat-fork.md): one quiet
+ * line above its copied messages, "Continued from ‹title›", the title a link while I may still open that chat. Not on a
+ * phone (below 768 px, the composer's phone row): the line under the box says the same with the same link (WhoSees.tsx
+ * ForkWho) and stays in sight, and on a short continuation both were on one screen, the same words twice (QA after
+ * #651). A computer keeps both (the UX review): there the box's line is a small footnote beside the AI notice. */
+export function ForkedFromLine({ from }: { from: { title: string; chatId?: string } }) {
+  const t = useT()
+  const mark = '\u0001'
+  const [before = '', after = ''] = t('chat.forkedFrom', { title: mark }).split(mark)
+  const title = from.title.trim() || t('chat.untitled')
+  return (
+    <p className="text-center text-xs break-words text-faint max-md:hidden" data-testid="chat-forked-from">
+      {before}
+      {from.chatId
+        ? <Link to={`/c/${from.chatId}`} className="font-medium text-muted underline decoration-line-strong underline-offset-4 hover:text-ink" title={t('chat.forkedFromOpen')} data-testid="chat-forked-from-link">{title}</Link>
+        : <span>{title}</span>}
+      {after}
+    </p>
+  )
 }

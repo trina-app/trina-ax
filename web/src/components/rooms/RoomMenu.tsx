@@ -1,29 +1,20 @@
 // A conversation's "⋯" (docs/DECISIONS.md "대화 숨기기"): one menu wherever a room shows. In the room's header beside the
 // bell (on a phone that header is the top bar); on each row of the 대화 panel and of the full list (/rooms) on hover
 // or keyboard focus and with a right-click; on a phone a long press on a row of the 대화 list opens it as a sheet.
-// Items by kind: 알림 설정 (the bell's four levels: RoomNotifyMenu), 이름 바꾸기 for those who may (Room.canRename: a
-// group chat's members, owners and admins in a team room or the everyone room; the room info's name field in a prompt,
-// with its hint and the name an empty field goes back to), 링크 복사 (/rooms/<id>, for people in the room), then a group
-// chat's 대화방 나가기 (with its confirm; the room's info has no second one), a DM's 대화 숨기기 and a team room's or
-// the everyone room's 숨기기 (they follow the groups, so they cannot be left); a hidden room has 다시 보이기 there.
-// Hiding says where it went and how it comes back, with an undo (which pins it again when it was pinned).
-// First of all, 상단에 고정 / 고정 해제 (docs/DECISIONS.md "Pinned conversations"), as on the AI chats' rows: mine only. A
-// hidden room has none (hiding unpins it; showing it again comes first).
-// The room header's "⋯" on a phone (`phone`, QA TC-257): the header there has no bell, so 알림 설정 says the level now
-// after it and opens the level menu as a sheet; no 이름 바꾸기 (the name opens the room's info, where it is changed); and
-// `phone.first` before the rest (the threads with new replies, whose button the header has no room for).
-// The room header's "⋯" of a group chat or a DM also has 초대하기 (`onInvite`, for everyone but a guest; docs/DECISIONS.md
-// "Guests from Invite people"): the room info's add list, whose first row is "Invite a guest". Before 알림 설정, right
-// after the pin; a row of a list has none (it opens the room first).
-// The room header's "⋯" starts with 이 대화에서 검색 (`onSearch`; docs/decisions/20261120-search-shortcuts-slack.md):
-// search with "This conversation" on, as ⌘F there; the way to it on a phone and with a mouse.
-// A project's chat room (docs/decisions/20261120-project-is-room.md D5) ends with 프로젝트 나가기 in place of 대화방 나가기
-// and has no 초대하기: its people are the project's (the room's info has Manage people).
-// Before 링크 복사, for whoever may make team projects (not a guest; members when the team lets them): a group chat that
-// is no project's room yet has 프로젝트로 만들기 and a 1:1 has "New project with {name}" (MakeProjectDialog.tsx;
-// docs/decisions/20261121-make-project-from-room.md).
-import { Bell, Blocks, Eye, EyeOff, FolderPlus, Link2, Lock, LogOut, Pencil, Pin, PinOff, Search, UserPlus } from 'lucide-react'
+// Its items and their order are the one list's (components/menus/entityMenu.tsx; docs/decisions/20261126-shared-menus.md),
+// shared with the AI chats' and the projects' menus: 이 대화에서 검색 (the header's, as ⌘F:
+// docs/decisions/20261120-search-shortcuts-slack.md), 상단에 고정 / 고정 해제 (mine only; a hidden room has none), the
+// sections (a row's and the header's), 알림 설정 (the bell's four levels: RoomNotifyMenu; a phone header says the level
+// now after it and opens the level menu as a sheet), 링크 복사 (/rooms/<id>, for people in the room), 앱에서 열기 (the
+// header's, a computer's browser), 이름 바꾸기 for those who may (Room.canRename; a group chat's 비공개 채널로 만들기; a
+// phone header too), 프로젝트로 만들기 / "New project with {name}" for whoever may make team projects
+// (docs/decisions/20261121-make-project-from-room.md), 초대하기 (the header's, a group chat or a DM, not a guest), 앱
+//추가, then the ways out: a group chat's 대화방 나가기 (its confirm, then a toast), a DM's, a team room's or the everyone
+// room's 내 목록에서 숨기기 (with an undo that pins it again when it was pinned), a hidden room's 다시 보이기, a project's
+// chat room's 프로젝트 나가기 (docs/decisions/20261120-project-is-room.md D5). Hiding and leaving go through
+// lib/destructive.ts. A phone header's `phone.first` (the threads with new replies) stays above the list.
 import { useRef, useState, type RefObject } from 'react'
+import { PRODUCT } from '@mycel/shared'
 import { ROOM_NAME_MAX, type Project, type Room } from '@mycel/shared/api'
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
@@ -35,9 +26,13 @@ import { isPrivateChannel, isProjectRoom, projectRoomOf } from '../../lib/rooms'
 import { useLeaveProject } from '../LeaveProject'
 import { navigateTo } from '../../lib/nav'
 import { platform } from '../../lib/pwa'
+import { clientKind } from '../../lib/desktop'
+import { pageOpenInAppHref } from '../../lib/team-link'
+import { destructive } from '../../lib/destructive'
+import { menuItem, orderMenu, type EntityItem } from '../menus/entityMenu'
 import { toast } from '../../store/ui'
-import { confirmDialog, promptDialog, useCopy } from '../ui'
-import { useNameFallback } from './RoomIcon'
+import { promptDialog, useCopy, useMediaQuery } from '../ui'
+import { useNameFallback, useRoomTitle } from './RoomIcon'
 import { MenuButton, type MenuItem } from './MenuButton'
 import { RoomNotifyMenu, roomNotify } from './RoomNotifyMenu'
 import { canSection, useSectionRowItems } from '../nav/SidebarSections'
@@ -58,7 +53,8 @@ export function roomMenuActions(room: Pick<Room, 'kind'> & Partial<Pick<Room, 'n
   const last: RoomMenuAction[] = isProjectRoom(room) ? (room.project?.leave ? ['leaveProject'] : []) : [room.kind === 'group' ? 'leave' : hidden ? 'show' : 'hide']
   const pin: RoomMenuAction[] = hidden ? [] : [room.pinnedAt ? 'unpin' : 'pin']
   const project: RoomMenuAction[] = !projects || room.gone || isProjectRoom(room) ? [] : room.kind === 'group' ? ['makeProject'] : room.kind === 'dm' && !hidden ? ['dmProject'] : []
-  return [...pin, 'notify', ...(room.canRename ? (['rename'] as const) : []), ...(apps ? (['apps'] as const) : []), ...project, 'copyLink', ...last]
+  // in the one list's order (components/menus/entityMenu.tsx MENU_ORDER)
+  return [...pin, 'notify', 'copyLink', ...(room.canRename ? (['rename'] as const) : []), ...project, ...(apps ? (['apps'] as const) : []), ...last]
 }
 
 /** The address of a room as people in it open it (the app's own route; anyone else gets "not found"). */
@@ -73,20 +69,17 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
   const t = useT()
   const locale = useLocale()
   const { copy } = useCopy()
+  const narrow = useMediaQuery('(max-width: 767.98px)')
+  const roomTitle = useRoomTitle()
   // a named group room: a private channel (its words say so)
   const locked = isPrivateChannel(room)
   const fail = (e: unknown) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
   const show = () => void useRooms.getState().setHidden(room.id, false).catch(fail)
   // on screen at once; a failure undoes it with its own toast (store/rooms.ts setPinned)
   const setPinned = (pinned: boolean) => void useRooms.getState().setPinned(room.id, pinned)
-  const hide = async () => {
-    // hiding unpins it: the undo pins it again
+  // hiding (lib/destructive.ts): no confirm, says where it went, with an undo (which pins it again when it was pinned)
+  const hide = () => {
     const wasPinned = !!room.pinnedAt
-    try {
-      await useRooms.getState().setHidden(room.id, true)
-    } catch (e) {
-      return fail(e)
-    }
     const undo = async () => {
       try {
         await useRooms.getState().setHidden(room.id, false)
@@ -95,13 +88,22 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
         fail(e)
       }
     }
-    toast({ level: 'info', text: t(room.kind === 'dm' ? 'rooms.menu.hiddenDm' : 'rooms.menu.hiddenRoom'), action: { label: t('common.undo'), run: () => void undo() } })
+    return destructive({
+      run: () => useRooms.getState().setHidden(room.id, true).then(() => true, (e) => (fail(e), false)),
+      done: () => ({ text: t(room.kind === 'dm' ? 'rooms.menu.hiddenDm' : 'rooms.menu.hiddenRoom'), undo }),
+    })
   }
-  const leave = async () => {
-    const ok = await confirmDialog(locked
-      ? { title: t('rooms.info.leaveTitlePrivate'), body: t(isGuestMe(me) ? 'rooms.info.leaveBodyGuestPrivate' : 'rooms.info.leaveBodyPrivate'), confirm: t('rooms.info.leavePrivate'), danger: true }
-      : { title: t('rooms.info.leaveTitle'), body: t(isGuestMe(me) ? 'rooms.info.leaveBodyGuest' : 'rooms.info.leaveBody'), confirm: t('rooms.info.leave'), danger: true })
-    if (ok) await useRooms.getState().leave(room.id).catch(fail)
+  // leaving a group chat (lib/destructive.ts): its confirm, then a toast that says so (no undo: only someone in it can
+  // add me again)
+  const leave = () => {
+    const name = roomTitle(room)
+    return destructive({
+      confirm: locked
+        ? { title: t('rooms.info.leaveTitlePrivate'), body: t(isGuestMe(me) ? 'rooms.info.leaveBodyGuestPrivate' : 'rooms.info.leaveBodyPrivate'), confirm: t('rooms.info.leavePrivate') }
+        : { title: t('rooms.info.leaveTitle'), body: t(isGuestMe(me) ? 'rooms.info.leaveBodyGuest' : 'rooms.info.leaveBody'), confirm: t('rooms.info.leave') },
+      run: () => useRooms.getState().leave(room.id).then(() => true, (e) => (fail(e), false)),
+      done: () => ({ text: t('rooms.menu.left', { name }) }),
+    })
   }
   // a project's chat room: leaving it is leaving the project (its confirm, components/LeaveProject.tsx); the room's own
   // "removed" that follows is no news here (markLeaving)
@@ -118,7 +120,7 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
     // stays a channel: docs/decisions/20261117-named-groups-private-channels.md); a team room's empty name goes back
     const group = room.kind === 'group'
     const name = await promptDialog({
-      title: t(group && !locked ? 'rooms.menu.makePrivate' : 'rooms.info.rename'),
+      title: t(group && !locked ? 'rooms.menu.makePrivate' : 'chat.rename'),
       ...(group ? (locked ? {} : { body: t('rooms.menu.makePrivateBody') }) : { body: t('rooms.info.nameHintTeam') }),
       label: t(group ? 'rooms.info.nameLabelPrivate' : 'rooms.info.nameLabelChannel'),
       initial: typed ?? room.name ?? '',
@@ -142,30 +144,34 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
   const apps = mayManageApps(room, me)
   const appCount = useRoomApps((s) => s.lists[room.id]?.items.length ?? 0)
   const peer = room.peers[0]
-  const items = roomMenuActions(room, apps, mayMakeTeamProject(me)).filter((a) => !(phone && a === 'rename')).map((a): MenuItem => {
+  // "Open in the app": the room header's menu only (a row opens the room first), as a chat's title menu
+  const appHref = onSearch && !room.gone ? pageOpenInAppHref({ scheme: PRODUCT.linkScheme, origin: typeof location === 'undefined' ? '' : location.origin, path: `/rooms/${room.id}`, platform: platform(), client: clientKind(), phone: narrow }) : null
+  const rename1: 'makePrivate' | 'rename' = room.kind === 'group' && !locked ? 'makePrivate' : 'rename'
+  const actions = roomMenuActions(room, apps, mayMakeTeamProject(me))
+  const items = actions.map((a): EntityItem => {
     switch (a) {
-      case 'pin': return { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: () => setPinned(true), testId: 'room-menu-pin' }
-      case 'unpin': return { label: t('chat.unpin'), icon: <PinOff size={14} aria-hidden />, onSelect: () => setPinned(false), testId: 'room-menu-unpin' }
-      case 'notify': return { label: t('rooms.menu.notify'), ...(level ? { hint: `· ${level}` } : {}), icon: <Bell size={14} aria-hidden />, onSelect: onNotify, testId: 'room-menu-notify' }
-      case 'rename': return { label: t(room.kind === 'group' && !locked ? 'rooms.menu.makePrivate' : 'rooms.info.rename'), icon: room.kind === 'group' && !locked ? <Lock size={14} aria-hidden /> : <Pencil size={14} aria-hidden />, onSelect: () => void rename(), testId: 'room-menu-rename' }
-      case 'apps': return { label: appCount ? t('roomApps.menuList', { count: appCount }) : t('roomApps.menuAdd'), icon: <Blocks size={14} aria-hidden />, onSelect: () => useRoomApps.getState().open(room.id), testId: 'room-menu-apps' }
-      case 'makeProject': return { label: t('rooms.makeProject.menu'), icon: <FolderPlus size={14} aria-hidden />, onSelect: () => openMakeProject(room.id), testId: 'room-menu-make-project' }
-      case 'dmProject': return { label: t('rooms.makeProject.dmMenu', { name: peer?.name ?? '' }), icon: <FolderPlus size={14} aria-hidden />, onSelect: () => peer && openDmProject(peer), testId: 'room-menu-dm-project' }
-      case 'copyLink': return { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: () => void copyLink(), testId: 'room-menu-link' }
-      case 'leave': return { label: t(locked ? 'rooms.info.leavePrivate' : 'rooms.info.leave'), icon: <LogOut size={14} aria-hidden />, danger: true, onSelect: () => void leave(), testId: 'room-menu-leave' }
-      case 'leaveProject': return { label: t('projects.leave'), icon: <LogOut size={14} aria-hidden />, danger: true, onSelect: () => void leaveTheProject(), testId: 'room-menu-leave-project', ...(project?.leave === 'last' ? { disabled: true, hint: t('projects.leaveLast') } : {}) }
-      case 'hide': return { label: t(room.kind === 'dm' ? 'rooms.menu.hideDm' : 'rooms.menu.hide'), icon: <EyeOff size={14} aria-hidden />, onSelect: () => void hide(), testId: 'room-menu-hide' }
-      case 'show': return { label: t('rooms.menu.show'), icon: <Eye size={14} aria-hidden />, onSelect: show, testId: 'room-menu-show' }
+      case 'pin': return menuItem(t, 'pin', { onSelect: () => setPinned(true), testId: 'room-menu-pin' })
+      case 'unpin': return menuItem(t, 'unpin', { onSelect: () => setPinned(false), testId: 'room-menu-unpin' })
+      case 'notify': return menuItem(t, 'notify', { ...(level ? { hint: `· ${level}` } : {}), onSelect: onNotify, testId: 'room-menu-notify' })
+      case 'rename': return menuItem(t, rename1, { onSelect: () => void rename(), testId: 'room-menu-rename' })
+      case 'apps': return menuItem(t, 'apps', { label: appCount ? t('roomApps.menuList', { count: appCount }) : t('roomApps.menuAdd'), onSelect: () => useRoomApps.getState().open(room.id), testId: 'room-menu-apps' })
+      case 'makeProject': return menuItem(t, 'makeProject', { onSelect: () => openMakeProject(room.id), testId: 'room-menu-make-project' })
+      case 'dmProject': return menuItem(t, 'dmProject', { label: t('rooms.makeProject.dmMenu', { name: peer?.name ?? '' }), onSelect: () => peer && openDmProject(peer), testId: 'room-menu-dm-project' })
+      case 'copyLink': return menuItem(t, 'copyLink', { onSelect: () => void copyLink(), testId: 'room-menu-link' })
+      case 'leave': return menuItem(t, 'leave', { label: t(locked ? 'rooms.info.leavePrivate' : 'rooms.info.leave'), onSelect: () => void leave(), testId: 'room-menu-leave' })
+      case 'leaveProject': return menuItem(t, 'leave', { label: t('projects.leave'), onSelect: () => void leaveTheProject(), testId: 'room-menu-leave-project', ...(project?.leave === 'last' ? { disabled: true, hint: t('projects.leaveLast') } : {}) })
+      case 'hide': return menuItem(t, 'hide', { onSelect: () => void hide(), testId: 'room-menu-hide' })
+      case 'show': return menuItem(t, 'show', { onSelect: show, testId: 'room-menu-show' })
     }
   })
-  // 초대하기 after the pin (or first), for a group chat or a DM, never for a guest
-  if (onInvite && (room.kind === 'group' || room.kind === 'dm') && !isProjectRoom(room) && !room.gone && !isGuestMe(me)) {
-    const at = items[0]?.testId === 'room-menu-pin' || items[0]?.testId === 'room-menu-unpin' ? 1 : 0
-    items.splice(at, 0, { label: t(locked ? 'rooms.info.invitePrivate' : 'rooms.info.addPeople'), icon: <UserPlus size={14} aria-hidden />, onSelect: onInvite, testId: 'room-menu-invite' })
-  }
-  // 이 대화에서 검색 first (the room header's: ⌘F does the same)
-  if (onSearch) items.unshift({ label: t('rooms.menu.search'), icon: <Search size={14} aria-hidden />, onSelect: onSearch, keys: platform() === 'mac' || platform() === 'ios' ? 'Meta+F' : 'Control+F', testId: 'room-menu-search' })
-  return phone?.first?.length ? [...phone.first, ...items] : items
+  // 초대하기 for a group chat or a DM, never for a guest (the room header's)
+  if (onInvite && (room.kind === 'group' || room.kind === 'dm') && !isProjectRoom(room) && !room.gone && !isGuestMe(me))
+    items.push(menuItem(t, 'invite', { label: t(locked ? 'rooms.info.invitePrivate' : 'rooms.info.addPeople'), onSelect: onInvite, testId: 'room-menu-invite' }))
+  // 이 대화에서 검색 (the room header's: ⌘F does the same)
+  if (onSearch) items.push(menuItem(t, 'search', { onSelect: onSearch, keys: platform() === 'mac' || platform() === 'ios' ? 'Meta+F' : 'Control+F', testId: 'room-menu-search' }))
+  if (appHref) items.push(menuItem(t, 'openInApp', { onSelect: () => { location.href = appHref }, testId: 'room-menu-open-in-app' }))
+  const ordered = orderMenu(items)
+  return phone?.first?.length ? [...phone.first, ...ordered] : ordered
 }
 
 /**
@@ -186,8 +192,9 @@ export function RoomMenu({ room, onNotify, onInvite, onSearch, openSignal, openR
   // `folders` (a row of the Chats list, its phone long-press sheet, the conversation's header): Move to section and
   // Remove from section second, under Pin (docs/decisions/20261121-personal-sidebar-sections.md); a hidden one has none
   const folder = useSectionRowItems({ on: folders && canSection(room), id: room.id, folderId: room.folderId, more })
-  const pinAt = base.findIndex((it) => it.testId === 'room-menu-pin' || it.testId === 'room-menu-unpin')
-  const items = folder.items.length ? [...base.slice(0, pinAt + 1), ...folder.items, ...base.slice(pinAt + 1)] : base
+  // (the one list's order: the section items right under the pin; a phone header's `first` stays above it all)
+  const first = phone?.first?.length ? base.slice(0, phone.first.length) : []
+  const items = folder.items.length ? [...first, ...orderMenu([...(base.slice(first.length) as EntityItem[]), ...folder.items])] : base
   return (
     <>
       <MenuButton

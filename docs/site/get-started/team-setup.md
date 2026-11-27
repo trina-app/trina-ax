@@ -7,6 +7,29 @@ After you make a team, the app takes you, the owner, through a few short steps. 
 
 If you made the team in a browser on a Mac or Windows computer, the next page offers **Continue in the Mac app** (or the Windows app): the app signs you in by itself, with no second password, and only the app can find work files on your computer. **Continue in the browser** goes on to the steps here. The steps come with you: in the app they open where you stopped, with the company website from your sign-up link already filled in.
 
+## Make a team from the desktop app
+
+No team yet? The Mac and Windows app makes one for you on the hosted service, on the Free plan, with no card:
+
+:::steps
+#### Create a team for free
+Open the app and choose **Create a team for free**. (**Just look around first** opens a demo team in your browser, with no sign-up.)
+
+#### Sign in
+With **Continue with Google**, your browser opens Google's sign-in; then you can close the tab. With an e-mail address you stay in the app: type it, press **Send code** and type the 6-digit code from the mail. By continuing you agree to the Terms and the Privacy policy.
+
+#### Name your team
+Type the team's name. The app suggests its address (`acme.trina.app`); **Change** picks another. Read the Free plan's limits, tick the box, and create it.
+
+#### Wait a minute or two
+Making the team takes about a minute or two. You can close the app; it comes back to this screen when you open it again.
+
+#### Welcome to your team
+The team opens in the app, signed in as you. If you signed in with Google, press **Continue**. If you signed in with an e-mail code, **choose a password** first: you use it on your phone and other computers.
+:::
+
+Each account has one free team. If yours already has a team, the app offers **Open it** instead. A Free team sleeps when nobody uses it and wakes when someone opens it, in under half a minute. The owner upgrades in **Admin › System › Plan › Choose a plan**. The Mac App Store version only signs in to a team you made before (**Already made a team?** **Sign in**).
+
 ## The steps
 
 :::steps

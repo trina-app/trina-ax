@@ -7,7 +7,7 @@
 //   2. Shared before without the files (the owner's case): Share again shows the checkbox row on its own, Save off
 //      until it is ticked; ticked, Save adds them, and the row is gone after.
 //   3. Bob's link does not open: the panel says only Olga can add it, [추가 요청] sends the ask; Olga's Activity row
-//      names Bob, the file and the chat, [대화에 추가] adds it, and Bob's link opens the copy.
+//      names Bob, the file and the chat, [채팅에 추가] adds it, and Bob's link opens the copy.
 // The mock (test/mock/server.ts "Share the files from this chat too?"): POST /__test/chat-made {chatId, files, link}.
 // QA screenshots with SHOTS_DIR set: light and dark.
 import AxeBuilder from '@axe-core/playwright'
@@ -115,7 +115,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await shots(page, 'share-step')
       await box.check()
       await dialog.getByTestId('chat-share-save').click()
-      await expect(page.getByTestId('toast').filter({ hasText: '1명과 공유했어요 · 파일 2개를 대화에 추가했어요' })).toBeVisible()
+      await expect(page.getByTestId('toast').filter({ hasText: '1명과 공유했어요 · 파일 2개를 채팅에 추가했어요' })).toBeVisible()
       await expect(page.getByRole('dialog')).toHaveCount(0)
       // her own link opens the chat's copy now (one file, not two)
       await expect(fileLink(page, PDF)).toHaveAttribute('data-copy', '')
@@ -157,7 +157,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await dialog.getByTestId('chat-share-files-check').check()
       await expect(dialog.getByTestId('chat-share-save')).toBeEnabled()
       await dialog.getByTestId('chat-share-save').click()
-      await expect(page.getByTestId('toast').filter({ hasText: '파일 2개를 대화에 추가했어요' })).toBeVisible()
+      await expect(page.getByTestId('toast').filter({ hasText: '파일 2개를 채팅에 추가했어요' })).toBeVisible()
       await expect(page.getByRole('dialog')).toHaveCount(0)
       await expect(fileLink(page, PDF)).toHaveAttribute('data-copy', '')
       // nothing left to add: the plain dialog again
@@ -176,7 +176,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await fileLink(bob, PDF).click()
       const ask = panel(bob).getByTestId('chat-file-ask')
       await expect(ask).toBeVisible()
-      await expect(ask).toContainText('이 파일은 Olga님만 대화에 추가할 수 있어요')
+      await expect(ask).toContainText('이 파일은 Olga님만 채팅에 추가할 수 있어요')
       await expect(ask).not.toContainText('Sincere')
       await expect(ask).not.toContainText('견적')
       await blockedHeader(bob)
@@ -184,14 +184,14 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await shots(bob, 'blocked-panel')
       await ask.getByTestId('chat-file-ask-send').click()
       await expect(panel(bob).getByTestId('chat-file-ask-sent')).toHaveText('요청을 보냈어요. 답은 활동에서 볼 수 있어요.')
-      // Olga's Activity: who, which file, which chat; [대화에 추가]
+      // Olga's Activity: who, which file, which chat; [채팅에 추가]
       const notice = await openNotice(page, 'Bob')
       await expect(notice.getByTestId('notification-text')).toHaveText(`Bob님이 '${TITLE}' 대화에 ${PDF} 파일을 추가해 달라고 요청했어요`)
-      await expect(notice.getByTestId('access-request-share')).toHaveText('대화에 추가')
+      await expect(notice.getByTestId('access-request-share')).toHaveText('채팅에 추가')
       await audit(page, 'activity request')
       await shots(page, 'activity-request')
       await notice.getByTestId('access-request-share').click()
-      await expect(notice.getByTestId('access-request-done')).toHaveText('대화에 추가했어요')
+      await expect(notice.getByTestId('access-request-done')).toHaveText('채팅에 추가했어요')
       // Bob's link opens the copy now
       await openChat(bob, chatId)
       await fileLink(bob, PDF).click()
@@ -212,8 +212,34 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await fileLink(bob, PDF).click()
       // a 'no' asks where it went first (#334, components/FileMoved.tsx), then the usual line
       await expect(panel(bob).getByTestId('file-moved-no')).toBeVisible()
+      // and who can share it: the line alone was a dead end (QA after #651)
+      await expect(panel(bob).getByTestId('file-moved-who')).toHaveText('파일 주인이나 관리자가 공유해 줄 수 있어요.')
       await blockedHeader(bob)
       await shots(bob, 'cant-open-panel')
+      await bob.context().close()
+    })
+
+    test('a teammate\'s file linked here that the chat did not make: [보기 요청], an ordinary file request (QA after #651)', async ({ page, browser }) => {
+      await reset(page)
+      await signIn(page)
+      const chatId = await quoteChat(page)
+      await shareWithoutFiles(page, chatId)
+      const bob = await as(browser, BOB)
+      // the server's answer for a team file linked in a message he sees, by someone who can read it
+      const asked: unknown[] = []
+      await bob.route('**/api/chats/*/file-access**', (r) => {
+        if (r.request().method() === 'POST') { asked.push(r.request().postDataJSON()); return r.fulfill({ json: { status: 'sent', askedAt: new Date().toISOString() } }) }
+        return r.fulfill({ json: { status: 'view', by: '김지수' } })
+      })
+      await openChat(bob, chatId)
+      await fileLink(bob, PDF).click()
+      const ask = panel(bob).getByTestId('chat-file-view')
+      await expect(ask).toContainText('이 파일을 볼 권한이 없어요.')
+      await expect(ask).toContainText('김지수님에게 보기 요청을 보낼 수 있어요.')
+      await ask.getByTestId('chat-file-view-send').click()
+      await expect(panel(bob).getByTestId('chat-file-view-sent')).toHaveText('요청을 보냈어요. 답은 활동에서 볼 수 있어요.')
+      expect(asked).toHaveLength(1)
+      await shots(bob, 'view-ask-panel')
       await bob.context().close()
     })
   })

@@ -21,10 +21,10 @@ afterAll(() => { useLocaleStore.setState({ locale }); removeDom() })
 
 const SUMMARY: ChatThreadSummary = { replyCount: 3, lastReplyAt: '2026-11-16T05:10:00.000Z', repliers: [{ id: 'u1', name: 'Minji' }], newReplies: true }
 
-async function render(m: ReturnType<typeof msg>, onThread?: (focus: boolean) => void, o: { pressMenu?: boolean } = {}) {
+async function render(m: ReturnType<typeof msg>, onThread?: (focus: boolean) => void, o: { sideChat?: boolean } = {}) {
   const page = await mount(
     <MemoryRouter>
-      <AssistantMessage m={m} chatId={CHAT} isLast busy={false} switchedFrom={null} onRegenerate={() => {}} onSelectBranch={() => {}} onAskOwnFolder={() => {}} shareable canSuggest={false} onThread={onThread} pressMenu={o.pressMenu} />
+      <AssistantMessage m={m} chatId={CHAT} isLast busy={false} switchedFrom={null} onRegenerate={() => {}} onSelectBranch={() => {}} onAskOwnFolder={() => {}} shareable canSuggest={false} onThread={onThread} sendHere={o.sideChat ? { roomId: 'room-1', target: null, onView: () => {} } : undefined} />
     </MemoryRouter>,
   )
   const html = page.html()
@@ -44,7 +44,7 @@ test('a finished answer of a shared chat: Reply in thread, and the line with its
 })
 
 test('no onThread (a private chat, a room\'s side chat): no button, no line, even with a summary', async () => {
-  for (const html of [await render(msg({ role: 'assistant', content: 'x', status: 'done', thread: SUMMARY })), await render(msg({ role: 'assistant', content: 'x', status: 'done', thread: SUMMARY }), undefined, { pressMenu: true })]) {
+  for (const html of [await render(msg({ role: 'assistant', content: 'x', status: 'done', thread: SUMMARY })), await render(msg({ role: 'assistant', content: 'x', status: 'done', thread: SUMMARY }), undefined, { sideChat: true })]) {
     expect(html).not.toContain('reply-in-thread')
     expect(html).not.toContain('chat-thread-line')
   }

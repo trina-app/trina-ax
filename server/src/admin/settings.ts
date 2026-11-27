@@ -10,6 +10,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   defaultLocale: DEFAULT_LOCALE,
   defaultEngine: 'claude-code',
   defaultModel: null,
+  /** 보통 (no flag): what ran before the depth choice (docs/decisions/20261126-model-effort-choice.md) */
+  defaultEffort: null,
   concurrency: 3,
   updateChannel: 'stable',
   updateWindow: null,
@@ -36,8 +38,12 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   aiSubagents: true,
   /** the AI's cards may offer "Always allow" (chat/always-allow.ts; rooms/ai-grants.ts) */
   roomAlwaysAllow: true,
+  /** auto mode (chat/auto-mode.ts): off for every team until an admin allows it (docs/decisions/20261125-auto-mode.md D4) */
+  autoMode: 'off',
   /** rooms may add an Email app (rooms/apps/mail): off until an owner or admin turns it on (owner, 2026-11-23) */
   roomEmail: false,
+  /** problem reports to the <app> team (system/problem-reports.ts): on unless an owner or admin turns it off */
+  problemReports: true,
   /** members share files they own (files/shares.ts): on unless an admin turns it off */
   memberFileShares: true,
   /** any member may make a team project (docs/DECISIONS.md "Projects live only in projects/") */
@@ -154,6 +160,12 @@ export const BROWSER_POLICY_CHANGED = { type: 'notice', data: { level: 'info', c
  * Settings > Browser again, which makes the app re-read GET /api/me itself (it follows an off, never an on). The
  * message carries nothing.
  */
+/**
+ * Realtime notice: auto mode changed (the person's own value in another window, or the team value). Open windows ask
+ * GET /api/me again and show or hide the composer's pill. The message carries nothing.
+ */
+export const AUTO_MODE_CHANGED = { type: 'notice', data: { level: 'info', code: 'auto_mode_changed', message: '' } } as const
+
 export const WEB_ACCESS_CHANGED = { type: 'notice', data: { level: 'info', code: 'web_access_changed', message: '' } } as const
 
 /**

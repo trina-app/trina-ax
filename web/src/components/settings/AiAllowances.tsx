@@ -23,6 +23,7 @@ import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
 import { Button, ErrorNote, IconButton, Skeleton, useMediaQuery } from '../ui'
 import { useRoomTitle } from '../rooms/RoomIcon'
+import { AutoModeSettings } from './AutoModeSettings'
 
 /** This computer's in-app browser sites as rows: public ones, then office-network ones not listed already. */
 export function deviceSiteRows(s: DesktopBrowserSettings | null): { host: string; office: boolean }[] {
@@ -97,6 +98,8 @@ export function AiAllowances({ folded = false, bridge = browserSettingsBridge() 
       {/* a phone's page with the other parts: this list's own heading, like theirs */}
       {folded && <h3 className="mb-1 text-title-sm font-semibold" data-testid="allowances-part">{t('allowances.part')}</h3>}
       <p className="mb-3 text-sm text-muted">{t('allowances.desc')}</p>
+      {/* auto mode (docs/decisions/20261125-auto-mode.md): the switch and the cards it approved; hidden where it is off */}
+      {!folded && <AutoModeSettings />}
       {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
       {!items && !error && <Skeleton lines={2} />}
       {items && !items.length && !deviceRows.length && (
@@ -168,7 +171,7 @@ export function AiAllowances({ folded = false, bridge = browserSettingsBridge() 
                   </IconButton>
                 ) : (
                   <Button size="sm" variant="ghost" busy={busy === a.id} disabled={!!busy} aria-label={t('allowances.deleteLabel', { place })} onClick={() => void remove(a)} data-testid="allowance-delete">
-                    {t('allowances.delete')}
+                    {t('common.delete')}
                   </Button>
                 )}
               </li>
@@ -194,7 +197,7 @@ export function AiAllowances({ folded = false, bridge = browserSettingsBridge() 
                   </IconButton>
                 ) : (
                   <Button size="sm" variant="ghost" busy={busy === key} disabled={!!busy} aria-label={t('allowances.deleteLabel', { place })} onClick={() => void removeSite(r.host)} data-testid="allowance-delete">
-                    {t('allowances.delete')}
+                    {t('common.delete')}
                   </Button>
                 )}
               </li>

@@ -159,6 +159,12 @@ export const SPECS: Record<string, Spec> = {
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },
   setup: { skipPositive: true, build: (c) => c.post('/api/setup', { setupToken: 'x', teamName: 't', owner: { username: 'z', name: 'z', password: 'Zebra-copper-1-kite' } }), scope: 'byLevel',
     check: (r) => { if (r.status === 201) throw new Error('setup created a second owner after the team exists') } },
+  // a hosted team made from the desktop app (server/src/auth/setup-console.ts): the test team is not hosted and set up,
+  // so a made-up claim makes no owner and nothing asks a console
+  setupConsolePreview: { skipPositive: true, build: (c) => c.post('/api/setup/console/preview', { claim: 'A'.repeat(43) }), scope: 'byLevel',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a made-up console claim was read: ${r.text}`) } },
+  setupConsole: { skipPositive: true, build: (c) => c.post('/api/setup/console', { claim: 'A'.repeat(43), password: 'Zebra-copper-1-kite' }), scope: 'byLevel',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a made-up console claim made an owner: ${r.text}`) } },
   // Start with Google (server/src/auth/google-signup.ts): the team is set up and has no Google client, so nothing starts,
   // whatever token is sent
   startGoogleSetup: { skipPositive: true, build: (c) => c.post('/api/setup/google', { setupToken: 'x'.repeat(32), teamName: 't' }), scope: 'byLevel',
@@ -247,9 +253,9 @@ export const SPECS: Record<string, Spec> = {
       if (who !== 'memberIn' && r.text.includes(NAV_FOLDER_CANARY)) throw new Error(`${who}'s Trina list shows alice's folder`)
     } },
   createChat: { build: (c) => c.post('/api/chats', { title: 'mine' }), scope: 'self' },
-  // engine / model choice is the admin's (r5-engine-choice.test.ts): members see canChoose false and no engines
-  chatEngines: { build: (c) => c.get('/api/engines'), scope: 'self',
-    check: (r, w, who) => { if (r.status === 200 && (who === 'memberIn' || who === 'other' || who === 'memberOut') && (r.json?.canChoose !== false || r.json?.engines?.length)) throw new Error(`${who} may pick the engine by default`) } },
+  // a new team lets everyone pick the engine, model and depth (docs/decisions/20261126-model-effort-choice.md); the "off" rule is
+  // covered in r5-engine-choice.test.ts, so the matrix only checks that the route answers
+  chatEngines: { build: (c) => c.get('/api/engines'), scope: 'self' },
   getChat: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}`), scope: 'own-alice-chat' },
   getChatQueue: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/queue`), scope: 'own-alice-chat',
     check: (r, _w, who) => {
@@ -303,6 +309,14 @@ export const SPECS: Record<string, Spec> = {
       if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
       if (r.status < 300 && r.json?.status === 'shared') throw new Error('alice\'s chat was shared without a project that shares chats')
       if (r.status < 300 && r.json?.status === 'confirm' && /bob|carol|dana|erin|Bob|Carol|Dana|Erin/.test(r.text)) throw new Error(`the confirm answer names a person: ${r.text}`)
+    } },
+  // "Fork" (chat/fork.ts): alice's private chat. Only she reaches it and may fork it (everyone else, admins and the owner
+  // too, the 404 of a missing chat, and no chat is made). The roles x states: tests/unit/b-chat-fork.test.ts (a shared
+  // chat), tests/unit/b-chat-fork-tree.test.ts (my own chat, a fork of a fork)
+  forkChat: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/fork`, {}), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (r.status < 300 && who !== 'memberIn') throw new Error(`${who} forked alice's private chat`)
+      if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
     } },
   // Share for a chat outside projects (chat/people-share.ts): alice's private chat. Only she reaches it (everyone else,
   // admins and the owner too, the 404 of a missing chat); her own empty list is refused (her chat is in her personal project:

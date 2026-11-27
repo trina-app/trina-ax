@@ -214,6 +214,11 @@ export interface SharedConnections {
    * what the person's Always for good is bound to (tool-allow.ts sharedBind; docs/decisions/20261122-connector-always-allow.md). Never
    * covers a change at the service (its own card, gate). null: go on; else the refusal for the AI (nothing was fetched). */
   confirm(c: { id: string; key: string; name: string; sources: import('./chat/read-scope').ReadSource[]; bind?: string }): Promise<string | null>
+  /** Team files the asker's call attaches (team-attach.ts), read by the chat's read check before they leave
+   * (docs/decisions/20261126-shared-chat-own-tools.md): someone here who cannot open one of them gets the asker's file
+   * read card first, and the files join the answer's read record. null: go on; else the refusal for the AI (nothing was
+   * sent). `step`: the call's own step, which a no turns into the plain line that says why. */
+  attach(paths: readonly string[], step: string): Promise<string | null>
 }
 
 export interface JobHandle {

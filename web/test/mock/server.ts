@@ -89,7 +89,7 @@ import { MOCK_ANSWER_HEADER } from '../e2e/coverage-report'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
-  AiAllowance, ApiErrorResponse, CSRF_HEADER, sideQuoteOf, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, PresenceFrame, RoomTypingFrame, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
+  AiAllowance, type MyAutoMode, ApiErrorResponse, CSRF_HEADER, sideQuoteOf, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, PresenceFrame, RoomTypingFrame, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
   SetStatusBody, type MyStatus, type StatusClear,
   MemberEngineChoice, CARD_NEWS_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, PROMO_STYLES, DECK_ARTIFACT_KEY, NOTES_FOLDER, BRAND_FOLDER, BRAND_IMAGES_FOLDER, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule, type DeckBuild,
@@ -494,6 +494,13 @@ export class MockServer {
   memories: Memory[] = []
   /** Settings › 트리나에게 허용한 것 (POST /__test/ai-allowances sets them; one person's, like memories) */
   aiAllowances: AiAllowance[] = []
+  /** auto mode (docs/decisions/20261125-auto-mode.md): the person's own value by user id (absent: the team default) and
+   * the cards it approved (POST /__test/auto-mode sets them) */
+  autoModes = new Map<string, boolean>()
+  autoRecent: MyAutoMode['recent'] = []
+  autoAvailable = (u: User) => u.role !== 'guest' && this.settings.roomAlwaysAllow !== false && (this.settings.autoMode ?? 'off') !== 'off'
+  autoOn = (u: User) => this.autoAvailable(u) && (this.autoModes.get(u.id) ?? this.settings.autoMode === 'default')
+  autoState = (u: User): MyAutoMode => ({ available: this.autoAvailable(u), on: this.autoOn(u), team: this.settings.roomAlwaysAllow === false ? 'off' : this.settings.autoMode ?? 'off', recent: this.autoRecent })
   /** Settings › Scheduled tasks (POST /__test/schedule-review adds one nobody confirmed: needsReview) */
   schedules: (Schedule & { userId: string })[] = []
   /** each task's run history, newest first (GET /api/schedules/:id/runs; POST /__test/schedule `runs`, "Run now") */
@@ -564,7 +571,7 @@ export class MockServer {
   suggestions: SkillSuggestion[] = []
   skillChanges: SkillChange[] = []
   /** engine / model named in chat requests (tests check people who may not pick never send one) */
-  engineRequests: { name: string; user: string; engine?: unknown; model?: unknown }[] = []
+  engineRequests: { name: string; user: string; engine?: unknown; model?: unknown; effort?: unknown }[] = []
   /** Admin > AI engines: "팀원이 엔진 고르기 허용" and "다른 AI로 대신 답하기" (like a self-hosted server: off by default) */
   memberChoice: MemberEngineChoice = { mode: 'off', groupIds: [], userIds: [] }
   limitFallback = false
@@ -772,6 +779,8 @@ export class MockServer {
     this.projectRowIds.clear()
     this.memories = []
     this.aiAllowances = []
+    this.autoModes = new Map()
+    this.autoRecent = []
     this.schedules = []
     this.scheduleRuns = new Map()
     this.scheduleRunMs = 200
@@ -1573,9 +1582,9 @@ export class MockServer {
     return c.mode === 'everyone' || (c.mode === 'selected' && (c.userIds.includes(u.id) || u.groupIds.some((g) => c.groupIds.includes(g))))
   }
   /** like the server: someone who may not pick naming another engine or model than they get anyway -> 403 */
-  guardEngine(name: string, u: User, body: { engine?: unknown; model?: unknown }, current: { engine: string; model: string | null }) {
-    if (body.engine === undefined && body.model === undefined) return
-    this.engineRequests.push({ name, user: u.id, engine: body.engine, model: body.model })
+  guardEngine(name: string, u: User, body: { engine?: unknown; model?: unknown; effort?: unknown }, current: { engine: string; model: string | null }) {
+    if (body.engine === undefined && body.model === undefined && body.effort === undefined) return
+    this.engineRequests.push({ name, user: u.id, engine: body.engine, model: body.model, ...(body.effort !== undefined ? { effort: body.effort } : {}) })
     if (this.canChoose(u)) return
     if ((body.engine !== undefined && body.engine !== current.engine) || (body.model !== undefined && (body.model ?? null) !== current.model))
       fail('forbidden', 403, 'AI 엔진과 모델은 관리자가 정해요. 엔진을 고르지 말고 보내면 팀 기본 엔진으로 답해요.')
@@ -1685,9 +1694,9 @@ export class MockServer {
     if (!choose) { delete prefs.engine; delete prefs.model }
     return {
       ...this.guestDetail(u),
-      user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs, canChooseEngine: choose, ...((st) => (st ? { statusMessage: st } : {}))(this.myStatus(u.id)), ...(this.webTeam() && this.webAccess.has(u.id) ? { webAllowAll: true as const } : {}) },
+      user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs, canChooseEngine: choose, ...((st) => (st ? { statusMessage: st } : {}))(this.myStatus(u.id)), ...(this.webTeam() && this.webAccess.has(u.id) ? { webAllowAll: true as const } : {}), ...(this.autoOn(u) ? { autoMode: true as const } : {}) },
       groups: this.groups.filter((g) => u.groupIds.includes(g.id)).map((g) => ({ id: g.id, name: g.name })),
-      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, ...(this.webTeam() ? { webAllowAll: true as const } : {}), iconVersion: this.teamIcon?.version ?? null, voiceInput: (this.speechNow() === 'local' && this.speechHost.localMissing.length === 0) || (this.speechNow() === 'openrouter' && this.speechKey.set), ...(this.speechNow() === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays, projectCreators: this.settings.projectCreators, ...(this.teamAddress ? { address: this.teamAddress } : {}) },
+      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, ...(this.webTeam() ? { webAllowAll: true as const } : {}), iconVersion: this.teamIcon?.version ?? null, voiceInput: (this.speechNow() === 'local' && this.speechHost.localMissing.length === 0) || (this.speechNow() === 'openrouter' && this.speechKey.set), ...(this.speechNow() === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays, projectCreators: this.settings.projectCreators, ...(this.autoAvailable(u) ? { autoMode: this.settings.autoMode as 'allowed' | 'default' } : {}), ...(this.teamAddress ? { address: this.teamAddress } : {}) },
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(), tempLogin: u.mustChangePassword && this.tempLogins.has(u.id) },
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
@@ -3095,14 +3104,45 @@ export class MockServer {
       const e = this.enginesResponse()
       const canChoose = this.canChoose(c.user)
       return {
-        canChoose, defaultEngine: this.settings.defaultEngine, defaultModel: this.settings.defaultModel,
-        engines: canChoose ? e.engines.filter((x) => x.enabled).map((x) => ({ id: x.id, label: x.label, models: x.models })) : [],
+        canChoose, defaultEngine: this.settings.defaultEngine, defaultModel: this.settings.defaultModel, defaultEffort: this.settings.defaultEffort ?? null,
+        // like the server: Claude Code and Codex take a depth (빠르게 · 보통 · 꼼꼼하게), the API engine none
+        engines: canChoose ? e.engines.filter((x) => x.enabled).map((x) => ({ id: x.id, label: x.label, models: x.models, effort: x.id !== 'api' })) : [],
       }
     },
     createChat: (c) => {
       this.guardEngine('createChat', c.user, c.body, { engine: this.settings.defaultEngine, model: this.settings.defaultModel })
-      const chat: Chat = { id: uuidv7(), projectId: c.body.projectId ?? null, title: c.body.title ?? '', engine: c.body.engine ?? 'claude-code', model: c.body.model ?? null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle', ...(c.body.sideRoomId ? { sideRoomId: c.body.sideRoomId } : {}) }
+      const chat: Chat = { id: uuidv7(), projectId: c.body.projectId ?? null, title: c.body.title ?? '', engine: c.body.engine ?? 'claude-code', model: c.body.model ?? null, ...(c.body.effort ? { effort: c.body.effort } : {}), createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle', ...(c.body.sideRoomId ? { sideRoomId: c.body.sideRoomId } : {}) }
       this.chats.push(chat)
+      return { status: 201, body: chat }
+    },
+    // "Continue in a chat only you see" (server chat/fork.ts): a new chat of mine, in the shared chat's project (one shared
+    // with people: outside projects), with its finished messages as I see them; the original is not changed
+    forkChat: (c) => {
+      const src = this.chats.find((y) => y.id === c.params.id && !y.deletedAt) ?? fail('not_found', 404)
+      // a shared chat: in its project (one shared with people: outside projects); my own chat ("Fork"): in its own
+      // project; someone else's private chat: 404
+      const shared = this.sharedChats.has(src.id) || this.peopleShared.has(src.id)
+      if (!shared && (this.chatOwners.get(src.id) ?? c.user.id) !== c.user.id) fail('not_found', 404)
+      if (src.sideRoomId || src.schedule) fail('conflict', 409, '이 채팅은 나만 보는 채팅으로 이어 할 수 없어요.', undefined, { reason: 'fork_not_here' })
+      const proj = shared ? this.sharedChats.get(src.id)?.projectId : src.projectId
+      const shown = this.path(src.id)
+      const cut = shown.findIndex((m) => m.status === 'streaming')
+      const msgs = cut < 0 ? shown : shown.slice(0, cut)
+      while (msgs.length && msgs[msgs.length - 1]!.role === 'user') msgs.pop()
+      if (!msgs.some((m) => m.role === 'assistant')) fail('conflict', 409, '아직 이어 갈 내용이 없어요. 답이 끝나면 다시 해 주세요.', undefined, { reason: 'fork_nothing' })
+      // under the chat it came from in my history (Chat.forkParents: mine, and the first one that is not)
+      const parents = [src.id, ...(shared ? [] : src.forkParents ?? [])].slice(0, 8)
+      // "<title> (이어서)" (once), the line back with the original's title
+      const title = !src.title || src.title.endsWith(' (이어서)') ? src.title : `${src.title} (이어서)`
+      const chat: Chat = { id: uuidv7(), projectId: proj ?? null, title, engine: src.engine, model: src.model, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle', forkedFrom: { title: src.title, chatId: src.id }, forkParents: parents }
+      this.chats.push(chat)
+      this.chatOwners.set(chat.id, c.user.id)
+      const ids = new Map<string, string>()
+      for (const m of msgs) {
+        const copy = this.message({ ...m, id: uuidv7(), chatId: chat.id, parentId: m.parentId ? ids.get(m.parentId) ?? null : null, branch: { index: 0, count: 1, siblingIds: [] } })
+        ids.set(m.id, copy.id)
+      }
+      this.activeLeaf.set(chat.id, ids.get(msgs[msgs.length - 1]!.id)!)
       return { status: 201, body: chat }
     },
     getChat: (c) => {
@@ -3125,7 +3165,10 @@ export class MockServer {
     updateChat: (c) => {
       const chat = this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       this.guardEngine('updateChat', c.user, c.body, chat)
-      Object.assign(chat, Object.fromEntries(Object.entries(c.body).filter(([, v]) => v !== undefined)))
+      // "Detach to top level" (routes/chats.ts): the fork stands at the top of my history; its last activity stays
+      const { forkParent, ...rest } = c.body
+      if (forkParent === null) delete chat.forkParents
+      Object.assign(chat, Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)))
       return chat
     },
     deleteChat: (c) => {
@@ -3736,6 +3779,14 @@ export class MockServer {
     listMemories: () => ({ items: this.memories, nextCursor: null }),
     // like server/src/routes/rooms.ts (rooms/ai-grants.ts): the person's own; an unknown id is 404
     listAiAllowances: () => ({ items: this.aiAllowances }),
+    // like server/src/routes/rooms.ts (chat/auto-mode.ts): 409 while the team does not let the person use it
+    getAutoMode: (c) => this.autoState(c.user),
+    setAutoMode: (c) => {
+      const b = c.body as { on: boolean }
+      if (b.on && !this.autoAvailable(c.user)) fail('conflict', 409, 'Your team does not let you use auto mode.', undefined, { reason: 'auto_mode_off' })
+      this.autoModes.set(c.user.id, b.on)
+      return this.autoState(c.user)
+    },
     deleteAiAllowance: (c) => {
       if (!this.aiAllowances.some((a) => a.id === c.params.id)) fail('not_found', 404)
       this.aiAllowances = this.aiAllowances.filter((a) => a.id !== c.params.id)
@@ -4931,6 +4982,7 @@ export class MockServer {
     updateEngines: (c) => {
       if (c.body.defaultEngine) this.settings.defaultEngine = c.body.defaultEngine
       if (c.body.defaultModel !== undefined) this.settings.defaultModel = c.body.defaultModel
+      if (c.body.defaultEffort !== undefined) this.settings.defaultEffort = c.body.defaultEffort
       if (c.body.concurrency) this.settings.concurrency = c.body.concurrency
       if (c.body.enabled?.codex !== undefined) this.codexEnabled = c.body.enabled.codex
       if (c.body.enabled?.api !== undefined) this.apiEngineEnabled = c.body.enabled.api
@@ -6260,6 +6312,7 @@ export class MockServer {
       ],
       defaultEngine: this.settings.defaultEngine,
       defaultModel: this.settings.defaultModel,
+      defaultEffort: this.settings.defaultEffort ?? null,
       concurrency: this.settings.concurrency, concurrencyMax: this.cloud ? 3 : 16,
       accounts: [],
       memberChoice: this.memberChoice,
@@ -6499,6 +6552,7 @@ export class MockServer {
     else if (p === '/__test/speech-host') this.speechHost = { ...this.speechHost, ...(body as unknown as Partial<typeof this.speechHost>) }
     else if (p === '/__test/memory') this.memories.push({ id: uuidv7(), text: String(body.text), sourceChatId: null, createdAt: now() })
     else if (p === '/__test/ai-allowances') this.aiAllowances = ((body.items as unknown[]) ?? []).map((a) => AiAllowance.parse(a))
+    else if (p === '/__test/auto-mode') { if (body.team) this.settings.autoMode = body.team as 'off' | 'allowed' | 'default'; this.autoRecent = ((body.recent as unknown[]) ?? []) as MyAutoMode['recent'] }
     // a server event as the server would send it (a room's change card for a turn the spec's page.route answers; a
     // room's room.message.updated after a refused post)
     else if (p === '/__test/publish') this.publish(body.event as unknown as ServerEventInput)
@@ -8998,6 +9052,12 @@ export class MockServer {
       const x = base(c) as Chat
       if (othersPrivate(x.id, c.user)) fail('not_found', 404)
       return this.sharedChats.has(x.id) ? view(x, c.user) : x
+    })
+    // a fork is told to my windows only (routes/chats.ts forkChat: publishChat 'created')
+    over('forkChat', (c, base) => {
+      const out = base(c) as { status: number; body: Chat }
+      this.sharedSend((userId) => (userId === c.user.id ? { type: 'chat.updated', data: { chatId: out.body.id, change: 'created', chat: out.body } } : null))
+      return out
     })
     over('listMessages', (c, base) => {
       if (shared(c.params.id)) view(chatOf(c.params.id!), c.user)
