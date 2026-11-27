@@ -1,4 +1,4 @@
-// The Slack channel relay's rows (migration 704, relay.ts): read by the rooms' own readers without the connector, so
+// The Slack channel relay's rows (migration 367, relay.ts): read by the rooms' own readers without the connector, so
 // this module needs nothing but the database (rooms/store.ts imports it).
 import type { Database } from 'bun:sqlite'
 import { SlackAuthor, type RoomMessage, type SlackRelayState } from '@mycel/shared/api'

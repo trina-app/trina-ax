@@ -31,6 +31,17 @@ export const SLACK_SPECS: Record<string, Spec> = {
   recheckSlackReadScopes: { build: c => c.post('/api/admin/slack/read-scopes/recheck', {}), scope: 'byLevel' },
   startSlackInstall: { build: c => c.post('/api/admin/slack/official/install', {}), scope: 'byLevel' },
   cancelSlackInstall: { build: c => c.del('/api/admin/slack/install/flow'), scope: 'byLevel' },
+  // the channel relay (docs/SLACK.md "Channel relay"), on the everyone room (everyone is in it). Its link: anyone in the
+  // room reads it. Its channels and Connect: its owners and admins (Slack is not set up here: 409 slack_off after the
+  // check, so 'pass-auth' for them: cases.ts expectation); members 403. Disconnect with no link: 204 for them. Retry on
+  // a made-up message, a made-up Slack person's picture: 404 for anyone in the room (tests/unit/c-slack-relay.test.ts
+  // has the author-only Retry and the rest).
+  slackRelay: { build: (c, w) => c.get(`/api/rooms/${w.ids.allRoom}/slack`), scope: 'byLevel' },
+  slackRelayChannels: { build: (c, w) => c.get(`/api/rooms/${w.ids.allRoom}/slack/channels`), scope: 'room-all-admins' },
+  connectSlackRelay: { build: (c, w) => c.post(`/api/rooms/${w.ids.allRoom}/slack`, { channelId: 'C0CLIENT' }), scope: 'room-all-admins' },
+  disconnectSlackRelay: { build: (c, w) => c.del(`/api/rooms/${w.ids.allRoom}/slack`), scope: 'room-all-admins' },
+  retrySlackRelay: { build: (c, w) => c.post(`/api/rooms/${w.ids.allRoom}/slack/messages/${crypto.randomUUID()}/retry`), scope: 'byLevel', allowNotFound: true },
+  slackRelayAvatar: { build: (c, w) => c.get(`/api/rooms/${w.ids.allRoom}/slack/avatar/U0NOBODY`), scope: 'byLevel', allowNotFound: true },
 }
 // GET /api/integrations/slack/oauth/callback: the state's person and session binding is tested in tests/unit/c-slack.test.ts
 // (the official app's handoff: tests/unit/c-slack-official.test.ts); GET /api/integrations/slack/official/callback, the

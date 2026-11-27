@@ -26,6 +26,7 @@ admin asks for a personal tool; it only sorts the list (`shared/src/api/team-too
 | AI providers (Claude, ChatGPT, API key, API engine) | Yes (`shared/src/api/credentials.ts:178-185`) | Yes, while the team allows (`credentials.ts:190-197`) | No | Welcome first step (AI connection). Admin › AI providers. Settings › AI providers. Chat "Connect AI" button |
 | AI apps using this server (Claude, Claude Code, Codex) | No | Yes, each person (`shared/src/api/remote-mcp.ts:14`) | No | Settings › Trina AX MCP only |
 | Room apps | Per project, by its members | n/a | No | Inside a project (`shared/src/api/room-apps.ts`) |
+| Slack channel relay | Per conversation: a team owner or admin in it, linked to Slack and in the channel, connects one Slack channel to one team conversation or project (`shared/src/api/slack.ts` SLACK_RELAY); everyone in the conversation sees it | Uses the team's Slack app (official or own); the connecting admin's own Slack link is checked, nobody else needs one | No | The conversation's menu › Add an app › Slack (one dialog); the header chip "#channel · Slack"; Remove on its row in Apps posting here = Disconnect (docs/SLACK.md "Channel relay") |
 
 ## Hosted or self-host
 

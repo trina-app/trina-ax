@@ -131,9 +131,9 @@ export class SlackRelay {
   private hasGuest(roomId: string): boolean { return !!this.db.query('SELECT 1 FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND u.guest = 1 LIMIT 1').get(roomId) }
   private blocked(userId: string, room: RoomRow): SlackRelayStatus['blocked'] {
     const cfg = this.slack.config()
+    if (!isOwnerOrAdmin(this.db, userId)) return 'not_manager'
     if (!cfg || !this.slack.available(cfg)) return 'not_added'
     if (!this.kindOk(room)) return 'room_kind'
-    if (!isOwnerOrAdmin(this.db, userId)) return 'not_manager'
     if (this.hasGuest(room.id)) return 'guests'
     return undefined
   }
