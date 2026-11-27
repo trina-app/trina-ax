@@ -219,12 +219,18 @@ test('channel events: shared with another organization, and the app removed (cha
   fake.event({ type: 'channel_shared', channel: CH, connected_team_id: 'T0CLIENT', event_ts: nextTs() })
   await waitFor(async () => (await mia.client.call('GET', `/api/rooms/${team}/slack`)).link.extShared === true)
   expect(await slackLines(mia.client)).toContain('shared')
+  // another install's bot leaving a shared channel says nothing: our bot is still in it (conversations.info)
+  fake.event({ type: 'channel_left', channel: CH, actor_id: 'U0ADA', event_ts: nextTs() })
+  await Bun.sleep(300)
+  expect((await mia.client.call('GET', `/api/rooms/${team}/slack`)).link.state).toBe('active')
+  fake.channels[CH]!.members = fake.channels[CH]!.members.filter((m) => m !== 'U0BOT')
   fake.event({ type: 'channel_left', channel: CH, actor_id: 'U0ADA', event_ts: nextTs() })
   await waitFor(async () => (await mia.client.call('GET', `/api/rooms/${team}/slack`)).link.state === 'bot_removed')
   // while removed nothing comes in
   say('while the app is out')
   await Bun.sleep(300)
   expect((await appMessages(mia.client)).some((m) => m.body.includes('while the app is out'))).toBe(false)
+  fake.channels[CH]!.members.push('U0BOT')
   await relay().recheck()
   expect((await mia.client.call('GET', `/api/rooms/${team}/slack`)).link.state).toBe('active')
 })
@@ -242,6 +248,8 @@ test('catch-up after a gap: what came meanwhile, once; more than a page: "may be
   for (let i = 0; i < 120; i++) fake.channels[CH]!.messages.push({ ts: (Number(t2) + 1 + i).toFixed(6), user: 'U0EXT', text: `bulk ${i}` })
   await relay().catchUp('test')
   expect(await slackLines(mia.client)).toContain('missing')
+  // relayed messages never count toward the room apps' own caps (the team's 5,000 a day would pause every app)
+  expect(h.ctx.db.query("SELECT COALESCE(SUM(d.shown), 0) n FROM room_app_days d JOIN room_apps a ON a.id = d.app_id WHERE a.preset = 'slack'").get()).toEqual({ n: 0 })
 })
 
 test('guests: a conversation with a guest cannot be linked, a guest cannot join a linked project', async () => {

@@ -361,6 +361,8 @@ export class RoomApps {
 
   update(userId: string, roomId: string, appId: string, b: UpdateRoomAppBody, locale: Locale): RoomApp {
     const { room, row } = this.mine(userId, roomId, appId)
+    // a Slack channel link has nothing to switch, quiet or rename (its sender is each Slack person)
+    this.notSlack(row)
     const changed: string[] = []
     let events = this.switches(row)
     if (b.events) {
@@ -766,14 +768,15 @@ export class RoomApps {
     return id
   }
   /** A relayed message changed in Slack: its body and card again, marked edited (relay.ts, in its transaction). */
-  editRelayed(messageId: string, o: { name: string; text: string; slack: Record<string, unknown>; link?: string; at: string }) {
+  editRelayed(messageId: string, o: { name: string; text: string; slack: Record<string, unknown>; link?: string; at: string; mentions: string[] }) {
     const r = this.db.query('SELECT app_card FROM room_messages WHERE id = ? AND deleted_at IS NULL').get(messageId) as { app_card: string | null } | null
     if (!r?.app_card) return false
     const prev = JSON.parse(r.app_card) as StoredCard & { slack?: Record<string, unknown> }
     const first = o.text.split('\n').find((l) => l.trim()) ?? ''
     const card = cleanCard({ title: `${o.name}: ${first}`, details: [], link: o.link })
     const stored = { ...card, app: prev.app, slack: { ...(prev.slack ?? {}), ...o.slack } }
-    this.db.query('UPDATE room_messages SET body = ?, app_card = ?, edited_at = ? WHERE id = ?').run(relayBodyOf(o.name, o.text), JSON.stringify(stored), o.at, messageId)
+    // the mentions follow the text (an edit notifies nobody, as a person's edit)
+    this.db.query('UPDATE room_messages SET body = ?, app_card = ?, edited_at = ?, mentions = ? WHERE id = ?').run(relayBodyOf(o.name, o.text), JSON.stringify(stored), o.at, JSON.stringify(o.mentions), messageId)
     return true
   }
   /** After insertRelayed's commit: the message to the members who see it, its notices, its thread's summary. */

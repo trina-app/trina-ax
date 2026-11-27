@@ -38,7 +38,7 @@ import { audit } from '../../admin/audit'
 import { fail, HttpError } from '../../http/errors'
 import { roomsOf } from '../../rooms/service'
 import { isOwnerOrAdmin, messageRow, roomAuditRef, threadable, type MessageRow, type RoomRow } from '../../rooms/store'
-import { isProjectRoom, systemLine } from '../../rooms/project-room'
+import { isProjectRoom, NOT_HELD_SQL, systemLine } from '../../rooms/project-room'
 import { roomAppsOf, teamDay, type AppRow } from '../../rooms/apps/service'
 import { lines, relayBodyOf, safeLink } from '../../rooms/apps/card'
 import { SlackApiError } from './api'
@@ -54,7 +54,7 @@ const CHANNELS_MS = 60_000
 const KEPT_SUBTYPES = new Set(['message_changed', 'message_deleted', 'file_share', 'thread_broadcast', 'bot_message', 'me_message'])
 const CHANNEL_EVENTS = new Set(['channel_left', 'group_left', 'channel_deleted', 'group_deleted', 'channel_archive', 'group_archive', 'channel_rename', 'group_rename', 'channel_shared', 'channel_unshared', 'channel_id_changed'])
 /** where a relayed sender's picture may be fetched from (Slack's own image hosts) */
-const AVATAR_HOSTS = new Set(['avatars.slack-edge.com', 'a.slack-edge.com', 'ca.slack-edge.com', 'secure.gravatar.com', 'i0.wp.com'])
+const AVATAR_HOSTS = new Set(['avatars.slack-edge.com', 'a.slack-edge.com', 'ca.slack-edge.com', 'secure.gravatar.com'])
 const AVATAR_MAX = 256 * 1024
 /** what Slack's post answers mean for the link */
 const GONE_CODES = new Set(['not_in_channel', 'channel_not_found'])
@@ -106,6 +106,10 @@ export class SlackRelay {
     this.timer = setInterval(() => { void this.recheck(); void this.syncBroker() }, SLACK_BROKER_RELAY_RECHECK_MS)
     ;(this.timer as { unref?: () => void }).unref?.()
     this.slack.ctx.onClose(() => this.stop())
+    // posts that were on their way when the server stopped: sent now (in order)
+    for (const r of this.db.query("SELECT o.room_message_id, o.link_id, l.channel_id FROM slack_relay_outbox o JOIN slack_relay_links l ON l.id = o.link_id WHERE o.state = 'pending' ORDER BY o.created_at").all() as { room_message_id: string; link_id: string; channel_id: string }[]) {
+      void this.serial(`out:${r.channel_id}`, () => this.post(r.link_id, r.room_message_id))
+    }
   }
   stop() { if (this.timer) clearInterval(this.timer); this.timer = null; this.started = false }
 
@@ -116,7 +120,9 @@ export class SlackRelay {
   }
   private active(l: RelayLinkRow | null): l is RelayLinkRow {
     const cfg = this.slack.config()
-    return !!l && l.state === 'active' && !!cfg && this.slack.available(cfg) && l.team_id === cfg.team_id
+    if (!l || l.state !== 'active' || !cfg || !this.slack.available(cfg) || l.team_id !== cfg.team_id) return false
+    // an archived conversation, or a project's room while the project is in the trash: nothing comes or goes
+    return !!this.db.query(`SELECT 1 FROM rooms r WHERE r.id = ? AND r.archived_at IS NULL AND ${NOT_HELD_SQL('r')}`).get(l.room_id)
   }
 
   /** The bot can post as "Name (Trina)" (chat:write.customize, as Slack last listed the bot token's scopes). */
@@ -149,6 +155,7 @@ export class SlackRelay {
   status(userId: string, roomId: string): SlackRelayStatus {
     const room = this.roomOf(userId, roomId)
     const cfg = this.slack.config()
+    if (cfg?.team_id) this.dropDeadLinks()
     const link = linkOfRoom(this.db, room.id)
     const blocked = this.blocked(userId, room)
     const mine = this.slack.mine(userId)
@@ -222,6 +229,7 @@ export class SlackRelay {
     const room = this.mayConnect(userId, roomId)
     const me = this.mySlackUser(userId), bot = this.bot()
     if (linkOfRoom(this.db, room.id)) fail('conflict', 'This conversation is already connected to a Slack channel.', { params: { reason: 'linked' } })
+    this.dropDeadLinks()
     if (linkOfChannel(this.db, channelId)) fail('conflict', 'That Slack channel is already connected to another conversation.', { params: { reason: 'linked' } })
     const cfg = this.slack.config()!
     // the app in the channel (conversations.info is_member: a private channel it is not in is not found), and the
@@ -270,9 +278,24 @@ export class SlackRelay {
     this.channelLists.clear()
     this.announce(room.id, line)
     // from now on: the newest message is where a catch-up starts
-    this.db.query('UPDATE slack_relay_links SET last_ts = ? WHERE id = ?').run((this.now() / 1000).toFixed(6), linkId)
+    this.db.query('UPDATE slack_relay_links SET last_ts = ? WHERE id = ? AND last_ts IS NULL').run((this.now() / 1000).toFixed(6), linkId)
     void locale
     return this.status(userId, roomId)
+  }
+
+  /** Links whose conversation was archived (a project deleted for good) or of another workspace than the one added now
+   * free their channel and room (audited slack.relay_ended). */
+  dropDeadLinks() {
+    const cfg = this.slack.config()
+    const dead = this.db.query('SELECT l.* FROM slack_relay_links l JOIN rooms r ON r.id = l.room_id WHERE r.archived_at IS NOT NULL OR (? IS NOT NULL AND l.team_id <> ?)').all(cfg?.team_id ?? null, cfg?.team_id ?? null) as RelayLinkRow[]
+    for (const l of dead) {
+      this.db.transaction(() => {
+        this.db.query('DELETE FROM slack_relay_links WHERE id = ?').run(l.id)
+        this.db.query('DELETE FROM room_apps WHERE id = ?').run(l.app_id)
+        audit(this.db, { actor: null, action: 'slack.relay_ended', target: l.id, detail: { reason: l.team_id !== cfg?.team_id ? 'workspace_changed' : 'room_archived', channel: l.channel_id } })
+      })()
+    }
+    if (dead.length) void this.syncBroker()
   }
 
   /** Disconnect (also Remove on its app in Apps posting here): the line, the audit, the hosting service told. */
@@ -347,6 +370,7 @@ export class SlackRelay {
   async recheck(): Promise<void> {
     const bot = this.slack.botToken()
     if (!bot) return
+    this.dropDeadLinks()
     for (const l of this.links()) {
       if (l.state === 'archived') continue
       try {
@@ -446,8 +470,13 @@ export class SlackRelay {
   private async channelEvent(type: string, ev: Msg) {
     const l = this.channelOfEvent(ev)
     if (!l) return
-    if (type === 'channel_left' || type === 'group_left') { if (l.state === 'active') this.setState(l, 'bot_removed', 'bot_removed', type); void this.syncBroker(); return }
-    if (type === 'channel_archive' || type === 'group_archive' || type === 'channel_deleted' || type === 'group_deleted') { if (l.state !== 'archived') this.setState(l, 'archived', 'archived', type); void this.syncBroker(); return }
+    // the app left, or the channel was archived: confirmed with our own bot (conversations.info), since in a Slack
+    // Connect channel another install's bot leaving reaches us too
+    if (type === 'channel_left' || type === 'group_left' || type === 'channel_archive' || type === 'group_archive' || type === 'channel_deleted' || type === 'group_deleted') {
+      await this.confirmState(l, type)
+      void this.syncBroker()
+      return
+    }
     if (type === 'channel_rename' || type === 'group_rename') {
       const name = cleanName(plainObj(ev.channel)?.name)
       if (name) { this.db.query('UPDATE slack_relay_links SET channel_name = ?, updated_at = ? WHERE id = ?').run(name, nowIso(), l.id); roomsOf(this.slack.ctx).roomEvent(l.room_id, 'updated') }
@@ -459,6 +488,21 @@ export class SlackRelay {
       const to = str(ev.new_channel_id, CHANNEL)
       if (to && !linkOfChannel(this.db, to)) { this.db.query('UPDATE slack_relay_links SET channel_id = ?, updated_at = ? WHERE id = ?').run(to, nowIso(), l.id); void this.syncBroker() }
     }
+  }
+
+  private async confirmState(l: RelayLinkRow, reason: string) {
+    const bot = this.slack.botToken()
+    if (!bot) return
+    let c: Msg
+    try { c = plainObj((await this.slack.api.call('conversations.info', bot, { channel: l.channel_id }, { noWait: true })).channel) ?? {} } catch (e) {
+      this.slack.tokenRefused(e, bot)
+      if (e instanceof SlackApiError && GONE_CODES.has(e.code)) c = { is_member: false }
+      else return
+    }
+    const fresh = linkOfRoom(this.db, l.room_id)
+    if (!fresh || fresh.id !== l.id) return
+    if (c.is_archived === true) { if (fresh.state !== 'archived') this.setState(fresh, 'archived', 'archived', reason) }
+    else if (c.is_member !== true && fresh.state === 'active') this.setState(fresh, 'bot_removed', 'bot_removed', reason)
   }
 
   /** A Slack user's (or app's) name and picture: the event's own profile, else users.info (10 minutes in memory). */
@@ -561,9 +605,10 @@ export class SlackRelay {
     const row = apps.row(l.app_id)
     if (!row) return false
     const { day } = teamDay(this.db, this.now())
-    // its own cap (the room apps' 500 a day does not apply): past it, one line a day and nothing more today
-    const n = apps.count(row as Pick<AppRow, 'id' | 'room_id' | 'kind'>, 'shown', day)
-    if (n > SLACK_RELAY_DAILY_CAP) {
+    // its own cap (the room apps' 500 a day and the team's 5,000 do not apply: counted as `received`, which only the
+    // /in/ address of an app reads, and a Slack link has none): past it, one line a day and nothing more today
+    const n = (this.db.query('SELECT received n FROM room_app_days WHERE app_id = ? AND day = ?').get(row.id, day) as { n: number } | null)?.n ?? 0
+    if (n >= SLACK_RELAY_DAILY_CAP) {
       if (this.capNoted.get(l.id) !== day) { this.capNoted.set(l.id, day); this.setState(l, null, 'capped', 'capped') }
       return false
     }
@@ -583,12 +628,12 @@ export class SlackRelay {
     let id = ''
     const ok = this.db.transaction(() => {
       if (this.db.query('SELECT 1 FROM slack_relay_messages WHERE channel_id = ? AND ts = ?').get(l.channel_id, d.ts)) return false
-      id = apps.insertRelayed(row, { name: d.name, text: d.text, slack: stored as unknown as Record<string, unknown>, link: stored.permalink, root, alsoInRoom: d.broadcast, mentions: d.mentions.filter((u) => inRoom.has(u)), at: nowIso() })
+      apps.count(row as Pick<AppRow, 'id' | 'room_id' | 'kind'>, 'received', day)
+      id = apps.insertRelayed(row, { name: d.name, text: d.text, slack: stored as unknown as Record<string, unknown>, link: stored.permalink, root, alsoInRoom: d.broadcast, mentions: d.mentions.filter((u) => inRoom.has(u)), at })
       this.db.query("INSERT INTO slack_relay_messages (channel_id, ts, room_message_id, thread_ts, direction, created_at) VALUES (?, ?, ?, ?, 'in', ?)").run(l.channel_id, d.ts, id, d.threadTs, nowIso())
       this.db.query('UPDATE slack_relay_links SET last_ts = ? WHERE id = ? AND (last_ts IS NULL OR CAST(last_ts AS REAL) < CAST(? AS REAL))').run(d.ts, l.id, d.ts)
       return true
     })()
-    void at
     if (ok) apps.relayedOut(l.room_id, id, root)
     return ok
   }
@@ -606,7 +651,7 @@ export class SlackRelay {
     // check 2026-11-27): the text is the same, nothing to change here
     if (!prev || prev.deleted_at || prev.body === relayBodyOf(d.name, d.text)) return
     const apps = roomAppsOf(this.slack.ctx)
-    if (!apps.editRelayed(r.room_message_id, { name: d.name, text: d.text, slack: { ...this.storedOf(d), ...(old?.threadElsewhere ? { threadElsewhere: true } : {}) } as unknown as Record<string, unknown>, link: this.permalink(l.channel_id, ts, d.threadTs), at: nowIso() })) return
+    if (!apps.editRelayed(r.room_message_id, { name: d.name, text: d.text, slack: { ...this.storedOf(d), ...(old?.threadElsewhere ? { threadElsewhere: true } : {}) } as unknown as Record<string, unknown>, link: this.permalink(l.channel_id, ts, d.threadTs), at: nowIso(), mentions: d.mentions.filter((u) => !!this.db.query('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ?').get(l.room_id, u)) })) return
     const row = messageRow(this.db, l.room_id, r.room_message_id)
     if (row) roomsOf(this.slack.ctx).messageEvent('room.message.updated', row)
   }
@@ -684,6 +729,8 @@ export class SlackRelay {
     if (!this.active(l) || row.author_kind !== 'user' || !row.author_id || row.event || row.app_card) return
     const files = (this.db.query('SELECT COUNT(*) n FROM room_files WHERE message_id = ?').get(row.id) as { n: number }).n
     // never sent: a message that carries an AI answer; a message with only files
+    // (an AI app posting as the person through its connection carries what it read: AI-written, not relayed either)
+    if ((this.db.query('SELECT source_scope FROM room_messages WHERE id = ?').get(row.id) as { source_scope: string | null } | null)?.source_scope) answer = true
     if (answer || (!row.body.trim() && files)) {
       this.db.query("INSERT OR REPLACE INTO slack_relay_outbox (room_message_id, link_id, state, reason, attempts, created_at) VALUES (?, ?, 'not_relayed', ?, 0, ?)").run(row.id, l.id, answer ? 'answer' : 'files', nowIso())
       this.changed(row)
@@ -716,7 +763,7 @@ export class SlackRelay {
       const u = cfg?.team_id ? this.db.query('SELECT u.name, l.slack_user_id FROM users u JOIN slack_links l ON l.user_id = u.id AND l.team_id = ? WHERE u.id = ?').get(cfg.team_id, id) as { name: string; slack_user_id: string } | null : null
       if (!u || !USER.test(u.slack_user_id)) continue
       const esc = `@${u.name}`.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      text = text.split(esc).join(`<@${u.slack_user_id}>`)
+      text = text.replace(new RegExp(`${esc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}_])`, 'gu'), `<@${u.slack_user_id}>`)
     }
     return text.slice(0, 39_000)
   }
@@ -731,12 +778,15 @@ export class SlackRelay {
     let threadTs: string | null = null
     let text = this.toSlack(row)
     if (row.thread_root_id) {
-      const r = this.db.query('SELECT ts, thread_ts FROM slack_relay_messages WHERE room_message_id = ?').get(row.thread_root_id) as { ts: string; thread_ts: string | null } | null
+      const r = this.db.query('SELECT ts, thread_ts FROM slack_relay_messages WHERE room_message_id = ? AND channel_id = ?').get(row.thread_root_id, l.channel_id) as { ts: string; thread_ts: string | null } | null
       if (r) threadTs = r.thread_ts ?? r.ts
       else {
         // a reply to a message that never went to Slack: a normal message quoting the first line of its parent
         const parent = messageRow(this.db, l.room_id, row.thread_root_id)
-        const first = (parent?.body ?? '').split('\n').find((x) => x.trim())?.slice(0, 200)
+        // only a person's own words (never an AI answer, a shared answer, another app's card or an event line)
+        const own = !!parent && parent.author_kind === 'user' && !!parent.author_id && !parent.app_card && !parent.event && parent.answer_at === null && !parent.deleted_at
+          && !this.db.query("SELECT 1 FROM slack_relay_outbox WHERE room_message_id = ? AND state = 'not_relayed'").get(parent.id)
+        const first = own ? parent!.body.split('\n').find((x) => x.trim())?.slice(0, 200) : undefined
         if (first) text = `> ${first.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}\n${text}`
       }
     }
@@ -747,6 +797,14 @@ export class SlackRelay {
       ...(threadTs ? { thread_ts: threadTs, ...(row.also_in_room ? { reply_broadcast: true } : {}) } : {}),
     }
     await this.learnBotId()
+    // our own post's echo is told apart by our bot id (relay.ts ownBot): without it (auth.test did not answer) the
+    // official app could take its echo for another team's post, so the message waits and is tried again
+    if (!this.botId && this.slack.config()?.mode === 'official') {
+      if (retry < 5) { const t = setTimeout(() => void this.serial(`out:${l.channel_id}`, () => this.post(linkId, messageId, retry + 1)), 10_000); (t as { unref?: () => void }).unref?.(); return }
+      this.db.query("UPDATE slack_relay_outbox SET state = 'failed', reason = 'no_bot_id', attempts = attempts + 1 WHERE room_message_id = ?").run(row.id)
+      this.changed(row)
+      return
+    }
     await this.gap(l.channel_id)
     try {
       const r = await this.slack.api.call('chat.postMessage', bot, body, { noWait: true })
@@ -762,7 +820,8 @@ export class SlackRelay {
       // a rate limit retries by itself and shows nothing
       if (code === 'ratelimited' && retry < 5) {
         const wait = Math.max(1, (e as SlackApiError).retryAfter ?? 5) * 1000
-        setTimeout(() => void this.serial(`out:${l.channel_id}`, () => this.post(linkId, messageId, retry + 1)), wait)
+        const t = setTimeout(() => void this.serial(`out:${l.channel_id}`, () => this.post(linkId, messageId, retry + 1)), wait)
+        ;(t as { unref?: () => void }).unref?.()
         return
       }
       this.db.query("UPDATE slack_relay_outbox SET state = 'failed', reason = ?, attempts = attempts + 1 WHERE room_message_id = ?").run(code.slice(0, 40), row.id)
@@ -775,7 +834,7 @@ export class SlackRelay {
   private edited(row: MessageRow) {
     const l = linkOfRoom(this.db, row.room_id)
     if (!this.active(l)) return
-    const r = this.db.query("SELECT channel_id, ts FROM slack_relay_messages WHERE room_message_id = ? AND direction = 'out'").get(row.id) as { channel_id: string; ts: string } | null
+    const r = this.db.query("SELECT channel_id, ts FROM slack_relay_messages WHERE room_message_id = ? AND direction = 'out' AND channel_id = ?").get(row.id, l.channel_id) as { channel_id: string; ts: string } | null
     if (!r) return
     void this.serial(`out:${l.channel_id}`, async () => {
       const bot = this.slack.botToken()
@@ -792,7 +851,7 @@ export class SlackRelay {
     const l = linkOfRoom(this.db, row.room_id)
     if (!l) return
     // a relayed Slack message deleted here by a manager: stays in Slack (only its own writer or Slack's admins delete it)
-    const r = this.db.query("SELECT channel_id, ts FROM slack_relay_messages WHERE room_message_id = ? AND direction = 'out'").get(row.id) as { channel_id: string; ts: string } | null
+    const r = this.db.query("SELECT channel_id, ts FROM slack_relay_messages WHERE room_message_id = ? AND direction = 'out' AND channel_id = ?").get(row.id, l.channel_id) as { channel_id: string; ts: string } | null
     this.db.query('DELETE FROM slack_relay_outbox WHERE room_message_id = ?').run(row.id)
     if (!r || !this.active(l)) return
     void this.serial(`out:${l.channel_id}`, async () => {
@@ -829,7 +888,7 @@ export class SlackRelay {
     try {
       const res = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(8000) })
       const type = (res.headers.get('content-type') ?? '').split(';')[0]!.trim()
-      if (!res.ok || !/^image\/(png|jpeg|gif|webp)$/.test(type)) return fail('not_found')
+      if (!res.ok || !/^image\/(png|jpeg|gif|webp)$/.test(type) || Number(res.headers.get('content-length') ?? 0) > AVATAR_MAX) { try { await res.body?.cancel() } catch {} return fail('not_found') }
       const buf = new Uint8Array(await res.arrayBuffer())
       if (buf.byteLength > AVATAR_MAX) return fail('not_found')
       if (this.avatars.size > 500) this.avatars.clear()
