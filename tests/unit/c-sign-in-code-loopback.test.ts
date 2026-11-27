@@ -91,23 +91,50 @@ test('REPRO: a browser that opens no apps still finishes a desktop Drive sign-in
   } finally { ret.close() }
 })
 
-test('an app from before (no port said): the held page keeps the app link; a web session\'s port is never kept', async () => {
+test('an app from before (no port said): the held page keeps the app link', async () => {
   const desk = await session('desktop')
   const f = await desk.call('POST', base + '/authorize', {})
   const html = await (await bare(cbUrl(fake.authorize(f.authorizationUrl, 'alice')))).text()
   expect(refreshOf(html)).toMatch(/^trina-ax:\/\/open\?url=[^"#]+#code=[A-Za-z0-9_-]{43}$/)
-  const web = await session('web')
-  await web.call('GET', base, undefined, { [APP_RETURN_HEADER]: '50123' })
-  const s = h.ctx.db.query("SELECT id FROM sessions WHERE client='web' ORDER BY created_at DESC LIMIT 1").get() as { id: string }
-  expect(appReturnPort(s.id)).toBeNull()
 })
 
-test('the port: only a desktop session, only a plain unprivileged port; the link carries the code in the address of this computer only', () => {
+test('BOTH CAUSES (#695 + #698): the desktop app\'s session recorded as web says client desktop and its port: the held page goes to 127.0.0.1', async () => {
+  // a team created in the desktop app: its session is recorded as 'web'. Before #698 the start was not held (the return
+  // page said "not signed in"); before this change the port of a 'web' session was not kept (the app link only)
+  const desk = await session('web')
+  const claims: Promise<{ status: number; body: any }>[] = []
+  const ret = new CodeReturn({ deliver: (code, team) => { if (team !== 'http://team.localhost') return false; claims.push(desk.try('POST', base + '/claim', { code })); return true }, page: () => 'Back in the app' })
+  try {
+    const port = (await ret.port())!
+    const f = await desk.call('POST', base + '/authorize', { client: 'desktop' }, { [APP_RETURN_HEADER]: String(port) })
+    const html = await (await bare(cbUrl(fake.authorize(f.authorizationUrl, 'alice')))).text()
+    const next = refreshOf(html)!
+    expect(next).toStartWith(`http://127.0.0.1:${port}${APP_CODE_RETURN_PATH}?code=`)
+    const u = new URL(next)
+    expect((await load(port, u.pathname + u.search, { host: `127.0.0.1:${port}` })).status).toBe(200)
+    expect(claims).toHaveLength(1)
+    expect((await claims[0]!).body.state).toBe('ready')
+    expect((await desk.call('POST', `${base}/flows/${f.flowId}/complete`, {})).status).toBe('connected')
+  } finally { ret.close() }
+})
+
+test('a browser\'s web session that names a port but starts without client desktop: nothing is held, the port goes nowhere', async () => {
+  const web = await session('web')
+  const f = await web.call('POST', base + '/authorize', {}, { [APP_RETURN_HEADER]: '50123' })
+  const html = await (await bare(cbUrl(fake.authorize(f.authorizationUrl, 'alice')))).text()
+  expect(html).not.toContain('127.0.0.1')
+  expect(html).not.toMatch(/#code=/)
+  expect((await web.call('GET', `${base}/flows/${f.flowId}`)).state).not.toBe('ready')
+})
+
+test('the port: never a phone app\'s session, only a plain unprivileged port; the link carries the code in the address of this computer only', () => {
   for (const bad of ['80', '0', '65536', '1023', 'abc', '5000 ', '05000', '', '1e4']) expect(appReturnPortOf(bad)).toBeNull()
   expect(appReturnPortOf('50123')).toBe(50123)
   noteAppReturn({ id: 's-desk', client: 'desktop' }, '80'); expect(appReturnPort('s-desk')).toBeNull()
   noteAppReturn({ id: 's-desk', client: 'desktop' }, '50123'); expect(appReturnPort('s-desk')).toBe(50123)
   noteAppReturn({ id: 's-mob', client: 'mobile' }, '50123'); expect(appReturnPort('s-mob')).toBeNull()
+  // the desktop app's session recorded as 'web' (a team created in the app) keeps it too
+  noteAppReturn({ id: 's-webdesk', client: 'web' }, '50124'); expect(appReturnPort('s-webdesk')).toBe(50124)
   const code = 'C'.repeat(43)
   expect(heldLink('https://acme.trina.app', code, 50123)).toBe(`http://127.0.0.1:50123/sign-in-code?code=${code}&team=https%3A%2F%2Facme.trina.app`)
   expect(heldLink('https://acme.trina.app', code, null)).toBe(`trina-ax://open?url=https%3A%2F%2Facme.trina.app%2F#code=${code}`)

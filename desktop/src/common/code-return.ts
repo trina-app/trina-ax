@@ -8,7 +8,7 @@
 // computer), and the app redeems the code with its own session, as it does one from the app link.
 //
 // The page knows the port because the team page tells its server on every API call (APP_RETURN_HEADER); the server
-// keeps it for that desktop session only.
+// keeps it for that session only (a phone app's never).
 //
 // Rules (shared with the other return addresses, ./loopback.ts): 127.0.0.1 only, a port the system picks, open while the
 // app runs; only `GET /sign-in-code?code=<43 base64url characters>` from its own Host as a page the browser opens. A

@@ -57,14 +57,17 @@ export function appLink(origin: string, code?: string): string {
   return `${PRODUCT.linkScheme}://open?${new URLSearchParams({ url: `${origin}/` })}${code ? `#code=${code}` : ''}`
 }
 
-/** The return address port each DESKTOP session last said (APP_RETURN_HEADER, http/middleware.ts): memory only (a
- * restart forgets it until the app's next call, then the app link is used), bounded, newest last. */
+/** The return address port each session last said (APP_RETURN_HEADER, http/middleware.ts): memory only (a restart
+ * forgets it until the app's next call, then the app link is used), bounded, newest last. Not only a session recorded
+ * as 'desktop': the desktop app's session can be recorded as 'web' (a team created in the app), and its Google start
+ * then says `client: 'desktop'` (routes/drive.ts startedFrom). The port is used only for a result held for the desktop
+ * app's one-time code, which only the starting session redeems; a phone app's session never keeps one. */
 const RETURN_PORTS_MAX = 5000
 const returnPorts = new Map<string, number>()
 
-/** A desktop session's request named its app's return port (anything else: nothing kept). */
+/** A session's request named its app's return port (a phone app's, or no valid port: nothing kept). */
 export function noteAppReturn(session: { id: string; client: string }, header: string | undefined) {
-  if (session.client !== 'desktop' || header === undefined) return
+  if (session.client === 'mobile' || header === undefined) return
   const port = appReturnPortOf(header)
   if (port === null) return
   // newest last on every call: an app in use is never the one dropped when the map is full
