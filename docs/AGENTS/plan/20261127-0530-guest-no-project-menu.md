@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-27 05:30
 - Branch: `fix/guest-no-project-menu`
-- Status: in progress
+- Status: done
 - Where: web/src/pages/Projects.tsx. Why: the shared-menus change (3781ea2cf) gave every project page a menu (Copy link first), so a guest, whose project page is a quiet screen with no menu, got one; web e2e `guest-view.spec.ts` "a guest in a project with AI off" fails on dev (line 127).
 - Version impact: patch (restores the guest view's old behaviour; no API change)
 
@@ -27,4 +27,4 @@ None for members; guests keep the page without a menu.
 guest-view.spec.ts, typecheck.
 
 ## Result
-(fill at the end)
+guest-view.spec.ts 18 passed; typecheck clean.
