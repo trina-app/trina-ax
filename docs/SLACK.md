@@ -64,9 +64,14 @@ four steps.
   URL is registered in the app): it checks Slack's answer, revokes your Slack user token at once and says only who
   signed in; this server checks that it is a person of this workspace, as before. No https address is needed here.
 - **Removed in Slack** (the app removed from the workspace, its token revoked, or the hosting service's operator
-  removed it): the token is forgotten here and Slack's page says "The app was removed from Slack. Add it to Slack
-  again." People's links stay (the same workspace when it is added again). **Remove Slack** beside Add to Slack takes
-  it out of Admin › Connected apps instead, with everyone's links. A token Slack refuses at a post means the
+  removed it): at once, the token and everything this server got from Slack for that workspace are deleted (Slack's
+  Developer Policy asks for 14 business days; docs/decisions/20261127-slack-marketplace-gaps.md): every person's link
+  (Slack user id and name), the one-time links, the Slack threads' and questions' records (`slack_threads`,
+  `slack_requests`), the handled event ids, the "Sign in with Slack" flows in progress, the workspace's name, address
+  and bot, and the Slack user ids in the audit log's Slack rows (the rows stay: what happened, who, when). Slack's
+  page says "The app was removed from Slack. Add it to Slack again."; after that each person links again. The chats
+  people had from Slack stay theirs. An "Add to Slack" already in progress goes on. **Remove Slack** beside Add to
+  Slack takes it out of Admin › Connected apps instead, deleting the same. A token Slack refuses at a post means the
   same. A notice about an earlier install (still waiting at the hosting service when the app was added again) changes
   nothing: the server acts only on the notice of the install it holds.
 - **Remove** asks the hosting service to take the app off the workspace, then deletes the token and every person's
@@ -161,6 +166,29 @@ of the old one.
 - **When an answer cannot start or fails**, Slack says why in plain words (the chat was deleted, a server problem, the
   budget's own sentence), not a code.
 
+## The Home tab
+
+Slack's Marketplace guidelines ask for support information on the app's Home tab and help reachable in the app. When
+a person opens the app's **Home** tab in Slack (`app_home_opened`, tab `home`), the server publishes the Home view
+for that Slack account (`views.publish` with the bot token; no extra scope; `server/src/integrations/slack/home.ts`):
+
+- what the app does (asks the team's AI as you, with your permissions; the full answer is also in your chat here);
+- how to ask (the Messages tab, `@trina-ax` in a channel after `/invite @trina-ax`, answers to you only with *Post to
+  channel*, follow-ups in the same thread);
+- **Your account**: linked to which account here (the account's name, plain text), with *Open settings*
+  (`<address>/settings/connectors`), or how to link (the first question sends a link; Sign in with Slack in Settings);
+- what it reads (the thread asked in, invited channels you are in; no search; never as you; no AI training);
+- help: the team's owner or an admin; with the official app also the hosting service's help page
+  (`https://<account host>/help`);
+- the note **"AI answers can be wrong. Check important ones before you rely on them."**
+
+In the linked person's language, else the team's. It is published again at each opening (the link state is current);
+nothing of Slack's messages, files or other people is in it. The Messages tab (`tab: messages`), another workspace
+or another app: nothing. A team's own app gets the tab from the manifest (`home_tab_enabled: true`, bot event
+`app_home_opened`); an own app made before needs both added in its settings (*App Home* › Home Tab, *Event
+Subscriptions* › `app_home_opened`), or the tab stays empty. The official app: the hosting service routes the event
+(trina-cloud `docs/slack-broker.md` 1e), and the owner turns the tab on in its settings (below).
+
 ## Marketplace-safe reading
 
 The AI reads Slack with the **bot token only** (decided 2026-11-13, so the official app can be listed in the Slack
@@ -222,6 +250,8 @@ internal apps: search waits for phase 2, after listing (no code yet).
 | Where Slack was read | the chat's read scope (conversation id, kind, channel name) | as the chat |
 | Slack people's names, the conversations a person shares with the bot | memory | 10 / 2 minutes |
 | The bot's scopes | `slack_config.bot_scopes` | while Slack is set up |
+| Each linked person's Slack user id and Slack name | `slack_links` | until they unlink, their account is disabled, or the app is removed (in Slack or with Remove): then deleted at once |
+| The chat a Slack thread continues, a question still to be delivered or posted | `slack_threads`, `slack_requests` (ids and timestamps, no text) | the request until delivered and 7 days; both deleted at once when the app is removed |
 
 Not kept: no Slack message in the database, no user token, no search index. The answer the AI writes may quote or sum
 up Slack messages (that is the answer the person asked for). Proposal (not built): a Slack chat's engine session could
@@ -250,7 +280,16 @@ the server is revoked at once and never kept. The app-level
 token needs `connections:write` (Socket Mode). No user token scopes, no `search:read`, no `mpim:history`, no files, no
 slash command.
 
-**The official app (A0CGU1CK47M), its settings in Slack:** Bot Token Scopes add `channels:history` and
+**The official app (A0CGU1CK47M) for the Slack Marketplace (2026-11-27), the owner's steps:** trina-cloud
+`docs/slack-broker.md` section 6b, with the whole intended manifest in trina-cloud `deploy/slack-app-manifest.json`:
+Socket Mode off and the HTTP Events API on (Request URLs `https://account.trina.app/slack-broker/events` and
+`…/slack-broker/interactive`; the Marketplace lists no Socket Mode app), bot events `app_home_opened`, `app_mention`,
+`app_uninstalled`, `message.im`, `tokens_revoked`, App Home › Home Tab on (after the team servers have this release),
+the ten bot scopes and no user scopes. An install that starts in Slack (the Marketplace's Add to Slack) lands on
+`https://account.trina.app/slack/add`, which sends the person to their team's Admin › Connected apps › Slack (trina-cloud
+section 1d). Nothing changes for a team's own app except the Home tab above.
+
+**The official app (A0CGU1CK47M), its settings in Slack (SB-15, 2026-11-13):** Bot Token Scopes add `channels:history` and
 `groups:history`; User Token Scopes: remove all ten that #674 added (`channels:history`, `groups:history`,
 `im:history`, `mpim:history`, `channels:read`, `groups:read`, `im:read`, `mpim:read`, `users:read`, `search:read`), so
 none is left. The hosting service's `signin/read/*` calls are gone from the contract (`shared/src/cloud-protocol/slack-broker.ts`);
@@ -333,7 +372,7 @@ after 1, 2, 4 … seconds (at most a minute).
 
 ## Code and tests
 
-`server/src/integrations/slack/` (`read.ts` the AI's Slack tools, the thread given with a question and its section of
+`server/src/integrations/slack/` (`home.ts` the Home tab, `read.ts` the AI's Slack tools, the thread given with a question and its section of
 the instructions, `api.ts` the Web API, `socket.ts` Socket Mode, `broker.ts` the official app through
 the hosting service, `envelope.ts` the shapes, `manifest.ts`, `post-check.ts` what an answer used before it is posted,
 `service.ts`, `text.ts`), `server/src/routes/slack.ts`, migrations `server/migrations/335_c_slack.sql`,
@@ -346,6 +385,6 @@ shared with the control plane, signatures, the long poll) and `tests/unit/c-slac
 against the fake broker `tests/lib/fake-slack-broker.ts`), `tests/unit/c-slack-read.test.ts` (Marketplace-safe reading:
 no user scopes, the bot's scopes and "Update Slack permissions", the tools' shared-membership rule, the thread given
 with a question and what a resumed session keeps, the earlier user tokens revoked, the post notice),
-`tests/unit/c-slack.test.ts` with the fake Slack
+`tests/unit/c-slack.test.ts` (also the Home tab) with the fake Slack
 `tests/lib/fake-slack.ts` (Web API, Socket Mode, response URLs, the OpenID Connect token method; nothing reaches Slack), the permission matrix
 (`tests/security/lib/slack-cases.ts`), `web/test/unit/slack-link.test.tsx` and `web/test/unit/slack-screens.test.tsx`.

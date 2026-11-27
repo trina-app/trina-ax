@@ -291,23 +291,36 @@ describe('Sign in with Slack through the hosting service, from the desktop app',
 })
 
 describe('removed, restored and removed by the owner', () => {
-  test('removed in Slack: the token is forgotten, the links stay; Add to Slack again keeps them', async () => {
+  test('removed in Slack: the token and every Slack data of the workspace are deleted at once (Slack Developer Policy); Add to Slack again needs new links', async () => {
+    // Slack data the team server holds for the workspace before: links, a Slack thread's chat, a question, a one-time
+    // link, handled events; the audit log's Slack rows name Slack user ids
+    expect(links()).toBe(2)
+    const count = (t: string) => (h.ctx.db.query(`SELECT count(*) n FROM ${t}`).get() as { n: number }).n
+    const chat = (h.ctx.db.query('SELECT id FROM chats LIMIT 1').get() as { id: string } | null)?.id
+    if (chat) h.ctx.db.query("INSERT INTO slack_threads (team_id, channel_id, thread_ts, user_id, chat_id, created_at) VALUES ('T0ACME', 'C0GENERAL', '1.000001', 'alice', ?, '2026-11-27T00:00:00.000Z')").run(chat)
+    h.ctx.db.query("INSERT INTO slack_link_tokens (token_hash, team_id, slack_user_id, slack_name, expires_at, created_at) VALUES ('h-removed', 'T0ACME', 'U0FRANK', 'frank.slack', '2099-01-01T00:00:00.000Z', '2026-11-27T00:00:00.000Z')").run()
+    expect(count('slack_events')).toBeGreaterThan(0)
+    const slackIds = () => (h.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action LIKE 'slack.%' AND detail LIKE '%U0%'").get() as { n: number }).n
+    expect(slackIds()).toBeGreaterThan(0)
     // the broker forgets the install and tells its owner (the notice names that install)
     const held = broker.install!.installId
     broker.install = null
     const gone = broker.push('lifecycle', { event: 'tokens_revoked', installId: held })
     await waitFor(() => !cfg()!.secret_enc)
-    expect(cfg()).toMatchObject({ mode: 'official', install_id: null, last_error: 'removed' })
-    expect(await admin()).toMatchObject({ mode: 'official', official: true, tokens: false, state: 'off', lastError: 'removed' })
-    expect(links()).toBe(2)
-    expect(h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'slack.removed_in_slack'").all()).toEqual([{ detail: '{"reason":"tokens_revoked"}' }])
+    expect(cfg()).toMatchObject({ mode: 'official', install_id: null, last_error: 'removed', team_id: 'T0ACME', team_name: null, team_url: null, bot_user_id: null, bot_name: null, bot_scopes: null })
+    expect(await admin()).toMatchObject({ mode: 'official', official: true, tokens: false, state: 'off', lastError: 'removed', linked: 0 })
+    for (const t of ['slack_links', 'slack_link_tokens', 'slack_threads', 'slack_requests', 'slack_events', 'slack_signin_flows', 'slack_user_tokens']) expect([t, count(t)]).toEqual([t, 0])
+    expect(slackIds()).toBe(0)
+    expect(h.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action = 'slack.linked'").get()).not.toEqual({ n: 0 })
+    expect(h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'slack.removed_in_slack'").all()).toEqual([{ detail: '{"reason":"tokens_revoked","dataDeleted":true}' }])
     // nothing is handled meanwhile
     const before = fake.of('chat.postEphemeral').length
     broker.push('events_api', envelope('U0FRANK'))
     await Bun.sleep(400)
     expect(fake.of('chat.postEphemeral').length).toBe(before)
     expect(outcome(await add())).toBe('installed')
-    expect(links()).toBe(2)
+    // added again: nobody is linked until they link again
+    expect(links()).toBe(0)
     await waitFor(async () => (await admin()).state === 'connected')
     // the stopped feed acknowledged the event it took; handed out again anyway, it does not undo the new install
     expect(broker.acks).toContain(gone)

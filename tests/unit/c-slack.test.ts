@@ -1553,6 +1553,71 @@ describe('no new connect link now: why, in words', () => {
   })
 })
 
+describe('the Home tab (Slack Marketplace: help, support, the AI-accuracy note)', () => {
+  const home = (user: string, o: { tab?: string; team?: string; appId?: string } = {}) =>
+    fake.event({ type: 'app_home_opened', user, channel: `D${user.slice(1)}`, tab: o.tab ?? 'home', event_ts: nextTs() }, { ...(o.team ? { team: o.team } : {}), ...(o.appId ? { appId: o.appId } : {}) })
+  const publishedTo = (user: string) => fake.of('views.publish').filter((c) => c.args.user_id === user)
+  const viewOf = (c: { args: Record<string, string> }) => JSON.parse(c.args.view!) as { type: string; blocks: any[] }
+
+  test('opening it publishes the help view: what it does, how to ask, the link state, help, the disclaimer; Messages tab, another workspace or app: nothing', async () => {
+    expect((await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())).status).toBe(200)
+    expect((await call('dana', 'POST', '/api/admin/slack/enabled', { enabled: true })).json.enabled).toBe(true)
+    await waitFor(async () => (await call('dana', 'GET', '/api/admin/slack')).json.state === 'connected')
+    h.ctx.db.query("DELETE FROM slack_links WHERE slack_user_id IN ('U0ALICE', 'U0NOMAIL')").run()
+    h.ctx.db.query("DELETE FROM slack_links WHERE user_id = 'alice'").run()
+    h.ctx.db.query("INSERT INTO slack_links (id, user_id, team_id, slack_user_id, slack_name, created_at) VALUES ('l-home', 'alice', 'T0ACME', 'U0ALICE', 'alice.slack', '2026-11-27T00:00:00.000Z')").run()
+    // a linked person: in their language, which account it is
+    home('U0ALICE')
+    const c = await waitFor(() => publishedTo('U0ALICE').at(-1))
+    expect(c!.token).toBe(fake.botToken)
+    const v = viewOf(c!)
+    expect(v.type).toBe('home')
+    const text = JSON.stringify(v.blocks)
+    expect(text).toContain('AI answers can be wrong. Check important ones before you rely on them.')
+    expect(text).toContain('/invite @trina-ax')
+    expect(text).toContain('Alice Kim')
+    expect(text).toContain(`${h.url}/settings/connectors`)
+    // the team's own app: help is the team's owner or admins (no hosting service's page)
+    expect(text).toContain('owner or an admin')
+    expect(text).not.toContain('/help')
+    // nothing of Slack's own text or of another person in it; no mention markup
+    expect(text).not.toMatch(/<!(here|channel|everyone)>|<@U/)
+    // not linked: how to link
+    home('U0NOMAIL')
+    const u = viewOf((await waitFor(() => publishedTo('U0NOMAIL').at(-1)))!)
+    expect(JSON.stringify(u.blocks)).toContain('not linked to a')
+    expect(JSON.stringify(u.blocks)).not.toContain('Alice Kim')
+    // the Messages tab, another workspace, another app: nothing published
+    const n = fake.of('views.publish').length
+    home('U0BOB', { tab: 'messages' })
+    home('U0BOB', { team: 'T0OTHER' })
+    home('U0BOB', { appId: 'A0OTHER' })
+    await Bun.sleep(300)
+    expect(fake.of('views.publish').length).toBe(n)
+  })
+
+  test('the manifest turns the Home tab on and subscribes to app_home_opened (no new scope)', () => {
+    const m = slackManifest()
+    expect(m.features.app_home).toEqual({ home_tab_enabled: true, messages_tab_enabled: true, messages_tab_read_only_enabled: false })
+    expect(m.settings.event_subscriptions.bot_events).toEqual(['app_mention', 'message.im', 'app_home_opened'])
+    expect(m.oauth_config.scopes.bot).toEqual(['app_mentions:read', 'channels:history', 'channels:read', 'chat:write', 'groups:history', 'groups:read', 'im:history', 'im:write', 'users:read', 'users:read.email'])
+  })
+
+  test('every language has every Home text, with the disclaimer', async () => {
+    const { HOME_TEXT, homeView } = await import('../../server/src/integrations/slack/home')
+    for (const [k, v] of Object.entries(HOME_TEXT)) for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect([k, l, !!v[l]]).toEqual([k, l, true])
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
+      const s = JSON.stringify(homeView({ locale: l, bot: 'trina-ax', linkedAs: null, origin: null, official: true }).blocks)
+      expect(s).toContain(HOME_TEXT.disclaimer[l])
+      expect(s).not.toMatch(/\{(product|bot|name|url)\}/)
+    }
+    // the official app: the hosting service's help page; a name with markup stays plain
+    const s = JSON.stringify(homeView({ locale: 'en', bot: 'trina-ax', linkedAs: '<!channel> *x*', origin: 'https://t.example', official: true }).blocks)
+    expect(s).toContain('/help|')
+    expect(s).not.toContain('<!channel>')
+  })
+})
+
 describe('the own app\'s bot token is refused by Slack', () => {
   test('Admin says so in a state of its own (not Connected) and offers new tokens; saving tokens again clears it', async () => {
     expect((await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())).status).toBe(200)

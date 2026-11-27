@@ -219,6 +219,8 @@ export function startFakeSlack(): FakeSlack {
         case 'chat.postEphemeral': return bot ? json({ ok: true, message_ts: nextTs() }) : json({ ok: false, error: 'invalid_auth' })
         case 'chat.update': return bot ? json({ ok: true, channel: args.channel, ts: args.ts }) : json({ ok: false, error: 'invalid_auth' })
         case 'chat.delete': return bot ? json({ ok: true, channel: args.channel, ts: args.ts }) : json({ ok: false, error: 'invalid_auth' })
+        // the Home tab (no scope): a user id and a view
+        case 'views.publish': return !bot ? json({ ok: false, error: 'invalid_auth' }) : /^[UW][A-Z0-9]+$/.test(args.user_id ?? '') && args.view ? json({ ok: true, view: { id: 'V0HOME' } }) : json({ ok: false, error: 'invalid_arguments' })
       }
       return json({ ok: false, error: 'unknown_method' })
     },
