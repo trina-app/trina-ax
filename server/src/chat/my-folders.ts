@@ -13,8 +13,8 @@
 // - The tool takes no input, so its answer cannot depend on what was asked: a folder that does not exist and one
 //   hidden from the person give the same text and the same card (the file tools' "not found or no access" rule,
 //   docs/DECISIONS.md "권한 없음과 없는 파일은 같은 문구", tests/security/r3-hidden-vs-missing.test.ts).
-// - Off (myFoldersOff) where others would read the list: a shared chat or one other people wrote in; and in a guest's
-//   turn, a scheduled run, a question from Slack, a confidential chat, a template or restricted run; never a sub-agent
+// - In a shared chat (or one other people wrote in) the list goes through the read card first when someone there cannot
+//   see a folder it names (docs/decisions/20261126-shared-chat-everything.md). Off (myFoldersOff) in a guest's turn, a scheduled run, a question from Slack, a confidential chat, a template or restricted run; never a sub-agent
 //   (subagents.ts PARENT_ONLY_TOOLS, and refused when reached). The record is the runner's alone (ChatStore.viewSteps).
 import fs from 'node:fs'
 import path from 'node:path'
@@ -37,8 +37,6 @@ export type MyFolder = NonNullable<Step['folders']>[number]
 type OffExec = Pick<TurnExec, 'rt' | 'spec' | 'shared' | 'restricted' | 'templateRun' | 'otherAuthors'>
 /** Why my_folders is not offered in this turn (and refused when reached anyway), or null: it is. */
 export function myFoldersOff(exec: OffExec): string | null {
-  if (exec.shared) return 'a shared chat'
-  if (exec.otherAuthors) return 'a chat other people wrote in'
   const off = actionOff(exec, null)
   if (off) return off === 'schedule' ? 'a scheduled run' : off === 'confidential' ? 'a confidential chat' : off === 'slack' ? 'a question from Slack' : 'a run limited to one task'
   if (isGuestUser(exec.rt.db, exec.spec.userId)) return 'a guest'
@@ -118,6 +116,11 @@ export function myFoldersTool(exec: TurnExec): Tool {
       const me = exec.livePrincipal()
       const list = myFolders(exec.rt.files, me)
       const shown = list.slice(0, MY_FOLDERS_MAX)
+      // a shared chat: the names join the chat only after the read card when someone here could not see one of them
+      if (exec.shared) {
+        const no = await exec.confirmSharedRead(MY_FOLDERS_TOOL, {}, { sources: list.map((f) => ({ type: 'name' as const, path: f.path })) })
+        if (no) return { ...text(no, true), summary: `${MY_FOLDERS_TOOL} -> not shown (shared chat)` }
+      }
       // the card's record, written by the server from the rules (never from the AI's words)
       try { exec.patchToolStep(MY_FOLDERS_TOOL, () => ({ folders: shown, ...(list.length > shown.length ? { moreFolders: list.length - shown.length } : {}) })) } catch {}
       return { ...text(myFoldersText(list, `users/${me.id}`)), summary: `${MY_FOLDERS_TOOL} -> ${list.length} folders` }

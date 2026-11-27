@@ -6,7 +6,7 @@ import { landingPaths } from './places-copy'
 import { liveSources } from './answer-share'
 import { ALWAYS_VALUE, LIVE_CLIENTS, RAN_UNDER_AUTO, alwaysHere, alwaysNote, keepAlways, teamAllowsAlways, withAlways, type AlwaysPlace, type AutoCall } from './always-allow'
 import { keepWarnSeen, sharedAllowed, warnPlace, warnSeen } from '../integrations/connections/tool-allow'
-import { BROWSER_NOTICE, browserWarnSeen, keepBrowserWarnSeen } from './browser-notice'
+import { BROWSER_NOTICE, browserWarnSeen, keepBrowserWarnSeen, type OwnService } from './browser-notice'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { approvalsFor, approved, clearApprovals, noteApproval } from './card-approvals'
 import { stampOutputOf } from '../tools/stamp-pdf'
@@ -54,13 +54,15 @@ import { isWorkPath, namesWorkFolder, shownWorkPath, workRel } from '../devenv/w
 import { mayReplace, TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { fileSharesOf } from '../files/shares'
+import { folderLinkOf } from '../files/shared-folder-reads'
+import { folderSharesOf } from '../files/folder-shares'
 import { SERVER_OWN_FOLDERS } from '../files/own-folders'
 import { CONTEXT_RECOVER_MAX, contextRecoverBlock } from './context-recover'
 import { apiTimeContext, buildSubagentPrompt, buildTurnContext, forkNote, sinceOwnBlock, buildTurnPrompt, continuationBlock, contextTokensFor, stoppedAnswerBlock, historyTrimmed, instructionFiles, neutralizeTags, promptBudget, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sessionPicturesKept, setApiVisionTurn, textTokens, turnImageCaps } from '../files/vision'
 import { sideRoomOf } from './side-room'
 import { activeProjectOf } from '../rooms/project-link'
-import { isProjectPlainName, STEP_TEXT } from '@mycel/shared'
+import { BROWSER_BRIDGE_VERSION, isProjectPlainName, STEP_TEXT } from '@mycel/shared'
 import { saveAudienceNote } from './save-audience'
 import { roomCopiesOf, roomCopyNote } from './room-copies'
 import { quotesAppOnBranch, readRooms, ROOM_NAMES_ONLY, withoutQuoteLines } from './read-rooms'
@@ -454,6 +456,9 @@ export class TurnExec {
   /** the engine this turn runs on (after routing): the skill tool cuts its result to that engine's limit */
   engineRunning: EngineId | null = null
   browser = false
+  /** the window's desktop app runs file_upload (its page said BROWSER_BRIDGE_VERSION 1 or more on /api/ws or the
+   * long-poll): the tool is listed and the prompt says how to attach; else the prompt says to update the app */
+  browserUpload = false
   /** the turn was sent from the asker's own desktop window, connected now (shared chats too; `browser` is this) */
   desktop = false
   /** the dev environment of this turn (devenv/tool.ts box_shell): off (null), or on with the chat's project (null for a
@@ -970,6 +975,7 @@ export class TurnExec {
     // pages, which everyone here then sees, so the asker is told once per place, as for a connection
     this.desktop = !this.restricted && spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
     this.browser = this.desktop
+    this.browserUpload = this.browser && rt.relay.paneVersion(spec.userId, spec.windowId) >= BROWSER_BRIDGE_VERSION
     if (this.stopReason) return
     // the dev environment (devenv/setting.ts), never in a scheduled run (nobody there answers the credential card), an
     // approved template run (its scope is fixed) or a company profile draft (web_fetch only). Any chat of a person in
@@ -1213,32 +1219,36 @@ export class TurnExec {
       // the project's own chat room, which this chat reads (chat/room-tools.ts projectRoomTools)
       projectRoom: sharedProject && !this.templateScope ? projectRoomOfChat(this) : null,
       members: sharedProject ? projectMembersBy(rt.db, sharedProject, membersView(rt.ctx, sharedProject, this.principal, mayManageProject(rt.files, this.principal, sharedProject))) : null,
-      // the person's own Always that opens these here (Rule A)
-      always: (['delete_files', 'skill_files', 'project_members', 'folder_access'] as const).filter((k) => alwaysHere(this.alwaysPlace(), k) === 'on'),
     } : null
     // a chat opened from a room's side panel (✦ Trina): the room, while the person is still in it and it is not archived
     const sideRoom = sideRoomOf(rt.db, spec.chatId, spec.userId, rt.files)
     // who the person is and where (chat/situation.ts): their role and what it may open, the app, whose AI answers, what
-    // they may add themselves; never in a shared chat (prompt.ts SHARED_PROMPT_SECTIONS)
+    // they may add themselves; in a shared chat too, as their own facts (docs/decisions/20261126-shared-chat-everything.md),
+    // but the team's plan while a guest sees it (a guest is not told the team's plan)
     // `managed`: the same check as the guest gate above (Codex runs on the team's connections on an installed server
     // whatever engine.authMode says)
     const managedEngine = engine === 'claude-code' ? claude?.authMode === 'managed' && !!claude.modelProxy : engine === 'codex' ? codex?.auth === 'managed' : false
-    const situation = this.shared ? null : situationOf(rt.ctx, { userId: spec.userId, role: this.principal.role, clientKind: spec.clientKind, browser: this.browser, engine, locale: spec.locale, managed: managedEngine, webSearch })
+    const situation0 = situationOf(rt.ctx, { userId: spec.userId, role: this.principal.role, clientKind: spec.clientKind, browser: this.browser, engine, locale: spec.locale, managed: managedEngine, webSearch })
+    let guestSees = false
+    if (this.shared && situation0?.plan) { try { guestSees = this.sharedAudience().some((id) => isGuestUser(rt.db, id)) } catch { guestSees = true } }
+    const situation = situation0 && guestSees ? { ...situation0, plan: null } : situation0
     // where things are in the app (chat/app-map.ts): none for a guest or a scheduled run (nobody to point anywhere);
     // guest AI by the install, as Admin says it (routes/credentials.ts guestAiUnavailable), not by this turn's engine
     const appMap = guestTurn || spec.clientKind === 'schedule' || this.templateScope ? null
       : { view: appMapView(this.principal.role, !!this.shared), managed: isManaged(rt.ctx.config), devEnv: devEnvUi(), office: !!rt.ctx.config.office,
-          // whether this person may pick their own AI and model (not said in a shared chat: nothing about the asker)
-          ...(this.shared ? {} : { pickModel: canChooseEngine(rt.ctx, { id: spec.userId, role: this.principal.role }) }),
+          // whether this person may pick their own AI and model (in a shared chat too: the asker's own fact)
+          pickModel: canChooseEngine(rt.ctx, { id: spec.userId, role: this.principal.role }),
           // a free-roam demo: no page the demo fences or hides (QA TC-5570)
           ...(freeRoam ? { freeRoam: true } : {}) }
     const runKind = runKindOf(rt.ctx.config)
     // the read tools open a file shared with the person one by one (FileService.readAuth), and shared_with_me lists them
-    // when the AI asks (chat/shared-with-me-tool.ts: no list in every turn): only in the person's own chat
+    // when the AI asks (chat/shared-with-me-tool.ts: no list in every turn): in the person's own chat and a shared one
     // (not from Slack: the answer may go to a channel; not a template run: its reads stay inside its own folder by the
     // folder rules)
     // never in a scheduled run: nobody watches it, and a file another member shared must not act there
-    this.files.grantReads = !this.shared && !guestPrompt && !this.restricted && !confidential && !this.slackChat && !this.templateScope && spec.clientKind !== 'schedule'
+    // a shared chat too (docs/decisions/20261126-shared-chat-everything.md): such a file's owner's place goes through the
+    // read card there (sharedSources granted), as any place someone in the chat cannot open
+    this.files.grantReads = !guestPrompt && !this.restricted && !confidential && !this.slackChat && !this.templateScope && spec.clientKind !== 'schedule'
     // the person's own reads of the answers above on this branch (chat/carried-reads.ts): not for a guest or a restricted
     // run (theirs stay per answer); a failure only means a read again, as before
     this.carryReads = !guestTurn && mayCarryReads(rt.db, spec.userId, this.restricted)
@@ -1313,7 +1323,7 @@ export class TurnExec {
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone, personTimeZone: spec.timeZone,
       // a shared chat: only the asker's memories kept in this very chat (their words are in its transcript), never their
       // private ones; a guest's none (docs/decisions/20261125-auto-memory-shared-chats.md; prompt.ts promptMemories)
-      memories: this.shared ? (guestTurn ? [] : chatMemories(rt.db, spec.userId, spec.chatId).map((m) => ({ id: m.id, text: m.text, sharedChat: spec.chatId }))) : rt.memoriesForPrompt(spec.userId), autoMemory: this.autoMemoryPlace && autoMemoryOn(rt.db, spec.userId), promptTokens, project, browser: this.browser, tools: extraTools,
+      memories: this.shared ? (guestTurn ? [] : chatMemories(rt.db, spec.userId, spec.chatId).map((m) => ({ id: m.id, text: m.text, sharedChat: spec.chatId }))) : rt.memoriesForPrompt(spec.userId), autoMemory: this.autoMemoryPlace && autoMemoryOn(rt.db, spec.userId), promptTokens, project, browser: this.browser, browserUpload: this.browserUpload, tools: extraTools,
       // the web or a phone: the AI says the desktop app has the browser (prompt.ts NO_BROWSER_RULE)
       browserInDesktopApp: !this.browser && !this.restricted && (spec.clientKind === 'web' || spec.clientKind === 'mobile'),
       // a shared chat's transcript says who wrote each message (chat/shared.ts)
@@ -4135,11 +4145,11 @@ export class TurnExec {
 
   /** May this turn keep and use the person's card approvals of this chat (chat/card-approvals.ts)? Only a turn the
    * person watches in the app (web, mobile, desktop): never a scheduled run, a Slack question or a restricted turn
-   * (a draft, a judge, a merge), where nobody answered the card, and never a chat shared with others now (their
-   * messages are in the AI's context, so a yes there counts only for that one card, as "Always allow" counts there only
-   * for the person's own ask). */
+   * (a draft, a judge, a merge), where nobody answered the card. A shared chat nobody else wrote in too, as the person's
+   * own chat (docs/decisions/20261126-shared-chat-everything.md); not once other people wrote there: their messages are
+   * in the AI's context and could ask for the same send or change again, so a yes there counts only for that one card. */
   mayUseApprovals(): boolean {
-    return LIVE_CLIENTS.has(this.spec.clientKind ?? '') && !this.restricted && !this.shared
+    return LIVE_CLIENTS.has(this.spec.clientKind ?? '') && !this.restricted && !(this.shared && this.otherAuthors)
   }
 
   /** The step of a call let through without a card says why ("항상 허용으로 진행", "이번만 허용으로 진행", "내 폴더라 묻지 않고
@@ -4331,8 +4341,13 @@ export class TurnExec {
    * `yes`: after a read card's yes (the group gets y: nothing hides by it, it tells a later widening warning and an
    * older build's walk apart from a silent read). false: the record could not be written (the caller does not read:
    * fails closed). */
+  /** this answer took in something some people here could not open themselves (a read card's yes, a connection's or the
+   * person's own service's answer): its title is not built from it (set_title, chat/tools.ts) */
+  narrowerRead = false
+
   private noteSharedReads(sources: readonly ReadSource[], audience: readonly string[], yes = false, kept = false): boolean {
     if (!this.shared || !sources.length) return true
+    if (yes || kept) this.narrowerRead = true
     // an answer that already attached a file for everyone here (attachToAnswer), or is attaching one now (beginAttach),
     // never becomes one hidden from people added later (a k group): that connection's answer is not read into it (fails closed, the call is refused).
     // Nor one that saved a version of a chat file (TurnFiles.chatVersionsMade, set in the same synchronous step as the
@@ -4512,6 +4527,27 @@ export class TurnExec {
       catch (e) { return e instanceof Denied && /^(not found or no access: |read-only folder: )/.test(e.message) }
     })
     const writes = new Set(WRITE_TARGET_ARGS[tool] ?? [])
+    // a file or folder that opens for the person only through a share (a file shared with them one by one, a folder
+    // shared with them; files/shares.ts, files/shared-folder-reads.ts): its owner's place, whose readers are the owner
+    // and the share's people (docs/decisions/20261126-shared-chat-everything.md). Only where the read tools open them
+    // (TurnFiles.grantReads); never throws
+    const granted = (v: string): string | null => {
+      if (!this.files?.grantReads) return null
+      // a link (/f/<id>…, its full address too): the place inside as the read tools open it (as written, then decoded:
+      // shared-folder-reads.ts subs), else the share's own place (fails closed: the owner's, so the card asks)
+      const l = folderLinkOf(v)
+      const row = l ? (() => { try { return fileSharesOf(this.rt.ctx).row(l.id) } catch { return null } })() : null
+      if (l && row) {
+        if (row.kind === 'folder') {
+          const tries = [l.sub]
+          if (l.sub.includes('%')) { try { const d = decodeURIComponent(l.sub); if (d !== l.sub) tries.push(d) } catch { /* as written only */ } }
+          for (const sub of tries) { try { const c = folderSharesOf(this.rt.ctx).openChild(me.id, l.id, sub); if (c.kind === 'open') return c.child.rel } catch { /* the next spelling, or the share's place */ } }
+          return row.path
+        }
+        try { return this.rt.files.shared?.link(me, v)?.rel ?? row.path } catch { return row.path }
+      }
+      try { return this.rt.files.shared?.at(me, v)?.rel ?? null } catch { return null }
+    }
     // what a write argument named and what anything else did, by key (o.writes: the first and not the second)
     const written = new Set<string>(), read = new Set<string>()
     // every path the call names, nested ones too (edit_pdf's operations, merge_pdfs' list: namedPaths)
@@ -4526,6 +4562,8 @@ export class TurnExec {
       // a listing's own folder: below, by the names it shows
       if (tool === 'list' && k === 'path') continue
       const w = writes.has(k)
+      const g = w ? null : granted(v)
+      if (g) { const src = sourceOf(this.rt.db, rules, g); out.push(src); read.add(sourceKey(src)); continue }
       if (!w && /^[a-z][a-z0-9+.-]*:/i.test(v)) continue
       // copy_files of only this chat's own places (chat:work/…, chat:files/…) into a team folder reads nothing of that
       // folder: a name there already keeps the copy next to it (chat/places-copy.ts workToTeam, chatFileToTeam). The files
@@ -4602,6 +4640,9 @@ export class TurnExec {
       } else {
         // the names a listing shows: each folder the person sees there by its name (who else would see that name), the
         // files by the folder's readers; a folder they cannot list at all: what note() makes of the path
+        // (a folder shared with the person, by its link: its owner's place, as granted() above)
+        const g = granted(start)
+        if (g) { out.push(sourceOf(this.rt.db, rules, g)); return done() }
         try {
           const r = authorize(fx, rules, me, start, 'list')
           if (!r.exists || !r.st?.isDirectory()) { note(start); return done() }
@@ -4634,7 +4675,7 @@ export class TurnExec {
    * come here (sub-agents too); an audit row keeps the decision and the counts, never who. Returns the refusal for the
    * AI, or null to go on.
    */
-  async confirmSharedRead(tool: string, input: unknown, o: { step?: boolean } = {}): Promise<string | null> {
+  async confirmSharedRead(tool: string, input: unknown, o: { step?: boolean; sources?: readonly ReadSource[] } = {}): Promise<string | null> {
     const kind = { save: false }
     const no = await this.sharedReadRefusal(tool, input, o, kind)
     if (!no) return null
@@ -4868,7 +4909,7 @@ export class TurnExec {
    * chat later and may not use the connection themselves does not see the answer. Changes at the service keep their
    * own cards (connections/tools.ts gate). null: go on.
    */
-  async confirmSharedConnection(c: { id: string; key: string; name: string; sources: ReadSource[]; bind?: string; browser?: true }): Promise<string | null> {
+  async confirmSharedConnection(c: { id: string; key: string; name: string; sources: ReadSource[]; bind?: string; browser?: true; notice?: OwnService; fresh?: true }): Promise<string | null> {
     if (!this.shared) return null
     // this answer saved a version of a chat file (everyone who sees the file opens it), so it never becomes one hidden
     // from people added later (noteSharedReads): said as it is, never "could not check" (QA TC-6962)
@@ -4890,8 +4931,9 @@ export class TurnExec {
     // Always from the old card
     if (this.sharedConnAllowed.has(c.key)) return go()
     try {
-      if (c.browser ? browserWarnSeen(this.rt.db, this.spec.userId, place) : c.bind && warnSeen(this.rt.db, c.id, this.spec.userId, place, c.bind)) return go()
-      if (!c.browser && this.sharedConnForGood(c)) return go()
+      // (`fresh`: the kept notice does not count now: confirmSharedService)
+      if (!c.fresh && (c.browser || c.notice ? browserWarnSeen(this.rt.db, this.spec.userId, place, c.notice ?? 'browser') : c.bind && warnSeen(this.rt.db, c.id, this.spec.userId, place, c.bind))) return go()
+      if (!c.browser && !c.notice && this.sharedConnForGood(c)) return go()
     } catch (e) { this.rt.log.warn('shared connection check failed', { err: e, turn: this.id }); return failed() }
     // one notice per connection at a time (parallel calls share it)
     let pending = this.sharedConnPending.get(c.key)
@@ -4905,11 +4947,33 @@ export class TurnExec {
     if (!this.sharedConnAllowed.has(c.key)) {
       this.sharedConnAllowed.set(c.key, new Set(audience))
       // (a press, kept for the place: the person saw it once there)
-      if (c.browser || c.bind) {
-        try { if (c.browser) keepBrowserWarnSeen(this.rt.db, this.spec.userId, place, this.id); else keepWarnSeen(this.rt.db, c.id, this.spec.userId, place, c.bind!, this.id) } catch (e) { this.rt.log.warn('keeping the shared notice failed', { err: e, turn: this.id }) }
+      if (c.browser || c.notice || c.bind) {
+        try { if (c.browser || c.notice) keepBrowserWarnSeen(this.rt.db, this.spec.userId, place, this.id, c.notice ?? 'browser'); else keepWarnSeen(this.rt.db, c.id, this.spec.userId, place, c.bind!, this.id) } catch (e) { this.rt.log.warn('keeping the shared notice failed', { err: e, turn: this.id }) }
       }
     }
     return go()
+  }
+
+  /**
+   * The asker's own Google Drive or Slack in a shared chat (docs/decisions/20261126-shared-chat-everything.md): as their
+   * own connection, behind the one notice per place ("Other people in this chat can also see what the AI gets from
+   * <service>.", Continue; kept in card_always_allow `seen:<service>:<place>`, browser-notice.ts). While a guest sees the
+   * chat or someone else wrote in it, the kept notice does not count: it asks again in each answer (their Always for
+   * changes after other people's words, `room_change`, lets the kept one count). Slack (the team's Slack app) and a Drive
+   * the team shares are team connections: off while a guest sees the chat. What it returns joins the answer's read record
+   * (`sources`: the person's own, or the team Drive share's people). null: go on; else the refusal for the AI.
+   */
+  confirmSharedService(what: OwnService, sources: ReadSource[]): Promise<string | null> {
+    if (!this.shared) return Promise.resolve(null)
+    let guests = true
+    try { guests = this.sharedAudience().some((u) => isGuestUser(this.rt.db, u)) } catch { guests = true }
+    const name = what === 'drive' ? 'Google Drive' : 'Slack'
+    if (guests && (what === 'slack' || sources.some((x) => x.type === 'drive_share'))) {
+      return Promise.resolve(refusal({ done: `Nothing was fetched from ${name}`, why: { kind: 'mode', mode: 'this shared chat', why: `a guest is in it, and guests have no connected services, so the team's ${name} is off here` }, next: what === 'drive' ? 'say so plainly in one or two sentences; the user can use their own Drive, or ask in a chat only they see' : 'say so plainly in one or two sentences; the user can ask in a chat only they see' }))
+    }
+    const fresh = (guests || this.otherAuthors) && alwaysHere(this.alwaysPlace(), 'room_change') !== 'on'
+    const id = `\u0000${what}`
+    return this.confirmSharedConnection({ id, key: id, name, sources, notice: what, ...(fresh ? { fresh: true as const } : {}) })
   }
 
   /**

@@ -7,8 +7,8 @@
 //     read (its own scopes, and in a shared chat the asker's card, docs/decisions/20261118-shared-chat-connections.md).
 //   - `drive:<id>`: a Google Drive file through drive_read's path (tools/drive.ts withDrive: the person's own Drive or a
 //     team share, only inside its shared folders, the share checked again after the call, the source recorded as what
-//     the chat read). Google's own formats are exported as .docx, .xlsx or .pptx. Not in a shared chat (Drive tools are
-//     not offered there).
+//     the chat read). Google's own formats are exported as .docx, .xlsx or .pptx. In a shared chat behind the asker's
+//     one Drive notice there, as drive_read (docs/decisions/20261126-shared-chat-everything.md).
 //   - Caps stay: a Gmail attachment at most ATTACHMENT_MAX_BYTES (18 MB, what one answer can carry), a Drive file the
 //     server's read limit and 32 MB (10 MB for an export). Any kind of file: it is the person's own file from their
 //     own service, saved with its own name, like an upload; files on the team's safety-check list are refused.
@@ -26,7 +26,6 @@ import type { ToolCtx } from '../files/service'
 import { getMedia, MEDIA_PREFIX } from '../integrations/connections/media'
 import { driveOriginal } from '../integrations/google-drive/read'
 import { googleDriveOf } from '../integrations/google-drive/oauth'
-import { isSharedChat } from '../chat/shared'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { inAnySkills } from '../skills/guard'
@@ -131,7 +130,6 @@ export async function saveConnectorFile(ctx: AppContext, a: Input, t: ToolCtx): 
     type = kind?.mime ?? (item.meta.declared || 'application/octet-stream')
   } else {
     if (!googleDriveOf(ctx).enabled) throw new ToolError('Google Drive is not set up on this server')
-    if (isSharedChat(ctx.db, chatId)) throw new ToolError('Google Drive files cannot be saved from a shared chat (Drive is not used in shared chats). Ask the user to do this in a chat only they see')
     const fileId = ref.slice('drive:'.length)
     const { result } = await withDrive(ctx, t, a.source, (s, signal) => driveOriginal(s.conn, fileId, signal, s.scope))
     bytes = result.bytes

@@ -117,6 +117,11 @@ export interface AttachmentStore {
   /** For a turn: like view(), but `changed` means a different content (compared by hash when size or time differ,
    * computed once per version); `moved`: another path than when attached. */
   check?(userId: string, atts: Attachment[]): Promise<Attachment[]>
+  /** A computer upload of the caller in this chat (users/<id>/.attachments/<chatId>/…, attached before the chat was
+   * shared) as a reference to that file (source 'team'), so a shared chat takes it as a team file of the sender's own
+   * folder: as the own-folder rule of a project chat says (no card in the asker's own project, else the read card), a copy kept with a chat shared with people (docs/decisions/
+   * 20261126-shared-chat-everything.md). Anything else comes back as it is. Optional for test doubles. */
+  asReference?(userId: string, chatId: string, a: Attachment): Promise<Attachment>
 }
 
 /** What a turn tool gets for one call (B builds it per turn). */

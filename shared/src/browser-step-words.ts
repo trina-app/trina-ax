@@ -16,6 +16,9 @@ export const BROWSER_STEP_VERB: Record<string, T> = {
   computer: t('브라우저 조작', 'Use browser', 'Operasikan browser', "ブラウザーを操作", "Usar navegador", "操作浏览器"),
   form_input: t('양식 채우기', 'Fill form', 'Isi formulir', "フォームに入力", "Rellenar formulario", "填写表单"),
   javascript_tool: t('페이지에서 동작 실행', 'Run an action on the page', 'Jalankan aksi di halaman', "ページで操作を実行", "Ejecutar una acción en la página", "在网页上执行操作"),
+  // the AI attaches files to the page (file_upload): "파일 첨부 · 견적서.pdf, 사업자등록증.pdf"; once they are in,
+  // STEP_TEXT.browserFilesAttached (step-labels.ts) names how many and the page's site
+  file_upload: t('파일 첨부', 'Attach files', 'Lampirkan berkas', 'ファイルを添付', 'Adjuntar archivos', '附加文件'),
   browser_batch: t('브라우저 여러 단계', 'Browser steps', 'Beberapa langkah browser', "ブラウザーの手順", "Pasos del navegador", "浏览器步骤"),
   resize_window: t('화면 크기 바꾸기', 'Resize', 'Ubah ukuran', "サイズを変更", "Cambiar tamaño", "调整大小"),
   read_console_messages: t('페이지 오류 보기', 'Check page errors', 'Periksa galat halaman', "ページのエラーを確認", "Revisar errores de la página", "检查网页错误"),

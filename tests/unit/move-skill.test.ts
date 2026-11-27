@@ -619,8 +619,8 @@ describe('in the app: the Skills page and the AI', () => {
     }
   })
 
-  test('refused in a scheduled run, saying what to do; not offered in rooms, shared chats or sub-agents', async () => {
-    expect(SHARED_TOOLS.has('move_skill')).toBe(false)
+  test('refused in a scheduled run, saying what to do; not offered in rooms or sub-agents (shared chats have it behind its card)', async () => {
+    expect(SHARED_TOOLS.has('move_skill')).toBe(true)
     expect(PARENT_ONLY_TOOLS.has('move_skill')).toBe(true)
     const rt = h.rt()
     const now = new Date()

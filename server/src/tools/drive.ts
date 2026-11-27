@@ -1,7 +1,7 @@
 import { DriveListInput, DriveReadInput, DriveSearchInput } from '@mycel/shared'
 import type { AppContext } from '../context'
 import type { ToolCtx } from '../files/service'
-import { addSources } from '../chat/read-scope'
+import { addSources, type ReadSource } from '../chat/read-scope'
 import { googleDriveOf, type DriveConn } from '../integrations/google-drive/oauth'
 import { listDrive, readDrive, scopeOf, type FolderScope } from '../integrations/google-drive/read'
 import { DriveError } from '../integrations/google-drive/store'
@@ -20,13 +20,15 @@ export const DRIVE_TOOL_NAMES = ['drive_search', 'drive_list', 'drive_read'] as 
  * team share is limited to its folders on the server (read.ts FolderScope), and its rule, its admin and the share are
  * checked again before and after each call. */
 type Source = { label: string; conn: DriveConn; scope?: FolderScope; share?: ShareRow; fence: () => void }
-/** The chat of a running turn of this person in their own chat (Drive tools are not offered in shared chats). */
-function turnChat(ctx: AppContext, t: ToolCtx) {
+/** The chat of a running turn of this person: their own chat, or a shared chat they run a turn in (whoever made it). A
+ * chat shared now (`shared`) goes on only through the turn's notice (ToolCtx.sharedService; a call without it, such as
+ * the MCP fallback, is refused there). */
+function turnChat(ctx: AppContext, t: ToolCtx): { id: string; shared: boolean } {
   if (t.signal?.aborted) throw new DriveError('cancelled', 409)
-  const r = ctx.db.query(`SELECT t.chat_id FROM turns t JOIN chats c ON c.id=t.chat_id JOIN users u ON u.id=t.user_id
-    WHERE t.id=? AND t.user_id=? AND c.user_id=? AND c.deleted_at IS NULL AND t.status='running' AND u.status='active' AND u.deleted_at IS NULL`).get(t.turnId, t.user.id, t.user.id) as { chat_id: string } | null
-  if (!r) throw new DriveError('access_denied', 403)
-  return r.chat_id
+  const r = ctx.db.query(`SELECT t.chat_id, (c.shared_at IS NOT NULL OR c.people_shared_at IS NOT NULL) shared FROM turns t JOIN chats c ON c.id=t.chat_id JOIN users u ON u.id=t.user_id
+    WHERE t.id=? AND t.user_id=? AND (c.user_id=? OR c.shared_at IS NOT NULL OR c.people_shared_at IS NOT NULL) AND c.deleted_at IS NULL AND t.status='running' AND u.status='active' AND u.deleted_at IS NULL`).get(t.turnId, t.user.id, t.user.id) as { chat_id: string; shared: number } | null
+  if (!r || (r.shared && !t.sharedService)) throw new DriveError('access_denied', 403)
+  return { id: r.chat_id, shared: !!r.shared }
 }
 /** The sources this person may use now, by label. */
 function labels(ctx: AppContext, user: string) {
@@ -34,7 +36,8 @@ function labels(ctx: AppContext, user: string) {
   const mine = !!own && own.status === 'connected' && own.config_key === svc.key
   return { mine, shares: usableShares(ctx.db, user, svc.key) }
 }
-function resolve(ctx: AppContext, user: string, wanted: string | undefined): Source {
+/** `named`: the result may name the team's Drive shares (not in a shared chat, where everyone in it reads it) */
+function resolve(ctx: AppContext, user: string, wanted: string | undefined, named = true): Source {
   const svc = googleDriveOf(ctx)
   svc.checkShareOwners()
   const { mine, shares } = labels(ctx, user)
@@ -48,7 +51,7 @@ function resolve(ctx: AppContext, user: string, wanted: string | undefined): Sou
   }
   if (wanted) {
     share = shares.find((r) => `team:${r.name}`.toLocaleLowerCase() === wanted.toLocaleLowerCase())
-    if (!share) throw new ToolError(`drive_source_unknown: ${all.length ? `the sources here are ${all.map((x) => JSON.stringify(x)).join(', ')}` : 'no Google Drive is connected or shared with this person'}`)
+    if (!share) throw new ToolError(`drive_source_unknown: ${all.length ? (named ? `the sources here are ${all.map((x) => JSON.stringify(x)).join(', ')}` : `there ${all.length === 1 ? 'is 1 source' : `are ${all.length} sources`} here (the user sees their names in Settings)`) : 'no Google Drive is connected or shared with this person'}`)
   } else share = shares[0]
   if (!share) throw new DriveError('needs_reconnect', 409)
   const row = share
@@ -60,12 +63,19 @@ function resolve(ctx: AppContext, user: string, wanted: string | undefined): Sou
  * turn checked again after it, and the source recorded as what the chat read (the wider-audience card of a later save
  * knows where the bytes came from). */
 export async function withDrive<T>(ctx: AppContext, t: ToolCtx, wanted: string | undefined, fn: (s: Source, signal: AbortSignal) => Promise<T>): Promise<{ result: T; source: Source; others: string[] }> {
-  const chat = turnChat(ctx, t), svc = googleDriveOf(ctx)
-  const source = resolve(ctx, t.user.id, wanted)
+  const at = turnChat(ctx, t), chat = at.id, svc = googleDriveOf(ctx)
+  const source = resolve(ctx, t.user.id, wanted, !at.shared)
+  const read: ReadSource = source.share ? { type: 'drive_share', id: source.share.id } : { type: 'user', id: t.user.id, via: 'connection' }
+  // a shared chat (docs/decisions/20261126-shared-chat-everything.md): the asker's one notice per place first, and
+  // what comes back joins the answer's read record (their own, or the Drive share's people)
+  if (at.shared) {
+    const no = await t.sharedService!('drive', [read])
+    if (no) throw new ToolError(no)
+  }
   const result = await svc.run(source.share ? `share:${source.share.id}` : t.user.id, t.signal, (signal) => fn(source, signal))
   source.fence(); turnChat(ctx, t)
   ctx.db.transaction(() => {
-    addSources(ctx.db, chat, [source.share ? { type: 'drive_share', id: source.share.id } : { type: 'user', id: t.user.id, via: 'connection' }])
+    addSources(ctx.db, chat, [read])
     ctx.db.query('UPDATE chats SET session_tainted=1, others_words=1 WHERE id=?').run(chat)
   })()
   const { mine, shares } = labels(ctx, t.user.id)

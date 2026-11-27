@@ -237,6 +237,8 @@ export function componentC(ctx: AppContext): ComponentC {
     // file kept with a chat shared with people (chat/chat-files.ts) for everyone who sees the chat (the viewer does)
     viewAs: (viewer, author, atts) => atts.map((a) => (a.source === 'team' ? teamRefs.viewAs(viewer, a) : a.source === 'chat' || author === viewer ? a : { ...unavailableAttachment(a.id), source: a.source })),
     check: (userId, atts) => Promise.all(atts.map((a) => (a.source === 'team' ? teamRefs.check(userId, a) : a))),
+    // an upload of this chat from before it was shared, as a reference to its file (uploads/attachments.ts)
+    asReference: (userId, chatId, a) => attachments.asReference(userId, chatId, a),
   }
   ctx.files.events.on('hwp-invalidate', () => c.hwp.invalidate())
   ctx.onClose(() => { c.hwp.invalidate() })

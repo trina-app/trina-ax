@@ -9,6 +9,7 @@ import { uuidv7 } from '@mycel/shared'
 import type { Hub } from './hub'
 import type { Logger } from '../log'
 import { CallRelay, type CallRelayOptions } from './call-relay'
+import { BrowserUploads } from './browser-uploads'
 
 export { MAX_POLLERS_PER_USER } from './call-relay'
 /** a call waits at most this long for its result (site prompts on the desktop wait up to 3 min) */
@@ -17,6 +18,9 @@ export type BrowserRelayOptions = CallRelayOptions
 const fail = (callId: string, error: string): BrowserResult => ({ callId, ok: false, content: [], error })
 
 export class BrowserRelay extends CallRelay<BrowserCall, BrowserResult> {
+  /** file_upload's single-use tickets (browser-uploads.ts) */
+  readonly uploads = new BrowserUploads()
+
   constructor(hub: Hub, log: Logger, o: BrowserRelayOptions = {}) {
     super(hub, log, {
       callFrame: (windowId, call) => ({ type: 'browser.call', data: { windowId, call } }),
@@ -33,14 +37,26 @@ export class BrowserRelay extends CallRelay<BrowserCall, BrowserResult> {
     })
   }
 
-  /** Run one browser tool on the window's pane. Never throws: failures come back as ok:false results. */
-  async call(o: { userId: string; windowId: string; turnId: string; chatId: string; tool: BrowserToolName; args: Record<string, unknown>; signal?: AbortSignal; sites?: string[]; office?: string[] }): Promise<BrowserResult> {
+  /** Run one browser tool on the window's pane. Never throws: failures come back as ok:false results. `prepare`: the
+   * call's arguments made with its callId and deadline (file_upload's tickets), or a refusal (nothing is sent). */
+  async call(o: { userId: string; windowId: string; turnId: string; chatId: string; tool: BrowserToolName; args: Record<string, unknown>; signal?: AbortSignal; sites?: string[]; office?: string[]; prepare?: (callId: string, deadline: number) => Record<string, unknown> | string }): Promise<BrowserResult> {
     const callId = uuidv7()
+    const deadline = Date.now() + this.o.callTimeoutMs
+    let args = o.args
+    if (o.prepare) {
+      const made = o.prepare(callId, deadline)
+      if (typeof made === 'string') return { callId, ok: false, content: [], error: made }
+      args = made
+    }
+    try { return await this.send(o, callId, deadline, args) } finally { this.uploads.revokeCall(callId) }
+  }
+
+  private async send(o: Parameters<BrowserRelay['call']>[0], callId: string, deadline: number, args: Record<string, unknown>): Promise<BrowserResult> {
     // only keys the desktop app reads (a call it cannot parse would fail as a whole)
     const keys = (l?: string[]) => [...new Set(l ?? [])].filter((k) => BrowserSiteKey.safeParse(k).success).slice(0, BROWSER_CALL_SITES_MAX)
     const sites = keys(o.sites), office = keys(o.office)
     const call: BrowserCall = {
-      callId, turnId: o.turnId, chatId: o.chatId, tool: o.tool, args: o.args, deadline: Date.now() + this.o.callTimeoutMs,
+      callId, turnId: o.turnId, chatId: o.chatId, tool: o.tool, args, deadline,
       // what the person already allowed (chat/tools.ts browserTool): sent only when there is something to say
       ...(sites.length ? { sites } : {}), ...(office.length ? { office } : {}),
     }

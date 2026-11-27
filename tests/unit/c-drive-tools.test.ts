@@ -102,3 +102,24 @@ test('transient provider errors retry only a bounded number and never leak provi
   const failure = await call('drive_list', {}).result
   expect(failure.isError).toBe(true); expect(n).toBe(3); expect(failure.text).not.toContain('CANARY')
 })
+// a shared chat (docs/decisions/20261126-shared-chat-everything.md): Drive works there for the asker behind their one
+// notice (ToolCtx.sharedService, chat/turn.ts confirmSharedService); a call without it (no shared chat's turn) is refused
+test('a shared chat: the Drive notice first; a no or no turn hook fetches nothing; a yes reads as the asker', async () => {
+  const chat = a.chat('alice'), turn = a.turn('alice', chat)
+  a.ctx.db.query('UPDATE chats SET people_shared_at = ? WHERE id = ?').run(new Date().toISOString(), chat)
+  const reg = toolRegistry(a.ctx.files)
+  const n = fake.calls.length
+  const bare = await reg.call('drive_read', { fileId: 'alice-file' }, a.toolCtx('alice', turn))
+  expect(bare.isError).toBe(true)
+  expect(fake.calls.length).toBe(n)
+  const asked: unknown[] = []
+  const no = await reg.call('drive_read', { fileId: 'alice-file' }, { ...a.toolCtx('alice', turn), sharedService: async (what, sources) => { asked.push({ what, sources }); return 'Nothing was fetched from Google Drive: the user did not go on.' } })
+  expect(no.isError).toBe(true)
+  expect(no.text).toContain('Nothing was fetched from Google Drive')
+  expect(fake.calls.length).toBe(n)
+  expect(asked).toEqual([{ what: 'drive', sources: [{ type: 'user', id: 'alice', via: 'connection' }] }])
+  const yes = await reg.call('drive_read', { fileId: 'alice-file' }, { ...a.toolCtx('alice', turn), sharedService: async () => null })
+  expect(yes.isError).not.toBe(true)
+  expect(yes.text).toContain('Alice private content')
+  expect(readScope(a.ctx.db, chat)).toEqual([{ type: 'user', id: 'alice', via: 'connection' }])
+})

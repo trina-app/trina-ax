@@ -192,6 +192,17 @@ export class Attachments {
     return this.lookup(userId, chatId, ids).found
   }
 
+  /** A computer upload of `userId` in this chat (its own row: users/<id>/.attachments/<chatId>/…) as a team-file
+   * reference to that very file (TeamFileRefs.create: the person's read access, its hash), for a shared chat that takes
+   * only team files and its own (routes/chats.ts; docs/decisions/20261126-shared-chat-everything.md). Anything else, or an
+   * upload whose file is gone, comes back unchanged (the send then refuses it as before). */
+  async asReference(userId: string, chatId: string, a: Attachment): Promise<Attachment> {
+    if (a.source === 'team' || a.source === 'chat' || !this.refs) return a
+    const r = this.row(a.id)
+    if (!r || r.user_id !== userId || r.chat_id !== chatId) return a
+    try { return await this.refs.create(userId, chatId, r.path) } catch { return a }
+  }
+
   /** Like byIds, and which of the ids are the caller's own team-file references of this chat that are no longer
    * available to them (deleted, moved out of reach, access taken away): they attached those ids themselves, so
    * naming them tells nothing new; nothing about the files is said. */
