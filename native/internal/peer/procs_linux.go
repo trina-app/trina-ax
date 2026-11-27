@@ -3,7 +3,6 @@ package peer
 import (
 	"fmt"
 	"os"
-	"strings"
 	"syscall"
 )
 
@@ -26,11 +25,10 @@ func ownProcs(uid int) ([]Proc, error) {
 		if err != nil {
 			continue
 		}
-		s := string(b)
-		f := strings.Fields(s[strings.LastIndex(s, ")")+2:])
-		var ppid, sid int
-		fmt.Sscanf(f[1], "%d", &ppid)
-		fmt.Sscanf(f[3], "%d", &sid)
+		ppid, sid, ok := parseStat(string(b))
+		if !ok {
+			continue
+		}
 		out = append(out, Proc{Pid: pid, Ppid: ppid, Sid: sid})
 	}
 	return out, nil
