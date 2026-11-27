@@ -6455,6 +6455,7 @@ export const en: Record<MessageKey, string> = {
   "rail.label": "App menu",
   "rail.skipList": "Skip to list",
   "rail.hideList": "Hide list",
+  "rail.resizeList": "Resize the list",
   "rail.showList": "Show list",
   "rail.searchChats": "Search conversations",
   "rail.unreadRooms": "{n, plural, one {# conversation with unread messages} other {# conversations with unread messages}}",

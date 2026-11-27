@@ -6409,6 +6409,7 @@ export const es: Record<MessageKey, string> = {
   "rail.label": "Menú de la app",
   "rail.skipList": "Ir a la lista",
   "rail.hideList": "Ocultar lista",
+  "rail.resizeList": "Ajustar el ancho de la lista",
   "rail.showList": "Mostrar lista",
   "rail.searchChats": "Buscar conversaciones",
   "rail.unreadRooms": "{n, plural, one {# conversación sin leer} other {# conversaciones sin leer}}",
