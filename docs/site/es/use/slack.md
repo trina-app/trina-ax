@@ -190,6 +190,27 @@ puede desactivar y activar la app propia del equipo, pero solo el propietario pu
 aparece en Administración › Apps conectadas, usted no es el propietario del equipo ni un administrador: pídaselo a
 ellos.
 
+## Conectar un canal de Slack a una conversación
+
+Si su cliente le habla en un canal de Slack pero su equipo trabaja en Trina AX, conecte ese canal a una conversación del equipo o a un proyecto: sus mensajes aparecen en la conversación en cuanto se escriben, y lo que su equipo escribe allí vuelve al canal. El cliente sigue en Slack y no nota ningún cambio.
+
+#### Abra el menú de la conversación › Añadir una app › Slack
+
+Solo puede hacerlo un propietario o un administrador del equipo que esté en la conversación. La primera vez, el diálogo le pide **Iniciar sesión con Slack** para saber cuál es su cuenta de Slack.
+
+#### Elija el canal y pulse Conectar
+
+La lista muestra los canales en los que están usted y la app de Trina AX. Si un canal no aparece, invite primero a la app en Slack (`/invite @trina-ax`). Lea la frase que hay sobre el botón: **desde ahora todos en esta conversación verán los mensajes del canal**, y lo que escriban irá a Slack con su nombre. Pulse **Conectar**.
+
+#### Lo que ve cada uno
+
+- En la conversación, un mensaje de Slack muestra el nombre y la foto de Slack de quien lo envió, con una pequeña marca de Slack. Los hilos, las menciones, las ediciones y los borrados se mantienen. La cabecera muestra **#canal · Slack**.
+- En Slack, un mensaje de la conversación aparece como **Mina (Trina AX)**. No hace falta una cuenta de Slack para escribir.
+- Las respuestas de la IA y los archivos no se envían a Slack; ese mensaje dice **No enviado a Slack**. Si Slack rechaza un mensaje, dice **No enviado a Slack** con **Reintentar**.
+- Una conversación con un invitado todavía no se puede conectar, y no se puede invitar a nadie de fuera mientras está conectada.
+
+Para dejarlo, abra el diálogo otra vez (o pulse **#canal · Slack** en la cabecera) y pulse **Desconectar**. Lo que se dijo se queda en la conversación.
+
 ## Quitar o volver a conectar
 
 La página de Slack en **Administración › Apps conectadas** siempre indica en qué estado está, y su fila en la lista
