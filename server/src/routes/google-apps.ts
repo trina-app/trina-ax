@@ -37,7 +37,7 @@ async function safe<T>(fn: () => T | Promise<T>): Promise<T> {
 export function registerGoogleAppsRoutes(kit: RouteKit, ctx: AppContext) {
   const svc = () => googleAppsOf(ctx)
   kit.handle(API.myGoogleApps, ({ auth }) => safe(() => svc().list(auth.user.id)))
-  kit.handle(API.authorizeGoogleApp, ({ auth, params }) => safe(() => svc().authorize(auth.user.id, auth.session.id, appOf(params.app))))
+  kit.handle(API.authorizeGoogleApp, ({ auth, params, body }) => safe(() => svc().authorize(auth.user.id, auth.session.id, appOf(params.app), 'personal', body.client)))
   kit.handle(API.googleAppFlow, ({ auth, params }) => safe(() => svc().flow(auth.user.id, auth.session.id, appOf(params.app), params.id)))
   kit.handle(API.completeGoogleAppFlow, ({ auth, params }) => safe(() => svc().complete(auth.user.id, auth.session.id, appOf(params.app), params.id)))
   kit.handle(API.cancelGoogleAppFlow, ({ auth, params }) => safe(() => svc().cancel(auth.user.id, auth.session.id, appOf(params.app), params.id)))
@@ -61,7 +61,7 @@ export function registerGoogleAppsRoutes(kit: RouteKit, ctx: AppContext) {
   // refused while people without a password sign in with it (auth/google-login-admin.ts guardOwnGoogleClient)
   kit.handle(API.removeGoogleOwnApp, ({ c, auth }) => safe(() => refuseClientInUse(c.get('locale'), () => removeOwnApp(ctx, auth.user.id))))
   // the account shared with the team: owners and admins only (the route checks the role; the service checks it again)
-  kit.handle(API.authorizeGoogleAppTeam, ({ auth, params }) => safe(() => svc().authorize(auth.user.id, auth.session.id, appOf(params.app), 'team')))
+  kit.handle(API.authorizeGoogleAppTeam, ({ auth, params, body }) => safe(() => svc().authorize(auth.user.id, auth.session.id, appOf(params.app), 'team', body.client)))
   kit.handle(API.googleAppTeamFlow, ({ auth, params }) => safe(() => svc().flow(auth.user.id, auth.session.id, appOf(params.app), params.id, 'team')))
   kit.handle(API.cancelGoogleAppTeamFlow, ({ auth, params }) => safe(() => svc().cancel(auth.user.id, auth.session.id, appOf(params.app), params.id, 'team')))
   kit.handle(API.completeGoogleAppTeamFlow, ({ auth, params, body }) => safe(() => svc().completeTeam(auth.user.id, auth.session.id, appOf(params.app), params.id, { create: body.create })))

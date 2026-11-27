@@ -2,7 +2,7 @@
 // service's start page when the server sent one in its exact shape; the phone app always gets Google's page. And the
 // window it opens in: a browser reserves one during the click, the desktop app opens the address once it is known.
 import { expect, test } from 'bun:test'
-import { desktopOpenUrl, driveSignInUrl, googleAuthorization, openSignInWindow, reserveSignInWindow, type SignInPlace } from '../../src/lib/driveSignIn'
+import { desktopOpenUrl, driveSignInUrl, googleAuthorization, googleStartBody, openSignInWindow, reserveSignInWindow, type SignInPlace } from '../../src/lib/driveSignIn'
 
 const google = 'https://accounts.google.com/o/oauth2/v2/auth?client_id=x&state=abc'
 const state = 'A'.repeat(43)
@@ -83,4 +83,9 @@ test('the desktop app opens the server\'s one-time address first, only in its ex
   expect(desktopOpenUrl({}, 'https://acme.trina.app')).toBeNull()
   for (const bad of ['https://evil.test/x', '//evil.test/api/integrations/google-drive/go?flow=a&k=' + t, `/api/integrations/google-drive/go?flow=a&k=${t}&next=x`, '/api/integrations/google-drive/go?flow=a&k=short'])
     expect(desktopOpenUrl({ openPath: bad }, 'https://acme.trina.app')).toBeNull()
+})
+
+test('the start says "desktop" only in the desktop app (its session may be recorded as a browser\'s: QA 2026-11-27)', () => {
+  expect(googleStartBody(true)).toEqual({ client: 'desktop' })
+  expect(googleStartBody(false)).toEqual({})
 })
