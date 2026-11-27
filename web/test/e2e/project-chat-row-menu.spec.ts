@@ -51,8 +51,8 @@ test('my own chat: a sheet across the bottom with every item; rename and delete 
   expect(Math.round(box.x)).toBe(0)
   expect(Math.round(box.y + box.height)).toBe(844)
   await expect(page.getByTestId('menu-sheet-title')).toHaveText('Weekly numbers')
-  // a shared chat of mine stays in its project: no move
-  expect(items).toEqual(['project-chat-pin', 'project-chat-copy-link', 'project-chat-rename', 'project-chat-delete'])
+  // a shared chat of mine stays in its project: no move; it continues in a chat only I see (components/chat/forkItems.tsx)
+  expect(items).toEqual(['project-chat-pin', 'project-chat-copy-link', 'project-chat-rename', 'project-chat-continue-privately', 'project-chat-delete'])
   await shot(page, 'own-sheet')
 
   await sheet.getByTestId('project-chat-rename').click()
@@ -78,7 +78,7 @@ test('a chat of my own that only I see in a team project can move from its row, 
   // only its creator lists it, with a lock
   await expect(page.getByTestId('project-chat').getByTestId('private-icon')).toBeVisible()
   const { items } = await openMenu(page, 'Draft')
-  expect(items).toEqual(['project-chat-pin', 'project-chat-copy-link', 'project-chat-rename', 'project-chat-move', 'project-chat-share', 'project-chat-delete'])
+  expect(items).toEqual(['project-chat-pin', 'project-chat-copy-link', 'project-chat-rename', 'project-chat-move', 'project-chat-share', 'project-chat-fork', 'project-chat-delete'])
   await page.getByTestId('project-chat-move').click()
   await expect(page.getByRole('dialog')).toBeVisible()
 })
@@ -96,7 +96,7 @@ test('someone else\'s shared chat: no rename; delete only for a project editor',
   await page.goto(`/projects/${id}`)
   await expect(page.getByTestId('project-chat')).toHaveCount(2)
   const owner = await openMenu(page, 'Bob plan')
-  expect(owner.items).toEqual(['project-chat-pin', 'project-chat-copy-link', 'project-chat-delete'])
+  expect(owner.items).toEqual(['project-chat-pin', 'project-chat-copy-link', 'project-chat-continue-privately', 'project-chat-delete'])
   await shot(page, 'editor-on-others-chat')
 
   // Bob, a member: the owner's chat has neither (as the server says: canDelete false)
@@ -108,7 +108,7 @@ test('someone else\'s shared chat: no rename; delete only for a project editor',
   await b.goto(`/projects/${id}`)
   await expect(b.getByTestId('project-chat')).toHaveCount(2)
   const member = await openMenu(b, 'Owner plan')
-  expect(member.items).toEqual(['project-chat-pin', 'project-chat-copy-link'])
+  expect(member.items).toEqual(['project-chat-pin', 'project-chat-copy-link', 'project-chat-continue-privately'])
   await shot(b, 'member-on-others-chat')
   await b.context().close()
 })
