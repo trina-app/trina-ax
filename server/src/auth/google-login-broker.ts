@@ -31,12 +31,16 @@ import { isHosted } from '../system/deployment'
 import { loadOrCreateKey } from '../relay-client/registration'
 import { brokerOrigin, DriveBroker, selfInstalledDefault } from '../integrations/google-drive/broker'
 import { GoogleTransport, type DriveFetch } from '../integrations/google-drive/client'
+import { googleDriveOf } from '../integrations/google-drive/oauth'
 import { GoogleKeys } from './google-id-token'
 
 /** how often the console is asked whether it serves this team (a yes, then a no) */
 const CHECK_OK_MS = 10 * 60_000, CHECK_RETRY_MS = 60_000
 /** a self-installed server's longest wait after a "no" (1, 2, 4, 8, 16, then 30 minutes), as Drive's (oauth.ts) */
 const REGISTER_MAX_MS = 30 * 60_000, REGISTER_TRIES_MAX = 6
+/** while the console cannot be asked at all, a self-installed server asks again within 5 minutes at most: people
+ * without a password wait on it */
+const UNREACHABLE_MAX_MS = 5 * 60_000
 /** the console's answers that say it does not serve this key now (anything else: it could not be asked) */
 const NOT_SERVED = new Set(['not_hosted', 'not_configured'])
 /** a call that found no console answering: no answer at all, or a server error (Google's included) */
@@ -85,13 +89,16 @@ export class GoogleSigninBroker {
   /** Google's signing keys, for the id_tokens this broker relays */
   readonly keys: GoogleKeys
   /** `selfOrigin`: a self-installed server's own address, which it registers at the console (null on a hosted server
-   * and when an operator set the console's address by hand) */
-  constructor(readonly origin: string, readonly identity: () => { key: KeyObject; publicKey: string }, private readonly fetcher: DriveFetch, readonly now: () => number, readonly selfOrigin: string | null = null) {
+   * and when an operator set the console's address by hand). `idle`: true while this self-installed server has a Google
+   * client of its own (googleDriveOf(ctx).config, MYCEL_GOOGLE_DRIVE_CLIENT_FILE): sign-in uses that one, so the console
+   * is neither asked nor registered with, as driveBrokerFor does for Drive */
+  constructor(readonly origin: string, readonly identity: () => { key: KeyObject; publicKey: string }, private readonly fetcher: DriveFetch, readonly now: () => number, readonly selfOrigin: string | null = null, private readonly idle: () => boolean = () => false) {
     this.keys = new GoogleKeys(new GoogleTransport(fetcher), now)
   }
 
   /** The console said it serves this team (its last answer). An old answer is asked again in the background. */
   serves(): boolean {
+    if (this.idle()) return false
     if (this.now() - this.checkedAt >= (this.ok ? CHECK_OK_MS : this.retryMs())) void this.check()
     return this.ok
   }
@@ -99,7 +106,7 @@ export class GoogleSigninBroker {
   /** The last answer was no because the console could not be asked, not because it does not serve this server: the
    * sign-in page keeps the button for people without a password and says so on a click (google-login.ts). */
   unreachable(): boolean {
-    return !this.ok && this.failure === 'unreachable'
+    return !this.idle() && !this.ok && this.failure === 'unreachable'
   }
 
   /** Ask the console whether it serves this team now. A self-installed server it does not serve registers itself
@@ -107,6 +114,7 @@ export class GoogleSigninBroker {
   async check(): Promise<boolean> {
     this.checkedAt = this.now()
     const seq = ++this.seq
+    if (this.idle()) { this.ok = false; this.failure = null; return false }
     let ok = false, failure: 'not_served' | 'unreachable' | null = null
     try { ok = await this.status() } catch (e) { failure = failureOf(e) }
     if (!ok && failure === 'not_served' && (await this.register())) {
@@ -117,6 +125,12 @@ export class GoogleSigninBroker {
     else if (this.selfOrigin && failure !== 'not_served') this.registerTries = Math.min(this.registerTries + 1, REGISTER_TRIES_MAX)
     if (seq === this.seq) { this.ok = ok; this.failure = ok ? null : failure ?? 'unreachable' }
     return ok
+  }
+
+  /** This server registers itself at the console now (a self-installed server without a Google client of its own): the
+   * key route (routes/drive.ts) answers for sign-in only then. */
+  registersItself(): boolean {
+    return !!this.selfOrigin && !this.idle()
   }
 
   private async status(): Promise<boolean> {
@@ -137,7 +151,8 @@ export class GoogleSigninBroker {
   /** the wait after a "no": a minute on a hosted server; on a self-installed one 1, 2, 4, 8, 16, then 30 minutes, so
    * thousands of them never ask a console that says no once a minute */
   private retryMs(): number {
-    return this.selfOrigin && this.registerTries ? Math.min(REGISTER_MAX_MS, 60_000 * 2 ** (this.registerTries - 1)) : CHECK_RETRY_MS
+    const cap = this.failure === 'unreachable' ? UNREACHABLE_MAX_MS : REGISTER_MAX_MS
+    return this.selfOrigin && this.registerTries ? Math.min(cap, 60_000 * 2 ** (this.registerTries - 1)) : CHECK_RETRY_MS
   }
 
   /** Google's sign-in page for this flow (checked: Google's own page, this nonce, the client id answered, Google
@@ -218,5 +233,7 @@ function build(ctx: AppContext, deps: SigninBrokerDeps): GoogleSigninBroker | nu
   }
   if (!origin) return null
   const identity = deps.identity ?? (() => { const { key, publicKey } = loadOrCreateKey(ctx.config.dataDir); return { key, publicKey } })
-  return new GoogleSigninBroker(origin, identity, deps.fetch ?? fetch, deps.now ?? Date.now, selfOrigin)
+  // a self-installed server with a Google client of its own signs in with it: no polling, no registration
+  const idle = () => { const d = googleDriveOf(ctx); return !!d.config || d.clientFromEnv }
+  return new GoogleSigninBroker(origin, identity, deps.fetch ?? fetch, deps.now ?? Date.now, selfOrigin, selfOrigin ? idle : undefined)
 }

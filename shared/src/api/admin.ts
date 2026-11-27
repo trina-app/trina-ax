@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
 import { Access, Effort, EngineId, GuestAiChoiceBody, ReauthFields, GuestPlace, IsoTime, Locale, PageQuery, QueryBool, RelPath, Role, TeamRole, UserStatus, page } from './common'
 import { binary, endpoint, empty } from './endpoint'
-import { AuditEntry, Budget, EngineAccount, Folder, FolderRuleInput, Group, Invite, SubjectType, TeamSettings, User, UserRef } from './entities'
+import { AuditEntry, Budget, EngineAccount, Folder, FolderRuleInput, GOOGLE_SIGN_IN_DOMAINS_MAX, GoogleDomain, Group, Invite, SubjectType, TeamSettings, User, UserRef } from './entities'
 import { Password, PersonName, Username } from './auth'
 import { TEAM_ICON_MAX_BYTES, TEAM_ICON_TYPES, TEAM_ICON_VERSION_RE } from '../team-icon'
 import { SealedSecret } from './credentials'
@@ -87,6 +87,10 @@ export const GoogleSignInAdminStatus = z.object({
   tryable: z.boolean().optional(),
 })
 export type GoogleSignInAdminStatus = z.infer<typeof GoogleSignInAdminStatus>
+/** Before saving a domain list (Admin › Sign-in methods): how many people who sign in only with Google (no password)
+ * have a Google account outside it (by `hd`), and would be locked out. */
+export const GoogleDomainsCheckBody = z.object({ domains: z.array(GoogleDomain).max(GOOGLE_SIGN_IN_DOMAINS_MAX) })
+export const GoogleDomainsCheck = z.object({ lockedOut: z.number().int().min(0) })
 /** Hand the owner role to another active member (the old owner becomes admin). The target must be active, not the
  * caller, past their temporary password and signed in at least once. `end`: the caller's own connections to end after
  * the transfer (handover.ts HandoverState.connections; the confirm starts with all of them ticked); omitted = none. */
@@ -737,6 +741,7 @@ export const ADMIN = {
   settings: endpoint({ method: 'GET', path: '/api/admin/settings', auth: 'admin', owner: 'A', response: TeamSettings, summary: 'Team settings.' }),
   updateSettings: endpoint({ method: 'PATCH', path: '/api/admin/settings', auth: 'admin', owner: 'A', body: UpdateSettingsBody, response: TeamSettings, summary: 'Change team settings. Owner only: the team name (also renames the relay address), the retention periods and the update channel (OWNER_ONLY_SETTINGS).' }),
   googleSignInAdminStatus: endpoint({ method: 'GET', path: '/api/admin/google-login', auth: 'admin', owner: 'A', response: GoogleSignInAdminStatus, summary: 'Whether this server has a Google client for Sign in with Google, whose, and why not (the team switch is the googleSignIn setting); never the client.' }),
+  checkGoogleSignInDomains: endpoint({ method: 'POST', path: '/api/admin/google-login/domains-check', auth: 'admin', owner: 'A', body: GoogleDomainsCheckBody, response: GoogleDomainsCheck, summary: 'Before saving a Google Workspace domain list: how many people who sign in only with Google are outside it and would be locked out (a count, never who).' }),
   tryGoogleSignIn: endpoint({ method: 'POST', path: '/api/admin/google-login/try', auth: 'admin', owner: 'A', response: z.object({ url: z.string() }), summary: 'Try it: Google\'s address for a test sign-in; its return shows which Google account answered and whether the domain list lets it in, and signs nobody in.' }),
   putTeamIcon: endpoint({ method: 'PUT', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', query: TeamIconQuery, body: binary(TEAM_ICON_MAX_BYTES), response: TeamIconInfo, summary: 'Set the team logo (shown at the top left on computers, with the team name; tab and app icons stay the product\'s): PNG, JPEG or WebP up to 1 MiB, 32–4096 px a side; audited.' }),
   deleteTeamIcon: endpoint({ method: 'DELETE', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Remove the team logo: the product\'s mark shows again; audited.' }),

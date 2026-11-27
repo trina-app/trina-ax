@@ -881,6 +881,7 @@ export const SPECS: Record<string, Spec> = {
       if (j.client !== false || Object.keys(j).some((k) => !['client', 'via', 'reason', 'tryable'].includes(k))) throw new Error(`${who}: unexpected Google sign-in status ${r.text}`)
     } },
   // its "Try it" (auth/google-login.ts startGoogleTry): admins only; this server has no Google client, so no positive
+  checkGoogleSignInDomains: { build: (c) => c.post('/api/admin/google-login/domains-check', { domains: ['acme.test'] }), scope: 'byLevel' },
   tryGoogleSignIn: { skipPositive: true, build: (c) => c.post('/api/admin/google-login/try', {}), scope: 'byLevel' },
   updateSettings: { build: (c) => c.patch('/api/admin/settings', { browserAllowAll: true }), scope: 'byLevel' },
   speechHost: { build: (c) => c.get('/api/admin/speech-host'), scope: 'byLevel' },

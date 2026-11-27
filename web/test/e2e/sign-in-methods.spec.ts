@@ -95,3 +95,21 @@ test('a phone: the Admin list has Sign-in methods, which opens the page', async 
   await expect(page.getByTestId('sign-in-google')).toBeVisible()
   await expect(page.getByTestId('admin-bar-title')).toHaveText(t['admin.signIn'])
 })
+
+test('a domain list that would lock out people without a password asks first', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await googleLogin(page, { client: 'here', via: 'service', lockedOut: 2 })
+  await signIn(page)
+  await page.goto('/admin/sign-in')
+  const domains = async () => (await (await page.request.get('/api/admin/settings')).json()).googleSignInDomains ?? []
+  await page.getByTestId('sign-in-google-domains-input').fill('acme.com')
+  await page.getByTestId('sign-in-google-domains-save').click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText("2 people sign in only with Google from other domains and won't be able to sign in. Save anyway?")
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  expect(await domains()).toEqual([])
+  await page.getByTestId('sign-in-google-domains-save').click()
+  await page.getByRole('dialog').getByRole('button', { name: t['signIn.domainsLockSave'] }).click()
+  await expect.poll(domains).toEqual(['acme.com'])
+})

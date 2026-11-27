@@ -11,7 +11,7 @@ import { GOOGLE_SIGN_IN_DOMAINS_MAX, GoogleDomain, type GoogleSignInAdminStatus 
 import { api, API, errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
-import { Button, inputCls, Switch } from '../../components/ui'
+import { Button, confirmDialog, inputCls, Switch } from '../../components/ui'
 import { AdminPageHeader, SettingRow, SettingsSection, useAction, useLoad } from './common'
 
 /** where a self-installed server without a public web address reads how to get one, and what Google sign-in needs */
@@ -124,6 +124,10 @@ function GoogleDomains({ initial }: { initial: string[] }) {
     if (domains.length > GOOGLE_SIGN_IN_DOMAINS_MAX) return setError(t('signIn.domainsTooMany', { n: GOOGLE_SIGN_IN_DOMAINS_MAX }))
     setError(null)
     setBusy(true)
+    // people who sign in only with Google from other domains would be locked out: ask first (the server counts them)
+    const check = domains.length ? await act(() => api.call(API.checkGoogleSignInDomains, { body: { domains } })) : { lockedOut: 0 }
+    if (!check) return setBusy(false)
+    if (check.lockedOut > 0 && !(await confirmDialog({ title: t('signIn.domainsLockTitle'), body: t('signIn.domainsLock', { n: check.lockedOut }), confirm: t('signIn.domainsLockSave'), danger: true }))) return setBusy(false)
     const r = await act(() => api.call(API.updateSettings, { body: { googleSignInDomains: domains } }), t('common.saved'))
     setBusy(false)
     if (r) { const v = (r.googleSignInDomains ?? []).join(', '); setSaved(v); setText(v) }

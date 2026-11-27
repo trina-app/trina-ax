@@ -107,9 +107,10 @@ export const authRoutes: RouteModule = {
       await setPassword(c, ctx, body)
       return { ok: true as const }
     })
-    // Sign in with Google through the hosting service (hosted teams without a Google client of their own,
-    // auth/google-login-broker.ts): the console sends the browser back here with a one-time handoff. Asked once at
-    // start whether the console serves this team, so the sign-in page knows soon
+    // Sign in with Google through the hosting service (hosted teams, and self-installed servers with a public address,
+    // without a Google client of their own; auth/google-login-broker.ts): the console sends the browser back here with
+    // a one-time handoff. Asked once at start whether the console serves this server, so the sign-in page knows soon (a
+    // self-installed server with its own Google client asks nothing and registers nothing)
     kit.raw('GET', GOOGLE_SIGNIN_TEAM_RETURN_PATH, (c) => finishGoogleBroker(c as unknown as Context<AppEnv>, ctx))
     googleSigninBrokerOf(ctx)
 

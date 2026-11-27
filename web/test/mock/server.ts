@@ -349,6 +349,7 @@ export class MockServer {
       // whose Google client (Admin › Sign-in methods' status line), and why there is none (google-login-admin.ts)
       via: 'own' as 'own' | 'service',
       reason: 'no_address' as 'no_address' | 'unreachable' | 'not_served' | 'none',
+      lockedOut: 0,
       account: { sub: '100', email: 'olga@acme.test' } as { sub: string; email: string; name?: string; hd?: string },
       linked: new Map<string, { sub: string; email: string; connectedAt: string; lastUsedAt: string | null }>(),
       // signUp: what a sign-up carries to Google's return (server/src/auth/google-signup.ts): the setup's team, or the
@@ -5034,6 +5035,8 @@ export class MockServer {
     // like server/src/auth/google-login-admin.ts: whether this server has a Google client (here or elsewhere), never which
     googleSignInAdminStatus: () => (this.googleLogin.client !== null ? { client: true, via: this.googleLogin.via, tryable: this.googleLogin.client === 'here' } : { client: false, reason: this.googleLogin.reason, tryable: false }),
     // Admin › Sign-in methods' "Try it" (server/src/auth/google-login.ts startGoogleTry): a connect flow whose next is the page
+    // before a domain list is saved (server/src/auth/google-login-admin.ts googleDomainLockouts): set by /__test/google-login lockedOut
+    checkGoogleSignInDomains: (c) => ({ lockedOut: c.body.domains.length ? this.googleLogin.lockedOut : 0 }),
     tryGoogleSignIn: (c) => {
       if (this.googleLogin.client !== 'here') fail('unavailable', 503, serverMsg('googleSignInOff', this.localeOf(c.req)))
       return this.googleStart(c.req, 'connect', { userId: c.user.id, session: this.sessionTokenOf(c.req) }, '/admin/sign-in')
@@ -6542,6 +6545,7 @@ export class MockServer {
       if (body.account) this.googleLogin.account = body.account as { sub: string; email: string; hd?: string }
       if (body.via === 'own' || body.via === 'service') this.googleLogin.via = body.via
       if (typeof body.reason === 'string') this.googleLogin.reason = body.reason as typeof this.googleLogin.reason
+      if (typeof body.lockedOut === 'number') this.googleLogin.lockedOut = body.lockedOut
     }
     else if (p === '/__test/plugin-previous') this.plugins.control(body as { id: string; version: string; trusted: boolean; untrusted?: boolean })
     else if (p === '/__test/member-welcome') {

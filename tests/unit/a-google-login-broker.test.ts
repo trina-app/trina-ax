@@ -70,9 +70,12 @@ class FakeConsole {
   proof: ((url: string) => Promise<Response>) | null = null
   /** the console cannot be reached at all */
   down = false
+  /** every call that tried to reach the console, reached or not */
+  attempts = 0
 
   fetch = async (url: string, init: RequestInit = {}): Promise<Response> => {
     if (url === GOOGLE_CERTS) { this.certsCalls++; return Response.json({ keys: [jwk] }) }
+    this.attempts++
     if (this.down) throw new TypeError('fetch failed')
     if (!url.startsWith(ORIGIN + '/')) return new Response('no', { status: 599 })
     const path = new URL(url).pathname, body = String(init.body ?? ''), authorization = new Headers(init.headers).get('authorization') ?? ''
@@ -510,6 +513,35 @@ describe('a self-installed server signs in through the hosting service (docs/dec
     expect(r.body.error.code).toBe('unavailable')
     expect(r.body.error.params?.reason).toBe('unreachable')
     h.ctx.db.query('DELETE FROM users WHERE id = ?').run(m.id)
+  })
+
+  test('a Google client of its own: the console is neither asked nor registered with, and the key route stays closed for sign-in', async () => {
+    const b = await fresh()
+    const before = cp.calls.length
+    const drive = googleDriveOf(h.ctx, { config: { clientId: 'own.apps.googleusercontent.com', clientSecret: 's', redirectUri: `${TEAM}/api/integrations/google-drive/callback` }, broker: null, fetch: cp.fetch })
+    try {
+      t += 60 * 60_000
+      expect(await b.check()).toBe(false)
+      expect(b.serves()).toBe(false)
+      expect(b.unreachable()).toBe(false)
+      expect(b.registersItself()).toBe(false)
+      await Bun.sleep(20)
+      expect(cp.calls.length).toBe(before)
+      expect((await h.fetch(GOOGLE_BROKER_KEY_PATH, { base: TEAM })).status).toBe(404)
+      // sign-in uses the server's own client
+      expect(await owner.call('GET', '/api/admin/google-login')).toMatchObject({ client: true, via: 'own' })
+    } finally { void drive; googleDriveOf(h.ctx, { config: null, broker: null, fetch: cp.fetch }) }
+  })
+
+  test('the console down: a self-installed server asks again within 5 minutes at most, however long it lasts', async () => {
+    const b = await fresh({ down: true })
+    for (let i = 0; i < 8; i++) { t += 30 * 60_000; await b.check() }
+    expect(b.unreachable()).toBe(true)
+    const n = cp.attempts
+    t += 5 * 60_000
+    b.serves()
+    await Bun.sleep(20)
+    expect(cp.attempts).toBeGreaterThan(n)
   })
 
   test('hosted-only rules kept: a hosted server never registers, even when given an address to register', async () => {

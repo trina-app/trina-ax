@@ -2,7 +2,6 @@
 // (TeamSettings.googleSignIn, Admin › Team settings) and whether this server has a Google client for it. Admin › Members'
 // label and the connectors' login_hint read login-identities.ts, which loads nothing.
 import type { Database } from 'bun:sqlite'
-import { z } from 'zod'
 import { GoogleDomain, type GoogleSignInAdminStatus, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { getSetting } from '../admin/settings'
@@ -67,8 +66,16 @@ export async function refuseClientInUse<T>(locale: Locale, fn: () => T | Promise
 /** The team's domain list (TeamSettings.googleSignInDomains): empty, every Google account. */
 export function googleSignInDomains(db: Database): string[] {
   const v = getSetting<unknown>(db, GOOGLE_SIGN_IN_DOMAINS_SETTING)
-  const p = z.array(GoogleDomain).safeParse(v)
-  return p.success ? p.data : []
+  // only the entries that are domains: one bad stored entry (validation keeps them out) never opens the list to all
+  return Array.isArray(v) ? v.filter((d): d is string => GoogleDomain.safeParse(d).success) : []
+}
+
+/** People who sign in only with Google (no password) whose Google account's `hd`, as of their last sign-in, is not on
+ * `domains`: they could not sign in any more once it is saved (Admin › Sign-in methods warns first). Empty: 0. */
+export function googleDomainLockouts(db: Database, domains: readonly string[]): number {
+  if (!domains.length) return 0
+  const rows = db.query("SELECT l.hd FROM users u JOIN login_identities l ON l.user_id = u.id AND l.provider = 'google' WHERE u.password_hash IS NULL AND u.status = 'active' AND u.deleted_at IS NULL AND u.guest = 0").all() as { hd: string | null }[]
+  return rows.filter((r) => !r.hd || !domains.includes(r.hd.toLowerCase())).length
 }
 export const GOOGLE_SIGN_IN_DOMAINS_SETTING = 'googleSignInDomains'
 

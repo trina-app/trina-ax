@@ -100,7 +100,7 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
     c.header('Cache-Control', 'no-store')
     const drive = googleDriveOf(ctx).broker
     const signin = googleSigninBrokerOf(ctx)
-    const identity = drive?.o.selfOrigin ? drive.o.identity : signin?.selfOrigin ? signin.identity : null
+    const identity = drive?.o.selfOrigin ? drive.o.identity : signin?.registersItself() ? signin.identity : null
     if (!identity) return c.json({ error: { code: 'not_found' } }, 404)
     let key: string
     try { key = identity().publicKey } catch { return c.json({ error: { code: 'unavailable' } }, 503) }

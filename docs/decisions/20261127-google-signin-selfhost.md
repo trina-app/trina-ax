@@ -31,7 +31,13 @@
   - Domain list (`TeamSettings.googleSignInDomains`, empty by default): when set, Google's `hd` claim must be on it,
     lower-cased; never the e-mail suffix (a personal Google account can carry bob@acme.com, verified, with no `hd`).
     Sign-in, connect and sign-up (setup, invite, team link) alike; a re-check only confirms the account already
-    connected and is not refused by it. A sign-in refused so is audited `google_domain`, without the address.
+    connected and is not refused by it. A sign-in refused so is audited `google_domain`, without the address. Before
+    saving, the page asks the server how many people without a password are outside the list
+    (`POST /api/admin/google-login/domains-check`, a count only) and asks "Save anyway?" when any are. A stored entry
+    that is no domain is ignored on its own (the rest of the list still holds).
+  - A self-installed server with a Google client of its own (Drive's, or `MYCEL_GOOGLE_DRIVE_CLIENT_FILE`) neither asks
+    the console nor registers there, and its key route does not answer for sign-in. While the console cannot be asked
+    at all, a self-installed server asks again within 5 minutes at most (30 when the console says no).
   - "Try it" is a connect flow of the admin's session whose `next` is `/admin/sign-in` (migration 131's CHECK allows no
     new intent): its return says which Google account answered and whether the list lets it in, and signs nobody in.
     The team switch does not stop it.

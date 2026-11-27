@@ -5,6 +5,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { DEFAULT_LIMITS } from '../../server/src/auth/rate-limit'
 import { googleClaims } from '../../server/src/auth/google-login'
+import { googleDomainAllowed, googleSignInDomains } from '../../server/src/auth/google-login-admin'
 import { googleDriveOf } from '../../server/src/integrations/google-drive/oauth'
 import { OWNER_PW, addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 
@@ -301,6 +302,26 @@ describe('the domain list (Google’s hd) and Try it (docs/decisions/20261127-go
     s = await started(await h.client().raw('POST', '/api/auth/google/start', {}))
     expect((await back(s.state, s.gsi)).headers.get('location')).toBe('/')
     await domains([])
+  })
+
+  test('a stored list with a bad entry ignores only that entry; before saving, the people it would lock out are counted', async () => {
+    h.ctx.db.query("INSERT INTO settings (key, value) VALUES ('googleSignInDomains', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(['acme.test', 'NOT A DOMAIN']))
+    expect(googleSignInDomains(h.ctx.db)).toEqual(['acme.test'])
+    expect(googleDomainAllowed(h.ctx.db, 'other.test')).toBe(false)
+    expect(googleDomainAllowed(h.ctx.db, 'acme.test')).toBe(true)
+    await domains([])
+    // two people without a password: one of acme.test, one personal (no hd); a person with a password never counts
+    const a = await addMember(h, owner, { username: 'nopw-a' }), b = await addMember(h, owner, { username: 'nopw-b' }), c = await addMember(h, owner, { username: 'haspw' })
+    for (const [m, sub, hd] of [[a, 'la', 'acme.test'], [b, 'lb', null], [c, 'lc', null]] as const) h.ctx.db.query("INSERT INTO login_identities (user_id, provider, subject, email, hd, linked_at) VALUES (?, 'google', ?, 'x@y.test', ?, ?)").run(m.id, sub, hd, new Date().toISOString())
+    h.ctx.db.query('UPDATE users SET password_hash = NULL WHERE id IN (?, ?)').run(a.id, b.id)
+    const check = (list: string[]) => owner.call('POST', '/api/admin/google-login/domains-check', { domains: list })
+    expect(await check([])).toEqual({ lockedOut: 0 })
+    expect(await check(['acme.test'])).toEqual({ lockedOut: 1 })
+    expect(await check(['other.test'])).toEqual({ lockedOut: 2 })
+    expect((await c.client.try('POST', '/api/admin/google-login/domains-check', { domains: ['acme.test'] })).status).toBe(403)
+    // nothing was saved by the check
+    expect((await owner.call('GET', '/api/admin/settings')).googleSignInDomains).toEqual([])
+    h.ctx.db.query('DELETE FROM users WHERE id IN (?, ?, ?)').run(a.id, b.id, c.id)
   })
 
   test('Try it: an admin only; the return names the Google account and the domain list’s answer, signing nobody in', async () => {
