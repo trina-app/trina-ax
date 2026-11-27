@@ -1574,7 +1574,8 @@ describe('the Home tab (Slack Marketplace: help, support, the AI-accuracy note)'
     expect(v.type).toBe('home')
     const text = JSON.stringify(v.blocks)
     expect(text).toContain('AI answers can be wrong. Check important ones before you rely on them.')
-    expect(text).toContain('/invite @trina-ax')
+    // the bot's name as Slack has it now (users.info), as everywhere the app names itself
+    expect(text).toContain(`/invite @${(h.ctx.db.query('SELECT bot_name FROM slack_config').get() as { bot_name: string }).bot_name}`)
     expect(text).toContain('Alice Kim')
     expect(text).toContain(`${h.url}/settings/connectors`)
     // the team's own app: help is the team's owner or admins (no hosting service's page)
