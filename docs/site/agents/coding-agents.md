@@ -69,4 +69,4 @@ Do not, without explicit approval: force-push, rewrite history, push or merge to
 
 ## Writing style for app strings and docs
 
-Short sentences, plain words, the same word for the same thing, in all five languages. [Read the design rules](../develop/i18n-and-design.md).
+Short sentences, plain words, the same word for the same thing, in all six languages. [Read the design rules](../develop/i18n-and-design.md).

@@ -54,7 +54,7 @@ export default {
     // the reserved name in Partner Center
     displayName: PRODUCT.displayName,
     backgroundColor: '#f6f2ea',
-    // store listings: English (default) and Korean; the app itself still has its five languages
+    // store listings: English (default) and Korean; the app itself still has its six languages
     languages: ['en-US', 'ko-KR'],
     minVersion: '10.0.17763.0',
     maxVersionTested: '10.0.26100.0',

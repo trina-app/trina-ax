@@ -96,7 +96,7 @@ from another version than the running server's. The helper applies required Land
 engine seccomp profile (a deny-list, not a measured syscall allow-list). Private namespaces
 provide signal/network separation on Landlock ABI 1–5; ABI 6 scopes are used when available.
 No broad executable/runtime/home/team-directory binds, warm workers or shared writable caches.
-The HEIC plugin allowance is the libde265 decoder and its exact dependencies only.
+The HEIC plugin allowance is the libde255 decoder and its exact dependencies only.
 
 Cancellation and timeouts kill the entire cgroup. The broker awaits exit, checks that population
 is zero, and requires removal of both the leaf and staging directory. Any failure makes the
@@ -194,7 +194,7 @@ SIGKILL on a locked OS thread; an orphan cannot continue a held operation after 
 Generated PPTX and normalized JPEG bytes are quarantined by hash. Published paths and observed
 inodes are also protected; byte-identical copies/uploads and renamed extensions remain blocked.
 There is **no automatic indexing, text extraction, AI read, thumbnail or in-app preview** of these
-files. The file panel and the Files list explain download-only status in ko/en/id/ja/es and offer no "Ask AI" or
+files. The file panel and the Files list explain download-only status in ko/en/id/ja/es/zh and offer no "Ask AI" or
 "add to chat" for them (the listing API marks them, `FileEntry.downloadOnly`). Authorized downloads retain the
 existing attachment and CSP protections. Normalized image blocks may go directly to the configured
 model provider via the guarded MCP route; they never go through legacy OCR. Downloading a file

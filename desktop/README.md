@@ -17,7 +17,7 @@ desktop/
     teams.ts               teams.json, partitions per team, fingerprints
     trust.ts               who may use the bridge (top frame of the app view, team origin only)
     file-chooser.ts        the store build's own open dialog for the team page's file input (multiple, folder, accept)
-    i18n.ts                ko / en / id / ja / es strings of the desktop's own screens
+    i18n.ts                ko / en / id / ja / es / zh strings of the desktop's own screens
     find-bar.ts            Cmd/Ctrl+F: which view the find bar searches, where it sits, its keys and count
   src/main/
     main.ts                lifecycle, mycel-ui:// protocol, IPC (sender checks), menu
@@ -102,7 +102,7 @@ of the view the keyboard is in: the team page, or the in-app browser's tab (its 
 team page or the app's own screen. It is a separate small view, so the text typed into it is never part of the page it
 searches. The menu's accelerator only gets a key the page did not take: Chromium gives a key to the page first and
 hands it to the window's menu only when the page did not call preventDefault (macOS: performKeyEquivalent from the
-unhandled-key path; Windows and Linux: the unhandled keyboard event handler). A site with its own Cmd+F (a document
+unhandled-key path; Windows and Linux: the unhandled keyboard event handler). A site with its own Cmd/Ctrl+F (a document
 editor in the in-app browser) keeps it. The team web app takes Cmd/Ctrl+F only where it opens its own search
 (web/src/lib/searchKeys.ts, docs/decisions/20261120-search-shortcuts-slack.md): in a room, a DM, a group chat or a
 thread, and on pages with no text of their own to find; in an AI chat, the file viewer and with a file or artifact

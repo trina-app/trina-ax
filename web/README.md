@@ -22,7 +22,7 @@ Layout:
 src/lib/        api client, WebSocket client (resume / backoff / ping), uploads (chunked, resumable), artifacts
                 (sandbox + CSP), markdown rules, desktop bridge, browser relay, PWA, formats
 src/store/      zustand stores: session, chats (+ pure thread reducers), jobs, live (WebSocket → stores), ui
-src/i18n/       ko (source, default) / en / id — same keys, checked by TypeScript and test/unit/i18n.test.ts
+src/i18n/       ko (source, default) / en / id / ja / es / zh — same keys, checked by TypeScript and test/unit/i18n.test.ts
 src/components/ layout, sidebar, markdown, artifact panel, file previews, composer, messages, …
 src/pages/      sign-in / setup / invite, home, chat, files, projects, settings, admin/*
 scripts/        build-vendor.ts (artifact libraries), make-icons.ts (PWA icons from favicon.svg)

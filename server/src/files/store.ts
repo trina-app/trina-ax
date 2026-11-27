@@ -258,7 +258,7 @@ export function fileEvent(db: Database, e: FileEventInput) {
   for (const fn of hooks.get(db) ?? []) fn(e)
 }
 
-/** Words of the conflict copy name per language (the web's file list recognises all five: web/src/lib/paths.ts). */
+/** Words of the conflict copy name per language (the web's file list recognises all six: web/src/lib/paths.ts). */
 // plain words (QA TC-r2u-30: "conflict copy" is a developer's word); copies made before keep their names, and the web
 // app still knows the old words (web/src/lib/paths.ts CONFLICT_RE)
 export const CONFLICT_COPY: Record<Locale, string> = { ko: '동시에 고친 사본', en: 'edited at the same time', id: 'diubah bersamaan', ja: "同時に編集したコピー", es: "editado a la vez", zh: '同时修改的副本' }

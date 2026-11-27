@@ -1,6 +1,6 @@
 // Settings > Apps: the steps of installing the app, each with a small picture of the screen and the place to tap or
 // click: a phone's home screen (iPhone, Android) and a computer (Chrome or Edge from the address bar, Safari on a Mac
-// from File → Add to Dock). The pictures are drawn with HTML so their words follow the five languages and their colours
+// from File → Add to Dock). The pictures are drawn with HTML so their words follow the six languages and their colours
 // follow the theme; they repeat what the caption says, so screen readers skip them. They show this team's own address
 // and the product's icon in the tab, the page and as the installed app's icon, as the real ones are (a team logo shows
 // only at the top of the computer's rail; docs/DECISIONS.md "Team logo as the tab icon", changed 2026-11-07). iOS 26:
