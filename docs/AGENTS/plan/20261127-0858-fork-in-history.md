@@ -27,10 +27,10 @@ the title "<제목> (이어서)", "목록에서 따로 두기" makes a chat stan
 
 | Product | What the list shows | Source | Verified? |
 |---|---|---|---|
-| Claude desktop, Code tab | Forks are **nested under the session they came from** in the sidebar; a fork's title is "<title> (fork)"; the row menu has "Detach to top level" (cannot be undone); a nested session started by Claude also "appears under the original session in the sidebar". | Changelog: "nested sessions … appear under the original session in the sidebar" ([claude.com/docs/cowork/changelog](https://claude.com/docs/cowork/changelog)); Desktop docs: "the sidebar lists the started session under the current session" ([code.claude.com/docs/en/desktop](https://code.claude.com/docs/en/desktop)); user reports [#108542](https://github.com/anthropics/claude-code/issues/108542) ("nested under their parent in the sidebar ("<title> (fork)")", "Detach to top level"), [#109616](https://github.com/anthropics/claude-code/issues/109616) | Nesting of started sessions: **official docs**. Nesting of forks, the "(fork)" title, "Detach to top level": **user reports** (Oct–Nov 2026) plus the team's own look at the app on 2026-11-26; not in Anthropic's docs. |
-| Claude desktop, what users dislike about it | (1) "a fork I'm actively using stays buried under an old parent session instead of appearing at the top of the list", "Sort by recency no longer reflects what I worked on last" ([#100216](https://github.com/anthropics/claude-code/issues/100216)); (2) pinning a chat also shows its forks in Pinned ([#106380](https://github.com/anthropics/claude-code/issues/106380)); (3) a session whose parent was archived floats at the top level, so related sessions sit in two places; nesting came with no notice ([#102129](https://github.com/anthropics/claude-code/issues/102129)). | GitHub issues | **User reports**. They imply the tree sits at the parent's place, not at the newest fork's; assumed, not seen by us. |
+| Claude desktop, Code tab | Forks are **nested under the session they came from** in the sidebar; a fork's title is "<title> (fork)"; the row menu has "Detach to top level" (cannot be undone); a nested session started by Claude also "appears under the original session in the sidebar". | Changelog: "nested sessions … appear under the original session in the sidebar" ([claude.com/docs/cowork/changelog](https://claude.com/docs/cowork/changelog)); Desktop docs: "the sidebar lists the started session under the current session" ([code.claude.com/docs/en/desktop](https://code.claude.com/docs/en/desktop)); user reports [#108542](https://github.com/anthropics/claude-code/issues/108542) ("nested under their parent in the sidebar ("<title> (fork)")", "Detach to top level"), [#109616](https://github.com/anthropics/claude-code/issues/109616) | Nesting of started sessions: **official docs, confirmed 11-27** (changelog v2.42304.0 and v3.1623.0: "appears under the original session in the sidebar and reports back to it"; Desktop docs: "the sidebar lists the started session under the current session"). Nesting of forks, the "(fork)" title, "Detach to top level": **user reports, confirmed 11-27** (#108542 open, #109616 closed) plus the team's own look at the app on 2026-11-26; not in Anthropic's docs. Neither source says how children are ordered. |
+| Claude desktop, what users dislike about it | (1) "a fork I'm actively using stays buried under an old parent session instead of appearing at the top of the list", "Sort by recency no longer reflects what I worked on last" ([#100216](https://github.com/anthropics/claude-code/issues/100216)); (2) pinning a chat also shows its forks in Pinned ([#106380](https://github.com/anthropics/claude-code/issues/106380)); (3) a session whose parent was archived floats at the top level, so related sessions sit in two places; nesting came with no notice ([#102129](https://github.com/anthropics/claude-code/issues/102129)). | GitHub issues | **User reports, confirmed 11-27** (all three open). #100216 also says "nested forks are ordered inside their parent", so the tree sits at the parent's place, not at the newest fork's; read from the report, not seen by us. |
 | claude.ai (chat) | Editing a message makes another version **inside the same chat** (arrows under the message); no new chat, nothing in the list. | Third-party descriptions only (e.g. [claudetopdf.vercel.app](https://claudetopdf.vercel.app/branch-conversations-in-claude)); no support.claude.com page found | **Assumed** (widely known, no official page found). Not the same feature as ours. |
-| ChatGPT, "Branch in new chat" | Under a reply, ⋯ → "Branch in new chat". The branch is a **separate, flat chat** in the history, **not nested**; its title starts with "Branch"; inside, a line marks where it branched. | OpenAI support replies pointing at the [release notes](https://help.openai.com/en/articles/6825453-chatgpt-release-notes) ([community thread](https://community.openai.com/t/branching-conversations-for-long-term-learning-and-projects/1385388)); press: [BGR](https://bgr.com/1959993/chatgpt-branch-conversations-new-feature-now-available), [Tom's Guide](https://www.tomsguide.com/ai/chatgpt-just-quietly-rolled-out-a-game-changing-upgrade-heres-why-im-already-obsessed-with-it) | Feature name and "separate chats, not nested": **press and OpenAI support replies**; the release-note text itself was not read (page too long to fetch). |
+| ChatGPT, "Branch in new chat" | Under a reply, ⋯ → "Branch in new chat". The branch is a **separate, flat chat** in the history, **not nested**; its title starts with "Branch"; inside, a line marks where it branched. | OpenAI support replies pointing at the [release notes](https://help.openai.com/en/articles/6825453-chatgpt-release-notes) ([community thread](https://community.openai.com/t/branching-conversations-for-long-term-learning-and-projects/1385388)); press: [BGR](https://bgr.com/1959993/chatgpt-branch-conversations-new-feature-now-available), [Tom's Guide](https://www.tomsguide.com/ai/chatgpt-just-quietly-rolled-out-a-game-changing-upgrade-heres-why-im-already-obsessed-with-it) | Feature name, "separate chat in the history, not nested", the "Branch" title and the line where it branched: **press, confirmed 11-27** (BGR); the release-note text itself was not read (page too long to fetch). |
 | Cursor | "Fork Chat" (was "Duplicate Chat", renamed in 2.5) "copies the parent conversation into a new chat"; side chats are "durable child conversations attached to a parent agent". | [cursor.com/help/ai-features/side-chats](https://cursor.com/help/ai-features/side-chats), [forum](https://forum.cursor.com/t/docs-contradict-each-other-on-what-fork-chat-copies-3-17-19/169458) | What a fork is: **official help page**. How a fork shows in the list or tabs: **not documented**, not checked. |
 
 What we take from it: the owner wants the Claude look (a continuation visibly under its original). ChatGPT shows that a
@@ -55,12 +55,14 @@ today, and an unrelated "회의록 정리" used today, newer.
   고객 메일 답장
 ```
 
-- The original comes up to 오늘 with the continuation, which sits right under it with a faint guide line ("└", "├" when
-  more follow). A tree sits where its most recently used chat would sit.
+- The original comes up to 오늘 with the continuation, which sits right under it, indented, with a faint "└" in front. A tree sits where its most recently used chat would sit.
 - Findability: best. The chat I just used is near the top, and its origin is right above it.
 - Clutter: one connector per row, no badge, no text.
 - Order surprise: the original appears in 오늘 though I did not touch it today. The connector explains why. This is the
-  reverse of the 11-26 "nothing moves an older chat up" rule, and it is what fixes Claude's complaint #100216.
+  reverse of the 11-26 "nothing moves an older chat up" rule, and it is what fixes Claude's complaint #100216. The
+  11-26 decision chose against exactly this ("the group at its newest row", because old chats jumped up), so it needs
+  the owner's explicit OK (open decision 4), not a silent change. What jumps is small: only a chat that has a
+  continuation, and only when that continuation is used; using any other chat moves nothing else.
 - Non-developers: reads like a file tree or an email thread; the title's "(이어서)" says it in words too.
 
 ### B. Flat list; each continuation has a small "← 원래 제목" line
@@ -106,13 +108,39 @@ history:                         inside "보고서 초안":
 
 One rule everywhere a list shows my history: **a continuation sits right under the nearest chat it came from that is a
 row of the same list; the whole tree sits at the place of its newest chat by the list's sort; one level; nothing
-folds.** Rows inside a tree: the original first, then its continuations newest first. A continuation of a continuation
-sits at the same level, under the first chat.
+folds.** Rows inside a tree: the original first, then its continuations in the list's own sort (newest first by
+default, as every other row of the list; by title with Sort by: Title). Claude's order inside a parent is not
+documented, so there is nothing to copy there; the list's own sort keeps the continuation just used right under its
+original. A continuation of a continuation sits at the same level, under the first chat.
 
-The look: indent 28 px (the continuation's title starts under the original's title plus one step), a 1 px guide line in
-the line colour (`--color-line`, light and dark) from the original down to each continuation, "├" for a middle row and
-"└" for the last. The row's hover and selected background start at the indent. Nothing else: no badge, no count, no
-arrow. On a phone (390) the same 28 px.
+The look: indent 28 px (the continuation's title starts under the original's title plus one step) and one small elbow
+("└", 1 px, `--color-line`, light and dark) in front of each continuation, drawn by a pseudo-element of `.tree-row`
+(`inset-inline-start`, not `left`). The same elbow on every continuation: no "├" / "└" split, no rail between rows, no
+last-row mark. The row's hover and selected background start at the indent (as `.tree-row` does today). Nothing else:
+no badge, no count, no arrow. On a phone (390) the same 28 px. A screen reader hears the title with "(이어서)", which
+says it in words; no tree roles.
+
+The whole panel with A (the original "보고서 초안" was last used 3 days ago; "견적 비교" has two continuations, one renamed;
+"월간 리포트" is pinned, so its continuation stands alone):
+
+```
+트리나 기록
+고정됨
+  📌 월간 리포트
+오늘
+  회의록 정리
+  보고서 초안                    ← 3일 전 채팅, 이어 한 채팅과 함께 올라옴
+  └ 보고서 초안 (이어서)
+  월간 리포트 (이어서)           ← 원래 채팅이 고정돼 있어 혼자 섬
+어제
+  견적 비교
+  └ 견적 비교 (이어서)
+  └ 견적 B안 정리               ← 이름을 바꾼 이어 한 채팅 (이어서의 이어서도 같은 줄)
+이번 주
+  고객 메일 답장
+```
+
+(The "←" notes are for this plan only; the screen shows no text beside the rows.)
 
 | Surface | What the person sees |
 |---|---|
@@ -123,8 +151,11 @@ arrow. On a phone (390) the same 28 px.
 | Pinned | Flat: a pin is one chat. A pinned original is only in Pinned; its continuations stand alone in the history. A pinned continuation is only in Pinned; the original stays in the history alone. (Avoids Claude's #106380.) |
 | Chats panel (대화) | Not affected: it lists rooms, 1:1 and group chats, not AI chats. A room's side chat (✦) cannot be continued. |
 | Search (⌘K) | Flat, on purpose: results are ranked by match, a tree would reorder them. The "(이어서)" title is enough. "최근" (no text typed) stays flat too (8 rows by last activity). |
-| A project's chat list (project page) | The same tree for my chats (others' chats never carry `forkParents`), pinned rows first and flat, then the rows with trees at their newest chat's place. Today it is flat. |
+| A project's chat list (project page) | The same tree for my chats, pinned rows first and flat, then the rows with trees at their newest chat's place. Today it is flat. Only my own continuations carry `forkParents`, but one may sit under a team chat someone else made (the "나만 보는 새 채팅에서 이어 하기" case): that nesting is drawn for me alone; the others see the shared chat as before and never my continuation. The rows here are `ProjectChatRow` in a `divide-y` list, not `ChatItem`: the tree needs its own indent there, and no divider between an original and its continuations (the divider of a continuation starts at the indent). |
 | 삭제한 기록 (trash) | Flat (a list of deleted chats, each restored on its own). |
+| A room's side panel (✦) list | Not affected: a side chat cannot be continued (server `fork_not_here`), so no row there has `forkParents`. |
+| Inside the chat (the top line and the line under the box) | Unchanged: the continuation already says "‘제목’에서 이어 왔어요" with a link (ChatEvents `ForkedFromLine`, WhoSees `ForkWho`). The original gets no "이어 한 채팅" line (option C is not built). |
+| Notices, unread marks, links, hover peek | Not affected: a continuation is mine alone, nobody is told (fork.ts), `/c/<id>` links and the peek do not read the tree. A session marker shows on the row it belongs to, inside the tree as anywhere. |
 
 The decision file `docs/decisions/20261126-chat-fork-tree.md` gets a successor (a new file, as docs/decisions/README.md
 says) that replaces its "Order: every chat keeps its own place" and "same date group" parts and the project-page part of
@@ -145,30 +176,56 @@ says) that replaces its "Order: every chat keeps its own place" and "same date g
 - **Different sections:** a tree only within one section; moving a chat into a section moves that chat only.
 - **Very old original** (beyond the pages loaded so far): see open decision 3. Without it, the continuation stands
   alone until "더 보기" brings the original, and then the tree jumps together.
+- **Two continuations with one title:** a continuation of a continuation keeps the one "(이어서)" (fork.ts), so two rows
+  under one original can read the same, "보고서 초안 (이어서)". The newer one is on top and a rename tells them apart;
+  no new mark for it (lean).
 - **"목록에서 따로 두기":** the continuation leaves the tree for good and sits by its own activity; its in-chat line stays.
 - **Filters** (Waiting, Last activity, Status): only rows the filter shows count; a filtered-out original hands its
   continuations up.
 
 ## Open decisions (one recommendation each)
 
-1. **A new continuation of a chat in one of my sections: where does it start?** Today `fork.ts` does not copy the
+1. **A new continuation of a chat in one of my sections: where does it start?** Today `fork.ts` does not add it to a
    section, so it lands outside and cannot nest. **Recommend: in the same section** (it then shows under its original,
-   and the person can move it out as any chat).
+   and the person can move it out as any chat). How: a section is a row of `nav_folder_items` (user, folder, chat),
+   not a column of `chats`; in the fork's transaction, when the original is in one of *my* sections, add the
+   continuation's row there (the same insert as nav-folders.ts adding a chat). A full section (`NAV_FOLDER_ITEMS_MAX`):
+   the continuation starts outside; the fork never fails for it. Moving the original into a section later moves it
+   alone (the rule of sections), so this applies only at creation.
 2. **Trees under Group by: Project?** **Recommend: not now** (flat, the "(이어서)" title). Group by Project is chosen by
    hand and is capped at three rows per project; a tree there needs its own cap rules. Revisit if people use it.
-3. **An original older than the loaded pages.** **Recommend: the client reads the missing originals by id** (at most
-   the first ancestor per continuation on screen, one batched read) so the tree is whole on first sight. Alternative:
-   accept the jump after "더 보기" (no server change). This is the only part that may touch the API.
-4. **The original lifted into 오늘 although not used today.** **Recommend: accept it** (the connector explains it; it is
-   the Claude look the owner asked for, minus #100216's burying). No "last used" time on the original's row.
+3. **An original older than the loaded pages** (the history reads 50 chats a page, newest first: store/chats.ts
+   `PAGE`). **Recommend: one batched read of the missing originals**, so the rule "under its original while the
+   original is in my list" has no exception. How, and why it is safe:
+   - an optional `ids` on `GET /api/chats` (at most 50, the history list only: not with q, projectId, folderId, trash,
+     other, unread), added as `id IN (…)` to the history list's own rule (routes/chats.ts: `historyWhere` plus the
+     per-row `visible()`). It answers only chats that a later page of the same list would bring anyway: never a deleted,
+     hidden ("Hide from my list"), no-longer-mine chat, nor a shared chat I never wrote in. **Never `GET /api/chats/:id`
+     per id**: that one answers a hidden chat and a shared chat that is not in my list, which would put them in the
+     history.
+   - The client sends, after each page, the `forkParents` of the rows on screen that are not loaded (all of them, up to
+     8 per row, nearest first: when the nearest is hidden or deleted the next one is the tree's top), deduplicated, one
+     call. `forkParents` already holds only my own chats plus the one shared chat a continuation came from, ids only, so
+     nothing about a chat I cannot open is shown.
+   - Cost: one indexed read per page, usually with no ids at all (no call then). The rows come into the store as
+     a page's rows do; the at-rest list's "more" check (TrinaList `loadMoreShown`) must count only rows the paging brought,
+     or it would take these for a new page.
+   - Version impact becomes minor (a new optional query field; an older server refuses or ignores it, and the client goes on without it).
+   Alternative: accept that such a continuation stands alone until "더 보기" brings its original (no server change).
+4. **The original lifted into 오늘 although not used today.** This reverses the 11-26 choice (see option A).
+   **Recommend: accept it** (the elbow explains it; it is the Claude look the owner asked for, minus #100216's burying).
+   No "last used" time on the original's row.
 
 ## Steps (after the owner picks)
 
 1. Decision file `docs/decisions/<date>-fork-in-history.md` superseding the date and order parts of 20261126-chat-fork-tree.md.
-2. `lib/forkTree.ts`: nest across date groups; the tree's place and group = its newest row's; `[data-tree-last]`.
-3. DateGroups: group a tree by its top row's computed group. Project page: trees for the unpinned rows.
-4. index.css `.tree-row`: 28 px indent, guide line and "├/└" connector (pseudo-elements, `--color-line`).
-5. Open decision 1 (server `fork.ts` copies `folder_id`) and 3 if chosen.
+2. `lib/forkTree.ts`: nest across date groups; the tree's place and group = its first row in the list's order (its
+   newest by the sort); continuations in the list's order. Today a tree sits at its original's index: that changes.
+3. DateGroups: group a tree by its place's group. Project page: `forkRows` for the unpinned rows and the indent on
+   `ProjectChatRow` (no divider between an original and its continuations).
+4. index.css `.tree-row`: 28 px indent (`margin-inline-start`) and one "└" elbow (a pseudo-element, `--color-line`).
+5. Open decision 1 (server `fork.ts` adds the `nav_folder_items` row) and 3 if chosen (`ids` on listChats, the
+   client's one read after a page).
 6. `changes/fork-in-history.md`.
 
 ## Risks
@@ -181,6 +238,8 @@ says) that replaces its "Order: every chat keeps its own place" and "same date g
 
 - `web/test/unit/fork-tree.test.ts`: cross-date nesting, the tree's place and group at its newest row, pins flat,
   sections, a missing original, title sort.
+- Server (if decisions 1 and 3): a continuation lands in my section of the original, a full section leaves it outside;
+  `ids` never answers a deleted, hidden, another person's or not-in-my-list chat (one test each).
 - e2e `web/test/e2e/chat-fork-tree.spec.ts`: an original from yesterday continued today shows in 오늘 with the
   continuation indented under it; screenshots 1440 and 390, light and dark; the project page tree.
 - `bun run typecheck`, `check:prepush`, `check:i18n`, `check:docs`, web unit, history e2e under Bun 1.3.12.
