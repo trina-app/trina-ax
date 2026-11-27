@@ -253,7 +253,9 @@ export class FileList implements VirtualFiles {
     try {
       const root = this.ctx.files.fx.root
       const units = new Units(this.rules().boundaryFolders())
-      for (const m of e.moves ?? []) {
+      // one commit for the whole move: a folder with tens of thousands of listed files was as many commits in a row,
+      // minutes in the move request on a slow disk
+      this.store.tx(() => { for (const m of e.moves ?? []) {
         for (const ent of this.store.under(m.from)) {
           const to = m.to + ent.path.slice(m.from.length)
           const toSegs = segsOf(to)
@@ -269,8 +271,8 @@ export class FileList implements VirtualFiles {
             }
           })
         }
-      }
-      for (const p of e.paths ?? []) for (const ent of this.store.under(p)) if (!lstatFile(path.join(root, ...segsOf(ent.path)))) this.store.delete(ent.path)
+      } })
+      this.store.tx(() => { for (const p of e.paths ?? []) for (const ent of this.store.under(p)) if (!lstatFile(path.join(root, ...segsOf(ent.path)))) this.store.delete(ent.path) })
     } catch (err) { this.ctx.log.error('file list: following a move failed', { err }) }
   }
 
@@ -520,7 +522,9 @@ export class FileList implements VirtualFiles {
     let n = 0
     for (const [rel, f] of [...cur].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
       signal.throwIfAborted()
-      if (++n % 100 === 0) { o.renew?.(); if (o.deadline != null && this.now().getTime() >= o.deadline) break }
+      // a pause every 100 files: kept files never wait for anything, and a rule added at the top of a big tree turns
+      // every row into a write, so without it the loop held the server (and its health answer) for minutes
+      if (++n % 100 === 0) { o.renew?.(); if (o.deadline != null && this.now().getTime() >= o.deadline) break; await sleep(0) }
       const e = old.get(rel)
       if (e && e.size === f.size && e.mtimeMs === f.mtimeMs) {
         // its unit changed (a rule added or taken away above it): read again in the unit it is in now
