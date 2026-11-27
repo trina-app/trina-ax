@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-27 04:59
 - Branch: `ui/rail-selected-block`
-- Status: in progress
+- Status: done
 - Where: web/src/components/rail/Rail.tsx, web/test/unit/rail-badges.test.tsx (if it asserts classes)
 - Version impact: patch, a look-only change of one component, no behaviour or data.
 
@@ -27,4 +27,4 @@ RailColumns.tsx only hosts Rail; no other place uses the rail item pattern.
 
 ## Result
 
-(filled in at the end)
+The link carries the background (`bg-hover` selected, `hover:bg-hover`), `px-1 py-1.5`; the list's side padding went from 1.5 to 1 so the name keeps its width (ja ファイル stayed one line). Rail width unchanged. Screenshots: scratchpad rail-sel/before and after. The phone has no rail (bottom tabs), so 390 shows it unchanged.
