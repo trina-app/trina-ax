@@ -5,6 +5,19 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+## 0.20.1 — 2026-11-27
+
+- Admin notes: 0.20.1 changes root files (`mycel-bootstrap`, `mycel-launcher` and `mycel-ctl`: the supervisor watchdog, the AI-only restart, and the watchdog line in `mycel-ctl status`), so every Linux server takes it through the root update: the update timer installs it in the team's update window, or run `sudo mycel-ctl update`. The system package list is unchanged. There is no new migration and the reader level stays 9: going back to 0.20.0 needs no backup. The watchdog only writes to the log until `server.json` has `"watchdog": {"kill": true}`. The restore fix is in `mycel-enroll` (the new hosted team image) and in the server.
+
+- In the desktop app, Trina can now attach team files, or files sent in the chat, to a page in its browser where you are signed in, for example a reply in your web mail: ask "attach the two quotes and the business registration". They go into the page's file field as if you picked them (up to 20 files and 100 MB at a time) and you see them there; the page's own Send button still sends, after your OK. Older desktop apps say to update first.
+- Restoring a hosted team server from its off-site backup works when the backup has more than one part. It stopped with "builds on …, not on …": the backups were named by two kinds of id.
+- Self-hosted servers: the supervisor now notices a server that runs but stops answering (no answer for about 5 minutes after it had answered). For now it only writes this to the log; `"watchdog": {"kill": true}` in `server.json` makes it restart the server, at most 3 times an hour, and `mycel-ctl status` says when it gave up.
+- The AI launcher can be restarted on its own (for Admin › System › Health "AI only"), without restarting the app.
+- Admin › System › Health has a **Restart…** row for owners and admins: restart the AI only (when answers don't come) or the whole app (when the screen freezes), when the running answers finish (at most 10 minutes; it shows how many, never whose) or, for the owner, right away. While it waits you can restart now or call it off. It is refused during an update, a backup or a prepared restore, and after 5 restarts in an hour; each restart is in the Activity log.
+- Office Mac: the supervisor notices a server that stops answering for about 5 minutes. It only logs it for now; `TEAMAX_WATCHDOG_KILL=1` in `config/office.env` makes it restart the server (at most 3 times an hour).
+- In a shared chat or a team project chat, Trina now does everything it does in a chat only you see: it names the chat, moves or renames skills, puts team files in the trash, changes a project's members or who can open a folder (each on its usual card), reads your team chat rooms, files teammates shared with you, what you have open, your folders, your Google Drive and Slack, and connects a new service. When it would bring in something some people in the chat can't open, it asks you first; Google Drive and Slack show the same one-time notice as your other connections. Before, Trina said these were not available and sent you to a private chat.
+- A file you attached before a chat was shared can be attached again there.
+
 ## 0.20.0 — 2026-11-27
 
 - Admin notes: 0.20.0 is an app update. No root file and no system package changed since 0.19.0, so a Linux server on 0.19.0 or newer installs it by itself in its update window (a server older than 0.19.0 takes 0.19.0's root update with it). The new migrations (456-463, 703) only add columns and tables; 457 marks old project-chat notices as read. The reader level stays 9: going back to 0.19.2 needs no backup. Model and depth choice: new teams let everyone pick; existing teams keep their setting, and an admin can turn it on in Admin › AI providers.
