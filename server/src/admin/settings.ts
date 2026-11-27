@@ -66,6 +66,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   /** Sign in with Google (auth/google-login.ts): on unless an owner or admin turns it off; it works only where this
    * server has a Google client */
   googleSignIn: true,
+  /** every Google account (auth/google-login-admin.ts googleDomainAllowed) until an admin lists Workspace domains */
+  googleSignInDomains: [],
 }
 
 const FIELDS = Object.keys(TeamSettings.shape) as (keyof TeamSettingsT)[]
@@ -133,6 +135,8 @@ export function updateTeamSettings(db: Database, patch: Partial<TeamSettingsT>):
     patch = { ...patch, aiMediaTranscripts: null }
   // team picks: known ids only, each once (shared/src/api/team-tools.ts)
   if (patch.recommendedTools) patch = { ...patch, recommendedTools: cleanRecommended(patch.recommendedTools) }
+  // Google sign-in's domains: each once
+  if (patch.googleSignInDomains) patch = { ...patch, googleSignInDomains: [...new Set(patch.googleSignInDomains)] }
   db.transaction(() => {
     for (const [k, v] of Object.entries(patch)) if (v !== undefined && (FIELDS as string[]).includes(k)) setSetting(db, k, v)
     if (patch.defaultLocale !== undefined) syncFollowingLocales(db)

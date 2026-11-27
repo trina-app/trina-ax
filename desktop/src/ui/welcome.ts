@@ -47,8 +47,19 @@ function takeState(s: WelcomeState) {
   }
 }
 
+/**
+ * The keyboard to a control the app picked itself (the first run's Create row), without the focus ring: the person did
+ * not press a key, so a thick ring would only hide the row's own outline. Tab or an arrow key from there shows the ring
+ * as usual (:focus-visible follows the next key press).
+ */
+function quietFocus(el: HTMLElement | null) {
+  el?.focus({ focusVisible: false } as FocusOptions)
+}
+
 function render() {
   const focused = document.activeElement?.id
+  // a ring stays a ring after the redraw, and no ring stays no ring (a redraw is not a key press)
+  const ring = document.activeElement?.matches(':focus-visible') ?? false
   root.replaceChildren(
     state.link ? linkAsk(state.link)
     : state.mode === 'offline' && state.offline ? offline()
@@ -57,7 +68,7 @@ function render() {
     : view === 'join' || !rows() ? (state.offer === 'checking' && view !== 'join' ? checking() : welcome())
     : start(),
   )
-  if (focused) document.getElementById(focused)?.focus()
+  if (focused) document.getElementById(focused)?.focus({ focusVisible: ring } as FocusOptions)
 }
 
 function show(next: typeof view) {
@@ -259,27 +270,41 @@ function checking() {
 }
 
 /**
- * S0: the remembered teams first (opening one is the usual thing here), then two full-width rows, "Create a team for
- * free" (the one primary) and "Join with an invite link" (S1, the box), and the small demo link.
+ * one of S0's actions: a list row with its own voice, so it never reads as one more team: a bare line icon (Create's
+ * "+" keeps the accent tile, the screen's one accent), a 14px title, a faint chevron at the right (the demo opens
+ * outside: an arrow). `lead`: the first run's Create, outlined (nothing above it to open). `quiet`: the demo, muted.
+ */
+function actionRow(o: { id: string; icon: 'plus' | 'link' | 'compass'; title: string; sub?: string; lead?: boolean; quiet?: boolean; out?: boolean; onclick: () => void }) {
+  return h(
+    'button',
+    { type: 'button', class: `action-row icon-${o.icon}${o.lead ? ' lead' : ''}${o.quiet ? ' quiet' : ''}`, id: o.id, 'data-testid': o.id, onclick: o.onclick },
+    h('span', { class: 'tile', 'aria-hidden': 'true' }, glyph(o.icon)),
+    h('span', { class: 'words' }, h('span', { class: 'name' }, o.title), o.sub ? h('span', { class: 'sub-line' }, o.sub) : null),
+    h('span', { class: 'go', 'aria-hidden': 'true' }, glyph(o.out ? 'external' : 'chevron')),
+  )
+}
+
+/**
+ * S0: the remembered teams first (opening one is the usual thing here), then, under a hairline, the actions as one
+ * short list: "Create a team for free" (its "+" tile is the screen's one accent), "Join with an invite link" (S1, the
+ * box) and "Just look around first" (the demo, muted), then the foot line (Back, the language). On the first run Create
+ * leads (outlined, with its short line); with teams listed the short line is left out
+ * (docs/AGENTS/plan/20261127-1053-team-picker-polish-2.md, after docs/AGENTS/plan/20261127-1028-team-picker-actions-redesign.md).
  */
 function start() {
+  const first = !state.teams.length
   return h(
     'section',
-    { class: 'card', 'aria-labelledby': state.teams.length ? 'teams-title' : 'start-title', 'data-testid': 'start' },
+    { class: 'card', 'aria-labelledby': first ? 'start-title' : 'teams-title', 'data-testid': 'start' },
     h('div', { class: 'brand' }, tr('app.name')),
-    state.teams.length ? teamList() : h('h1', { id: 'start-title' }, tr('start.title')),
+    first ? h('h1', { id: 'start-title' }, tr('start.title')) : teamList(),
     h(
       'div',
-      { class: 'choices' },
-      h(
-        'button',
-        { type: 'button', class: 'choice primary', id: 'create-team', 'data-testid': 'create-team', onclick: () => ui.create.start() },
-        h('span', { class: 'choice-title' }, tr('start.create')),
-        h('span', { class: 'choice-sub' }, tr('start.createSub')),
-      ),
-      h('button', { type: 'button', class: 'choice', id: 'join-team', 'data-testid': 'join-team', onclick: () => show('join') }, h('span', { class: 'choice-title' }, tr('start.join'))),
+      { class: first ? 'action-rows' : 'action-rows after-teams' },
+      actionRow({ id: 'create-team', icon: 'plus', title: tr('start.create'), sub: first ? tr('start.createSub') : undefined, lead: first, onclick: () => ui.create.start() }),
+      actionRow({ id: 'join-team', icon: 'link', title: tr('start.join'), onclick: () => show('join') }),
+      actionRow({ id: 'demo', icon: 'compass', title: tr('start.demo'), quiet: true, out: true, onclick: () => ui.welcome.openLink('demo') }),
     ),
-    h('div', { class: 'help-links' }, demoLink()),
     footLine(),
   )
 }
@@ -393,19 +418,29 @@ function languagePicker() {
     { id: 'ui-locale', 'data-testid': 'ui-locale', onchange: (e: Event) => ui.setLocale((e.target as HTMLSelectElement).value as typeof locale) },
     ...UI_LOCALES.map((l) => h('option', { value: l.id, lang: l.id, selected: l.id === locale }, l.label)),
   )
-  return h('label', { class: 'language', for: 'ui-locale' }, tr('welcome.language'), select)
+  // compact: a globe (read in any language) and the select; the word "Language" is its name for screen readers
+  return h('label', { class: 'language', for: 'ui-locale', title: tr('welcome.language') }, glyph('globe', 14), h('span', { class: 'sr-only' }, tr('welcome.language')), select)
 }
 
 /** a team's address as people read it: without "https://" */
 const shortOrigin = (origin: string) => origin.replace(/^https?:\/\//, '')
 
 const SVG = 'http://www.w3.org/2000/svg'
-/** a small line icon (lucide's check, ellipsis), drawn in the text colour */
-function glyph(kind: 'check' | 'more') {
+/** small line icons (lucide's check, ellipsis, plus, link, globe, compass, chevron-right, arrow-up-right), drawn in the text colour */
+const GLYPHS: Record<'check' | 'more' | 'plus' | 'link' | 'globe' | 'compass' | 'chevron' | 'external', [string, Record<string, string>][]> = {
+  check: [['path', { d: 'M20 6 9 17l-5-5' }]],
+  more: [['circle', { cx: '5', cy: '12', r: '1' }], ['circle', { cx: '12', cy: '12', r: '1' }], ['circle', { cx: '19', cy: '12', r: '1' }]],
+  plus: [['path', { d: 'M5 12h14' }], ['path', { d: 'M12 5v14' }]],
+  link: [['path', { d: 'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71' }], ['path', { d: 'M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71' }]],
+  globe: [['circle', { cx: '12', cy: '12', r: '10' }], ['path', { d: 'M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20' }], ['path', { d: 'M2 12h20' }]],
+  compass: [['circle', { cx: '12', cy: '12', r: '10' }], ['path', { d: 'm16.24 7.76-2.12 6.36-6.36 2.12 2.12-6.36z' }]],
+  chevron: [['path', { d: 'm9 18 6-6-6-6' }]],
+  external: [['path', { d: 'M7 7h10v10' }], ['path', { d: 'M7 17 17 7' }]],
+}
+function glyph(kind: keyof typeof GLYPHS, size = 16) {
   const svg = document.createElementNS(SVG, 'svg')
-  for (const [k, v] of Object.entries({ viewBox: '0 0 24 24', width: '16', height: '16', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' })) svg.setAttribute(k, v)
-  const parts = kind === 'check' ? [['path', { d: 'M20 6 9 17l-5-5' }]] : [['circle', { cx: '5', cy: '12', r: '1' }], ['circle', { cx: '12', cy: '12', r: '1' }], ['circle', { cx: '19', cy: '12', r: '1' }]]
-  for (const [tag, attrs] of parts as [string, Record<string, string>][]) {
+  for (const [k, v] of Object.entries({ viewBox: '0 0 24 24', width: String(size), height: String(size), fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' })) svg.setAttribute(k, v)
+  for (const [tag, attrs] of GLYPHS[kind]) {
     const el = document.createElementNS(SVG, tag)
     for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v)
     svg.append(el)
@@ -427,7 +462,8 @@ addEventListener('mousedown', (e) => {
 
 /**
  * The remembered teams, as a workspace switcher: one row per team (its initial, its name, its address small under it),
- * the whole row opens the team and every other team shows an outlined "열기"; the open one has a quiet check and
+ * the whole row opens the team and every other team shows an outlined "열기" on hover or keyboard focus (always on a
+ * touch screen); the open one has a quiet check and
  * "지금 사용 중" (a click on it goes back to it);
  * "목록에서 지우기" is in the row's "···" menu. The rows take the web app's list row (web/src/components/list/List.tsx
  * ListRow: 15px name, 13px faint meta, 8px rounded hover fill).
@@ -583,7 +619,7 @@ ui.welcome.onState((s) => {
   // a create screen came or changed: the keyboard goes to its first control
   if (s.create && createKey(s.create) !== screen) focusCreate(s.create)
   // S0's rows appeared after the console answered: the keyboard to "Create a team for free" when nothing has it
-  else if (offerBefore === 'checking' && rows() && !creating() && view === 'start' && !state.teams.length && document.activeElement === document.body) document.getElementById('create-team')?.focus()
+  else if (offerBefore === 'checking' && rows() && !creating() && view === 'start' && !state.teams.length && document.activeElement === document.body) quietFocus(document.getElementById('create-team'))
   else if (offerBefore === 'checking' && !rows() && !creating() && !state.teams.length && document.activeElement === document.body) document.getElementById('address')?.focus()
   // ④ appeared: the safe answer has the focus
   if (asked) document.getElementById('link-cancel')?.focus()
@@ -594,6 +630,9 @@ void ui.welcome.state().then((s) => {
   // no saved team: the box (or S0's create row), ready to use. Saved teams: nothing is focused (no ring on a row the
   // person did not pick); Tab reaches the first row
   if (creating()) focusCreate(state.create!)
-  else if (!state.teams.length) document.getElementById(rows() && view === 'start' ? 'create-team' : 'address')?.focus()
+  else if (!state.teams.length) {
+    if (rows() && view === 'start') quietFocus(document.getElementById('create-team'))
+    else document.getElementById('address')?.focus()
+  }
 })
 render()
