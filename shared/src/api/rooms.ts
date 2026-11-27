@@ -43,6 +43,22 @@ import { Attachment, Project, UserRef } from './entities'
 import { RoomAlertSettings, RoomNotifyLevel } from './room-alerts'
 import { RoomAppCard, RoomAppRef } from './room-apps'
 
+/** Who wrote a relayed Slack message (RoomMessage.slackAuthor): the Slack name, the picture's address on this server
+ * (slackRelayAvatar; absent: none), `external` a person of another organization in a Slack Connect channel or another
+ * app, `bot` an app's message, `permalink` the message in Slack ("Open in Slack"), `threadElsewhere` a reply in a Slack
+ * thread whose first message was never relayed ("Reply in a Slack thread"), `files` the names of its files (open in
+ * Slack). Plain text, never Markdown. */
+export const SlackAuthor = z.object({
+  name: z.string().max(80),
+  avatarUrl: z.string().max(300).optional(),
+  external: z.literal(true).optional(),
+  bot: z.literal(true).optional(),
+  permalink: z.string().max(2048).optional(),
+  threadElsewhere: z.literal(true).optional(),
+  files: z.array(z.string().max(200)).max(10).optional(),
+})
+export type SlackAuthor = z.infer<typeof SlackAuthor>
+
 export const ROOM_MESSAGE_MAX = 10_000
 export const ROOM_FILES_MAX = 10
 export const ROOM_MENTIONS_MAX = 50
@@ -373,6 +389,13 @@ const EventProject = {
  * quotable or postable), never given to the AI. created: a group chat was made with these people; renamed: the room's
  * own name is now `name` (null: back to the server's name); added: these people were invited; left: the author left
  * (or their account is gone); removed: the author took this person out; unknown: a line this build cannot read. */
+/** A Slack relay line: connected, disconnected (by a manager), bot_removed (the app was removed from the channel:
+ * messages stop until it is invited again), archived (the channel was archived or deleted: the link ended), shared (the
+ * channel is now shared with another organization: the relay goes on), missing (some Slack messages may be missing
+ * after an outage: Open in Slack), team_removed (Slack was disconnected for the team), back (the app is in the channel
+ * again: messages go on), capped (the day's cap of relayed messages was reached). */
+export const SlackLineWhat = z.enum(['connected', 'disconnected', 'bot_removed', 'archived', 'shared', 'missing', 'team_removed', 'back', 'capped'])
+export type SlackLineWhat = z.infer<typeof SlackLineWhat>
 export const RoomEventLine = z.discriminatedUnion('type', [
   z.object({ type: z.literal('created'), users: z.array(UserRef) }),
   z.object({ type: z.literal('renamed'), name: z.string().nullable() }),
@@ -398,6 +421,9 @@ export const RoomEventLine = z.discriminatedUnion('type', [
    * project_linked */
   z.object({ type: z.literal('project_files_moved'), ...EventProject,
     moved: z.number().int().nonnegative(), kept: z.number().int().nonnegative() }),
+  /** the Slack channel relay (docs/SLACK.md "Channel relay"): what happened to this conversation's link to #`channel`
+   * (SlackLineWhat). connected / disconnected: by the author; the others by the server (author null) */
+  z.object({ type: z.literal('slack'), what: SlackLineWhat, channel: z.string().max(80) }),
   /** a line this build cannot read (a newer build's, or a damaged one): said neutrally, without who did it */
   z.object({ type: z.literal('unknown') }),
 ])
@@ -552,6 +578,14 @@ export const RoomMessage = z.object({
   app: RoomAppRef.optional(),
   /** the app's card (plain text fields, one checked link): show it as text, never as Markdown or HTML */
   appCard: RoomAppCard.optional(),
+  /** a message relayed from a linked Slack channel (docs/SLACK.md "Channel relay"; `app` is the Slack app): who wrote it
+   * in Slack, never a team member. `body` is "<name>: <text>" with Markdown marks escaped (older apps show it as an app
+   * message); the app shows the name with a small Slack mark and the text after it as plain text. Older servers omit it */
+  slackAuthor: SlackAuthor.optional().catch(undefined),
+  /** my or a teammate's message in a conversation linked to Slack: 'ok' it went to the channel, 'failed' Slack refused it
+   * ("Not sent to Slack" and, for its author, Retry), 'not_relayed' it is not sent by rule (an AI answer, files: "Not
+   * sent to Slack"), 'pending' on its way. Absent: not a linked conversation, or a message that never goes (event lines) */
+  slackSent: z.enum(['ok', 'failed', 'not_relayed', 'pending']).optional().catch(undefined),
   /** my own message: the id my app made when it sent it (SendRoomMessageBody.clientMessageId), so a send whose answer
    * was lost is matched to its message when that comes another way (the live event, a replay, a page read again).
    * Only ever on the viewer's own messages */

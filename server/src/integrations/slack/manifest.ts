@@ -10,10 +10,15 @@
 //                                both in (users.conversations), a channel found by its name
 //   channels:history, groups:history   the thread @app was asked in, and the threads and channels the AI reads for a
 //                                person: only conversations the bot was invited to AND the person is in (read.ts)
+//   chat:write.customize   the channel relay (relay.ts): a conversation's message goes to the linked channel as
+//                          "Mina (Trina)"; optional (without it: as the app, the name first)
+//   events message.channels / message.groups and the channel events: the linked channels' messages and what ends a
+//                          link (relay.ts drops every other channel's messages before anything is kept)
 // The redirect URL: "Sign in with Slack" (docs.slack.dev "Sign in with Slack"), with which a person proves the Slack
 // account they link; it asks for openid and profile in its own flow, so no user scopes here. Its user token is revoked
 // at once and never kept. No files, no search, no slash command.
 import { PRODUCT } from '@mycel/shared'
+import { SLACK_BROKER_RELAY_BOT_SCOPES, SLACK_BROKER_RELAY_EVENTS } from '@mycel/shared/cloud-protocol'
 
 export const BOT_SCOPES = ['app_mentions:read', 'channels:history', 'channels:read', 'chat:write', 'groups:history', 'groups:read', 'im:history', 'im:write', 'users:read', 'users:read.email'] as const
 /** the bot scopes that only reading needs (a thread, a channel): an app without them still answers, with reading off
@@ -22,6 +27,10 @@ export const READ_BOT_SCOPES = ['channels:history', 'groups:history'] as const
 /** the bot scopes every saved app must have (BOT_SCOPES without the reading ones) */
 export const BASE_BOT_SCOPES = BOT_SCOPES.filter((s) => !(READ_BOT_SCOPES as readonly string[]).includes(s))
 export const BOT_EVENTS = ['app_mention', 'message.im'] as const
+/** the channel relay's own (relay.ts, the contract's SLACK_BROKER_RELAY_BOT_SCOPES / _EVENTS): in the manifest, required
+ * by no check (an app without them works; the relay posts as the app, or gets nothing until they are added) */
+export const RELAY_BOT_SCOPES = SLACK_BROKER_RELAY_BOT_SCOPES
+export const RELAY_BOT_EVENTS = SLACK_BROKER_RELAY_EVENTS
 
 /** a bot user name Slack takes: a-z, 0-9, -, _ and . (at most 80) */
 const botName = (s: string) => (s.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'assistant').slice(0, 80)
@@ -38,9 +47,9 @@ export function slackManifest(name = PRODUCT.displayName, redirectUrl: string | 
     },
     // no user scopes: "Sign in with Slack" asks for openid and profile in its own flow (they may not be combined with
     // others in one OAuth flow, and the manifest's user scopes are asked for when the app is installed)
-    oauth_config: { ...(redirectUrl ? { redirect_urls: [redirectUrl] } : {}), scopes: { bot: [...BOT_SCOPES] } },
+    oauth_config: { ...(redirectUrl ? { redirect_urls: [redirectUrl] } : {}), scopes: { bot: [...BOT_SCOPES, ...RELAY_BOT_SCOPES] } },
     settings: {
-      event_subscriptions: { bot_events: [...BOT_EVENTS] },
+      event_subscriptions: { bot_events: [...BOT_EVENTS, ...RELAY_BOT_EVENTS] },
       interactivity: { is_enabled: true },
       org_deploy_enabled: false,
       socket_mode_enabled: true,

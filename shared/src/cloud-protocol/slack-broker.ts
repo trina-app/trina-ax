@@ -61,6 +61,18 @@
 //      The control plane exchanges the code (openid.connect.token), checks the id_token (issuer, audience, time, nonce,
 //      and that it names the owner's installed workspace), revokes the person's user token at once and answers only
 //      who signed in. No user token ever leaves the control plane.
+//   8. relay/channels  { channels }                         → { channels, notMember }
+//      The channel relay (trina-ax docs/SLACK.md "Channel relay"): the Slack channels this owner linked to one of its
+//      conversations, the whole list each time (at most SLACK_BROKER_RELAY_MAX_CHANNELS; sent at start and at every
+//      change; [] ends them all). The control plane NEVER trusts a channel id alone: for each one it asks Slack
+//      (conversations.info) with THIS install's own bot token and keeps it only while that bot `is_member`; the others
+//      come back in `notMember` and get nothing. `channel_left` / `group_left` of that bot, a recheck that fails (at
+//      least every SLACK_BROKER_RELAY_RECHECK_MS) or a new install removes a kept one. While a channel is kept, its
+//      `message` events (the subtypes message_changed, message_deleted, file_share, thread_broadcast and bot_message
+//      included; this install's own bot's posts not) and its channel events (SLACK_BROKER_RELAY_EVENTS) are queued for
+//      every install that keeps it, routed by the CHANNEL, not by the envelope's outer team_id (in a Slack Connect
+//      channel two installs can share, that names whichever install Slack picked). Every other channel's messages are
+//      dropped without being kept.
 //
 // Request:  POST, body = JSON (at most SLACK_BROKER_MAX_BODY_BYTES, strict: unknown keys are refused), header
 //           Authorization: TrinaSlackBroker key=<base64 SPKI Ed25519 public key>, ts=<unix ms>, nonce=<22-64 base64url>,
@@ -90,6 +102,7 @@ export const SLACK_BROKER_PATHS = {
   uninstall: `${SLACK_BROKER_API_PREFIX}/uninstall`,
   signinStart: `${SLACK_BROKER_API_PREFIX}/signin/start`,
   signinRedeem: `${SLACK_BROKER_API_PREFIX}/signin/redeem`,
+  relayChannels: `${SLACK_BROKER_API_PREFIX}/relay/channels`,
 } as const
 export type SlackBrokerOp = keyof typeof SLACK_BROKER_PATHS
 
@@ -112,6 +125,28 @@ export const SLACK_SIGNIN_AUTHORIZE_URL = 'https://slack.com/openid/connect/auth
 export const SLACK_BROKER_BOT_SCOPES = ['app_mentions:read', 'channels:history', 'channels:read', 'chat:write', 'groups:history', 'groups:read', 'im:history', 'im:write', 'users:read', 'users:read.email'] as const
 /** The bot scopes only reading needs: an install without them works, with reading off until Add to Slack again. */
 export const SLACK_BROKER_READ_BOT_SCOPES = ['channels:history', 'groups:history'] as const
+/** The bot scopes the channel relay asks for on top (2026-11-27): `chat:write.customize`, so a conversation's message
+ * goes to Slack as "Mina (Trina)" (chat.postMessage `username`). REQUESTED at every Add to Slack (they join the
+ * authorize URL's list after SLACK_BROKER_BOT_SCOPES) but REQUIRED by no check: the control plane's redeem does not
+ * refuse a grant without them (`missing_scope` is about SLACK_BROKER_BOT_SCOPES only), nor does the team server. An
+ * install without them relays as the app, with the person's name as the first words. */
+export const SLACK_BROKER_RELAY_BOT_SCOPES = ['chat:write.customize'] as const
+/** The bot events the channel relay needs (the app's event subscriptions): the linked channels' messages and the
+ * channel events that end or change a link. `message.channels` / `message.groups` deliver `message` events. A private
+ * channel's own archive and rename events (group_archive, group_rename) are documented for RTM only, so they are not
+ * subscribed to; the team server learns those from a refused post and from conversations.info. */
+export const SLACK_BROKER_RELAY_EVENTS = ['message.channels', 'message.groups', 'channel_left', 'group_left', 'channel_deleted', 'channel_archive', 'channel_rename', 'channel_shared', 'channel_unshared', 'channel_id_changed'] as const
+/** The event types (inner `event.type`) the control plane queues for an install that keeps the channel: `message` and
+ * these. */
+export const SLACK_BROKER_RELAY_CHANNEL_EVENT_TYPES = ['channel_left', 'group_left', 'channel_deleted', 'channel_archive', 'channel_rename', 'channel_shared', 'channel_unshared', 'channel_id_changed', 'group_archive', 'group_rename', 'group_deleted'] as const
+/** The `message` subtypes queued for a kept channel (besides a plain message, which has none). */
+export const SLACK_BROKER_RELAY_SUBTYPES = ['message_changed', 'message_deleted', 'file_share', 'thread_broadcast', 'bot_message', 'me_message'] as const
+/** Linked channels per owner, at most. */
+export const SLACK_BROKER_RELAY_MAX_CHANNELS = 50
+/** A kept channel is checked again (conversations.info with the install's bot) at least this often. */
+export const SLACK_BROKER_RELAY_RECHECK_MS = 6 * 3_600_000
+/** A relay channel id: a public (C…) or private (G… or C…) channel, never a DM. */
+export const SLACK_BROKER_RELAY_CHANNEL_ID = /^[CG][A-Z0-9]{2,40}$/
 /** User token scopes of the official app: none (Slack Marketplace: user scopes only when the app acts as the person;
  * "Sign in with Slack" asks for openid and profile in its own OpenID Connect flow and keeps no token). */
 export const SLACK_BROKER_USER_SCOPES = [] as const
@@ -147,6 +182,7 @@ export interface SlackBrokerPoll { v: 1; ack: string[]; waitMs: number }
 export interface SlackBrokerUninstall { v: 1 }
 export interface SlackBrokerSigninStart { v: 1; returnState: string; codeChallenge: string }
 export interface SlackBrokerSigninRedeem { v: 1; handoff: string; codeVerifier: string }
+export interface SlackBrokerRelayChannels { v: 1; channels: string[] }
 
 /** One workspace's install, as the owner sees it. Never a token. */
 export interface SlackBrokerInstallInfo {
@@ -180,7 +216,12 @@ export interface SlackBrokerTokenAnswer { install: SlackBrokerInstallInfo; token
  */
 export interface SlackBrokerEvent { id: string; kind: 'events_api' | 'interactive' | 'lifecycle'; payload: unknown; receivedAt: string }
 export interface SlackBrokerLifecycle { event: 'uninstalled' | 'tokens_revoked' | 'removed'; installId: string }
-export interface SlackBrokerPollAnswer { install: SlackBrokerInstallInfo | null; events: SlackBrokerEvent[] }
+/** `dropped`: envelopes of this owner the queue let go of (full, SLACK_BROKER_EVENT_TTL_MS) since its last poll; left
+ * out when none (older control planes never send it). A team server that relays channels catches up then. */
+export interface SlackBrokerPollAnswer { install: SlackBrokerInstallInfo | null; events: SlackBrokerEvent[]; dropped?: number }
+/** `channels`: the ids kept (this install's bot is in each); `notMember`: the ids refused (the bot is not in it, or
+ * Slack does not know it for this bot). Every id of the request is in exactly one of them. */
+export interface SlackBrokerRelayChannelsAnswer { channels: string[]; notMember: string[] }
 export interface SlackBrokerUninstallAnswer { slack: 'removed' | 'unavailable' }
 export interface SlackBrokerSigninAnswer { slackUserId: string; slackTeamId: string; enterpriseId: string | null }
 
@@ -267,6 +308,22 @@ export function parseSlackBrokerSigninRedeem(raw: unknown): SlackBrokerSigninRed
   if (!o || !exactly(o, ['v', 'handoff', 'codeVerifier']) || o.v !== 1) return null
   if (!b43(o.handoff) || typeof o.codeVerifier !== 'string' || !VERIFIER.test(o.codeVerifier)) return null
   return { v: 1, handoff: o.handoff, codeVerifier: o.codeVerifier }
+}
+
+export function parseSlackBrokerRelayChannels(raw: unknown): SlackBrokerRelayChannels | null {
+  const o = plain(raw)
+  if (!o || !exactly(o, ['v', 'channels']) || o.v !== 1 || !Array.isArray(o.channels)) return null
+  if (o.channels.length > SLACK_BROKER_RELAY_MAX_CHANNELS || !o.channels.every((c) => typeof c === 'string' && SLACK_BROKER_RELAY_CHANNEL_ID.test(c))) return null
+  return { v: 1, channels: [...new Set(o.channels as string[])] }
+}
+
+/** A relay/channels answer as the owner reads it; null when it is not one. */
+export function parseSlackBrokerRelayChannelsAnswer(raw: unknown): SlackBrokerRelayChannelsAnswer | null {
+  const o = plain(raw)
+  if (!o || !Array.isArray(o.channels) || !Array.isArray(o.notMember)) return null
+  const ok = (a: unknown[]) => a.length <= SLACK_BROKER_RELAY_MAX_CHANNELS && a.every((c) => typeof c === 'string' && SLACK_BROKER_RELAY_CHANNEL_ID.test(c))
+  if (!ok(o.channels) || !ok(o.notMember)) return null
+  return { channels: o.channels as string[], notMember: o.notMember as string[] }
 }
 
 const SLACK_ID = /^[A-Z0-9]{2,40}$/

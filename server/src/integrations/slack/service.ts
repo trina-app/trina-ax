@@ -53,6 +53,7 @@ import { placesText, postCheck } from './post-check'
 import { confidentialChat } from '../../safe-ops/confidential'
 import { clip, plain, questionText, say } from './text'
 import { askedContext } from './read'
+import { relayOf, type SlackRelay } from './relay'
 import type { ReadSource } from '../../chat/read-scope'
 
 export const LINK_TTL_MS = 10 * 60_000
@@ -315,6 +316,9 @@ export class SlackConnector {
     // what the bot may read: asked of Slack when not known, or now and then (an app updated in Slack meanwhile)
     if (on && (!cfg!.bot_scopes || this.now() - this.scopesCheckedAt > 10 * 60_000)) void this.checkBotScopes()
     const official = cfg?.mode === 'official'
+    // the channel relay (relay.ts): its links rechecked and the hosting service told, now and every 6 hours
+    if (on && !this.relayStarted) { this.relayStarted = true; this.relay.start(); void this.relay.recheck(); void this.relay.syncBroker() }
+    if (!on) { this.relayStarted = false; this.relay.stop() }
     if (!on || official) { this.socket?.stop(); this.socket = null }
     if (!on || !official) { this.feed?.stop(); this.feed = null }
     if (!on) { this.stopPoller(); return }
@@ -328,6 +332,7 @@ export class SlackConnector {
           onEvent: (e) => this.onBrokerEvent(e),
           onInstall: (install) => this.noteInstall(install),
           onState: (s, err) => this.noteState(s, err),
+          onDropped: (n) => this.relay.dropped(n),
         })
         this.feed.start()
       }
@@ -347,7 +352,13 @@ export class SlackConnector {
     this.startPoller()
   }
 
+  /** The Slack channel relay of this connector (relay.ts). */
+  get relay(): SlackRelay { return relayOf(this) }
+  private relayStarted = false
+
   private noteState(s: SlackState, err: SlackErrorCode | null) {
+    // connected again (start, or after a gap): the linked channels catch up on what came meanwhile
+    if (s === 'connected' && this.liveSince?.state !== 'connected') void this.relay.catchUp('connected')
     if (this.liveSince?.state !== s) this.liveSince = { state: s, at: this.now() }
     // the official app removed from the workspace: that stays the reason until it is added again
     const now = this.config()
@@ -503,6 +514,8 @@ export class SlackConnector {
     let slack: 'removed' | 'unavailable' | null = null
     // an install still waiting for Slack's check is not taken up after this
     this.pending = null
+    // the linked conversations say so (their links stay: the same workspace when Slack is added again)
+    try { this.relay.teamRemoved() } catch (e) { this.log.warn('slack relay lines not written', { err: String(e) }) }
     if (cfg?.mode === 'official') {
       this.feed?.stop(); this.feed = null
       slack = this.broker ? await this.broker.uninstall() : 'unavailable'
@@ -523,7 +536,7 @@ export class SlackConnector {
   }
 
   // ---------------------------------------------------------------- people (Settings, the link page)
-  private available(cfg = this.config()) { return !!cfg?.enabled && !!cfg.secret_enc && !!cfg.team_id }
+  available(cfg = this.config()) { return !!cfg?.enabled && !!cfg.secret_enc && !!cfg.team_id }
 
   mine(userId: string): MySlack {
     const cfg = this.config()
@@ -1242,6 +1255,8 @@ export class SlackConnector {
     // a fresh feed with the new token
     this.feed?.stop(); this.feed = null
     this.refresh()
+    // a new install starts with no linked channels at the hosting service: they are sent again
+    void this.relay.syncBroker()
   }
 
   /** The install as the hosting service says it (each poll, each status): gone there (an operator removed it, or its
@@ -1285,6 +1300,7 @@ export class SlackConnector {
   private removedInSlack(reason: string) {
     const cfg = this.config()
     if (!cfg || cfg.mode !== 'official' || !cfg.secret_enc) return
+    try { this.relay.teamRemoved() } catch (e) { this.log.warn('slack relay lines not written', { err: String(e) }) }
     this.db.query("UPDATE slack_config SET secret_enc = NULL, key_version = NULL, install_id = NULL, last_error = 'removed', updated_at = ? WHERE id = 1 AND mode = 'official'").run(iso(this.now()))
     audit(this.db, { actor: null, action: 'slack.removed_in_slack', target: cfg.team_id, detail: { reason } })
     this.log.info('slack app removed from the workspace', { reason })
@@ -1332,7 +1348,17 @@ export class SlackConnector {
     if (!appId) return
     if (env.type === 'events_api') {
       const cb = EventCallback.safeParse(env.payload)
-      if (!cb.success || cb.data.team_id !== cfg!.team_id || cb.data.api_app_id !== appId) return
+      if (!cb.success || cb.data.api_app_id !== appId) return
+      // a linked channel's message or channel event (relay.ts): routed by its channel, whatever workspace the outer
+      // team_id names (in a Slack Connect channel shared with another install it is the one Slack picked); the
+      // hosting service forwards only channels it verified this install's bot is in, and the own app's socket only
+      // has its own workspace's channels. Taken in order (before any await)
+      if (this.relay.takes(cb.data.event)) {
+        if (!this.seen(`e:${cb.data.event_id}`)) return
+        await this.relay.onEvent(cb.data.event, appId)
+        return
+      }
+      if (cb.data.team_id !== cfg!.team_id) return
       if (!this.seen(`e:${cb.data.event_id}`)) return
       const enterprise = cb.data.enterprise_id ?? ''
       const ev = cb.data.event

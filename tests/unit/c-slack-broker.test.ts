@@ -174,3 +174,31 @@ describe('the long-poll feed', () => {
     expect(tries).toBe(1)
   })
 })
+
+describe('the channel relay (contract flow 8: relay/channels, poll dropped)', () => {
+  const answering = (body: unknown, seen: { path?: string; body?: any }) => (async (url: string, init?: RequestInit) => {
+    seen.path = new URL(url).pathname; seen.body = JSON.parse(String(init?.body))
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  }) as unknown as BrokerFetch
+  test('relayChannels sends the whole list signed and reads the kept and refused ids; a bad answer is unreachable', async () => {
+    const seen: { path?: string; body?: any } = {}
+    const a = await client({ fetch: answering({ channels: ['C0KEPT'], notMember: ['G0OUT'] }, seen) }).relayChannels(['C0KEPT', 'G0OUT'])
+    expect(seen).toEqual({ path: SLACK_BROKER_PATHS.relayChannels, body: { v: 1, channels: ['C0KEPT', 'G0OUT'] } })
+    expect(a).toEqual({ channels: ['C0KEPT'], notMember: ['G0OUT'] })
+    const bad = await client({ fetch: answering({ channels: ['D0DM'], notMember: [] }, {}) }).relayChannels(['D0DM']).catch((e) => e)
+    expect(bad).toBeInstanceOf(SlackBrokerError)
+  })
+  test('poll reads `dropped` (absent from older control planes: 0)', async () => {
+    const p1 = await client({ fetch: answering({ install: null, events: [], dropped: 7 }, {}) }).poll([], 0)
+    expect(p1.dropped).toBe(7)
+    const p2 = await client({ fetch: answering({ install: null, events: [] }, {}) }).poll([], 0)
+    expect(p2.dropped).toBe(0)
+  })
+  test('the request parser refuses a DM, too many channels, an unknown key', async () => {
+    const { parseSlackBrokerRelayChannels, SLACK_BROKER_RELAY_MAX_CHANNELS } = await import('@mycel/shared/cloud-protocol')
+    expect(parseSlackBrokerRelayChannels({ v: 1, channels: ['C0A', 'C0A', 'G0B'] })).toEqual({ v: 1, channels: ['C0A', 'G0B'] })
+    expect(parseSlackBrokerRelayChannels({ v: 1, channels: ['D0DM'] })).toBeNull()
+    expect(parseSlackBrokerRelayChannels({ v: 1, channels: Array.from({ length: SLACK_BROKER_RELAY_MAX_CHANNELS + 1 }, (_, i) => `C0X${i}`) })).toBeNull()
+    expect(parseSlackBrokerRelayChannels({ v: 1, channels: [], extra: 1 })).toBeNull()
+  })
+})

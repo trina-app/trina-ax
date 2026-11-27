@@ -22,6 +22,7 @@ import { userRef } from '../auth/users'
 import { audit } from './audit'
 import { teamDefaultLocale } from './settings'
 import { claimGuestProject, guestsAmong } from '../auth/guests'
+import { relayLinkedProjectAt } from '../integrations/slack/relay-store'
 import { folderKeep, isParkedRow, type FolderKeep } from './folder-keep'
 import { shownSegs } from './access-rows'
 import { rulesHash, rulesHashV1 } from './access-edit'
@@ -241,6 +242,9 @@ function guestRulesInPlace(db: Database, folderPath: string, folderId: string, r
   const named = rules.filter((r) => r.subjectType === 'user' && r.subjectId && r.access !== 'none').map((r) => r.subjectId!)
   for (const id of guestsAmong(db, named)) {
     if (db.query("SELECT 1 FROM folder_rules WHERE folder_id = ? AND subject_type = 'user' AND subject_id = ? AND access <> 'none'").get(folderId, id)) continue
+    // a project whose conversation is linked to a Slack channel takes no guest (docs/SLACK.md "Channel relay": the
+    // admin's Connect speaks for the team, not for outsiders): 409 slack_relay_guest
+    if (relayLinkedProjectAt(db, folderPath)) fail('conflict', 'Disconnect Slack first to invite a guest.', { params: { reason: 'slack_relay_guest' } })
     claimGuestProject(db, id, folderPath, teamDefaultLocale(db))
   }
 }

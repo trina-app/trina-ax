@@ -33,7 +33,7 @@ import { zonedDay, zonedParts, zonedToUtc } from '../../system/time-zone'
 import { notificationsOf } from '../../notifications/service'
 import { roomsOf } from '../service'
 import { mayManageApps, messageRow, roomAuditRef, threadable, type MessageRow, type RoomRow } from '../store'
-import { bodyOf, cleanCard, line, type StoredCard } from './card'
+import { bodyOf, cleanCard, line, relayBodyOf, type StoredCard } from './card'
 import { dropIcon, iconImage, iconsOf, readIconUpload, writeIcon } from './icon'
 import { AppLimits } from './limits'
 import type { AppEvent } from './parse'
@@ -187,6 +187,8 @@ export class RoomApps {
     try { const v = this.vault.decrypt(row.id, SECRET_KIND, row.secret_enc, row.key_version) as { secret: string; made?: boolean }; return { secret: v.secret, made: !!v.made } } catch { return 'broken' }
   }
   /** The token and secret sealed under the vault's current key (both together: they share key_version). */
+  /** A token sealed for a new row made elsewhere (a Slack channel link, integrations/slack/relay.ts): it is never shown. */
+  sealToken(id: string, token: string) { return this.seal(id, token, null) }
   private seal(id: string, token: string, secret: { secret: string; made: boolean } | null) {
     const t = this.vault.encrypt(id, TOKEN_KIND, { token })
     const s = secret ? this.vault.encrypt(id, SECRET_KIND, secret) : null
@@ -196,6 +198,12 @@ export class RoomApps {
   // ---------------- reading ----------------
   /** An Email app (email into rooms): preset 'email'. */
   isEmail(row: Pick<AppRow, 'kind' | 'preset'>): boolean { return row.kind === 'other' && row.preset === 'email' }
+  /** a Slack channel link (integrations/slack/relay.ts): no address, no secret, no example */
+  isSlack(row: Pick<AppRow, 'kind' | 'preset'>): boolean { return row.kind === 'other' && row.preset === 'slack' }
+  private notSlack(row: AppRow) { if (this.isSlack(row)) fail('conflict', undefined, { params: { reason: 'slack_link' } }) }
+  /** The Slack channel relay's hooks (set by integrations/slack/relay.ts): Remove on its app is Disconnect, and what
+   * RoomApp.slack says. */
+  slackHooks: { removing(userId: string, room: RoomRow, row: AppRow): void; view(row: AppRow): RoomApp['slack'] } | null = null
   private locale(): Locale { try { return teamDefaultLocale(this.db) } catch { return DEFAULT_LOCALE } }
   row(id: string): AppRow | null { return this.db.query('SELECT * FROM room_apps WHERE id = ?').get(id) as AppRow | null }
   /** The app's preset when this build knows it (an unknown one: none here; inbound.ts refuses its requests). */
@@ -273,6 +281,7 @@ export class RoomApps {
       eventsSeen: this.eventsSeen(row),
       ...(this.leaverKnows(row) ? { leaverKnows: true as const } : {}),
       ...(this.isEmail(row) ? { mail: mailInOf(this.ctx).stateOf(row) } : {}),
+      ...(this.isSlack(row) && this.slackHooks ? (() => { const v = this.slackHooks!.view(row); return v ? { slack: v } : {} })() : {}),
       today: this.shownToday(row.id, day),
     }
   }
@@ -310,6 +319,8 @@ export class RoomApps {
 
   create(userId: string, roomId: string, b: CreateRoomAppBody, locale: Locale): RoomAppCreated {
     const room = this.managed(userId, roomId)
+    // a Slack channel link is made by "Connect a Slack channel" only (integrations/slack/relay.ts)
+    if (b.kind === 'other' && b.preset === 'slack') fail('conflict', undefined, { params: { reason: 'slack_link' } })
     const email = b.kind === 'other' && b.preset === 'email'
     if (email) {
       // Email needs a mail service and the team's switch (off by default); one address per room
@@ -343,6 +354,7 @@ export class RoomApps {
 
   address(userId: string, roomId: string, appId: string): RoomAppAddress {
     const { row } = this.mine(userId, roomId, appId)
+    this.notSlack(row)
     const s = this.secretOf(row)
     return { address: this.addressOf(row, userId), ...(s && s !== 'broken' && s.made ? { secret: s.secret } : {}) }
   }
@@ -423,6 +435,7 @@ export class RoomApps {
 
   rotate(userId: string, roomId: string, appId: string): RoomAppCreated {
     const { room, row } = this.mine(userId, roomId, appId)
+    this.notSlack(row)
     const email = this.isEmail(row)
     if (!email && this.base() === null) fail('conflict', appText('noAddress', this.locale()), { params: { reason: 'no_public_address' } })
     if (email && !mailInOf(this.ctx).availability().available) fail('conflict', appText('mailEmailOff', this.locale()), { params: { reason: 'room_email_off' } })
@@ -456,6 +469,8 @@ export class RoomApps {
 
   remove(userId: string, roomId: string, appId: string): void {
     const { room, row } = this.mine(userId, roomId, appId)
+    // a Slack channel link: Remove is Disconnect (the line in the room, the audit, the hosting service told)
+    if (this.isSlack(row)) { this.slackHooks?.removing(userId, room, row); if (!this.slackHooks) this.db.query('DELETE FROM room_apps WHERE id = ?').run(row.id); return }
     this.db.transaction(() => {
       this.db.query('DELETE FROM room_apps WHERE id = ?').run(row.id)
       // its paused and leaver notices go with it (a notice of an app that is gone opens nothing)
@@ -545,6 +560,7 @@ export class RoomApps {
 
   example(userId: string, roomId: string, appId: string): void {
     const { row } = this.mine(userId, roomId, appId)
+    this.notSlack(row)
     const L = this.locale()
     this.takeHourly(this.examples, row.id, ROOM_APP_EXAMPLES_PER_HOUR, (minutes) => appText('exampleLimit', L, { n: ROOM_APP_EXAMPLES_PER_HOUR, minutes }))
     const card = cleanCard({ kind: appText('example', L), title: appText('exampleTitle', L, { app: row.name }), details: [], status: undefined })
@@ -730,6 +746,38 @@ export class RoomApps {
     setImmediate(() => this.after(row.room_id, o.id, o.root, o.rootChanged))
     return true
   }
+
+  /** A message relayed from a linked Slack channel (integrations/slack/relay.ts), in the caller's transaction: an app
+   * message (author null) whose body is "<name>: <text>" with Markdown escaped, its card the first line (older apps),
+   * `slack` its Slack sender, `mentions` the linked people it @mentioned in Slack, `root` its thread. Returns the id;
+   * the caller sends relayedOut after the commit. Not counted toward the room apps' caps (the relay has its own). */
+  insertRelayed(row: AppRow, o: { name: string; text: string; slack: Record<string, unknown>; link?: string; root?: MessageRow | null; alsoInRoom?: boolean; mentions: string[]; at: string }): string {
+    const db = this.db, id = newId()
+    const inTimeline = !o.root || !!o.alsoInRoom
+    const first = o.text.split('\n').find((l) => l.trim()) ?? ''
+    const card = cleanCard({ title: `${o.name}: ${first}`, details: [], link: o.link })
+    const stored = { ...card, app: { name: row.name, kind: row.kind, preset: 'slack' }, slack: o.slack }
+    const body = relayBodyOf(o.name, o.text)
+    const seq = (db.query(`UPDATE rooms SET last_seq = last_seq + 1${inTimeline ? ', activity_at = ?' : ''} WHERE id = ? RETURNING last_seq`).get(...(inTimeline ? [o.at, row.room_id] : [row.room_id])) as { last_seq: number }).last_seq
+    db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, mentions, created_at, thread_root_id, thread_root_seq, also_in_room, mentions_all, app_id, app_card, app_quiet)
+      VALUES (?, ?, ?, 'user', NULL, 'room', ?, ?, ?, ?, ?, ?, 0, ?, ?, 0)`).run(id, row.room_id, seq, body, JSON.stringify(o.mentions), o.at, o.root?.id ?? null, o.root?.seq ?? null, o.root && o.alsoInRoom ? 1 : 0, row.id, JSON.stringify(stored))
+    if (o.root) roomsOf(this.ctx).follow(o.root, null, seq, o.mentions)
+    db.query('UPDATE room_apps SET last_ok_at = ?, first_ok_at = COALESCE(first_ok_at, ?) WHERE id = ?').run(o.at, o.at, row.id)
+    return id
+  }
+  /** A relayed message changed in Slack: its body and card again, marked edited (relay.ts, in its transaction). */
+  editRelayed(messageId: string, o: { name: string; text: string; slack: Record<string, unknown>; link?: string; at: string }) {
+    const r = this.db.query('SELECT app_card FROM room_messages WHERE id = ? AND deleted_at IS NULL').get(messageId) as { app_card: string | null } | null
+    if (!r?.app_card) return false
+    const prev = JSON.parse(r.app_card) as StoredCard & { slack?: Record<string, unknown> }
+    const first = o.text.split('\n').find((l) => l.trim()) ?? ''
+    const card = cleanCard({ title: `${o.name}: ${first}`, details: [], link: o.link })
+    const stored = { ...card, app: prev.app, slack: { ...(prev.slack ?? {}), ...o.slack } }
+    this.db.query('UPDATE room_messages SET body = ?, app_card = ?, edited_at = ? WHERE id = ?').run(relayBodyOf(o.name, o.text), JSON.stringify(stored), o.at, messageId)
+    return true
+  }
+  /** After insertRelayed's commit: the message to the members who see it, its notices, its thread's summary. */
+  relayedOut(roomId: string, id: string, root: MessageRow | null) { this.after(roomId, id, root, false) }
 
   /** Writes the message (inside the caller's transaction when there is one) and returns its id; outside one, the room
    * hears of it at once. */

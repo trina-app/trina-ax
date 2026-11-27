@@ -12,8 +12,9 @@
 // only learns whether they are saved.
 import { z } from 'zod'
 import { IsoTime } from './common'
-import { endpoint, empty } from './endpoint'
+import { endpoint, empty, stream } from './endpoint'
 import { SealedSecret } from './credentials'
+import { UserRef } from './entities'
 
 /** off: not turned on (or no tokens) · connecting · connected · error: lastError says why */
 export const SlackState = z.enum(['off', 'connecting', 'connected', 'error'])
@@ -123,6 +124,91 @@ export const SlackLinkPreview = z.object({
   email: z.string().nullable(),
 })
 export type SlackLinkPreview = z.infer<typeof SlackLinkPreview>
+
+// ---------------------------------------------------------------- the channel relay (docs/SLACK.md "Channel relay")
+// One Slack channel and one team conversation or project, both ways (plan
+// docs/AGENTS/plan/20261127-0329-slack-channel-relay.md, docs/decisions/20261127-slack-channel-relay.md). A team owner or
+// admin who is in the conversation, has their own Slack account linked and is in the channel connects it; everyone in
+// the conversation sees the relay from then on (owner decision 3). The link is a room app (preset 'slack'); its
+// messages are that app's messages with `slackAuthor` (shared/src/api/rooms.ts).
+
+/** A Slack channel id the relay takes: public (C…) or private (G… or C…), never a DM. */
+export const SLACK_RELAY_CHANNEL_ID = /^[CG][A-Z0-9]{2,40}$/
+/** active: relaying · bot_removed: the app left the channel (nothing comes in or goes out; invite it again) ·
+ * archived: the channel was archived or deleted in Slack (the link has ended) */
+export const SlackRelayState = z.enum(['active', 'bot_removed', 'archived'])
+export type SlackRelayState = z.infer<typeof SlackRelayState>
+export const SlackRelayLink = z.object({
+  /** the room app that is the link (Disconnect removes it) */
+  appId: z.string(),
+  channelId: z.string(),
+  /** the channel's name in Slack, without "#" */
+  channelName: z.string(),
+  private: z.boolean(),
+  /** a Slack Connect channel (shared with another organization) */
+  extShared: z.boolean(),
+  state: SlackRelayState,
+  createdBy: UserRef.nullable(),
+  createdAt: IsoTime,
+  /** messages go to Slack as "Name (Trina)" (the bot has chat:write.customize); false: as the app, the name first */
+  customName: z.boolean(),
+})
+export type SlackRelayLink = z.infer<typeof SlackRelayLink>
+/** Why a channel cannot be connected here: not_added (Slack is not added to the team, or turned off), room_kind (only
+ * a team conversation or a project), guests (a guest is in the conversation), not_manager (only its owners and admins
+ * who are in it). */
+export const SlackRelayBlocked = z.enum(['not_added', 'room_kind', 'guests', 'not_manager'])
+export type SlackRelayBlocked = z.infer<typeof SlackRelayBlocked>
+export const SlackRelayStatus = z.object({
+  /** the link of this conversation, for anyone in it (the header chip) */
+  link: SlackRelayLink.nullable(),
+  /** why I cannot connect one here; absent: I can (or one is connected and I may disconnect it) */
+  blocked: SlackRelayBlocked.optional(),
+  /** my own Slack account is linked (else the dialog shows only "Sign in with Slack") */
+  meLinked: z.boolean(),
+  /** "Sign in with Slack" can be used here (else the person links by mentioning the app in Slack) */
+  signIn: z.boolean(),
+  /** the app's name in Slack, for "/invite @<name>" */
+  botName: z.string().nullable(),
+  /** the official app was added before the relay asked for chat:write.customize: "Add to Slack again to post with
+   * each person's name" (admins) */
+  needsReAdd: z.boolean(),
+})
+export type SlackRelayStatus = z.infer<typeof SlackRelayStatus>
+export const SlackRelayChannel = z.object({
+  id: z.string(),
+  name: z.string(),
+  private: z.boolean(),
+  extShared: z.boolean(),
+  /** already connected to another conversation (one conversation per channel) */
+  taken: z.boolean(),
+})
+export type SlackRelayChannel = z.infer<typeof SlackRelayChannel>
+/** The channels both I and the app are in (Slack's users.conversations with the bot token). */
+export const SlackRelayChannels = z.object({ items: z.array(SlackRelayChannel) })
+export type SlackRelayChannels = z.infer<typeof SlackRelayChannels>
+export const ConnectSlackRelayBody = z.object({ channelId: z.string().regex(SLACK_RELAY_CHANNEL_ID) }).strict()
+export type ConnectSlackRelayBody = z.infer<typeof ConnectSlackRelayBody>
+/** A relayed message from Slack per conversation link and day, at most (the room apps' 500 a day does not apply). */
+export const SLACK_RELAY_DAILY_CAP = 5000
+/** The relayed text of one message, at most (characters). */
+export const SLACK_RELAY_TEXT_MAX = 8000
+
+const RELAY_WHO = 'Anyone in the room reads it (404 otherwise). Connect and Disconnect: its owners and admins who are in it (403 otherwise).'
+export const SLACK_RELAY = {
+  slackRelay: endpoint({ method: 'GET', path: '/api/rooms/:id/slack', auth: 'user', owner: 'C', response: SlackRelayStatus,
+    summary: `The conversation's Slack channel link (the header chip, the Slack row of Add an app) and whether I may connect one. ${RELAY_WHO}` }),
+  slackRelayChannels: endpoint({ method: 'GET', path: '/api/rooms/:id/slack/channels', auth: 'user', owner: 'C', response: SlackRelayChannels,
+    summary: 'The Slack channels both I (my linked Slack account) and the app are in, to connect one. The conversation\'s owners and admins who are in it (403 otherwise; 404 not in it); 409 slack_not_linked without my own Slack account, 409 slack_off when Slack is not added.' }),
+  connectSlackRelay: endpoint({ method: 'POST', path: '/api/rooms/:id/slack', auth: 'user', owner: 'C', status: 201, body: ConnectSlackRelayBody, response: SlackRelayStatus,
+    summary: 'Connect a Slack channel: everyone in the conversation sees its messages from now on, and what they write goes to it. A team conversation or project only (409 room_kind), no guest in it (409 guests), my Slack account linked and in the channel (409 slack_not_linked, 409 not_in_channel), the app in the channel (409 bot_not_in_channel), one channel per conversation and one conversation per channel (409 linked). Audited (slack.relay_linked).' }),
+  disconnectSlackRelay: endpoint({ method: 'DELETE', path: '/api/rooms/:id/slack', auth: 'user', owner: 'C', status: 204, response: empty,
+    summary: 'Disconnect the Slack channel: nothing more comes or goes; the messages so far stay. Audited (slack.relay_unlinked).' }),
+  retrySlackRelay: endpoint({ method: 'POST', path: '/api/rooms/:id/slack/messages/:messageId/retry', auth: 'user', owner: 'C', status: 204, response: empty,
+    summary: '"Retry" on my own message that Slack refused ("Not sent to Slack"). Its author only (404 otherwise).' }),
+  slackRelayAvatar: endpoint({ method: 'GET', path: '/api/rooms/:id/slack/avatar/:slackUserId', auth: 'user', owner: 'C', response: stream(false),
+    summary: 'The Slack picture of someone whose message was relayed into this conversation (fetched from Slack\'s own image hosts only, kept in memory). Anyone in the room (404 otherwise, and for a person never relayed here). An image only: nosniff and a sandbox policy.' }),
+} as const
 
 export const SLACK = {
   slackAdmin: endpoint({ method: 'GET', path: '/api/admin/slack', auth: 'admin', owner: 'C', query: z.object({ origin: z.string().max(200).optional() }), response: SlackAdmin, summary: 'The Slack connector: state, workspace, the manifest to create the app with. Never a token.' }),
