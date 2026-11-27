@@ -346,7 +346,10 @@ export class MockServer {
   static freshGoogleLogin() {
     return {
       client: null as 'here' | 'elsewhere' | null,
-      account: { sub: '100', email: 'olga@acme.test' } as { sub: string; email: string; name?: string },
+      // whose Google client (Admin › Sign-in methods' status line), and why there is none (google-login-admin.ts)
+      via: 'own' as 'own' | 'service',
+      reason: 'no_address' as 'no_address' | 'unreachable' | 'not_served' | 'none',
+      account: { sub: '100', email: 'olga@acme.test' } as { sub: string; email: string; name?: string; hd?: string },
       linked: new Map<string, { sub: string; email: string; connectedAt: string; lastUsedAt: string | null }>(),
       // signUp: what a sign-up carries to Google's return (server/src/auth/google-signup.ts): the setup's team, or the
       // invite or team link the person joins with their username and name
@@ -1773,6 +1776,13 @@ export class MockServer {
     if (error) return go(back(error === 'access_denied' ? 'cancelled' : 'failed'))
     const a = g.account
     const holder = [...g.linked].find(([, x]) => x.sub === a.sub)
+    if (f.intent === 'connect' && f.next === '/admin/sign-in') {
+      // "Try it": a page that names the Google account and the domain list's answer, signing nobody in (tryPage)
+      const list = this.settings.googleSignInDomains ?? []
+      const ok = !list.length || (!!a.hd && list.includes(a.hd))
+      headers.set('content-type', 'text/html; charset=utf-8')
+      return new Response(`<!doctype html><main><h1 data-testid="google-try-title">${ok ? 'Google sign-in works' : "This account wouldn't get in"}</h1><p role="status">${ok ? `Works: ${a.email}. Nobody was signed in.` : `Google answered for ${a.email}, but this team only lets in Google Workspace accounts from ${list.join(', ')}. Nobody was signed in.`}</p><a href="/admin/sign-in" data-testid="google-try-back">Back to Sign-in methods</a></main>`, { status: 200, headers })
+    }
     if (f.intent === 'connect') {
       const u = this.userOf(req)
       if (!u || u.id !== f.userId || this.sessionTokenOf(req) !== f.session || u.mustChangePassword) return go(back('expired'))
@@ -5022,7 +5032,12 @@ export class MockServer {
     },
     settings: () => ({ ...this.settings, speechProvider: this.speechNow() }),
     // like server/src/auth/google-login-admin.ts: whether this server has a Google client (here or elsewhere), never which
-    googleSignInAdminStatus: () => ({ client: this.googleLogin.client !== null }),
+    googleSignInAdminStatus: () => (this.googleLogin.client !== null ? { client: true, via: this.googleLogin.via, tryable: this.googleLogin.client === 'here' } : { client: false, reason: this.googleLogin.reason, tryable: false }),
+    // Admin › Sign-in methods' "Try it" (server/src/auth/google-login.ts startGoogleTry): a connect flow whose next is the page
+    tryGoogleSignIn: (c) => {
+      if (this.googleLogin.client !== 'here') fail('unavailable', 503, serverMsg('googleSignInOff', this.localeOf(c.req)))
+      return this.googleStart(c.req, 'connect', { userId: c.user.id, session: this.sessionTokenOf(c.req) }, '/admin/sign-in')
+    },
     // SpeechKeyStatus.hosted (0.2.17): the hosting service's free hours; none on this mock server
     speechKey: () => ({ ...this.speechKey, hosted: null }),
     speechHost: () => this.speechHost,
@@ -6524,7 +6539,9 @@ export class MockServer {
     else if (p === '/__test/google-login') {
       // {client?: 'here' | 'elsewhere' | null, account?: {sub, email}}: Sign in with Google (freshGoogleLogin)
       if (body.client !== undefined) this.googleLogin.client = body.client === 'here' || body.client === 'elsewhere' ? body.client : null
-      if (body.account) this.googleLogin.account = body.account as { sub: string; email: string }
+      if (body.account) this.googleLogin.account = body.account as { sub: string; email: string; hd?: string }
+      if (body.via === 'own' || body.via === 'service') this.googleLogin.via = body.via
+      if (typeof body.reason === 'string') this.googleLogin.reason = body.reason as typeof this.googleLogin.reason
     }
     else if (p === '/__test/plugin-previous') this.plugins.control(body as { id: string; version: string; trusted: boolean; untrusted?: boolean })
     else if (p === '/__test/member-welcome') {

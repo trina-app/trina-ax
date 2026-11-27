@@ -74,10 +74,18 @@ export const UsersResponse = z.object({
   google: z.array(UserId).optional(),
 })
 export type UsersResponse = z.infer<typeof UsersResponse>
-/** Sign in with Google for Admin › Team settings (server/src/auth/google-login-admin.ts). `client`: this server has a
- * Google client it can use, so the row "Sign in with Google" shows (the team switch is TeamSettings.googleSignIn);
- * without one the page says how a self-installed server adds one (Admin › Connectors › Google Drive). */
-export const GoogleSignInAdminStatus = z.object({ client: z.boolean() })
+/** Sign in with Google for Admin › Sign-in methods (server/src/auth/google-login-admin.ts). `client`: this server has a
+ * Google client it can use now (the team switch is TeamSettings.googleSignIn). `via`: whose: 'own' (the company's own
+ * Google app, the one Google Drive uses), 'service' (the hosting service's sign-in service), absent when none. `reason`,
+ * when there is none: 'no_address' (no public web address: Google cannot come back here), 'unreachable' (the hosting
+ * service cannot be asked now), 'not_served' (it does not serve this server, or not yet), 'none' (no way at all on
+ * this server). `tryable`: this page's address can run "Try it". Older servers send only `client`. */
+export const GoogleSignInAdminStatus = z.object({
+  client: z.boolean(),
+  via: z.enum(['own', 'service']).optional(),
+  reason: z.enum(['no_address', 'unreachable', 'not_served', 'none']).optional(),
+  tryable: z.boolean().optional(),
+})
 export type GoogleSignInAdminStatus = z.infer<typeof GoogleSignInAdminStatus>
 /** Hand the owner role to another active member (the old owner becomes admin). The target must be active, not the
  * caller, past their temporary password and signed in at least once. `end`: the caller's own connections to end after
@@ -728,7 +736,8 @@ export const ADMIN = {
 
   settings: endpoint({ method: 'GET', path: '/api/admin/settings', auth: 'admin', owner: 'A', response: TeamSettings, summary: 'Team settings.' }),
   updateSettings: endpoint({ method: 'PATCH', path: '/api/admin/settings', auth: 'admin', owner: 'A', body: UpdateSettingsBody, response: TeamSettings, summary: 'Change team settings. Owner only: the team name (also renames the relay address), the retention periods and the update channel (OWNER_ONLY_SETTINGS).' }),
-  googleSignInAdminStatus: endpoint({ method: 'GET', path: '/api/admin/google-login', auth: 'admin', owner: 'A', response: GoogleSignInAdminStatus, summary: 'Whether this server has a Google client for Sign in with Google (the team switch is the googleSignIn setting); never the client.' }),
+  googleSignInAdminStatus: endpoint({ method: 'GET', path: '/api/admin/google-login', auth: 'admin', owner: 'A', response: GoogleSignInAdminStatus, summary: 'Whether this server has a Google client for Sign in with Google, whose, and why not (the team switch is the googleSignIn setting); never the client.' }),
+  tryGoogleSignIn: endpoint({ method: 'POST', path: '/api/admin/google-login/try', auth: 'admin', owner: 'A', response: z.object({ url: z.string() }), summary: 'Try it: Google\'s address for a test sign-in; its return shows which Google account answered and whether the domain list lets it in, and signs nobody in.' }),
   putTeamIcon: endpoint({ method: 'PUT', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', query: TeamIconQuery, body: binary(TEAM_ICON_MAX_BYTES), response: TeamIconInfo, summary: 'Set the team logo (shown at the top left on computers, with the team name; tab and app icons stay the product\'s): PNG, JPEG or WebP up to 1 MiB, 32–4096 px a side; audited.' }),
   deleteTeamIcon: endpoint({ method: 'DELETE', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Remove the team logo: the product\'s mark shows again; audited.' }),
   speechHost: endpoint({ method: 'GET', path: '/api/admin/speech-host', auth: 'admin', owner: 'A', response: SpeechHost, summary: 'How this server turns video and audio sound into text itself: its cores, piece length, measured speed, and the tools voice input lacks here.' }),

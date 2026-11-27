@@ -873,9 +873,15 @@ export const SPECS: Record<string, Spec> = {
   updateBudget: { build: (c, w) => c.patch(`/api/admin/budgets/${w.ids.budget}`, { limitUsd: 20 }), scope: 'byLevel' },
   deleteBudget: { build: (c, w) => c.del(`/api/admin/budgets/${w.ids.budget}`), scope: 'byLevel' },
   settings: { build: (c) => c.get('/api/admin/settings'), scope: 'byLevel' },
-  // whether Team settings shows "Sign in with Google" (auth/google-login-admin.ts): a yes or no, never the client
+  // what Admin › Sign-in methods says about Google (auth/google-login-admin.ts): a yes or no and why, never the client
   googleSignInAdminStatus: { build: (c) => c.get('/api/admin/google-login'), scope: 'byLevel',
-    check: (r, _w, who) => { if (r.status < 300 && JSON.stringify(r.json) !== JSON.stringify({ client: false })) throw new Error(`${who}: unexpected Google sign-in status ${r.text}`) } },
+    check: (r, _w, who) => {
+      if (r.status >= 300) return
+      const j = r.json as Record<string, unknown>
+      if (j.client !== false || Object.keys(j).some((k) => !['client', 'via', 'reason', 'tryable'].includes(k))) throw new Error(`${who}: unexpected Google sign-in status ${r.text}`)
+    } },
+  // its "Try it" (auth/google-login.ts startGoogleTry): admins only; this server has no Google client, so no positive
+  tryGoogleSignIn: { skipPositive: true, build: (c) => c.post('/api/admin/google-login/try', {}), scope: 'byLevel' },
   updateSettings: { build: (c) => c.patch('/api/admin/settings', { browserAllowAll: true }), scope: 'byLevel' },
   speechHost: { build: (c) => c.get('/api/admin/speech-host'), scope: 'byLevel' },
   speechKey: { build: (c) => c.get('/api/admin/speech-key'), scope: 'byLevel', check: (r) => { if (r.text.includes('sk-or-')) throw new Error('the speech key status shows a key') } },

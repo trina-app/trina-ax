@@ -35,6 +35,7 @@ import { speechKeyStatus, writeSpeechKey } from '../credentials/speech-key'
 import { createUser, deleteUser, disconnectUserGoogle, guardResetLink, listUsers, resetPassword, transferOwnership, updateUser } from '../admin/users'
 import { googleConnectedUsers } from '../auth/login-identities'
 import { googleSignInAdminStatus } from '../auth/google-login-admin'
+import { googleTryAvailable, startGoogleTry } from '../auth/google-login'
 import { dismissLead, endPending, handoverState, noteReauthLocked, retryPendingEnds } from '../admin/handover'
 import { setHandoverPushConfig } from '../admin/handover-notices'
 import { authOf } from '../auth/service'
@@ -373,8 +374,10 @@ export const adminRoutes: RouteModule = {
     })
 
     kit.handle(API.settings, () => getTeamSettings(ctx.db))
-    // whether Team settings shows "Sign in with Google" (auth/google-login-admin.ts): never the client
-    kit.handle(API.googleSignInAdminStatus, () => googleSignInAdminStatus(ctx))
+    // what Admin › Sign-in methods says about Google (auth/google-login-admin.ts): never the client
+    kit.handle(API.googleSignInAdminStatus, ({ c }) => googleSignInAdminStatus(ctx, googleTryAvailable(ctx, c.req.url)))
+    // its "Try it": Google for this admin's browser; the return signs nobody in (auth/google-login.ts)
+    kit.handle(API.tryGoogleSignIn, ({ c }) => startGoogleTry(c, ctx))
     kit.handle(API.updateSettings, ({ c, body, auth }) => {
       assertConcurrencyAllowed(body.concurrency, c.get('locale')) // plan (system/limits.ts)
       const cur = getTeamSettings(ctx.db)

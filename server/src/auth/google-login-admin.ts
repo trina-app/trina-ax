@@ -2,7 +2,8 @@
 // (TeamSettings.googleSignIn, Admin › Team settings) and whether this server has a Google client for it. Admin › Members'
 // label and the connectors' login_hint read login-identities.ts, which loads nothing.
 import type { Database } from 'bun:sqlite'
-import type { GoogleSignInAdminStatus, Locale } from '@mycel/shared/api'
+import { z } from 'zod'
+import { GoogleDomain, type GoogleSignInAdminStatus, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { getSetting } from '../admin/settings'
 import { fail } from '../http/errors'
@@ -63,7 +64,38 @@ export async function refuseClientInUse<T>(locale: Locale, fn: () => T | Promise
   }
 }
 
-/** GET /api/admin/google-login: whether Admin › Team settings shows the switch. Never the client. */
-export function googleSignInAdminStatus(ctx: AppContext): GoogleSignInAdminStatus {
-  return { client: googleSignInClient(ctx) }
+/** The team's domain list (TeamSettings.googleSignInDomains): empty, every Google account. */
+export function googleSignInDomains(db: Database): string[] {
+  const v = getSetting<unknown>(db, GOOGLE_SIGN_IN_DOMAINS_SETTING)
+  const p = z.array(GoogleDomain).safeParse(v)
+  return p.success ? p.data : []
+}
+export const GOOGLE_SIGN_IN_DOMAINS_SETTING = 'googleSignInDomains'
+
+/** The Google account may sign in here under the domain list: no list, or Google's `hd` claim (the Workspace domain
+ * Google vouches for) is on it. Never the e-mail address: a personal Google account can carry bob@acme.com, verified,
+ * with no `hd` (docs/decisions/20261127-google-signin-selfhost.md). */
+export function googleDomainAllowed(db: Database, hd: string | null): boolean {
+  const list = googleSignInDomains(db)
+  return !list.length || (!!hd && list.includes(hd.toLowerCase()))
+}
+
+/** No Google client here only because the hosting service's sign-in service cannot be asked now (it served or may serve
+ * this server): the sign-in page keeps the button for people without a password, and a click says so
+ * (google-login.ts). */
+export function googleBrokerUnreachable(ctx: AppContext): boolean {
+  const drive = googleDriveOf(ctx)
+  if (drive.config || drive.clientFromEnv || !publicHostOf(ctx.config)) return false
+  const broker = googleSigninBrokerOf(ctx)
+  return !!broker && !broker.serves() && broker.unreachable()
+}
+
+/** GET /api/admin/google-login: what Admin › Sign-in methods says about Google. Never the client. `tryable`: this
+ * page's address can run "Try it" (google-login.ts googleTryAvailable, filled in by the route). */
+export function googleSignInAdminStatus(ctx: AppContext, tryable = false): GoogleSignInAdminStatus {
+  const kind = googleClientKind(ctx)
+  if (kind) return { client: true, via: kind === 'direct' ? 'own' : 'service', tryable }
+  const broker = googleDriveOf(ctx).clientFromEnv ? null : googleSigninBrokerOf(ctx)
+  const reason = !publicHostOf(ctx.config) ? 'no_address' : !broker ? 'none' : broker.unreachable() ? 'unreachable' : 'not_served'
+  return { client: false, reason, tryable: false }
 }

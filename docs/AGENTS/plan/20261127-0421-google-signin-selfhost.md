@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-27 04:21
 - Branch: `feat/google-signin-selfhost` (on top of `fix/google-signin-hosted-ux`, PR #678, head 85e13b870)
-- Status: in progress
+- Status: done
 - Where: server/src/auth, server/src/routes, shared/src/api, web/src/pages/admin, docs/site. Why: sign-in, its admin
   page and its docs live there (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. A self-installed server gains Google sign-in through the hosting service, a new admin page,
@@ -79,4 +79,7 @@ off by default. It extends docs/decisions/20261122-google-login-client.md and 20
 
 ## Result
 
-Filled in at the end.
+Built as planned. The contract (`shared/src/cloud-protocol`) is unchanged: registration reuses Drive's `register`
+(`{ v: 1, origin }`), which trina-cloud's branch opens while `CP_GOOGLE_SIGNIN_SELF` is on. The Try it return is a
+server page (like the re-check's), not a redirect, so no address carries the Google e-mail. The page lives in the
+People group of the Admin menu (`/admin/sign-in`).

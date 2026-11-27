@@ -76,7 +76,7 @@ export function googleAppLink(origin: string, code: string): string {
 
 const RESULT_TEXT: Record<string, MessageKey> = {
   not_connected: 'googleAppNotConnected', account_off: 'googleAppAccountOff', password_first: 'googleAppPasswordFirst',
-  cancelled: 'googleAppCancelled', expired: 'googleAppExpired', failed: 'googleAppFailed',
+  cancelled: 'googleAppCancelled', expired: 'googleAppExpired', failed: 'googleAppFailed', wrong_domain: 'googleAppWrongDomain',
 }
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`)
 

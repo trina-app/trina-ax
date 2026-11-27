@@ -64,6 +64,8 @@ On the sign-in page, choose **Sign in with Google** at the top and pick the same
 | An admin gave you a temporary password | Sign in with that password first and choose a new one. |
 | This account was turned off | Ask your team's owner or an admin. |
 | No **Sign in with Google** button | Your team turned it off, or this address doesn't offer it. Sign in with your password. |
+| This team only lets in Google Workspace accounts of its company | Your team allows only work Google accounts of some domains. Use your work Google account, or your password. |
+| Google sign-in can't be reached right now | Trina AX's sign-in service is down for a moment. Try again in a few minutes, or ask an admin for a temporary password. |
 
 To stop using it, choose **Disconnect** in **Security & devices**. Your other devices are signed out; this one stays
 signed in. When an admin gives you a temporary password, or you set a new password with a reset link, your Google
@@ -85,11 +87,30 @@ If you joined or set up the team with **Google**, your account has no password: 
 
 ## For admins
 
-- **Turn it on or off.** **Admin › Team settings › Members and AI › Sign in with Google**, on by default. Off: nobody
-  new connects or joins with Google, and people with a password sign in with it. While anyone in the team has no
-  password (made with Google), the sign-in page keeps the **Sign in with Google** button for them: it's their only way
-  in. The Google accounts people connected stay, and work again when you turn it back on. A team hosted by Trina has
-  the row with its switch; on a server you run yourself it is there when your server has a Google app (see below).
+Everything about how people sign in is on one page: **Admin › Sign-in methods**.
+
+- **Password.** Everyone can sign in with a username and password. It is always on.
+- **Sign in with Google: the switch.** On by default. Off: nobody new connects or joins with Google, and people with a
+  password sign in with it. While anyone in the team has no password (made with Google), the sign-in page keeps the
+  **Sign in with Google** button for them: it's their only way in. The Google accounts people connected stay, and work
+  again when you turn it back on.
+- **The line under it** says how Google signs in on your server:
+
+  | Line | What it means |
+  |---|---|
+  | Through Trina AX's sign-in service | A team hosted by Trina, or a server you run yourself with a public web address: nothing to set up. |
+  | Through your company's Google app | Your server has its own Google app (the one Google Drive uses). |
+  | Needs a public web address | Google can't come back to your server. **How** opens the section below. |
+  | The sign-in service doesn't serve this server yet | Your server registered itself and waits for the service. It checks again every few minutes. |
+  | The sign-in service can't be reached right now | People with a password sign in as usual; people without one get the message on the sign-in page. |
+
+- **Only Google Workspace accounts from.** Optional. Type your company's Google Workspace domains, such as
+  `acme.com` (several with commas). Then only Google accounts of those Workspaces can sign in, connect or join with
+  Google. Trina AX asks Google which Workspace the account belongs to; it never goes by the e-mail address, because a
+  personal Google account can use a company address too. Empty (the default): any Google account, personal Gmail too.
+- **Try it.** Opens Google. Pick an account: the page after says **Works: <address>**, or that your domain list keeps
+  that account out. Nobody is signed in and nothing is connected. It works with the switch off too, so you can try
+  before turning it on.
 - **See who uses it.** **Admin › Members & invites** shows **Google** beside each person who connected one.
 - **Remove someone's.** In the person's **⋯**, choose **Disconnect Google**. They sign in with their password from
   then on, and they are signed out on every device. The usual rules apply: nobody changes the owner here, and only the
@@ -106,22 +127,32 @@ leaves, disable them in **Admin › Members & invites**: that signs them out on 
 
 ## On a server you run yourself
 
-Sign in with Google uses the same Google app as Google Drive. If Google Drive is set up on your server, there is
-nothing more to do: the sign-in page shows the button, and each person connects their Google account once.
+A server you run yourself signs in with Google through **Trina AX's sign-in service**, as a hosted team does. There is no
+Google Cloud project to make and nothing to paste:
 
-- **The Google app.** Set it up once in **Admin › Connected apps › Google Drive**: see
-  [Set up the Google apps](google-apps.md#set-up-the-google-apps-admins-of-a-server-you-run-yourself). Without it, the
-  row in **Team settings** says so and links there.
-- **The return address.** Google comes back to the address Google Drive already uses. Nothing new to add in Google
-  Cloud:
+- **A public web address** is all it needs, such as `trina.acme.com` (the installer's `--public-host`, or `tunnel.host`
+  in [Configuration](../operate/configuration.md)). Google comes back to Trina AX's sign-in service, which sends the
+  browser on to your server's address, and only to an address it checked belongs to your server.
+- **It registers itself.** Your server proves its address to the service once, as it does for Google Drive, and checks
+  again every few minutes. **Admin › Sign-in methods** shows **Through Trina AX's sign-in service** once it works.
+- **What the service sees.** When someone signs in, Trina AX's sign-in service passes Google's answer to your server. In
+  passing it sees the Google account's name and e-mail address. It keeps none of it after the sign-in finishes (at most
+  2 minutes), only that your server used Google sign-in, and when.
+- **When the service is down.** People with a password sign in as usual. People who joined with Google and have no
+  password see "Google sign-in can't be reached right now"; an admin can give them a temporary password meanwhile
+  (which disconnects their Google account; they connect it again later).
+- **The office, LAN or Tailscale address** keeps the password sign-in: Google comes back only to the public address.
 
-  ```
-  https://<your address>/api/integrations/google-drive/callback
-  ```
+**Your company's own Google app instead.** If your server already has a Google app (the one Google Drive uses: see
+[Google with your own Google app](../operate/google-own-app-self-installed.md)), sign-in uses that app and nothing goes
+through Trina. Google comes back to the address Google Drive already uses:
 
-- **No Google review for a company.** A Google Workspace company can make the app **Internal**: only your company's
-  accounts can use it, and Google doesn't review it. Signing in asks Google only for the person's name, e-mail address
-  and account id.
+```
+https://<your address>/api/integrations/google-drive/callback
+```
 
-A team hosted by Trina uses its company's own Google app for this:
+A Google Workspace company can make that app **Internal**: only your company's accounts can use it, and Google doesn't
+review it. Signing in asks Google only for the person's name, e-mail address and account id.
+
+A team hosted by Trina can use its company's own Google app too:
 [Use your company's own Google app](google-own-app.md).

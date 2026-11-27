@@ -18,7 +18,7 @@ import {
   GOOGLE_SIGNIN_CALLBACK_PATH, GOOGLE_SIGNIN_PATHS, GOOGLE_SIGNIN_TEAM_RETURN_PATH, googleSigninAuthorizeUrl, googleSigninReturnUrl, googleSigninSigningString,
   parseGoogleSigninAuthorization, parseGoogleSigninRedeem, parseGoogleSigninStart, parseGoogleSigninStatus,
 } from '../../shared/src/cloud-protocol/google-signin'
-import { DRIVE_BROKER_PATHS, driveBrokerSigningString } from '../../shared/src/cloud-protocol/drive-broker'
+import { DRIVE_BROKER_PATHS, GOOGLE_BROKER_KEY_PATH, driveBrokerSigningString, parseBrokerKeyAnswer, parseDriveBrokerAuthorization, parseDriveBrokerRegister } from '../../shared/src/cloud-protocol/drive-broker'
 import { DEFAULT_LIMITS } from '../../server/src/auth/rate-limit'
 import { OWNER_PW, addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 
@@ -62,20 +62,48 @@ class FakeConsole {
   /** the start answer's Google address, changed by a test */
   bendUrl: ((u: URL) => void) | null = null
   now = () => Date.now()
+  /** a self-installed server: not served until it registered its address (Drive's `register`, proved by fetching the
+   * key at that address through `proof`); `registerOpen` false: the console refuses registrations */
+  served = true
+  registerOpen = true
+  registered: string[] = []
+  proof: ((url: string) => Promise<Response>) | null = null
+  /** the console cannot be reached at all */
+  down = false
 
   fetch = async (url: string, init: RequestInit = {}): Promise<Response> => {
     if (url === GOOGLE_CERTS) { this.certsCalls++; return Response.json({ keys: [jwk] }) }
+    if (this.down) throw new TypeError('fetch failed')
     if (!url.startsWith(ORIGIN + '/')) return new Response('no', { status: 599 })
     const path = new URL(url).pathname, body = String(init.body ?? ''), authorization = new Headers(init.headers).get('authorization') ?? ''
     this.calls.push({ path, body, authorization })
     const err = (code: string, status: number) => Response.json({ error: { code, message: code } }, { status })
+    const sha = crypto.createHash('sha256').update(body).digest('hex')
+    const verify = (a: { key: string; ts: number; nonce: string; sig: string }, signing: string) => {
+      try { return crypto.verify(null, Buffer.from(signing), crypto.createPublicKey({ key: Buffer.from(a.key, 'base64'), format: 'der', type: 'spki' }), Buffer.from(a.sig, 'base64')) } catch { return false }
+    }
+    if (path === DRIVE_BROKER_PATHS.register) {
+      // Drive's register, signed over Drive's own string: the console fetches the key at the origin and serves the
+      // server for sign-in once it matches (trina-cloud src/drive-broker/self-register.ts)
+      const a = parseDriveBrokerAuthorization(authorization)
+      if (!a || !verify(a, driveBrokerSigningString(path, a.ts, a.nonce, sha)) || this.seen.has(a.nonce)) return err('unauthorized', 401)
+      this.seen.add(a.nonce)
+      if (!this.registerOpen) return err('not_configured', 503)
+      const b = parseDriveBrokerRegister(JSON.parse(body))
+      if (!b || !this.proof) return err('invalid_request', 400)
+      const answer = await this.proof(b.origin + GOOGLE_BROKER_KEY_PATH)
+      const key = answer.ok ? parseBrokerKeyAnswer(await answer.json()) : null
+      if (key !== a.key || key !== this.publicKey) return err('origin_unverified', 400)
+      this.registered.push(b.origin)
+      this.served = true
+      return Response.json({ ok: true })
+    }
     const auth = parseGoogleSigninAuthorization(authorization)
     if (!auth || init.method !== 'POST') return err('unauthorized', 401)
-    let ok = false
-    try { ok = crypto.verify(null, Buffer.from(googleSigninSigningString(path, auth.ts, auth.nonce, crypto.createHash('sha256').update(body).digest('hex'))), crypto.createPublicKey({ key: Buffer.from(auth.key, 'base64'), format: 'der', type: 'spki' }), Buffer.from(auth.sig, 'base64')) } catch {}
+    const ok = verify(auth, googleSigninSigningString(path, auth.ts, auth.nonce, sha))
     if (!ok || this.seen.has(auth.nonce)) return err('unauthorized', 401)
     this.seen.add(auth.nonce)
-    if (auth.key !== this.publicKey) return err('not_hosted', 403)
+    if (auth.key !== this.publicKey || !this.served) return err('not_hosted', 403)
     if (!this.configured) return err('not_configured', 503)
     let json: unknown
     try { json = JSON.parse(body) } catch { return err('invalid_request', 400) }
@@ -168,21 +196,21 @@ describe('Sign in with Google through the hosting service', () => {
   })
 
   test('Admin › Team settings shows the switch on a team the console serves (no own Google client); not while it does not', async () => {
-    expect(await owner.call('GET', '/api/admin/google-login')).toEqual({ client: true })
+    expect(await owner.call('GET', '/api/admin/google-login')).toEqual({ client: true, via: 'service', tryable: true })
     const broker = googleSigninBrokerOf(h.ctx)!
     cp.configured = false
     try {
       await broker.check()
-      expect(await owner.call('GET', '/api/admin/google-login')).toEqual({ client: false })
+      expect(await owner.call('GET', '/api/admin/google-login')).toEqual({ client: false, reason: 'not_served', tryable: false })
     } finally {
       cp.configured = true
       await broker.check()
     }
-    expect(await owner.call('GET', '/api/admin/google-login')).toEqual({ client: true })
+    expect(await owner.call('GET', '/api/admin/google-login')).toEqual({ client: true, via: 'service', tryable: true })
     // the switch works there: off, no button for new people; on again, back
     await owner.call('PATCH', '/api/admin/settings', { googleSignIn: false })
     expect((await browser().call('GET', '/api/setup')).googleSignIn).toBeUndefined()
-    expect(await owner.call('GET', '/api/admin/google-login')).toEqual({ client: true })
+    expect(await owner.call('GET', '/api/admin/google-login')).toEqual({ client: true, via: 'service', tryable: true })
     await owner.call('PATCH', '/api/admin/settings', { googleSignIn: true })
     expect((await browser().call('GET', '/api/setup')).googleSignIn).toBe(true)
   })
@@ -363,15 +391,145 @@ describe('Sign in with Google through the hosting service', () => {
   })
 })
 
-describe('a self-installed server never signs in through the hosting service', () => {
+describe('a self-installed server signs in through the hosting service (docs/decisions/20261127-google-signin-selfhost.md)', () => {
   let h: Harness
-  beforeAll(async () => { h = await harness('google-login-broker-self', { publicOrigins: [TEAM] } as Partial<AppConfig>); await withOwner(h) })
+  let owner: Client
+  let cp: FakeConsole
+  let t = 1_000_000
+  const HOST = new URL(TEAM).host
+  beforeAll(async () => {
+    h = await harness('google-login-broker-self', { tunnel: { host: HOST, allowFrom: [], countries: [] } } as Partial<AppConfig>)
+    await withOwner(h)
+    h.auth.limiter.limits = { ...DEFAULT_LIMITS, perGoogleStart: 1000 }
+    owner = h.client({ base: TEAM })
+    await owner.login('olga', OWNER_PW)
+  })
   afterAll(() => h.close())
-  test('no broker, no button', async () => {
-    googleDriveOf(h.ctx, { config: null, broker: null })
-    expect(googleSigninBrokerOf(h.ctx, { origin: ORIGIN })).toBeNull()
+  /** a new console that does not know this server yet; Drive has no broker of its own here (registration does not
+   * depend on it) */
+  const fresh = async (o: Partial<Pick<FakeConsole, 'registerOpen' | 'down'>> = {}) => {
+    cp = new FakeConsole()
+    cp.served = false
+    Object.assign(cp, o)
+    cp.now = () => h.auth.now()
+    cp.proof = async (url) => h.fetch(new URL(url).pathname, { base: TEAM })
+    googleDriveOf(h.ctx, { config: null, broker: null, fetch: cp.fetch })
+    const b = googleSigninBrokerOf(h.ctx, { origin: ORIGIN, selfOrigin: TEAM, identity: () => ({ key: cp.key, publicKey: cp.publicKey }), fetch: cp.fetch, now: () => t })!
+    // the first one asks the console at once (googleSigninBrokerOf): let that check end before a test asks itself
+    let seen = -1
+    for (let n = 0; n < 100 && seen !== cp.calls.length; n++) { seen = cp.calls.length; await Bun.sleep(10) }
+    return b
+  }
+  const registers = () => cp.calls.filter((q) => q.path === DRIVE_BROKER_PATHS.register).length
+
+  test('not served yet: it registers its own address with Drive’s register, the console proves the key there, then the button shows', async () => {
+    const b = await fresh()
+    expect(await b.check()).toBe(true)
+    expect(cp.registered).toEqual([TEAM])
+    // the key route answers for sign-in although Drive has no broker here: the public key only, not cached
+    const r = await h.fetch(GOOGLE_BROKER_KEY_PATH, { base: TEAM })
+    expect(r.status).toBe(200)
+    expect(r.headers.get('cache-control')).toBe('no-store')
+    expect(await r.json()).toEqual({ v: 1, key: cp.publicKey })
+    expect((await h.client({ base: TEAM }).call('GET', '/api/setup')).googleSignIn).toBe(true)
+    expect(await owner.call('GET', '/api/admin/google-login')).toEqual({ client: true, via: 'service', tryable: true })
+    // served: asking again does not register again
+    expect(await b.check()).toBe(true)
+    expect(registers()).toBe(1)
+  })
+
+  test('connect and sign in end to end, the console sending the browser back to the server’s own address', async () => {
+    const b = await fresh()
+    await b.check()
+    const c = await owner.raw('POST', '/api/me/google/connect', { password: OWNER_PW })
+    expect(c.status).toBe(200)
+    const { url } = await c.json() as { url: string }
+    const gsi = c.headers.getSetCookie().find((x) => x.startsWith(`${GSI}=`))!.split(';')[0]!
+    const back = new URL(cp.browserReturn(url))
+    expect(back.origin).toBe(TEAM)
+    const done = await h.fetch(back.pathname + back.search, { base: TEAM, headers: { cookie: `${owner.cookie}; ${gsi}` } })
+    expect(done.headers.get('location')).toBe('/settings/security?google=connected')
+    const s = await h.client({ base: TEAM }).raw('POST', '/api/auth/google/start', {})
+    const sUrl = (await s.json() as { url: string }).url
+    const sGsi = s.headers.getSetCookie().find((x) => x.startsWith(`${GSI}=`))!.split(';')[0]!
+    const sBack = new URL(cp.browserReturn(sUrl))
+    expect((await h.fetch(sBack.pathname + sBack.search, { base: TEAM, headers: { cookie: sGsi } })).headers.get('location')).toBe('/')
+  })
+
+  test('a console that refuses registration: no button, a back-off of 1, 2, 4 … minutes between registrations', async () => {
+    t = 2_000_000
+    const b = await fresh({ registerOpen: false })
+    expect(await b.check()).toBe(false)
+    expect(registers()).toBe(1)
     expect((await h.client({ base: TEAM }).call('GET', '/api/setup')).googleSignIn).toBeUndefined()
-    expect((await h.client({ base: TEAM }).try('POST', '/api/auth/google/start', {})).status).toBe(503)
+    expect(await owner.call('GET', '/api/admin/google-login')).toEqual({ client: false, reason: 'not_served', tryable: false })
+    // within the wait (1 minute after the first no, 2 after the second): no new register
+    t += 30_000
+    await b.check()
+    expect(registers()).toBe(1)
+    t += 60_000
+    await b.check()
+    expect(registers()).toBe(2)
+    t += 60_000
+    await b.check()
+    expect(registers()).toBe(2)
+    t += 3 * 60_000
+    await b.check()
+    expect(registers()).toBe(3)
+  })
+
+  test('no public address: no broker, and the admin page says it needs one', async () => {
+    const before = h.ctx.config.tunnel
+    ;(h.ctx.config as { tunnel?: unknown }).tunnel = undefined
+    try {
+      googleDriveOf(h.ctx, { config: null, broker: null })
+      // the default needs a public address (selfInstalledDefault): with none there is nothing to register
+      expect(googleSigninBrokerOf(h.ctx, { env: { MYCEL_GOOGLE_DRIVE_BROKER_URL: undefined } })).toBeNull()
+      expect(await owner.call('GET', '/api/admin/google-login')).toEqual({ client: false, reason: 'no_address', tryable: false })
+      expect((await h.fetch(GOOGLE_BROKER_KEY_PATH, { base: TEAM })).status).toBe(404)
+    } finally { (h.ctx.config as { tunnel?: unknown }).tunnel = before }
+  })
+
+  test('the console down: the button stays only while someone has no password, and a click says so', async () => {
+    const b = await fresh()
+    await b.check()
+    cp.down = true
+    t += 11 * 60_000
+    expect(await b.check()).toBe(false)
+    expect(b.unreachable()).toBe(true)
+    // everyone has a password: no button
+    expect((await h.client({ base: TEAM }).call('GET', '/api/setup')).googleSignIn).toBeUndefined()
+    expect(await owner.call('GET', '/api/admin/google-login')).toMatchObject({ client: false, reason: 'unreachable' })
+    // a person made with Google (no password): the button stays, and the start says what to do
+    const m = await addMember(h, owner, { username: 'nopw' })
+    h.ctx.db.query('UPDATE users SET password_hash = NULL WHERE id = ?').run(m.id)
+    h.ctx.db.query("INSERT INTO login_identities (user_id, provider, subject, email, hd, linked_at) VALUES (?, 'google', 'nopw-sub', 'nopw@acme.test', NULL, ?)").run(m.id, new Date().toISOString())
+    expect((await h.client({ base: TEAM }).call('GET', '/api/setup')).googleSignIn).toBe(true)
+    const r = await h.client({ base: TEAM }).try('POST', '/api/auth/google/start', {})
+    expect(r.status).toBe(503)
+    expect(r.body.error.code).toBe('unavailable')
+    expect(r.body.error.params?.reason).toBe('unreachable')
+    h.ctx.db.query('DELETE FROM users WHERE id = ?').run(m.id)
+  })
+
+  test('hosted-only rules kept: a hosted server never registers, even when given an address to register', async () => {
+    const hosted = await harness('google-login-broker-hosted-noreg', { deployment: 'hosted', publicOrigins: [TEAM] } as Partial<AppConfig>)
+    try {
+      const c = new FakeConsole()
+      googleDriveOf(hosted.ctx, { config: null, broker: null, fetch: c.fetch })
+      const b = googleSigninBrokerOf(hosted.ctx, { origin: ORIGIN, selfOrigin: TEAM, identity: () => ({ key: c.key, publicKey: c.publicKey }), fetch: c.fetch })!
+      expect(b.selfOrigin).toBeNull()
+      c.served = false
+      expect(await b.check()).toBe(false)
+      expect(c.calls.filter((q) => q.path === DRIVE_BROKER_PATHS.register)).toHaveLength(0)
+      // and its key route stays closed (the console knows a hosted team's key from enroll)
+      expect((await hosted.fetch(GOOGLE_BROKER_KEY_PATH, { base: TEAM })).status).toBe(404)
+    } finally { await hosted.close() }
+  })
+
+  test('a dev server never uses the default console', async () => {
+    const dev = await harness('google-login-broker-dev', { mode: 'dev', tunnel: { host: HOST, allowFrom: [], countries: [] } } as Partial<AppConfig>)
+    try { expect(googleSigninBrokerOf(dev.ctx, { env: {} })).toBeNull() } finally { await dev.close() }
   })
 })
 

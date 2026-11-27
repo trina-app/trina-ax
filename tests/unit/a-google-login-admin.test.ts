@@ -62,15 +62,15 @@ describe('Sign in with Google: the team side', () => {
 
   test('the switch is on by default, and the row shows where there is a Google client', async () => {
     expect((await owner.call('GET', '/api/admin/settings')).googleSignIn).toBe(true)
-    expect(await owner.call('GET', '/api/admin/google-login')).toEqual({ client: true })
-    expect(await admin.client.call('GET', '/api/admin/google-login')).toEqual({ client: true })
+    expect(await owner.call('GET', '/api/admin/google-login')).toEqual({ client: true, via: 'own', tryable: true })
+    expect(await admin.client.call('GET', '/api/admin/google-login')).toEqual({ client: true, via: 'own', tryable: true })
     const m = await addMember(h, owner, { username: 'max' })
     expect((await m.client.try('GET', '/api/admin/google-login')).status).toBe(403)
-    // no client: the page says how to add one instead of the row
+    // no client and no public web address: the page says it needs one
     const drive = googleDriveOf(h.ctx)
     const cfg = drive.config
     ;(drive as any).cfg = null
-    try { expect(await owner.call('GET', '/api/admin/google-login')).toEqual({ client: false }) } finally { (drive as any).cfg = cfg }
+    try { expect(await owner.call('GET', '/api/admin/google-login')).toEqual({ client: false, reason: 'no_address', tryable: false }) } finally { (drive as any).cfg = cfg }
   })
 
   test('off: no button, no connect, no start, a return on its way refused; the connection stays and works again when on', async () => {

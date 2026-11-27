@@ -396,6 +396,8 @@ const GOOGLE_RESULT: Record<string, MessageKey> = {
   cancelled: 'auth.google.cancelled', expired: 'auth.google.expired', failed: 'auth.google.failed',
   // a sign-up's return (server/src/auth/google-signup.ts): the setup, invite and team link pages
   username_taken: 'auth.google.username_taken', gone: 'auth.google.gone', full: 'auth.google.full',
+  // the team's Google Workspace domains only (Admin › Sign-in methods; Google's `hd`)
+  wrong_domain: 'auth.google.wrong_domain',
 }
 
 /** "or" between the Google button (on top) and the password form under it */
