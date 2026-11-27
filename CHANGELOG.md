@@ -5,6 +5,30 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+## 0.20.2 — 2026-11-27
+
+- Admin notes: 0.20.2 changes a root file (`mycel-bootstrap`: the supervisor watchdog now restarts a hung server by default), so every Linux server takes it through the root update: the update timer installs it in the team's update window, or run `sudo mycel-ctl update`. The system package list is unchanged. There is no new migration and the reader level stays 9: going back to 0.20.1 needs no backup. To keep the 0.20.1 log-only watchdog, put `"watchdog": {"kill": false}` in `server.json` (office Mac: `TEAMAX_WATCHDOG_KILL=0` in `config/office.env`). Sign in by e-mail works only for an e-mail that one account uses; new accounts can no longer share an e-mail.
+
+- Replacing, copying or restoring a very large file (several GB) no longer makes the app stop answering for minutes on Linux and Docker servers while the file is copied; the old version is still kept before the new one appears.
+- Desktop: the first screen offers **Create a team for free** even when the app could not reach the hosting service at first (offline at start, a slow network, a redirect): it asks again by itself. Before, it stayed on "Join your team" until the app restarted.
+- Sign in with your email address as well as your username (when only one account uses that email).
+- A new team's owner who signed in with an email code now sees their username on the welcome page, with Copy, and chooses the name to show; the name never keeps an email "+tag".
+- Teams hosted by Trina that sign in with Google through Trina's sign-in service now see the **Sign in with Google** switch in **Admin › Team settings**. It said "This needs a Google app" there.
+- The Google buttons use Google's own words and mark: **Sign in with Google**, **Sign up with Google** on the setup page and **Continue with Google** on invites and the team link, with Google's colour "G". They come first, above "or" and the password form.
+- Joining with Google from an invite or the team link no longer asks for a name and a username first: the name comes from Google and the username from the Google address. Both can be changed later in Profile. Guest invites still use a password.
+- A server you run yourself with a public web address can offer **Sign in with Google** through Trina AX's sign-in service, with no Google Cloud project to make: the server registers itself, as it does for Google Drive. Trina turns the service on for self-installed servers after testing.
+- New page **Admin › Sign-in methods**: the password, and Sign in with Google with its switch, a line that says how it signs in here (or that the server needs a public web address), and **Try it**, which opens Google and shows which account answered without signing anyone in. The Google row moved here from Team settings, without "Set up on the Google Drive page".
+- Optional: **Only Google Workspace accounts from** lets in only Google accounts of your company's Workspace domains, for signing in, connecting and joining. Trina AX asks Google which Workspace an account belongs to; it never goes by the e-mail address. Off by default, so personal Gmail and teams without Workspace keep working.
+- When Trina AX's sign-in service can't be reached, people who have no password still see the Google button, and a click says to try again in a few minutes or ask an admin for a temporary password.
+- A guest's project page has no name menu again (it had gained "Copy link" with the shared menus).
+- The left rail's selected place now shows its pressed background behind the icon and the name together, and hovering a place lights the whole block, not only the icon.
+- Desktop app: the "Your teams" screen is calmer. "Create a team for free" and "Join with an invite link" are now quiet rows in the same style as the teams above them (a small "+" or link icon, no big orange block or outlined box), the language is a small globe control at the bottom, and a team's "Open" shows when you point at or tab to its row.
+- Desktop app: on the "Your teams" screen, "Create a team for free", "Join with an invite link" and "Just look around first" are one short list under the teams, each with a small icon and an arrow at the right, so they no longer look like more teams. On the very first start, "Create a team for free" is outlined as the one thing to press.
+- Self-hosted servers: the supervisor now restarts a server that runs but stops answering (no answer for about 5 minutes after it had answered), at most 3 times an hour; `mycel-ctl status` says when it gave up. In 0.20.1 it only wrote this to the log. `"watchdog": {"kill": false}` in `server.json` keeps the old log-only behaviour.
+- Office Mac: the supervisor now restarts a server that stops answering for about 5 minutes (at most 3 times an hour). `TEAMAX_WATCHDOG_KILL=0` in `config/office.env` makes it only log it.
+- Restoring a database backup no longer freezes the app while the backup is checked (the check of a big database took minutes); it runs in the background.
+- Moving a big folder, or changing the access rules at the top of a big team folder, no longer stops the app for minutes while the file list follows the change.
+
 ## 0.20.1 — 2026-11-27
 
 - Admin notes: 0.20.1 changes root files (`mycel-bootstrap`, `mycel-launcher` and `mycel-ctl`: the supervisor watchdog, the AI-only restart, and the watchdog line in `mycel-ctl status`), so every Linux server takes it through the root update: the update timer installs it in the team's update window, or run `sudo mycel-ctl update`. The system package list is unchanged. There is no new migration and the reader level stays 9: going back to 0.20.0 needs no backup. The watchdog only writes to the log until `server.json` has `"watchdog": {"kill": true}`. The restore fix is in `mycel-enroll` (the new hosted team image) and in the server.

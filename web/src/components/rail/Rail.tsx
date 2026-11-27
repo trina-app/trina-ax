@@ -1,5 +1,5 @@
 // The rail on computers (768 px and wider; docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1): the team's logo on top
-// (TeamMenu.tsx: its menu for every role: Switch team; Invite people and Admin for owners and admins), then five places, each an icon with its name under it (the owner, 2026-11-07: no icon
+// (TeamMenu.tsx: its menu for every role: Switch team; Invite people and Admin for owners and admins), then five places, each an icon with its name under it, the pressed or hovered one lit as one block behind both (the owner, 2026-11-07: no icon
 // without words): 트리나 · 대화 · 프로젝트 · 파일 · 활동, the order of the phone's tabs (프로젝트's mark: useProjectsMark.ts, the phone tab's too); my photo at the bottom (nav/AccountMenu.tsx:
 // status, away, Settings, Sign out). A place opens what was open in it last in this browser tab (lib/rail.ts);
 // the place already lit opens its start; 트리나 with its "?", pressed from another place, opens the first chat that
@@ -69,7 +69,7 @@ export function Rail({ showList }: { showList: boolean }) {
   return (
     <nav aria-label={t('rail.label')} onKeyDown={onKey} className="flex h-full w-[clamp(72px,4.5rem,88px)] shrink-0 flex-col items-stretch border-r border-line bg-subtle" data-testid="rail">
       <TeamMenu />
-      <ul className="mt-2 flex flex-col gap-1 px-1.5">
+      <ul className="mt-2 flex flex-col gap-1 px-1">
         {RAIL_ITEMS.filter((item) => !guestHidden.has(item)).map((item) => {
           const lit = item === current
           const to = item === 'ai' && firstWaiting ? `/c/${firstWaiting.id}` : railTarget(item, current, last, meId)
@@ -80,16 +80,16 @@ export function Rail({ showList }: { showList: boolean }) {
                   to={to}
                   state={railLinkState(item)}
                   aria-current={lit ? 'page' : undefined}
-                  className={clsx('group flex w-full flex-col items-center gap-0.5 rounded-lg py-1 text-micro leading-tight focus-visible:-outline-offset-2', lit ? 'font-semibold text-ink' : 'text-muted hover:text-ink')}
+                  className={clsx('flex w-full flex-col items-center gap-0.5 rounded-lg px-1 py-1.5 text-micro leading-tight focus-visible:-outline-offset-2', lit ? 'bg-hover font-semibold text-ink' : 'text-muted hover:bg-hover hover:text-ink')}
                   data-rail-stop=""
                   data-testid={`rail-${item}`}
                 >
-                  <span className={clsx('relative flex h-8 w-11 items-center justify-center rounded-xl', lit ? 'bg-hover' : 'group-hover:bg-hover')}>
+                  <span className="relative flex h-8 w-11 items-center justify-center">
                     {icon(item, lit)}
                     <Mark mark={marks[item]} item={item} />
                   </span>
                   {/* up to two lines, never an ellipsis: ja "プロジェクト", "アクティビティ" were cut (QA 2026-11-22 F15) */}
-                  <span className="line-clamp-2 w-full px-0.5 text-center leading-tight [overflow-wrap:anywhere]" data-testid="rail-label">{label[item]}</span>
+                  <span className="line-clamp-2 w-full text-center leading-tight [overflow-wrap:anywhere]" data-testid="rail-label">{label[item]}</span>
                   <MarkWords mark={marks[item]} item={item} />
                 </Link>
               </Tooltip>

@@ -62,7 +62,7 @@ describe('취소 takes back only what the share added', () => {
     expect(canOpen('bob', 'alice', 'users/alice/gap-a.txt')).toBe(true)
     expect(canOpen('bob', 'alice', 'users/alice/gap-b.txt')).toBe(true)
     // someone else's press, and the removal undo endpoint, never take it
-    expect(() => takeBackShares(h.ctx, 'bob', shared.takeBack!.id, 'en')).toThrow()
+    await expect(takeBackShares(h.ctx, 'bob', shared.takeBack!.id, 'en')).rejects.toThrow()
     expect(() => undoShares(h.ctx, 'alice', shared.takeBack!.id, 'en')).toThrow()
     const res = await h.api('alice').call(API.takeBackFileShares, { body: { id: shared.takeBack!.id } })
     expect(res).toEqual({ removed: 1, skipped: 0 })
@@ -70,14 +70,14 @@ describe('취소 takes back only what the share added', () => {
     expect(canOpen('bob', 'alice', 'users/alice/gap-a.txt')).toBe(true)
     expect(canOpen('bob', 'alice', 'users/alice/gap-b.txt')).toBe(false)
     // once only
-    expect(() => takeBackShares(h.ctx, 'alice', shared.takeBack!.id, 'en')).toThrow()
+    await expect(takeBackShares(h.ctx, 'alice', shared.takeBack!.id, 'en')).rejects.toThrow()
   })
 
   test('both new: both go', async () => {
     put('users/alice/gap-c.txt', 'C'); put('users/alice/gap-d.txt', 'D')
     const r = await turn(`share gap-c.txt and gap-d.txt with Bob Lee\n${fake({ tool: 'share_with_person', args: { paths: ['users/alice/gap-c.txt', 'users/alice/gap-d.txt'], people: ['Bob Lee'] }, sayResult: true })}`)
     const shared = r.steps.find((s) => s.tool === 'share_with_person')!.shared!
-    expect(takeBackShares(h.ctx, 'alice', shared.takeBack!.id, 'en')).toEqual({ removed: 2, skipped: 0 })
+    expect(await takeBackShares(h.ctx, 'alice', shared.takeBack!.id, 'en')).toEqual({ removed: 2, skipped: 0 })
     expect(canOpen('bob', 'alice', 'users/alice/gap-c.txt')).toBe(false)
     expect(canOpen('bob', 'alice', 'users/alice/gap-d.txt')).toBe(false)
   })
@@ -103,7 +103,7 @@ describe('"share this folder" with the files only in the chat', () => {
     expect(fs.readFileSync(path.join(h.ctx.files.fx.root, 'users', 'alice', made[0]!, 'quote.txt'), 'utf8')).toBe('the quote')
     expect(canOpen('bob', 'alice', rel)).toBe(true)
     expect(shared.files[0]!.name).toBe(made[0]!)
-    const res = takeBackShares(h.ctx, 'alice', shared.takeBack!.id, 'en')
+    const res = await takeBackShares(h.ctx, 'alice', shared.takeBack!.id, 'en')
     expect(res.removed).toBe(1)
     expect(folders()).toEqual(before)
     // the original attachment is untouched
@@ -122,7 +122,7 @@ describe('"share this folder" with the files only in the chat', () => {
     // since: a file of her own saved there, and Carol added by hand (the Share dialog)
     put(`${rel}/mine.txt`, 'kept')
     fileSharesOf(h.ctx).put('alice', rel, [user('carol')], [], 'en', 'dialog')
-    expect(takeBackShares(h.ctx, 'alice', shared.takeBack!.id, 'en').removed).toBe(1)
+    expect((await takeBackShares(h.ctx, 'alice', shared.takeBack!.id, 'en')).removed).toBe(1)
     expect(fs.existsSync(path.join(h.ctx.files.fx.root, ...rel.split('/'), 'mine.txt'))).toBe(true)
     expect(canOpen('bob', 'alice', rel)).toBe(false)
     expect(canOpen('carol', 'alice', rel)).toBe(true)

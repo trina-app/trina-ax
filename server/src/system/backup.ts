@@ -593,7 +593,9 @@ export class BackupManager {
     await fsp.rm(staged, { force: true })
     await fsp.copyFile(src, staged)
     await fsp.chmod(staged, 0o600)
-    try { inspectDbCopy(staged) } catch (e) { await fsp.rm(staged, { force: true }); throw e }
+    // the integrity check reads the whole copy: in a child process, so the server keeps answering (and its watchdog
+    // never takes a long restore check for a hang)
+    try { await inspectDbCopyAsync(staged) } catch (e) { await fsp.rm(staged, { force: true }); throw e }
     const pending: RestorePending = { format: 1, file: staged, backupId: id, requestedAt: this.now().toISOString(), requestedBy, backupCreatedAt: this.createdAtOf(id), readerLevel: requiredReaderLevelOfFile(staged) }
     await fsp.writeFile(path.join(this.o.layout.dataDir, 'restore-pending.json'), JSON.stringify(pending), { mode: 0o600 })
     return pending

@@ -479,9 +479,9 @@ describe('review 2, H-B: a person\'s copy into a shared folder asks, whatever th
     expect(exists(`${work}/c.md`)).toBe(false)
     expect(await svc().copy('alice', priv, `${work}/c.md`, { confirm: true })).toMatchObject({ path: `${work}/c.md` })
     err = null
-    try { svc().copyFolderTree('alice', `users/alice/private-cp2-${n}/dir`, work) } catch (e) { err = e }
+    try { await svc().copyFolderTree('alice', `users/alice/private-cp2-${n}/dir`, work) } catch (e) { err = e }
     expect(err?.params?.reason).toBe('audience_widened')
-    expect(svc().copyFolderTree('alice', `users/alice/private-cp2-${n}/dir`, work, { confirm: true })).toMatchObject({ path: `${work}/dir` })
+    expect(await svc().copyFolderTree('alice', `users/alice/private-cp2-${n}/dir`, work, { confirm: true })).toMatchObject({ path: `${work}/dir` })
     const no = await h.req('alice', '/api/files/copy', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ from: priv, to: `${work}/d.md` }) })
     expect(no.status).toBe(409)
     const yes = await h.req('alice', '/api/files/copy', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ from: priv, to: `${work}/d.md`, confirm: true }) })
