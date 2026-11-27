@@ -1272,14 +1272,17 @@ export class AppWindow {
   }
 
   private async loadOrigin(origin: string, path: string) {
-    if (!this.app || !this.team) return
+    const app = this.app, team = this.team
+    if (!app || !team) return
     const prev = this.currentOrigin
-    if (prev && prev !== origin) await mirrorSessionCookie(this.app.webContents.session, prev, origin).catch(() => false)
-    else if (origin !== this.team.origin) await mirrorSessionCookie(this.app.webContents.session, this.team.origin, origin).catch(() => false)
+    if (prev && prev !== origin) await mirrorSessionCookie(app.webContents.session, prev, origin).catch(() => false)
+    else if (origin !== team.origin) await mirrorSessionCookie(app.webContents.session, team.origin, origin).catch(() => false)
+    // the team was closed or replaced while the cookie was copied: nothing to load (the new team loads its own)
+    if (this.app !== app || app.webContents.isDestroyed()) return
     this.currentOrigin = origin
     this.updateTitle()
     this.sendConnection()
-    await this.app.webContents.loadURL(origin + path).catch(() => {})
+    await app.webContents.loadURL(origin + path).catch(() => {})
   }
 
   connection(): DesktopConnection | null {
@@ -1376,7 +1379,10 @@ export class AppWindow {
 
   /** Network may have changed: switch to the office address when it answers, back to the team address when not. */
   async recheck(force: boolean) {
-    if (!this.team || !this.app || this.mode !== 'team') return
+    // not before the team's first load has chosen its address (openTeam: pickOrigin, then loadOrigin): the window's
+    // focus at start came in between and moved a page still on about:blank (a team on this computer then went back to
+    // the list as if it had not answered). openTeam checks again itself once the page is loaded (scheduleRecheck)
+    if (!this.team || !this.app || this.mode !== 'team' || !this.currentOrigin) return
     if (!force && Date.now() - this.lastCheck < 30_000) return
     this.lastCheck = Date.now()
     const d = this.team.direct
@@ -1395,10 +1401,13 @@ export class AppWindow {
 
   private async switchTo(origin: string, direct: string | null) {
     if (!this.app) return
+    // the page the team shows now, on the address it shows; anything else (about:blank before the first load, an error
+    // page) is the team's start: `about:blank` has the path "blank", which made `https://<office>blank/`
     let path = '/'
     try {
-      const u = new URL(this.app.webContents.getURL())
-      path = u.pathname + u.search + u.hash
+      const url = this.app.webContents.getURL()
+      const u = new URL(url)
+      if (this.currentOrigin && originOf(url) === this.currentOrigin) path = u.pathname + u.search + u.hash
     } catch {
       path = '/'
     }
