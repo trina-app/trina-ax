@@ -6,12 +6,15 @@
 // on its username too, and wrong tries void its temporary password); a username written like another account's e-mail
 // is that account's username, and no new username may be an e-mail; no new or changed e-mail may be one another account
 // has (Settings › Profile, Admin › Members, a new member), with the plain words.
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { TEMP_PASSWORD_MAX_FAILURES } from '@mycel/shared'
 import { bootstrapOwner } from '../../server/src/auth/accounts'
 import { DEFAULT_LIMITS } from '../../server/src/auth/rate-limit'
 import { emailTakenByOther, signInUser, usernameTaken } from '../../server/src/auth/users'
 import { addMember, harness, type Client, type Harness } from './a-lib'
+
+// many real password checks (argon2) in a row: slow on CI runners
+setDefaultTimeout(30_000)
 
 const PW = 'owner horse battery 42'
 
@@ -80,7 +83,7 @@ describe('sign in with the e-mail', () => {
     h.advance(16 * 60_000)
     expect((await login('yuri', 'walnut234', '10.9.9.9')).status).toBe(401)
     expect(h.ctx.db.query("SELECT action FROM audit_log WHERE action = 'auth.temp_password_voided'").all().length).toBe(1)
-  })
+  }, 120_000) // fifty real argon2 checks: slow on CI runners
 
   test('a username written like another account\'s e-mail is that account\'s username; no new username may be an e-mail', async () => {
     await addUser('u_e', 'eve@example.com', null, PW)

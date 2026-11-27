@@ -11,7 +11,8 @@ import { GOOGLE_SIGN_IN_DOMAINS_MAX, GoogleDomain, type GoogleSignInAdminStatus 
 import { api, API, errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
-import { Button, confirmDialog, inputCls, Switch } from '../../components/ui'
+import { Button, inputCls, Switch } from '../../components/ui'
+import { destructive } from '../../lib/destructive'
 import { AdminPageHeader, SettingRow, SettingsSection, useAction, useLoad } from './common'
 
 /** where a self-installed server without a public web address reads how to get one, and what Google sign-in needs */
@@ -127,8 +128,12 @@ function GoogleDomains({ initial }: { initial: string[] }) {
     // people who sign in only with Google from other domains would be locked out: ask first (the server counts them)
     const check = domains.length ? await act(() => api.call(API.checkGoogleSignInDomains, { body: { domains } })) : { lockedOut: 0 }
     if (!check) return setBusy(false)
-    if (check.lockedOut > 0 && !(await confirmDialog({ title: t('signIn.domainsLockTitle'), body: t('signIn.domainsLock', { n: check.lockedOut }), confirm: t('signIn.domainsLockSave'), danger: true }))) return setBusy(false)
-    const r = await act(() => api.call(API.updateSettings, { body: { googleSignInDomains: domains } }), t('common.saved'))
+    // the one way to ask before something that shuts people out (lib/destructive.ts); the toast is act's "Saved"
+    const r = await destructive({
+      confirm: check.lockedOut > 0 ? { title: t('signIn.domainsLockTitle'), body: t('signIn.domainsLock', { n: check.lockedOut }), confirm: t('signIn.domainsLockSave') } : undefined,
+      run: () => act(() => api.call(API.updateSettings, { body: { googleSignInDomains: domains } }), t('common.saved')),
+      done: () => null,
+    })
     setBusy(false)
     if (r) { const v = (r.googleSignInDomains ?? []).join(', '); setSaved(v); setText(v) }
   }
