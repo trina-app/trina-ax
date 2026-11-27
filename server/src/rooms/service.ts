@@ -144,6 +144,14 @@ export class Rooms {
   }
   /** `notices`: a new message's notices by recipient (notify()): each one's room.message says theirs (the desktop app
    * tells what the Inbox and push tell, docs/DECISIONS.md "Session markers"). */
+  /** The Slack channel relay (integrations/slack/relay.ts sets it): a person's message of a linked conversation was
+   * sent (`answer`: it carries an AI answer, which is not relayed), edited or deleted. */
+  slackOut: { sent(row: MessageRow, answer: boolean): void; edited(row: MessageRow): void; removed(row: MessageRow): void } | null = null
+  private toSlack(what: 'sent' | 'edited' | 'removed', row: MessageRow, answer = false) {
+    if (!this.slackOut) return
+    try { if (what === 'sent') this.slackOut.sent(row, answer); else this.slackOut[what](row) } catch (e) { this.ctx.log.warn('slack relay hook failed', { err: e }) }
+  }
+
   messageEvent(type: 'room.message' | 'room.message.updated', row: MessageRow, notices?: ReadonlyMap<string, RoomNoticeEvent>) {
     // what the message links to: read once for everyone, decided for each member (rooms/link-previews.ts)
     const links = prepareLinkPreviews(this.db, [row])
@@ -848,6 +856,8 @@ export class Rooms {
     const row = messageRow(this.db, roomId, id)!
     this.messageEvent('room.message', row, this.notify(row))
     if (root) this.afterReply(root)
+    // a conversation linked to a Slack channel: the person's own words go there too (integrations/slack/relay.ts)
+    this.toSlack('sent', row, !!answer)
     return messagesOut(this.db, [row], memberRow(this.db, roomId, userId)!)[0]!
   }
 
@@ -905,6 +915,7 @@ export class Rooms {
     this.db.query('UPDATE room_messages SET body = ?, mentions = ?, mentions_all = ?, edited_at = ?, link_previews = ? WHERE id = ?').run(b.body, JSON.stringify(mentions), b.mentionsAll ? 1 : 0, nowIso(), keptAfterEdit(m.link_previews, b.body), m.id)
     const row = messageRow(this.db, roomId, messageId)!
     this.messageEvent('room.message.updated', row)
+    this.toSlack('edited', row)
     return messagesOut(this.db, [row], me)[0]!
   }
 
@@ -931,6 +942,7 @@ export class Rooms {
       return [...this.moveRuns(m), ...(this.db.query('DELETE FROM room_notices WHERE source_id = ? AND room_id = ? RETURNING user_id').all(m.id, roomId) as { user_id: string }[]).map((r) => r.user_id)]
     })()
     roomFilesOf(this.ctx).removeForMessage(m.id)
+    this.toSlack('removed', m)
     for (const u of new Set(noticed)) this.notifySignal(u)
     this.messageEvent('room.message.updated', messageRow(this.db, roomId, messageId)!)
     // the messages showing it as a snapshot: their open windows lose its words now, not at the next read

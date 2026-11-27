@@ -149,6 +149,13 @@ class Fail extends Error {
 }
 /** the Claude sign-in's authorize address (tests/lib/fake-claude-login.ts has the same shape) */
 const MOCK_CLAUDE_AUTHORIZE = 'https://claude.com/cai/oauth/authorize?code=true&client_id=mock&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=mock&code_challenge_method=S256&state=good-state'
+/** The Slack channels the mock's relay lists (both the person and the app in them): one taken by another conversation */
+const MOCK_SLACK_CHANNELS = [
+  { id: 'C0ACME01', name: 'client-acme', private: false, extShared: false, taken: false },
+  { id: 'C0ACME02', name: 'partners', private: false, extShared: true, taken: false },
+  { id: 'G0ACME03', name: 'leadership', private: true, extShared: false, taken: false },
+  { id: 'C0ACME04', name: 'general', private: false, extShared: false, taken: true },
+]
 const fail = (code: ErrorCode, status: number, msg?: string, fields?: Record<string, string>, params?: Record<string, string | number | boolean>): never => {
   throw new Fail(code, status, msg, fields, params)
 }
@@ -522,6 +529,8 @@ export class MockServer {
   teamAddress: string | null = null
   /** Slack's state over the default (a connected own app, nobody linked): POST /__test/slack, until the next reset */
   slackOver: { admin: Partial<SlackAdmin>; mine: Partial<MySlack> } = { admin: {}, mine: {} }
+  /** the Slack channel relay's links by room (docs/SLACK.md "Channel relay"), until the next reset */
+  slackRelays = new Map<string, import('@mycel/shared/api').SlackRelayLink>()
   /** GET /api/admin/backups' lastRestore (POST /__test/last-restore): none until a test sets it */
   lastRestore: import('@mycel/shared/api').LastRestore | null = null
   /** the Move picker's "최근" per person (folders moved into, newest first) and its ✕ (person|folder|name pattern) */
@@ -849,6 +858,7 @@ export class MockServer {
     this.answerTokens = { tokens: 80_000, from: 'default' }
     this.seatsFull = false
     this.slackOver = { admin: {}, mine: {} }
+    this.slackRelays.clear()
     this.lastRestore = null
     if (!this.setupNeeded) this.seed()
     // two admins besides the owner and Bob: Dana (signs in) and Eve (a row an admin cannot delete)
@@ -2789,6 +2799,18 @@ export class MockServer {
     return assistant
   }
 
+  /** GET /api/rooms/:id/slack as server/src/integrations/slack/relay.ts status answers it (404: not in the room). */
+  slackRelayStatus(user: User, roomId: string): import('@mycel/shared/api').SlackRelayStatus {
+    const room = this.rooms.find((r) => r.id === roomId) ?? fail('not_found', 404)
+    const admin = { enabled: true, tokens: true, botName: 'trina' as string | null, ...this.slackOver.admin }
+    const added = admin.enabled !== false && admin.tokens !== false
+    const mine = { link: null, signIn: false, ...this.slackOver.mine }
+    const kindOk = room.kind === 'team' || !!room.projectRoom || !!room.project?.room
+    const manager = user.role === 'owner' || user.role === 'admin'
+    const blocked = !added ? 'not_added' as const : !kindOk ? 'room_kind' as const : !manager ? 'not_manager' as const : undefined
+    return { link: this.slackRelays.get(roomId) ?? null, ...(blocked ? { blocked } : {}), meLinked: !!mine.link, signIn: !!mine.signIn, botName: admin.botName ?? 'trina', needsReAdd: false }
+  }
+
   // ---------------- handlers ----------------
   handlers: Partial<Record<ApiName, Handler>> = {
     // like server/src/routes/file-list.ts: always on (no switch); Run now is refused only when the host turned it off; a
@@ -2929,6 +2951,36 @@ export class MockServer {
       state: 'connected', lastError: null, linkOrigin: 'http://127.0.0.1', linked: 0, manifest: '{}', createUrl: 'https://api.slack.com/apps?new_app=1',
       signIn: false, redirectUrl: null, readScopes: null, missingScopes: [], ...this.slackOver.admin,
     }),
+    // the Slack channel relay (server/src/integrations/slack/relay.ts): a team channel or a project, no guest in it,
+    // connected by its owners and admins whose Slack account is linked (POST /__test/slack {mine: {link}}); three
+    // channels both they and the app are in (one taken, one private, one shared with another organization)
+    slackRelay: (c) => this.slackRelayStatus(c.user, c.params.id!),
+    slackRelayChannels: (c) => {
+      const st = this.slackRelayStatus(c.user, c.params.id!)
+      if (st.blocked === 'not_manager') fail('forbidden', 403)
+      if (st.blocked === 'not_added') fail('conflict', 409, 'Slack is not added to the team.', undefined, { reason: 'slack_off' })
+      if (!st.meLinked) fail('conflict', 409, 'Sign in with Slack first.', undefined, { reason: 'slack_not_linked' })
+      const taken = new Set([...this.slackRelays.values()].map((l) => l.channelId))
+      return { items: MOCK_SLACK_CHANNELS.map((ch) => ({ ...ch, taken: ch.taken || taken.has(ch.id) })) }
+    },
+    connectSlackRelay: (c) => {
+      const st = this.slackRelayStatus(c.user, c.params.id!)
+      if (st.blocked === 'not_manager') fail('forbidden', 403)
+      if (st.blocked) fail('conflict', 409, 'That conversation cannot be connected.', undefined, { reason: st.blocked === 'not_added' ? 'slack_off' : st.blocked })
+      if (!st.meLinked) fail('conflict', 409, 'Sign in with Slack first.', undefined, { reason: 'slack_not_linked' })
+      const ch = MOCK_SLACK_CHANNELS.find((x) => x.id === c.body.channelId) ?? fail('conflict', 409, 'Invite the app to the channel first.', undefined, { reason: 'bot_not_in_channel' })
+      if (st.link || ch.taken || [...this.slackRelays.values()].some((l) => l.channelId === ch.id)) fail('conflict', 409, 'Already connected.', undefined, { reason: 'linked' })
+      this.slackRelays.set(c.params.id!, { appId: uuidv7(), channelId: ch.id, channelName: ch.name, private: ch.private, extShared: ch.extShared, state: 'active', createdBy: { id: c.user.id, name: c.user.name }, createdAt: new Date().toISOString(), customName: true })
+      return this.slackRelayStatus(c.user, c.params.id!)
+    },
+    disconnectSlackRelay: (c) => {
+      if (this.slackRelayStatus(c.user, c.params.id!).blocked === 'not_manager') fail('forbidden', 403)
+      this.slackRelays.delete(c.params.id!)
+    },
+    // Retry of my own message Slack refused: taken (the mock keeps no outbox)
+    retrySlackRelay: (c) => { this.slackRelayStatus(c.user, c.params.id!) },
+    // no relayed sender's picture here: the initial shows
+    slackRelayAvatar: () => fail('not_found', 404),
     // a guest sees only the people of their place, and a guest only those of theirs (reachFilter); Person.guest tags them
     listPeople: (c) => {
       const mine = c.user.role === 'guest' ? this.guestPeers(c.user.id) : null

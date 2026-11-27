@@ -91,6 +91,11 @@ export const bodyOf = (app: string, card: RoomAppCard, extra?: string) => {
   return card.link ? `${words}\n<${card.link.url}>` : words
 }
 
+/** A message relayed from a linked Slack channel (integrations/slack/relay.ts), as stored: "<name>: <text>" with the
+ * same rules as a card's body (Markdown marks escaped, addresses never links), so search, push, export, the AI and older
+ * apps read who wrote it. `text` is already cleaned (lines()). */
+export const relayBodyOf = (name: string, text: string) => unlink(escapeMarkdown(`${line(name, 80)}: ${text}`))
+
 /** A stored card, or null when it is not one this build reads. */
 export function parseCard(s: string | null): RoomAppCard | null {
   if (!s) return null

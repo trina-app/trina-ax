@@ -1,7 +1,7 @@
 // Pure helpers of the team chat rooms ("대화방" v1, shared/src/api/rooms.ts): a room's title, runs of one author's
 // messages, event lines, and @mentions (the "@name" being typed, the members that fit it, and the parts of a sent
 // text). No React, no requests: unit tested in test/unit/rooms-lib.test.ts.
-import { isUuid7, roomCounts, roomLightsDot, roomNoticeWanted, roomUnread, roomWantsMe, ROOM_MENTIONS_MAX, type CountedRoomFields, type Room, type RoomEventLine, type RoomMessage, type UserRef } from '@mycel/shared/api'
+import { isUuid7, roomCounts, roomLightsDot, roomNoticeWanted, roomUnread, roomWantsMe, ROOM_MENTIONS_MAX, type CountedRoomFields, type Room, type RoomEventLine, type RoomMessage, type SlackLineWhat, type UserRef } from '@mycel/shared/api'
 
 /** The words a title falls back to: `all` for the everyone room, `gone` for a DM whose other person is gone, and for an
  * unnamed group chat its other members ("가, 나, 다 외 2명"; `alone` when nobody else is left). */
@@ -56,11 +56,19 @@ export function roomTitle(room: Pick<Room, 'kind' | 'name' | 'peers'> & Partial<
 /** The words of an event line (lib, not React: the component passes t). `person` puts a language's honorific after a
  * name ("{name}님"), `quote` puts a room name in the language's quotes. */
 export interface EventWords {
-  t: (key: 'rooms.event.invited' | 'rooms.event.invitedMore' | 'rooms.event.renamed' | 'rooms.event.renamedBack' | 'rooms.event.left' | 'rooms.event.joined' | 'rooms.event.removed' | 'rooms.event.unknown' | ProjectEventKey | 'rooms.event.projectMade' | 'rooms.event.projectMadeUnnamed' | 'rooms.event.filesMoved' | 'rooms.event.filesMovedUnnamed' | 'rooms.event.filesMovedKept' | 'rooms.event.filesMovedKeptUnnamed' | 'rooms.event.person' | 'rooms.event.quoted' | 'rooms.nameSep', params?: Record<string, string | number>) => string
+  t: (key: 'rooms.event.invited' | 'rooms.event.invitedMore' | 'rooms.event.renamed' | 'rooms.event.renamedBack' | 'rooms.event.left' | 'rooms.event.joined' | 'rooms.event.removed' | 'rooms.event.unknown' | ProjectEventKey | 'rooms.event.projectMade' | 'rooms.event.projectMadeUnnamed' | 'rooms.event.filesMoved' | 'rooms.event.filesMovedUnnamed' | 'rooms.event.filesMovedKept' | 'rooms.event.filesMovedKeptUnnamed' | 'rooms.event.person' | 'rooms.event.quoted' | 'rooms.nameSep' | SlackEventKey, params?: Record<string, string | number>) => string
   nameOf: (u: UserRef | null) => string
   /** the Chat attachments folder's name in the reader's language (CHAT_FILES_FOLDER; shared/src/folder-labels.ts chatFilesWord), for the files' move line */
   folder?: string
+  /** a Slack line's app name in Slack ("/invite @<app>"), when known */
+  bot?: string | null
 }
+/** The Slack relay's lines (docs/SLACK.md "Channel relay"), one per SlackLineWhat; bot_removed without the app's name too. */
+const SLACK_LINE = {
+  connected: 'slackConnected', disconnected: 'slackDisconnected', bot_removed: 'slackBotRemoved', archived: 'slackArchived', shared: 'slackShared',
+  missing: 'slackMissing', team_removed: 'slackTeamRemoved', back: 'slackBack', capped: 'slackCapped',
+} as const satisfies Record<SlackLineWhat, string>
+export type SlackEventKey = `rooms.event.${(typeof SLACK_LINE)[SlackLineWhat]}` | 'rooms.event.slackBotRemovedNoBot'
 /** "가나님이 다라님, 마바님을 초대했어요": every name but the last gets the language's honorific here, the last one the
  * text's own (so a name that ends with 님 already gets no second one, and the particle after it fits); past TITLE_NAMES
  * names "외 N명". */
@@ -107,6 +115,14 @@ export function eventText(e: RoomEventLine, author: UserRef | null, w: EventWord
       const n = name.state === 'open' ? (e.project?.folder ?? name.name) : null
       if (e.kept > 0) return n ? w.t('rooms.event.filesMovedKept', { n: e.moved, m: e.kept, name: n, folder }) : w.t('rooms.event.filesMovedKeptUnnamed', { n: e.moved, m: e.kept, folder })
       return n ? w.t('rooms.event.filesMoved', { n: e.moved, name: n, folder }) : w.t('rooms.event.filesMovedUnnamed', { n: e.moved, folder })
+    }
+    // the Slack channel relay: connected / disconnected by the author, the others by the server (no actor). A line of
+    // a kind this build does not know reads as an unknown line
+    case 'slack': {
+      const k = SLACK_LINE[e.what]
+      if (!k) return w.t('rooms.event.unknown')
+      if (e.what === 'bot_removed' && !w.bot) return w.t('rooms.event.slackBotRemovedNoBot', { channel: e.channel })
+      return w.t(`rooms.event.${k}`, { actor, channel: e.channel, ...(e.what === 'bot_removed' ? { bot: w.bot! } : {}) })
     }
     case 'unknown':
       return w.t('rooms.event.unknown')

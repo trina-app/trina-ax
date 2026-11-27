@@ -27,7 +27,7 @@ import { ROOM_APP_NAME_MAX, roomAppFormsScript, type RoomApp, type RoomAppCard, 
 import { api, API, errorText } from '../../../lib/api'
 import { PHOTO_ACCEPT, squarePhoto } from '../../../lib/avatar'
 import { dateBucket, formatNumber, formatShortDateTime, intlTag } from '../../../lib/format'
-import { appStatus, EMAIL, FORM_SERVICES, isPreset, kindOf, MORE_SERVICES, needsOf, notSetUp, NOTHING_YET, PICKER_GROUPS, serviceOf, signingOf, switchesOf, type AppService } from '../../../lib/roomApps'
+import { appStatus, EMAIL, FORM_SERVICES, SLACK, isPreset, kindOf, MORE_SERVICES, needsOf, notSetUp, NOTHING_YET, PICKER_GROUPS, serviceOf, signingOf, switchesOf, type AppService } from '../../../lib/roomApps'
 import { useLocale, useT } from '../../../i18n'
 import { useRooms } from '../../../store/rooms'
 import { useRoomApps, type AppsStart } from '../../../store/roomApps'
@@ -43,6 +43,7 @@ import { useRoomTitle } from '../RoomIcon'
 import { AppTile, SenderTag } from './AppParts'
 import { CopyButton, copyFrom, Fold, Step, useFlash, useNothingYet, useVendor } from './GuideParts'
 import { DontSeeYourApp, PresetSteps } from './PresetSteps'
+import { SlackRelayPanel } from './SlackRelay'
 
 /** the user guide's page about apps in rooms (docs/site/use/room-apps.md) */
 export const ROOM_APPS_GUIDE = 'https://ax.trina.app/docs/use/room-apps/'
@@ -138,12 +139,15 @@ export function AppsDialog({ roomId, start }: { roomId: string; start: AppsStart
   const title: ReactNode = !view ? t('roomApps.listTitle')
     : view.view === 'pick' ? t('roomApps.pickTitle')
     : view.view === 'list' ? t('roomApps.listTitle')
+    // Slack: one panel to connect a channel, or its status once connected (SlackRelay.tsx)
+    : view.view === 'guide' && view.service === SLACK ? t('slackRelay.title')
+    : view.view === 'settings' && app && svc(app) === SLACK ? t('slackRelay.titleLinked')
     : view.view === 'guide' ? (app ? t('roomApps.guideTitle', { app: app.name }) : view.service === 'other' ? t('roomApps.guideTitleOther') : t('roomApps.guideTitle', { app: kindLabel(view.service) }))
     : app?.name ?? ''
   // a new app needs the internet address; the list and settings of existing ones say it is gone
   // no internet address: only Email can be added (its mail comes from the mail service, not to this server's address),
   // so the picker stays open while Email is available, and every other service's new guide shows the no-address screen
-  const blocked = !!list && !list.available && ((view?.view === 'pick' && !list.mail?.available) || (view?.view === 'guide' && !view.appId && view.service !== EMAIL))
+  const blocked = !!list && !list.available && ((view?.view === 'pick' && !list.mail?.available) || (view?.view === 'guide' && !view.appId && view.service !== EMAIL && view.service !== SLACK))
   return (
     <Modal
       open
@@ -157,9 +161,9 @@ export function AppsDialog({ roomId, start }: { roomId: string; start: AppsStart
             </IconButton>
           )}
           {/* one app's settings: its mark, the name it was given and, small, which kind it is */}
-          {view?.view === 'settings' && app && <AppTile service={svc(app)} app={app} size="title" />}
+          {view?.view === 'settings' && app && svc(app) !== SLACK && <AppTile service={svc(app)} app={app} size="title" />}
           <span className="truncate" data-testid="apps-title">{title}</span>
-          {view?.view === 'settings' && app && app.name !== kindLabel(svc(app)) && (
+          {view?.view === 'settings' && app && svc(app) !== SLACK && app.name !== kindLabel(svc(app)) && (
             <span className="shrink-0 text-xs font-normal text-muted" data-testid="apps-title-kind">{kindLabel(svc(app))}</span>
           )}
         </span>
@@ -171,6 +175,7 @@ export function AppsDialog({ roomId, start }: { roomId: string; start: AppsStart
           : blocked ? <NoAddress />
           : view.view === 'pick' ? <Picker list={list} roomName={name} place={pickerPlace.current} onPick={(service) => go({ view: 'guide', service })} />
           : view.view === 'list' ? <AppList list={list} onOpen={(id) => go({ view: 'settings', appId: id })} onAdd={() => { pickerPlace.current = { more: null, scroll: 0 }; go({ view: 'pick' }) }} />
+          : (view.view === 'guide' && view.service === SLACK) || (view.view === 'settings' && app && svc(app) === SLACK) ? <SlackRelayPanel roomId={roomId} onChanged={() => void useRoomApps.getState().load(roomId).catch(() => {})} />
           : view.view === 'guide' && view.service === EMAIL ? <EmailGuide roomId={roomId} app={app} onAdded={(a) => setStack((s) => [...s.slice(0, -1), { view: 'guide', service: EMAIL, appId: a.id }])} onDone={close} />
           : view.view === 'guide' ? <Guide roomId={roomId} service={view.service} app={app} step={view.step} onAdded={(a) => setStack((s) => [...s.slice(0, -1), { view: 'guide', service: view.service, appId: a.id }])} onDone={close} />
           : app ? <Settings roomId={roomId} roomName={name} app={app} available={list.available} onGuide={(step) => go({ view: 'guide', service: svc(app), appId: app.id, ...(step ? { step } : {}) })} onRemoved={() => setStack([{ view: list.items.length > 1 ? 'list' : 'pick' }])} />
@@ -254,7 +259,8 @@ function Picker({ list, roomName, place, onPick }: { list: RoomAppList; roomName
         {PICKER_GROUPS.map((g) => (
           <Fragment key={g.key}>
             <GroupHeading id={`${gid}-${g.key}`}>{t(`roomApps.group.${g.key}`)}</GroupHeading>
-            <ul aria-labelledby={`${gid}-${g.key}`}>{g.items.map(row)}</ul>
+            {/* Slack first among the work tools: Connect a Slack channel (its own panel, SlackRelay.tsx) */}
+            <ul aria-labelledby={`${gid}-${g.key}`}>{(g.key === 'work' ? [SLACK, ...g.items] : g.items).map(row)}</ul>
           </Fragment>
         ))}
         {/* the regional services, folded: the same list for everyone */}
@@ -303,7 +309,8 @@ function AppList({ list, onOpen, onAdd }: { list: RoomAppList; onOpen: (id: stri
               lead={<AppTile service={svc(a)} app={a} size="row" />}
               strong
               name={a.name}
-              meta={a.leaverKnows ? <span className="text-warn">{t('roomApps.leaverKnows')}</span>
+              meta={a.slack ? <span className={a.slack.state === 'bot_removed' ? 'text-warn' : undefined} data-testid="apps-list-slack">{`#${a.slack.channelName} · ${by}`}</span>
+                : a.leaverKnows ? <span className="text-warn">{t('roomApps.leaverKnows')}</span>
                 : st.kind === 'paused' ? (st.by === 'team' ? t('roomApps.listPausedTeam', { time: limitResetText(new Date(st.until), locale, st.timeZone) }) : `${t('roomApps.paused')} · ${t('roomApps.startsTomorrow')}`)
                 : st.kind === 'moved' ? <span data-testid="apps-list-moved">{moved(a, 'wait')}</span>
                 : a.name !== kind ? `${kind} · ${by}` : by}

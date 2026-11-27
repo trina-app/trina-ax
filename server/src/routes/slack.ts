@@ -6,6 +6,7 @@
 // init() makes the connector and opens the connection when it was turned on.
 import { API } from '@mycel/shared/api'
 import type { RouteModule } from './module'
+import { IMAGE_HEADERS } from './people'
 import { HttpError } from '../http/errors'
 import { linkBase } from '../auth/accounts'
 import { originAllowed } from '../http/middleware'
@@ -80,6 +81,17 @@ export const slackRoutes: RouteModule = {
   register(kit, ctx) {
     const slack = () => slackOf(ctx)
     kit.handle(API.slackAdmin, ({ c, query }) => slack().freshAdminView(teamOrigin(c, ctx, query.origin)))
+    // the channel relay (integrations/slack/relay.ts): a conversation's Slack channel link
+    const relay = () => slack().relay
+    kit.handle(API.slackRelay, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return relay().status(auth.user.id, params.id) })
+    kit.handle(API.slackRelayChannels, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return relay().channels(auth.user.id, params.id) })
+    kit.handle(API.connectSlackRelay, ({ c, auth, params, body }) => relay().connect(auth.user.id, params.id, body.channelId, c.get('locale')))
+    kit.handle(API.disconnectSlackRelay, ({ auth, params }) => { relay().disconnect(auth.user.id, params.id) })
+    kit.handle(API.retrySlackRelay, ({ auth, params }) => { relay().retry(auth.user.id, params.id, params.messageId) })
+    kit.handle(API.slackRelayAvatar, async ({ auth, params }) => {
+      const a = await relay().avatar(auth.user.id, params.id, params.slackUserId)
+      return new Response(a.bytes as Uint8Array<ArrayBuffer>, { headers: { ...IMAGE_HEADERS, 'content-type': a.type, 'cache-control': 'private, max-age=3600' } })
+    })
     kit.handle(API.saveSlackTokens, ({ c, body, auth }) => safe(c.get('locale'), async () => {
       const cc = credentialsOf(ctx), L = c.get('locale')
       const bot = await unsealOrFail(cc, body.botToken, 'slack.token', L)

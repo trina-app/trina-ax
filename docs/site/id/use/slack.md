@@ -188,6 +188,27 @@ menghapusnya lebih dulu (**Ganti token**, lalu **Hapus Slack**), lalu menekan **
 dan menyalakan aplikasi milik tim, tetapi hanya owner yang bisa mengubah atau menghapusnya. Jika Slack sama sekali tidak
 ada di Admin › Aplikasi terhubung, Anda bukan owner tim atau admin: mintalah kepada mereka.
 
+## Menghubungkan kanal Slack ke percakapan
+
+Klien Anda berbicara dengan Anda di kanal Slack, tetapi tim Anda bekerja di Trina AX? Hubungkan kanal itu ke satu percakapan tim atau proyek: pesannya muncul di percakapan saat ditulis, dan yang ditulis tim Anda di sana kembali ke kanal. Klien tetap di Slack dan tidak merasakan perubahan apa pun.
+
+#### Buka menu percakapan › Tambah aplikasi › Slack
+
+Hanya pemilik atau admin tim yang ada di percakapan itu yang bisa melakukannya. Pertama kali, dialog meminta Anda **Masuk dengan Slack** agar tahu akun Slack Anda.
+
+#### Pilih kanal lalu tekan Hubungkan
+
+Daftar berisi kanal tempat Anda dan aplikasi Trina AX sama-sama berada. Kanal tidak ada: undang aplikasinya dulu di Slack (`/invite @trina-ax`). Baca kalimat di atas tombol: **mulai sekarang semua orang di percakapan ini akan melihat pesan kanal itu**, dan yang mereka tulis dikirim ke Slack atas nama mereka. Tekan **Hubungkan**.
+
+#### Yang dilihat orang
+
+- Di percakapan, pesan Slack menampilkan nama dan foto Slack pengirimnya dengan tanda Slack kecil. Utas, sebutan, suntingan, dan penghapusan ikut. Bagian atas menampilkan **#kanal · Slack**.
+- Di Slack, pesan dari percakapan tampil sebagai **Mina (Trina AX)**. Tidak perlu akun Slack untuk menulis.
+- Jawaban AI dan file tidak dikirim ke Slack; pesan seperti itu bertanda **Tidak dikirim ke Slack**. Jika Slack menolak sebuah pesan, tertulis **Tidak dikirim ke Slack** dengan **Coba lagi**.
+- Percakapan yang ada tamunya belum bisa dihubungkan, dan tamu tidak bisa diundang selama terhubung.
+
+Untuk berhenti, buka dialognya lagi (atau tekan **#kanal · Slack** di bagian atas) lalu tekan **Putuskan**. Yang sudah dibicarakan tetap ada di percakapan.
+
 ## Menghapus atau menghubungkan ulang
 
 Halaman Slack di **Admin › Aplikasi terhubung** selalu menunjukkan keadaannya, dan barisnya di daftar menunjukkan

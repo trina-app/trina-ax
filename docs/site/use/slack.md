@@ -179,6 +179,35 @@ You also see the four steps when your team's own Slack app is set up already. To
 on, but only the owner can change or remove it. If Slack isn't in Admin › Connected apps at all, you aren't the
 team's owner or an admin: ask them.
 
+## Connect a Slack channel to a conversation
+
+Your client talks to you in a Slack channel, but your team works in Trina AX. Connect that channel to one team
+conversation or project: its messages show up in the conversation as they are written, and what your team writes there
+goes back to the channel. The client stays in Slack and notices no change.
+
+#### Open the conversation's menu › Add an app › Slack
+
+Only a team owner or an admin who is in the conversation can do this. The first time, the dialog asks you to **Sign in
+with Slack** so it knows your Slack account.
+
+#### Pick the channel and press Connect
+
+The list shows the channels both you and the Trina AX app are in. A channel not there: invite the app in Slack first
+(`/invite @trina-ax`). Read the sentence above the button: **everyone in this conversation will see the channel's
+messages from now on**, and what they write goes to Slack under their name. Press **Connect**.
+
+#### What people see
+
+- In the conversation, a Slack message shows the sender's Slack name and picture with a small Slack mark. Threads,
+  mentions, edits and deletes follow. The header shows **#channel · Slack**.
+- In Slack, a message from the conversation shows as **Mina (Trina AX)**. Nobody needs a Slack account to write.
+- AI answers and files are not sent to Slack; such a message says **Not sent to Slack**. To share an answer, write it in
+  your own words. If Slack refuses a message, it says **Not sent to Slack** with **Retry**.
+- A conversation with a guest can't be connected yet, and a guest can't be invited while it is connected.
+
+To stop, open the dialog again (or press **#channel · Slack** in the header) and press **Disconnect**. What was said
+stays in the conversation.
+
 ## Remove or reconnect
 
 Slack's page in **Admin › Connected apps** always says where things stand, and its row in the list shows the same

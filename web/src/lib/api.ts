@@ -142,6 +142,9 @@ export function errorText(e: unknown, locale: Locale, networkText: string): stri
     if (e.body.params?.reason === 'demo_fenced') return t('demo.free.fenced')
     if (e.body.params?.reason === 'demo_busy') return t('demo.free.busy')
     if (e.body.params?.reason === 'demo_rest') return t('demo.free.rest')
+    // a guest invited to a project whose conversation is linked to a Slack channel (docs/SLACK.md "Channel relay"):
+    // every place that says a guest invite's refusal says this one in the reader's words
+    if (e.body.params?.reason === 'slack_relay_guest') return t('slackRelay.guestRefused')
     const known = ERROR_MESSAGES[e.code]
     // handler-specific messages (e.g. "Someone else saved first.") are kept; default ones follow the UI language
     const isDefault = known && Object.values(known).includes(e.message)

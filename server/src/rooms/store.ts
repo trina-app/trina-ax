@@ -25,7 +25,8 @@ import { linkPreviewsFor, prepareLinkPreviews, type LinkPrep } from './link-prev
 import { eventProjectsFor, projectForViewer, type EventProjectView } from './project-link'
 import { isListedProjectRoom, isProjectRoom, NOT_HELD_SQL } from './project-room'
 import { filesMovingIn, hasRoomStoredFiles, roomOnlyAmong } from './team-place'
-import { answerFilePaths, RoomEventLine, ROOM_QUOTE_EXCERPT_MAX, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type UserRef, RoomAppKind, RoomAppPreset, type RoomAppRef } from '@mycel/shared/api'
+import { slackFieldsOf } from '../integrations/slack/relay-store'
+import { answerFilePaths, RoomEventLine, ROOM_QUOTE_EXCERPT_MAX, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type UserRef, RoomAppKind, SlackLineWhat, RoomAppPreset, type RoomAppRef } from '@mycel/shared/api'
 
 export const MAX_UNREAD = 999
 const EXCERPT_QUOTE = ROOM_QUOTE_EXCERPT_MAX
@@ -63,6 +64,9 @@ export interface MessageRow {
 }
 /** An event line as stored: user ids, never names (they are read when it is shown). */
 export type EventData =
+  /** the Slack channel relay (integrations/slack/relay.ts): `what` happened to the link of channel #`channel` (its name
+   * then); by its author (connected, disconnected) or by the server (author null) */
+  | { type: 'slack'; what: SlackLineWhat; channel: string }
   | { type: 'created'; userIds: string[] }
   | { type: 'renamed'; name: string | null }
   | { type: 'added'; userIds: string[] }
@@ -201,6 +205,7 @@ export function parseEvent(s: string | null): EventData | null {
       case 'renamed': return { type: 'renamed', name: typeof v.name === 'string' ? v.name : null }
       case 'left': return { type: 'left' }
       case 'joined': return { type: 'joined' }
+      case 'slack': return typeof v.channel === 'string' && SlackLineWhat.safeParse(v.what).success ? { type: 'slack', what: v.what as SlackLineWhat, channel: v.channel.slice(0, 80) } : null
       case 'removed': return typeof v.userId === 'string' ? { type: 'removed', userId: v.userId } : null
       case 'project_linked': case 'project_unlinked': case 'project_room': return typeof v.projectId === 'string' ? { type: v.type, projectId: v.projectId } : null
       case 'project_made': return typeof v.projectId === 'string' ? { type: 'project_made', projectId: v.projectId, by: typeof v.by === 'string' ? v.by : null } : null
@@ -233,6 +238,7 @@ function eventOut(e: EventData, people: Map<string, UserRef>, projects: Map<stri
     case 'renamed': return { type: 'renamed', name: e.name }
     case 'left': return { type: 'left' }
     case 'joined': return { type: 'joined' }
+    case 'slack': return { type: 'slack', what: e.what, channel: e.channel }
     case 'removed': return { type: 'removed', user: people.get(e.userId) ?? null }
     case 'project_linked': case 'project_unlinked': case 'project_room': case 'project_made': return { type: e.type, ...projectOut(projects.get(e.projectId)) }
     case 'project_files_moved': return { type: 'project_files_moved', ...projectOut(projects.get(e.projectId)), moved: e.moved, kept: e.kept }
@@ -355,6 +361,8 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow, 
   const opens = ai || rows.some((r) => sharedAnswerOf(r)) ? pathChecks.get(db)?.(viewer.user_id) : undefined
   // messages apps posted (rooms/apps): the app as it is now (or as it was, once removed) and its card
   const apps = appRefsOf(db, rows)
+  // the Slack channel relay: a relayed message's sender, and whether a person's message went to Slack
+  const slack = slackFieldsOf(db, rows)
   // the messages they link to, as this viewer may see them (rooms/link-previews.ts)
   const previews = linkPreviewsFor(db, links, rows, viewer)
   return rows.map((r): RoomMessage => {
@@ -403,6 +411,7 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow, 
       // the id the author's app sent it with, to the author only: a send whose answer was lost is matched to it
       ...(r.author_kind === 'user' && r.client_id && r.author_id === viewer.user_id ? { clientMessageId: r.client_id } : {}),
       ...appOut(apps, r),
+      ...slack.get(r.id),
       ...(previews.get(r.id) ? { linkPreviews: previews.get(r.id)! } : {}),
     }
   })

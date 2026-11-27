@@ -21,7 +21,7 @@ import { fail } from '../http/errors'
 import { originAllowed } from '../http/middleware'
 import { audit } from '../admin/audit'
 import { afterAccessChange, captureState, createDefaultFolders, ensureFolderRow, rulesOf, writeFolderAccess } from '../admin/folders'
-import { createGuestInvite, inviteMakerOk, openGuestLinks, parseGuestAi, guestPlaceOf, placeAlive, teamCredentialOk, type GuestInviteFields } from './guest-invites'
+import { createGuestInvite, inviteMakerOk, openGuestLinks, parseGuestAi, guestPlaceOf, placeAlive, relayBlocksGuestPlace, teamCredentialOk, type GuestInviteFields } from './guest-invites'
 import { assertGuestFree, guestLimit, guestsUsed, placeName, projectFolder } from './guests'
 import { getTeamSettings, updateTeamSettings } from '../admin/settings'
 import { msg, weakPasswordMessage } from './messages'
@@ -468,6 +468,8 @@ function makerReason(db: Database, r: InviteRow): DeadReason | null {
   if (r.role === 'guest') {
     const place = guestPlaceOf(r)
     if (!place || !placeAlive(db, place)) return 'place_gone'
+    // its project's conversation linked to a Slack channel since: no guest while it lasts (guest-invites.ts)
+    if (relayBlocksGuestPlace(db, place)) return 'place_gone'
     // a Team AI link whose team AI account was deleted since: the link is off, not its maker gone (review)
     const ai = parseGuestAi(r.guest_ai)
     if (ai.mode === 'team' && !teamCredentialOk(db, ai.credentialId)) return 'revoked'

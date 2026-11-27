@@ -116,7 +116,7 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
     : null
   if (!row) return apps.limits.unknownOk(info.ip, info.strict) ? NOT_FOUND() : answer(429, 'slow_down', { 'retry-after': '60' })
   // an Email app has no Webhook URL: its mail comes only from the mail service (rooms/apps/mail), never through /in/
-  if (row.kind === 'other' && row.preset === 'email') return NOT_FOUND()
+  if (row.kind === 'other' && (row.preset === 'email' || row.preset === 'slack')) return NOT_FOUND()
   // 2. never from a web page in a visitor's browser
   if (req.headers.get('origin') !== null) return answer(403, 'forbidden')
   // 2b. nothing can be saved now: try again later (the body is never read, no card is posted)
@@ -139,7 +139,7 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
     if (row.secret_enc) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
     apps.refused(row.id, 'format'); return answer(400, 'invalid_payload')
   }
-  if (p === 'email') return NOT_FOUND()
+  if (p === 'email' || p === 'slack') return NOT_FOUND()
   const preset = p ? PRESETS[p] : null
   // 4. the content type, then the body
   const fullType = req.headers.get('content-type') ?? ''

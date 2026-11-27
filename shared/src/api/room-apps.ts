@@ -30,7 +30,7 @@ export type RoomAppKind = z.infer<typeof RoomAppKind>
  * 401): the row's kind stays 'other' (an older build and an older phone app still read it as an Other app); the preset
  * names the reader, the switches, the signature scheme and the logo. Fixed when the app is added (a different service
  * is a new app), so a secret is never checked under another preset's scheme. The list grows in code. */
-export const RoomAppPreset = z.enum(['notion', 'typeform', 'tally', 'jotform', 'stripe', 'shopify', 'zendesk', 'jira', 'hubspot', 'toss_payments', 'channel_talk', 'portone', 'email'])
+export const RoomAppPreset = z.enum(['notion', 'typeform', 'tally', 'jotform', 'stripe', 'shopify', 'zendesk', 'jira', 'hubspot', 'toss_payments', 'channel_talk', 'portone', 'email', 'slack'])
 export type RoomAppPreset = z.infer<typeof RoomAppPreset>
 /** A preset as a client reads it: one this build does not know (a newer server's) is dropped, so the app shows as a
  * plain Other app instead of the whole list or message failing to parse (the list grows: phase 4, then email). */
@@ -61,6 +61,8 @@ export const ROOM_APP_PRESET_SWITCHES = {
   portone: [{ key: 'payment', on: true }, { key: 'cancelled', on: true }, { key: 'failed', on: true }, { key: 'virtual_account', on: false }],
   // Email (plan 20261123-0421-room-email): every mail, and out-of-office answers (off: they loop with forwarding rules)
   email: [{ key: 'mail', on: true }, { key: 'auto_replies', on: false }],
+  // the Slack channel relay (docs/SLACK.md "Channel relay"): made by Connect a Slack channel only, never by createRoomApp
+  slack: [{ key: 'message', on: true }],
 } as const satisfies Record<RoomAppPreset, readonly { key: string; on: boolean }[]>
 
 /** The vendors' own names, the name an app of the preset gets when it is added (a brand: not translated). */
@@ -69,6 +71,7 @@ export const ROOM_APP_PRESET_NAMES: Record<RoomAppPreset, string> = {
   jira: 'Jira', hubspot: 'HubSpot', toss_payments: 'Toss Payments', channel_talk: 'Channel Talk', portone: 'PortOne',
   // not a brand: the server names a new Email app in the team's language (rooms/apps/text.ts nameEmail)
   email: 'Email',
+  slack: 'Slack',
 }
 
 /** Whether the preset's service can sign what it sends, and who makes the secret: `none` (the Webhook URL's token
@@ -96,6 +99,8 @@ export const ROOM_APP_PRESET_SIGNING: Record<RoomAppPreset, { signing: 'none' } 
   portone: { signing: 'paste', shape: /^(whsec_)?[A-Za-z0-9+/]{22,200}={0,2}$/ },
   // mail has no signature Trina can check (forwarding breaks SPF; the sender is always unverified)
   email: { signing: 'none' },
+  // the relay has no Webhook URL (its messages come from Slack through the Slack connector)
+  slack: { signing: 'none' },
 }
 
 /** A named service an app can be set up as: a kind but Other, or a preset (the web's screens call it a "service"). */
@@ -318,6 +323,9 @@ export const RoomApp = z.object({
   /** an Email app (preset 'email'): its address's state at the mail service and the last forwarding confirmation.
    * Older servers omit it; a shape this build does not know reads as none */
   mail: RoomAppMail.optional().catch(undefined),
+  /** a Slack channel link (preset 'slack'): which channel and its state (shared/src/api/slack.ts SlackRelayLink). Older
+   * servers omit it; a shape this build does not know reads as none */
+  slack: z.object({ channelId: z.string(), channelName: z.string(), state: z.enum(['active', 'bot_removed', 'archived']), extShared: z.boolean() }).optional().catch(undefined),
 })
 export type RoomApp = z.infer<typeof RoomApp>
 

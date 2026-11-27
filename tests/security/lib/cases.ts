@@ -124,6 +124,9 @@ export function expectation(route: string, scope: Scope, who: Who): Exp {
   if (route === 'roomFileHwpPreview' && scope === 'room-dm' && scopeAllows(scope, who)) return 'pass-auth'
   // "Resume now" on an app that is not paused: the owner and an admin pass the checks and get 409 not_paused
   if (route === 'resumeRoomApp' && scopeAllows(scope, who)) return 'pass-auth'
+  // the Slack channel relay's channel list and Connect without Slack set up: the owner and an admin pass the checks and
+  // get 409 slack_off
+  if ((route === 'slackRelayChannels' || route === 'connectSlackRelay') && scopeAllows(scope, who)) return 'pass-auth'
   if (scope === 'users-alice') return usersAliceAllows(who) ? 'allow' : 'deny'
   return scopeAllows(scope, who) ? 'allow' : 'deny'
 }

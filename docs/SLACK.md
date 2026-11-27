@@ -169,7 +169,9 @@ Marketplace). Slack's Marketplace rules
 [review guide](https://docs.slack.dev/slack-marketplace/slack-marketplace-review-guide)): `search:read` is not allowed;
 user token scopes only where the app acts as the person ("submissions where user token scopes are being used
 unnecessarily" are returned); `*:history` gets an enhanced review for AI apps, and every scope must trace to a feature a
-reviewer can test; AI apps do not store Slack data (keep metadata, read in real time). Slack's real-time search
+reviewer can test; the zero-copy rule ("don't store any Slack data") is for apps that use Slack's Agent / Assistant UI,
+which this app does not, but reading keeps nothing anyway (metadata only, read in real time; the channel relay below is
+the one feature that keeps a linked channel's messages). Slack's real-time search
 (`assistant.search.context`, [docs](https://docs.slack.dev/apis/web-api/real-time-search-api)) is only for listed or
 internal apps: search waits for phase 2, after listing (no code yet).
 
@@ -223,9 +225,82 @@ internal apps: search waits for phase 2, after listing (no code yet).
 | Slack people's names, the conversations a person shares with the bot | memory | 10 / 2 minutes |
 | The bot's scopes | `slack_config.bot_scopes` | while Slack is set up |
 
-Not kept: no Slack message in the database, no user token, no search index. The answer the AI writes may quote or sum
+Not kept: no Slack message in the database (except the channel relay's linked channels, below), no user token, no
+search index. The answer the AI writes may quote or sum
 up Slack messages (that is the answer the person asked for). Proposal (not built): a Slack chat's engine session could
 drop tool results older than its last turn; until then the table above is what is kept.
+
+## Channel relay
+
+One Slack channel and one team conversation or project, both ways (plan
+[docs/AGENTS/plan/20261127-0329-slack-channel-relay.md](AGENTS/plan/20261127-0329-slack-channel-relay.md), decision
+[docs/decisions/20261127-slack-channel-relay.md](decisions/20261127-slack-channel-relay.md), code
+`server/src/integrations/slack/relay.ts`). Teams whose clients talk to them in Slack (often a Slack Connect channel)
+work in Trina; the client stays in Slack and notices no change.
+
+- **Connect** (the conversation's menu › Add an app › Slack, one dialog): a team owner or admin who is in the
+  conversation, has their own Slack account linked (the dialog offers only **Sign in with Slack** until then) and is in
+  the channel, with the app in it too (`users.conversations` and `conversations.info` with the bot token). Team
+  conversations and projects only (no 1:1, group chat or everyone room), no guest in it. One channel per conversation,
+  one conversation per channel. One sentence says who will see; **Connect** is the admin's explicit authorization for
+  the team (Slack API Terms). Audited `slack.relay_linked`; an event line says who connected it.
+- **Who sees:** everyone in the conversation, with or without Slack (owner decision 3). No per-member check, no
+  pausing. People who join later see it from their join on, like any room message. A guest cannot be given a place in
+  a linked project (409 `slack_relay_guest`, "Disconnect Slack first to invite a guest").
+- **In:** a linked channel's message comes in as the Slack app's message with the sender's Slack name and picture
+  (`slackAuthor`; the picture through `GET /api/rooms/:id/slack/avatar/:user`, fetched from Slack's image hosts only),
+  never as a team member. Slack threads are threads; a reply whose first message never came in is a normal message
+  marked "Reply in a Slack thread". A Slack @mention of a linked person is a mention here (they are notified);
+  `@channel` and `@here` stay words. Files come as their names with "Open in Slack". Edits and deletes follow. Other
+  apps' and bots' messages come in as an app's; our own bot's posts never do. The text is plain text (never Markdown,
+  no live links). At most 5,000 a day per link (its own cap; the room apps' 500 does not apply).
+- **Out:** a person's own message goes to the channel as "Mina (Trina)" (`chat.postMessage` `username`, needs
+  `chat:write.customize`; without it as the app with "Mina:" first), with its thread, edits and deletes, 1 a second per
+  channel, never `@channel`. Not sent, marked "Not sent to Slack" on that message only: a message that carries an AI
+  answer, a message with only files (files never go; the text of a message with files does). A refused post: "Not sent
+  to Slack" with **Retry** for its author; a rate limit retries by itself. Linking your own Slack account is not needed
+  to write.
+- **Live check (test workspace, 2026-11-27):** adding the message events to an app that already had the history
+  scopes delivered them at once, with no reinstall (a new scope does need one). `message_changed` and
+  `message_deleted` arrive; Slack also sends `message_changed` when only a thread's reply count changes (same text:
+  ignored). A post with `username` shows the custom name **with the APP badge**, and comes back as `bot_message` with
+  `bot_id` and `app_id` but no `user` or `bot_profile` (loop prevention keys on our bot id). Slack Connect was not
+  checked live (it needs a second organization).
+- **Loops:** a message that came from Slack is never sent to Slack. Each relayed message keeps its Slack
+  `(channel, ts)` (`slack_relay_messages`): a retry or a repeat is posted once, our own post's echo is dropped.
+- **States** (event lines in the conversation): the app removed from the channel (`channel_left` / `group_left`, or a
+  post answered `not_in_channel` / `channel_not_found`) stops both ways until it is invited again; archived or deleted
+  ends the link; shared with another organization (`channel_shared`) is said and the relay goes on; Slack removed from
+  the team (Admin › Remove, or the app removed in Slack) ends every link with that line and deletes what the relay kept
+  from Slack at once (the links, the `(channel, ts)` pairs, the outbox, and in the relayed messages the Slack user ids,
+  pictures and permalinks; their words stay with the sender's name, as after Disconnect): connect again after Slack is
+  added again. A private channel's `group_archive` / `group_rename` arrive too (live check 2026-11-27, though
+  Slack's docs list them for RTM); a refused post and `conversations.info` (at start and every 6 hours) decide as much
+  as an event.
+- **Catch-up:** after a gap (the server started, the connection came back, the hosting service's queue let go of
+  envelopes: the poll's `dropped`) one `conversations.history` per link from the last relayed ts (15 messages for the
+  official app while it is unlisted); more than that: "Some Slack messages may be missing" (at most once an hour).
+  Slack drops an event it could not deliver after about 6 minutes of retries; replies inside threads are not in
+  `conversations.history`, so a long outage can lose thread replies.
+- **Disconnect** (the dialog, or Remove on its row in Apps posting here): audited `slack.relay_unlinked`; the messages
+  so far stay (owner decision 4), a message deleted in Slack later is not followed any more.
+- **The official app:** the hosting service forwards only linked channels' messages (`relay/channels`, contract flow 8:
+  it checks each channel with this install's own bot and routes by channel, so two Trina teams in one Slack Connect
+  channel each get it). It must be deployed before a team server uses the relay. An install from before the relay has
+  no `chat:write.customize`: admins see "Add to Slack again to post with each person's name"; relaying works without it.
+  The operator adds the scope and the events below to the official app's settings in Slack once.
+- **The team's own app:** the manifest has the scope and the events. An app made before: add the Bot Token Scope
+  `chat:write.customize` and the bot events `message.channels`, `message.groups`, `channel_left`, `group_left`,
+  `channel_archive`, `channel_deleted`, `channel_rename`, `channel_shared`, `channel_unshared`, `channel_id_changed`,
+  `group_archive`, `group_rename` in
+  *Event Subscriptions*, reinstall, then **I updated them** (the same steps as "Update Slack permissions"). Events whose
+  scope the app already has start at once; the new scope needs the reinstall.
+
+What the relay keeps: each relayed message as a message of that conversation (its text, the sender's Slack name, id
+and picture address, its Slack ts), like the rest of the team's content, until it is deleted in Slack or here; the
+link (`slack_relay_links`), the `(channel, ts)` pairs and the outbox of posts not sent yet (all but the words gone
+when Slack is removed from the team, above). Slack people's names: 10
+minutes in memory; pictures: a day in memory.
 
 ## Scopes (bot token)
 
@@ -240,8 +315,9 @@ Every scope traces to a feature a reviewer can test (Slack Marketplace review). 
 | `users:read.email` | the Slack account's e-mail: the zero-click link (the same e-mail on both sides) |
 | `im:write` | `conversations.open` for the one DM telling a Slack account which account it was linked to by "Sign in with Slack" |
 | `channels:read`, `groups:read` | `conversations.info` just before *Post to channel*: a channel shared with another organization since the question (or one Slack says nothing about) gets nothing; whether the bot is in a channel and its name, the channels a person shares with the bot (`users.conversations`), a channel by its name |
-| `channels:history` | the public channel thread `@trina-ax` was asked in, given with the question; `slack_read_thread` / `slack_read_channel` in a public channel the app was invited to and the person is in (test: invite the app, ask "summarize this thread" in a thread) |
-| `groups:history` | the same in a private channel the app was invited to and the person is in |
+| `channels:history` | the public channel thread `@trina-ax` was asked in, given with the question; `slack_read_thread` / `slack_read_channel` in a public channel the app was invited to and the person is in (test: invite the app, ask "summarize this thread" in a thread); the channel relay's `message.channels` |
+| `groups:history` | the same in a private channel the app was invited to and the person is in; the channel relay's `message.groups` |
+| `chat:write.customize` | the channel relay: a conversation's message goes to the linked channel as "Mina (Trina)" (optional: without it as the app) |
 
 The redirect URL is for "Sign in with Slack" (OpenID Connect; docs.slack.dev "Sign in with Slack"), which asks for
 `openid` and `profile` in its own flow: they are not in the app's user scopes (Slack does not let them be asked for
@@ -348,4 +424,4 @@ no user scopes, the bot's scopes and "Update Slack permissions", the tools' shar
 with a question and what a resumed session keeps, the earlier user tokens revoked, the post notice),
 `tests/unit/c-slack.test.ts` with the fake Slack
 `tests/lib/fake-slack.ts` (Web API, Socket Mode, response URLs, the OpenID Connect token method; nothing reaches Slack), the permission matrix
-(`tests/security/lib/slack-cases.ts`), `web/test/unit/slack-link.test.tsx` and `web/test/unit/slack-screens.test.tsx`.
+(`tests/security/lib/slack-cases.ts`), `tests/unit/c-slack-relay.test.ts` (the channel relay), `web/test/unit/slack-link.test.tsx` and `web/test/unit/slack-screens.test.tsx`.

@@ -44,6 +44,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   ROOMS: 'Team chat rooms',
   ACCOUNT_DELETION: 'Account deletion',
   SLACK: 'Slack connector',
+  SLACK_RELAY: 'Slack channel relay',
   PROMO_VIDEO: 'Promo video and its MP4',
   INTRO_DECK: 'Company intro deck (the welcome steps\' first result): PowerPoint and PDF',
   SKILL_SHARES: 'Bring my skills to the team (share proposals)',

@@ -5,6 +5,14 @@ import { ROOM_APP_DAILY_CAP, ROOM_APP_PRESET_NEEDS, ROOM_APP_PRESET_SIGNING, ROO
 /** The server's body escapes Markdown marks (and "@", and "://") so older apps show it as text; the other way. */
 export const unescapeAppBody = (s: string) => s.replace(/\\([\\`*_[\]<>#|~@&\-+=.)/:])/g, '$1').replace(/<(https:\/\/[^>\s]+)>/g, '$1')
 
+/** A message relayed from Slack (RoomMessage.slackAuthor): its words, the body ("<name>: <text>", Markdown marks
+ * escaped) unescaped without the name in front. Plain text: shown with its line breaks, never as Markdown. */
+export function slackText(m: Pick<RoomMessage, 'body'> & { slackAuthor?: { name: string } | null }): string {
+  const s = unescapeAppBody(m.body)
+  const name = m.slackAuthor?.name
+  return name && s.startsWith(`${name}: `) ? s.slice(name.length + 2) : s
+}
+
 /** An app message's words as plain text (Copy, "Ask Trina about this"): the card's lines, then its link. */
 export function appPlainText(m: Pick<RoomMessage, 'app' | 'appCard' | 'body'>): string {
   const c = m.appCard
@@ -97,6 +105,10 @@ export const MORE_SERVICES: readonly AppService[] = ['toss_payments', 'channel_t
 /** Email into rooms (plan docs/AGENTS/plan/20261123-0421-room-email.md): an Other app with preset 'email'. The picker
  * shows it in "Any other way", before Other, only when the server says email can be added (RoomAppList.mail). */
 export const EMAIL: AppService = 'email'
+/** The Slack channel relay (plan docs/AGENTS/plan/20261127-0329-slack-channel-relay.md): an Other app with preset
+ * 'slack', made only by Connect a Slack channel (components/rooms/apps/SlackRelay.tsx), never by a guide's Copy (no
+ * Webhook URL, no guide, no example card). The picker shows it first in its Work group. */
+export const SLACK: AppService = 'slack'
 /** Form services: the side chat offers "Summarize today's responses" when only these posted. */
 export const FORM_SERVICES: readonly AppService[] = ['google_forms', 'typeform', 'tally', 'jotform']
 

@@ -18,8 +18,8 @@
 import crypto, { type KeyObject } from 'node:crypto'
 import {
   SLACK_BROKER_MAX_BODY_BYTES, SLACK_BROKER_PATHS, SLACK_BROKER_POLL_MAX_WAIT_MS, SLACK_BROKER_SEAL_INFO, SLACK_BROKER_EVENT_ID,
-  parseSlackBrokerInstallInfo, parseSlackBrokerSealedToken, slackBrokerAuthorization, slackBrokerAuthorizeUrl, slackBrokerSealAad, slackBrokerSigningString,
-  type SlackBrokerEvent, type SlackBrokerInstallInfo, type SlackBrokerOp, type SlackBrokerSealedToken,
+  parseSlackBrokerInstallInfo, parseSlackBrokerRelayChannelsAnswer, parseSlackBrokerSealedToken, slackBrokerAuthorization, slackBrokerAuthorizeUrl, slackBrokerSealAad, slackBrokerSigningString,
+  type SlackBrokerEvent, type SlackBrokerInstallInfo, type SlackBrokerOp, type SlackBrokerRelayChannelsAnswer, type SlackBrokerSealedToken,
 } from '@mycel/shared/cloud-protocol'
 import type { AppContext } from '../../context'
 import type { Logger } from '../../log'
@@ -152,7 +152,7 @@ export class SlackBrokerClient {
   }
 
   /** One long poll: acknowledges `ack`, answers this server's envelopes (or none after `waitMs`). */
-  async poll(ack: string[], waitMs: number, signal?: AbortSignal): Promise<{ install: SlackBrokerInstallInfo | null; events: SlackBrokerEvent[] }> {
+  async poll(ack: string[], waitMs: number, signal?: AbortSignal): Promise<{ install: SlackBrokerInstallInfo | null; events: SlackBrokerEvent[]; dropped: number }> {
     const j = await this.call('poll', { v: 1, ack, waitMs: Math.min(waitMs, SLACK_BROKER_POLL_MAX_WAIT_MS) }, signal, waitMs + 20_000)
     const install = this.install(j.install ?? null)
     if (j.install && !install) throw new SlackBrokerError('unreachable')
@@ -161,7 +161,18 @@ export class SlackBrokerClient {
       if (!e || typeof e.id !== 'string' || !SLACK_BROKER_EVENT_ID.test(e.id) || !['events_api', 'interactive', 'lifecycle'].includes(e.kind)) continue
       events.push({ id: e.id, kind: e.kind, payload: e.payload, receivedAt: typeof e.receivedAt === 'string' ? e.receivedAt : '' })
     }
-    return { install, events }
+    // envelopes the hosting service's queue let go of since the last poll (older ones never say): the channel relay
+    // catches up then (relay.ts)
+    const dropped = typeof j.dropped === 'number' && Number.isSafeInteger(j.dropped) && j.dropped > 0 ? j.dropped : 0
+    return { install, events, dropped }
+  }
+
+  /** The channel relay's linked channels, the whole list (contract flow 8): the hosting service keeps those its bot is
+   * in (checked with this install's own bot token) and answers the others as `notMember`. */
+  async relayChannels(channels: string[]): Promise<SlackBrokerRelayChannelsAnswer> {
+    const a = parseSlackBrokerRelayChannelsAnswer(await this.call('relayChannels', { v: 1, channels }))
+    if (!a) throw new SlackBrokerError('unreachable')
+    return a
   }
 
   /** Remove the app from the workspace (the hosting service calls Slack) and forget the install there. */
@@ -194,6 +205,8 @@ export interface FeedOptions {
   /** the install in each poll answer (null: removed at the hosting service) */
   onInstall: (install: SlackBrokerInstallInfo | null) => void
   onState: (s: FeedState, err: 'broker_unreachable' | 'not_served' | null) => void
+  /** the hosting service let go of `n` envelopes since the last poll (its queue was full) */
+  onDropped?: (n: number) => void
   waitMs?: number
   retryMs?: number
 }
@@ -267,6 +280,7 @@ export class SlackBrokerFeed {
       if (this.stopped) { this.flush(); return }
       // after the events: a `lifecycle` event among them says why the install is gone better than `install: null`
       try { this.o.onInstall(answer.install) } catch { /* the connector's note only */ }
+      if (answer.dropped) try { this.o.onDropped?.(answer.dropped) } catch { /* the relay's catch-up only */ }
     }
   }
 }

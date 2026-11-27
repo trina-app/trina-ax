@@ -261,7 +261,9 @@ for (const vp of SIZES) {
       const picker = page.getByTestId('apps-picker')
       await expect(picker.getByTestId('apps-pick-group')).toHaveText([/forms/i, /payments & orders/i, /work/i, /for developers/i, /any other way/i])
       const rows = picker.locator('[data-testid^="apps-pick-"]:not([data-testid="apps-pick-group"]):not([data-testid^="apps-pick-needs-"])')
-      await expect(rows).toHaveCount(13)
+      // (14 with Slack: "Connect a Slack channel", the channel relay)
+      await expect(rows).toHaveCount(14)
+      await expect(page.getByTestId('apps-pick-slack')).toContainText('Connect a Slack channel')
       await expect(rows.last()).toHaveAttribute('data-testid', 'apps-pick-other')
       // the regional services wait behind "Show more services"
       await expect(page.getByTestId('apps-pick-toss_payments')).toHaveCount(0)

@@ -1,7 +1,8 @@
 // A stand-in for Slack (tests of the Slack connector, docs/SLACK.md): the Web API methods the connector calls
 // (auth.test, apps.connections.open, bots.info, users.info, users.list, conversations.open, .replies, .info, chat.postMessage,
 // chat.postEphemeral, chat.update, chat.delete; reading with the bot token: conversations.replies, .history, .info and
-// users.conversations over `channels`, with the bot's membership and its history scopes; auth.revoke), a Socket Mode
+// users.conversations over `channels`, with the bot's membership and its history scopes; conversations.history takes
+// `oldest` for the channel relay's catch-up; auth.revoke), a Socket Mode
 // WebSocket that says hello and records every acknowledgement, and response URLs. Nothing reaches the real Slack.
 import type { ServerWebSocket } from 'bun'
 import { createHash } from 'node:crypto'
@@ -150,7 +151,8 @@ export function startFakeSlack(): FakeSlack {
           const more = from + limit < all.length
           return json({ ok: true, messages: all.slice(from, from + limit).map(msgOf), has_more: more, response_metadata: { next_cursor: more ? String(from + limit) : '' } })
         }
-        const top = conv.messages.filter((m) => !m.thread_ts || m.thread_ts === m.ts).filter((m) => !args.latest || Number(m.ts) < Number(args.latest)).sort((a, b) => Number(b.ts) - Number(a.ts))
+        const top = conv.messages.filter((m) => !m.thread_ts || m.thread_ts === m.ts).filter((m) => !args.latest || Number(m.ts) < Number(args.latest))
+          .filter((m) => !args.oldest || Number(m.ts) > Number(args.oldest)).sort((a, b) => Number(b.ts) - Number(a.ts))
         const limit = Number(args.limit ?? 100)
         return json({ ok: true, messages: top.slice(0, limit).map(msgOf), has_more: top.length > limit })
       }
@@ -160,7 +162,7 @@ export function startFakeSlack(): FakeSlack {
         const who = args.user
         const list = Object.entries(fake.channels).filter(([, c]) => !c.is_im && !c.is_mpim)
           .filter(([, c]) => who ? c.members.includes(who) && (!c.is_private || c.members.includes(fake.botUserId)) : c.members.includes(fake.botUserId))
-        return json({ ok: true, channels: list.map(([id, c]) => ({ id, name: c.name, is_private: !!c.is_private })), response_metadata: { next_cursor: '' } })
+        return json({ ok: true, channels: list.map(([id, c]) => ({ id, name: c.name, is_private: !!c.is_private, is_ext_shared: fake.sharedChannels.has(id) })), response_metadata: { next_cursor: '' } })
       }
       switch (method) {
         case 'auth.test':
