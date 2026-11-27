@@ -1640,7 +1640,7 @@ export const es: Record<MessageKey, string> = {
   "auth.google.lostTitle": "Este inicio de sesión no se puede terminar aquí",
   "auth.google.lost": "Vuelva a la pantalla de inicio de sesión de la aplicación y pulse de nuevo Iniciar sesión con Google.",
   "auth.google.signIn": "Volver al inicio de sesión",
-  "auth.google.username_taken": "Otra persona usó ese nombre de usuario mientras tanto. Elija otro y vuelva a intentarlo.",
+  "auth.google.username_taken": "Otra persona acaba de usar ese nombre de usuario. Vuelva a intentarlo.",
   "auth.google.gone": "Este enlace de invitación ya no funciona.",
   "auth.google.full": "El equipo no tiene plazas libres ahora. Avise a quien le invitó.",
   "auth.google.wrong_domain": "Este equipo solo admite cuentas de Google Workspace de su empresa. Use su cuenta de Google del trabajo o inicie sesión con su contraseña.",

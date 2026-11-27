@@ -1667,7 +1667,7 @@ export const en: Record<MessageKey, string> = {
   "auth.google.lostTitle": "This sign-in can't finish here",
   "auth.google.lost": "Go back to the app's sign-in page and press Sign in with Google again.",
   "auth.google.signIn": "Back to sign-in",
-  "auth.google.username_taken": "Someone took that username in the meantime. Pick another one and try again.",
+  "auth.google.username_taken": "That username was just taken. Try again.",
   "auth.google.gone": "This invite link no longer works.",
   "auth.google.full": "The team has no free seats right now. Let the person who invited you know.",
   "auth.google.wrong_domain": "This team only lets in Google Workspace accounts of its company. Use your work Google account, or sign in with your password.",
