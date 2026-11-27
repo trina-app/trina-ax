@@ -16,7 +16,7 @@ import { cardQuestion, reasonText, useSessionMarkers } from '../../store/session
 /** never sent in and never named: created for the attachments of a draft (the composer, "Ask AI about this") */
 export const isUnused = (c: Pick<Chat, 'title' | 'createdAt' | 'updatedAt' | 'runState'>) => !c.title && c.createdAt === c.updatedAt && c.runState === 'idle'
 
-type Marked = Pick<Chat, 'id' | 'runState' | 'waiting' | 'unseen' | 'lastOutcome' | 'confidential'> & Partial<Pick<Chat, 'unreadCount' | 'waitsFor'>>
+type Marked = Pick<Chat, 'id' | 'runState' | 'waiting' | 'unseen' | 'lastOutcome' | 'confidential'> & Partial<Pick<Chat, 'unreadCount' | 'waitsFor' | 'lastStop'>>
 /** A chat's marker and its reason in words, as this window shows them: the AI's question itself when this window has
  * its card (not for a confidential chat), else the marker's words. */
 export function useChatMarker(chat: Marked): { marker: Marker | null; reason: string } {

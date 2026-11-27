@@ -133,7 +133,7 @@ describe('Chat.lastOutcome: how the newest finished answer ended', () => {
     expect((await listed(chat.id))?.lastOutcome).toBe('paused')
   })
 
-  test('a server stop cuts an answer off: "error", and nothing is told', async () => {
+  test('a server stop cuts an answer off: "error" with lastStop (a restart, an update), and nothing is told', async () => {
     const chat = await newChat()
     const c = await sendTo(chat.id, fake({ sleep: 20_000 }))
     await waitFor(() => h.rt().runState(chat.id) === 'running', { timeoutMs: 10_000 })
@@ -143,9 +143,22 @@ describe('Chat.lastOutcome: how the newest finished answer ended', () => {
       h.rt().execFor(c.turnId)!.stop('shutdown')
       await main.next('message.done', (f) => f.data.messageId === c.assistantMessage.id, 20_000)
       const end = await runEnd(other, chat.id, from)
-      expect(end.data.chat).toMatchObject({ unseen: true, lastOutcome: 'error' })
+      expect(end.data.chat).toMatchObject({ unseen: true, lastOutcome: 'error', lastStop: 'restart' })
       expect(updates(other, chat.id, from).some((f) => f.data.notify)).toBe(false)
     } finally { h.rt().longAnswerMs = LONG_ANSWER_MS }
+    expect(await listed(chat.id)).toMatchObject({ lastOutcome: 'error', lastStop: 'restart' })
+    // the same answer cut by an update (chat/turn.ts, runtime.ts at the next start: params.reason 'updating', '_step')
+    for (const reason of ['updating', 'updating_step']) {
+      h.ctx.db.query("UPDATE messages SET error = ? WHERE chat_id = ? AND role = 'assistant'").run(JSON.stringify({ code: 'unavailable', message: 'x', params: { reason } }), chat.id)
+      expect(await listed(chat.id)).toMatchObject({ lastOutcome: 'error', lastStop: 'update' })
+    }
+    // a real failure, and an old row without params.reason: no lastStop
+    for (const error of [JSON.stringify({ code: 'engine_error', message: 'x', params: { reason: 'auth' } }), 'plain text']) {
+      h.ctx.db.query("UPDATE messages SET error = ? WHERE chat_id = ? AND role = 'assistant'").run(error, chat.id)
+      const c = await listed(chat.id)
+      expect(c?.lastOutcome).toBe('error')
+      expect(c?.lastStop).toBeUndefined()
+    }
   })
 
   test('the newest finished answer decides: a good answer after a failure clears the outcome', async () => {

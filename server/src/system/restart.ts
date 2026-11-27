@@ -9,8 +9,8 @@
 //   (the owner only) goes at once.
 // - Refused: the ops lock is taken, an update waits or runs (this server's, root's, office's), a restore is prepared,
 //   state.json pending / forward is this version (the update is still checked: an exit counts towards a roll-back),
-//   app/current is another version, or the limit (accepted requests in the audit log, every kind together: 5 an hour,
-//   2 minutes apart; refusals and the watchdog's restarts are not in it).
+//   app/current is another version, or the limit (restarts that ran, system.restarted in the audit log, every kind
+//   together: 5 an hour, 2 minutes apart; a request called off, a refusal and the watchdog's restarts are not in it).
 // - Audit: system.restart_requested {what, when}, system.restart_now {what} (the owner made a waiting one go at once),
 //   system.restart_cancelled {what} (called off; {what, reason} when an update or restore came during the wait),
 //   system.restarted {what} (a server restart: at the next start, from data/restart.json).
@@ -30,7 +30,7 @@ import { beginUpdateWait, endUpdateWait, updateWaitEndsBy, updateWaitingFor } fr
 
 /** the longest a restart waits for running answers (the hosted reboot's idle wait, mycel-ctl idle-wait --max 600) */
 export const RESTART_WAIT_MS = 10 * 60_000
-/** accepted restart requests per hour, and the least time between two */
+/** restarts that ran per hour, and the least time between two */
 export const RESTART_PER_HOUR = 5
 export const RESTART_GAP_MS = 2 * 60_000
 /** the status shows the last restart this long */
@@ -136,9 +136,11 @@ export class RestartService {
     return null
   }
 
-  /** accepted requests of the last hour (the audit log, so a restart does not reset it) */
+  /** restarts that ran in the last hour (system.restarted in the audit log, so a restart does not reset it): the AI's
+   *  when the launcher answered, the server's at its next start. A request called off never restarted anything, and
+   *  "It was just restarted" must be true. */
   private limit(now = Date.now()): RestartRefused | null {
-    const rows = this.ctx.db.query("SELECT at FROM audit_log WHERE action = 'system.restart_requested' AND at > ? ORDER BY at DESC")
+    const rows = this.ctx.db.query("SELECT at FROM audit_log WHERE action = 'system.restarted' AND at > ? ORDER BY at DESC")
       .all(iso(now - 3600_000)) as { at: string }[]
     if (rows.length && now - Date.parse(rows[0]!.at) < RESTART_GAP_MS) return new RestartRefused('rate_limited', RT.tooSoon)
     if (rows.length >= RESTART_PER_HOUR) return new RestartRefused('rate_limited', RT.tooMany)
@@ -146,6 +148,9 @@ export class RestartService {
   }
 
   async status(o: { owner: boolean; locale: Locale; userId?: string }): Promise<RestartStatus> {
+    // the launcher's answer first: an "AI only" restart can end while it is read, and the last restart, the waiting
+    // one and the refusal below are then read together (never the old last restart with no restart waiting)
+    const [ai, server] = [await this.aiOffered(), this.serverOffered()]
     const now = Date.now()
     const last = this.ctx.db.query("SELECT detail, at FROM audit_log WHERE action = 'system.restarted' AND at > ? ORDER BY at DESC LIMIT 1")
       .get(iso(now - LAST_FOR_MS)) as { detail: string | null; at: string } | null
@@ -158,7 +163,6 @@ export class RestartService {
       const l = this.d.ops().updates.readState().liveness ?? (this.ctx.config.office ? readLiveness(this.ctx.config.dataDir) : null)
       if (l?.gaveUp) gave = { since: Number.isFinite(Date.parse(l.since)) ? new Date(l.since).toISOString() : iso(now) }
     } catch {}
-    const [ai, server] = [await this.aiOffered(), this.serverOffered()]
     const w = this.waiting
     const refused = w ? null : this.refusal()
     return {
@@ -181,7 +185,7 @@ export class RestartService {
     if (no) throw no
     const ops = this.d.ops()
     if (!ops.tryLock('restart')) throw new RestartRefused('busy', RT.busy)
-    // the audit row is the limit's count: no row, no restart (and the lock is not left held)
+    // who asked is in the audit log before anything restarts: no row, no restart (and the lock is not left held)
     try { audit(this.ctx.db, { actor: o.by, action: 'system.restart_requested', detail: { what: o.what, when: o.when } }) }
     catch (e) { ops.unlock(); throw e }
     this.ctx.log.info('restart requested', { what: o.what, when: o.when, by: o.by })

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-27 04:20
 - Branch: `fix/restart-qa-followups`
-- Status: in progress
+- Status: done
 - Where: server/src/system/restart.ts, server/src/chat/store.ts, shared/src/api, web (Admin › System, session
   markers). Why: three minor QA findings on the restart feature (#674) on qa.trina.app.
 - Version impact: patch, fixes to a shipped feature's wording and limits; no new feature, no migration.
@@ -51,4 +51,7 @@ watchdog and update restarts never counted. No migration.
 
 ## Result
 
-Filled in at the end.
+As planned. The limit counts `system.restarted`; an "AI only" restart the launcher did not answer does not count
+either (it shows as failed). `Chat.lastStop` comes from `messages.error` params.reason (store.serverStopOf); the marker
+reasons `restart` / `update` reach every surface that uses `reasonText` (sidebar rows and peek, history groups and
+dates, search, desktop notifications and toasts). The decision file's Limit line now says restarts that ran.

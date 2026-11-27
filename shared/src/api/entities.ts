@@ -351,6 +351,10 @@ export const Chat = z.object({
    * Message.stopReason). Absent = it finished normally (or the person stopped it), or no answer finished yet. With
    * `unseen` it is the row's "?". */
   lastOutcome: z.enum(['error', 'paused']).optional(),
+  /** with lastOutcome 'error': the server stopped that answer, it did not fail: 'restart' (a restart from Admin, the AI's
+   * or the whole app's, or any other server restart) or 'update' (Trina was updating). The row says so instead of "an
+   * error" (the chat's own line says the same). Absent = a failure, or nothing ended badly; older servers send none. */
+  lastStop: z.enum(['restart', 'update']).optional(),
   /** 내 스킬 가져오기 (docs/DECISIONS.md "W5"): a merge chat made at the end of the welcome steps whose turn waits for its
    * person; the chat page starts it when it is on screen (POST /api/skill-shares/merge-chats/:id/start), so the save
    * cards it raises are there while they look. Absent = no. */

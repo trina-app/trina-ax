@@ -57,7 +57,7 @@ function place(r: ChatRow, pins: Map<string, string>, folderOf: Map<string, stri
 
 /** the chat's marker parts when it shows one now (no window's view: a card open in one window is the page's to add) */
 const markOf = (c: Chat): ChatMark[] =>
-  markerOf(c) ? [{ id: c.id, runState: c.runState, ...(c.waiting ? { waiting: c.waiting } : {}), ...(c.waitsFor ? { waitsFor: c.waitsFor } : {}), ...(c.unseen ? { unseen: c.unseen } : {}), ...(c.lastOutcome ? { lastOutcome: c.lastOutcome } : {}), ...(c.unreadCount ? { unreadCount: c.unreadCount } : {}) }] : []
+  markerOf(c) ? [{ id: c.id, runState: c.runState, ...(c.waiting ? { waiting: c.waiting } : {}), ...(c.waitsFor ? { waitsFor: c.waitsFor } : {}), ...(c.unseen ? { unseen: c.unseen } : {}), ...(c.lastOutcome ? { lastOutcome: c.lastOutcome } : {}), ...(c.lastStop ? { lastStop: c.lastStop } : {}), ...(c.unreadCount ? { unreadCount: c.unreadCount } : {}) }] : []
 
 function principalOf(rt: ChatRuntime, me: string): Principal | null {
   try { return rt.files.principal(me) } catch { return null }

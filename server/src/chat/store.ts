@@ -88,6 +88,13 @@ const json = <T>(s: string | null | undefined, fallback: T): T => {
   try { return JSON.parse(s) as T } catch { return fallback }
 }
 
+/** A failed answer the server stopped (messages.error's params.reason; chat/turn.ts at a launcher stop, runtime.ts at
+ * the next start): 'restart' or 'update' (Chat.lastStop), null for a real failure. */
+export function serverStopOf(error: string | null): 'restart' | 'update' | null {
+  const reason = parseError(error)?.params?.reason
+  return reason === 'interrupted' ? 'restart' : reason === 'updating' || reason === 'updating_step' ? 'update' : null
+}
+
 /** messages.error: JSON ApiErrorBody (stage 2) or a plain string (stage 1 rows). */
 export function parseError(s: string | null): ApiErrorBody | null {
   if (!s) return null
@@ -342,19 +349,20 @@ export class ChatStore {
   }
   /** The newest finished answer (done, error or stopped), in one read: whether it finished after the person last had
    * the chat on screen (never since it was made: after it was made), and how it ended when not well (Chat.lastOutcome:
-   * failed, a server stop included, or paused at the per-answer limit). An answer the person stopped is never unseen:
-   * they stopped it, nothing waits for them there. Session markers: docs/DECISIONS.md. */
-  answerState(r: Pick<ChatRow, 'id' | 'seen_at' | 'created_at'>, answersOf?: string): Pick<Chat, 'unseen' | 'lastOutcome'> {
+   * failed, a server stop included, or paused at the per-answer limit; Chat.lastStop: the server stop's kind). An answer
+   * the person stopped is never unseen: they stopped it, nothing waits for them there. Session markers: docs/DECISIONS.md. */
+  answerState(r: Pick<ChatRow, 'id' | 'seen_at' | 'created_at'>, answersOf?: string): Pick<Chat, 'unseen' | 'lastOutcome' | 'lastStop'> {
     const row = (answersOf === undefined
-      ? this.db.query(`SELECT COALESCE(updated_at, created_at) AS t, status, stop_reason FROM messages
+      ? this.db.query(`SELECT COALESCE(updated_at, created_at) AS t, status, stop_reason, error FROM messages
       WHERE chat_id = ? AND role = 'assistant' AND status <> 'streaming' ORDER BY COALESCE(updated_at, created_at) DESC, rowid DESC LIMIT 1`).get(r.id)
-      : this.db.query(`SELECT COALESCE(m.updated_at, m.created_at) AS t, m.status, m.stop_reason FROM messages m JOIN turns t ON t.id = m.turn_id
+      : this.db.query(`SELECT COALESCE(m.updated_at, m.created_at) AS t, m.status, m.stop_reason, m.error FROM messages m JOIN turns t ON t.id = m.turn_id
       WHERE m.chat_id = ? AND m.role = 'assistant' AND m.status <> 'streaming' AND t.user_id = ? ORDER BY COALESCE(m.updated_at, m.created_at) DESC, m.rowid DESC LIMIT 1`).get(r.id, answersOf)
-    ) as { t: string; status: MessageStatus; stop_reason: string | null } | null
+    ) as { t: string; status: MessageStatus; stop_reason: string | null; error: string | null } | null
     if (!row) return {}
     const lastOutcome = row.status === 'error' ? 'error' as const : row.status === 'done' && stopReasonOf(row.stop_reason) ? 'paused' as const : null
+    const lastStop = lastOutcome === 'error' ? serverStopOf(row.error) : null
     const unseen = row.status !== 'stopped' && iso(row.t) > iso(r.seen_at ?? r.created_at)
-    return { ...(unseen ? { unseen: true as const } : {}), ...(lastOutcome ? { lastOutcome } : {}) }
+    return { ...(unseen ? { unseen: true as const } : {}), ...(lastOutcome ? { lastOutcome } : {}), ...(lastStop ? { lastStop } : {}) }
   }
   /** When `userId` pinned the chat (chat/pins.ts), or null. */
   pinnedAt(userId: string, chatId: string): string | null {
