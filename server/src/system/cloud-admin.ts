@@ -309,7 +309,10 @@ export async function restoreArtifacts(dir: string, to: string): Promise<{ resto
   if (teamItems[0]!.meta.team!.base !== null) throw new CloudAdminError(`the chain does not start with a full archive (${teamItems[0]!.id} builds on ${teamItems[0]!.meta.team!.base})`)
   for (let i = 1; i < teamItems.length; i++) {
     const base = teamItems[i]!.meta.team!.base
-    if (base !== teamItems[i - 1]!.id) throw new CloudAdminError(`${teamItems[i]!.id} builds on ${base}, not on ${teamItems[i - 1]!.id}`)
+    // team.base is the backup's own (local) id; the folder may carry another id (an older mycel-enroll named the folders by
+    // the control plane's backup id), so the previous backup's meta.id counts too
+    const prev = teamItems[i - 1]!
+    if (base !== prev.meta.id && base !== prev.id) throw new CloudAdminError(`${teamItems[i]!.id} builds on ${base}, not on ${prev.meta.id}`)
   }
   const newest = chain.at(-1)!
   const tmp = `${target}.partial-${process.pid}`

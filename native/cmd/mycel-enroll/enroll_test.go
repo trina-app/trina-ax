@@ -321,8 +321,11 @@ func (cp *fakeCP) enroll(w http.ResponseWriter, r *http.Request) {
 		}
 		idAge := ageEncrypt(cp.t, []byte(cp.teamID.String()+"\n"), rcpt, true)
 		var objs []map[string]any
-		for _, name := range []string{"db.sqlite.age", "team.tar.zst.age"} {
-			b := cp.objects[name]
+		for _, name := range []string{"meta.json.age", "db.sqlite.age", "team.tar.zst.age"} {
+			b, ok := cp.objects[name]
+			if !ok {
+				continue
+			}
 			sum := sha256.Sum256(b)
 			sha := hex.EncodeToString(sum[:])
 			if cp.badSha && name == "team.tar.zst.age" {
@@ -583,6 +586,7 @@ func TestBadConfigRefused(t *testing.T) {
 func TestRestoreMode(t *testing.T) {
 	h := newHarness(t)
 	cp := newFakeCP(t)
+	cp.addObject("meta.json.age", []byte(`{"format":1,"id":"20261126T000000Z-full","kind":"daily","scope":"full"}`))
 	cp.addObject("db.sqlite.age", []byte("SQLITE-DB"))
 	cp.addObject("team.tar.zst.age", []byte("TEAM"))
 	h.useCP(cp)
@@ -615,17 +619,17 @@ func TestRestoreMode(t *testing.T) {
 		must(t, os.WriteFile(filepath.Join(out, "team", "Docs", "a.md"), []byte("RESTORED-TEAM"), 0o600))
 		sawOut = out
 		sawStaging = args[i+2]
-		db, err := os.ReadFile(filepath.Join(sawStaging, "bk_0001", "db.sqlite"))
+		db, err := os.ReadFile(filepath.Join(sawStaging, "20261126T000000Z-full", "db.sqlite"))
 		if err != nil || string(db) != "SQLITE-DB" {
 			t.Fatalf("decrypted db: %q %v", db, err)
 		}
-		team, _ := os.ReadFile(filepath.Join(sawStaging, "bk_0001", "team.tar.zst"))
+		team, _ := os.ReadFile(filepath.Join(sawStaging, "20261126T000000Z-full", "team.tar.zst"))
 		chain, _ := os.ReadFile(filepath.Join(sawStaging, "chain.json"))
 		var ids []string
-		if string(team) != "TEAM" || json.Unmarshal(chain, &ids) != nil || len(ids) != 1 || ids[0] != "bk_0001" {
-			t.Fatalf("team %q chain %s (want the JSON array the server reads)", team, chain)
+		if string(team) != "TEAM" || json.Unmarshal(chain, &ids) != nil || len(ids) != 1 || ids[0] != "20261126T000000Z-full" {
+			t.Fatalf("team %q chain %s (want the JSON array of the backups' own ids, the folders renamed to them)", team, chain)
 		}
-		if h.chowned[filepath.Join(sawStaging, "bk_0001", "db.sqlite")] != [2]int{990, 990} {
+		if h.chowned[filepath.Join(sawStaging, "20261126T000000Z-full", "db.sqlite")] != [2]int{990, 990} {
 			t.Fatal("staging not given to the server account")
 		}
 		return nil, nil
@@ -673,6 +677,7 @@ func TestRestoreMode(t *testing.T) {
 func TestRestoreShaMismatch(t *testing.T) {
 	h := newHarness(t)
 	cp := newFakeCP(t)
+	cp.addObject("meta.json.age", []byte(`{"format":1,"id":"20261126T000000Z-full","kind":"daily","scope":"full"}`))
 	cp.addObject("db.sqlite.age", []byte("SQLITE-DB"))
 	cp.addObject("team.tar.zst.age", []byte("TEAM"))
 	cp.badSha = true
@@ -698,6 +703,7 @@ func TestRestoreShaMismatch(t *testing.T) {
 func TestVerifyMode(t *testing.T) {
 	h := newHarness(t)
 	cp := newFakeCP(t)
+	cp.addObject("meta.json.age", []byte(`{"format":1,"id":"20261126T000000Z-full","kind":"daily","scope":"full"}`))
 	cp.addObject("db.sqlite.age", []byte("SQLITE-DB"))
 	cp.addObject("team.tar.zst.age", []byte("TEAM"))
 	h.useCP(cp)

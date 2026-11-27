@@ -1,0 +1,1 @@
+- Restoring a hosted team server from its off-site backup works when the backup has more than one part. It stopped with "builds on …, not on …": the backups were named by two kinds of id.
