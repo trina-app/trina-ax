@@ -103,6 +103,13 @@ describe('desktop S0: create and join are quiet rows like the team rows', () => 
     expect(lead).toContain('border: 1px solid var(--line)')
     expect(lead).not.toMatch(/accent|background/)
   })
+  test('the first run puts the keyboard on Create without a ring; a redraw keeps the ring as it was', () => {
+    expect(welcome).toContain("el?.focus({ focusVisible: false } as FocusOptions)")
+    expect(welcome).not.toContain("document.getElementById('create-team')?.focus()")
+    expect(welcome.match(/quietFocus\(document\.getElementById\('create-team'\)\)/g)?.length).toBe(2)
+    expect(welcome).toContain("const ring = document.activeElement?.matches(':focus-visible') ?? false")
+    expect(welcome).toContain('?.focus({ focusVisible: ring } as FocusOptions)')
+  })
   test('the "+" tile is the one accent among the actions; Join keeps the plain tile', () => {
     const block = css.slice(css.indexOf('button.action-row {'), css.indexOf('.action-row .sub-line'))
     const accentRules = block.match(/[^}]*\{[^}]*--accent[^}]*\}/g) ?? []

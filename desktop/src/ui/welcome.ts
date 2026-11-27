@@ -47,8 +47,19 @@ function takeState(s: WelcomeState) {
   }
 }
 
+/**
+ * The keyboard to a control the app picked itself (the first run's Create row), without the focus ring: the person did
+ * not press a key, so a thick ring would only hide the row's own outline. Tab or an arrow key from there shows the ring
+ * as usual (:focus-visible follows the next key press).
+ */
+function quietFocus(el: HTMLElement | null) {
+  el?.focus({ focusVisible: false } as FocusOptions)
+}
+
 function render() {
   const focused = document.activeElement?.id
+  // a ring stays a ring after the redraw, and no ring stays no ring (a redraw is not a key press)
+  const ring = document.activeElement?.matches(':focus-visible') ?? false
   root.replaceChildren(
     state.link ? linkAsk(state.link)
     : state.mode === 'offline' && state.offline ? offline()
@@ -57,7 +68,7 @@ function render() {
     : view === 'join' || !rows() ? (state.offer === 'checking' && view !== 'join' ? checking() : welcome())
     : start(),
   )
-  if (focused) document.getElementById(focused)?.focus()
+  if (focused) document.getElementById(focused)?.focus({ focusVisible: ring } as FocusOptions)
 }
 
 function show(next: typeof view) {
@@ -608,7 +619,7 @@ ui.welcome.onState((s) => {
   // a create screen came or changed: the keyboard goes to its first control
   if (s.create && createKey(s.create) !== screen) focusCreate(s.create)
   // S0's rows appeared after the console answered: the keyboard to "Create a team for free" when nothing has it
-  else if (offerBefore === 'checking' && rows() && !creating() && view === 'start' && !state.teams.length && document.activeElement === document.body) document.getElementById('create-team')?.focus()
+  else if (offerBefore === 'checking' && rows() && !creating() && view === 'start' && !state.teams.length && document.activeElement === document.body) quietFocus(document.getElementById('create-team'))
   else if (offerBefore === 'checking' && !rows() && !creating() && !state.teams.length && document.activeElement === document.body) document.getElementById('address')?.focus()
   // ④ appeared: the safe answer has the focus
   if (asked) document.getElementById('link-cancel')?.focus()
@@ -619,6 +630,9 @@ void ui.welcome.state().then((s) => {
   // no saved team: the box (or S0's create row), ready to use. Saved teams: nothing is focused (no ring on a row the
   // person did not pick); Tab reaches the first row
   if (creating()) focusCreate(state.create!)
-  else if (!state.teams.length) document.getElementById(rows() && view === 'start' ? 'create-team' : 'address')?.focus()
+  else if (!state.teams.length) {
+    if (rows() && view === 'start') quietFocus(document.getElementById('create-team'))
+    else document.getElementById('address')?.focus()
+  }
 })
 render()
