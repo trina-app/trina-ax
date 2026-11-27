@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-27 17:06
 - Branch: `fix/fork-parents-live-updates`
-- Status: in progress
+- Status: done
 - Where: server/src/chat, server/src/routes/chats.ts, shared/src/api, web/src/store, web/src/lib/forkTree.ts. Why: the
   chat list and its live events (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a bug fix with no new feature or API (an event field that was missing is now sent; a query the
@@ -57,4 +57,9 @@ None new; follows docs/decisions/20261126-chat-fork-tree.md and 20261127-fork-in
 
 ## Result
 
-(filled in at the end)
+Done as planned. Root cause: ChatRuntime.publishChat built a one-person chat with `store.toChat` (no forkParents, no
+forkedFrom). The new server test fails on dev and passes here; the web store test and the e2e step with an event
+without forkParents fail without the client merge. Bun 1.3.12: typecheck, check:prepush, web unit 4741/0, 31 server
+files that use chat.updated (unit + security) 532/0, chat-fork-tree + chat-fork e2e 20/20. Not from this change:
+project-chat-row-menu.spec.ts (the row menu has the fork item now) and two chat-look.spec.ts tests fail the same with
+dev's mock.
