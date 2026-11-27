@@ -1,1 +1,0 @@
-- The left rail's selected place now shows its pressed background behind the icon and the name together, and hovering a place lights the whole block, not only the icon.

@@ -2,6 +2,7 @@ import { fetch } from 'expo/fetch'
 import * as SecureStore from 'expo-secure-store'
 import { parseTeamAddress } from './address'
 import type { Slot } from './device'
+import { pageLocale, type PageLocale } from './protocol'
 import { checkTeamWith, type CheckIo, type TeamCheck } from './team-check'
 export { parseTeamAddress, readTeamInput } from './address'
 export { sameTeam } from './protocol'
@@ -44,4 +45,17 @@ export async function rememberSelfPadded(origin: string, pads: boolean): Promise
     if (pads) await SecureStore.setItemAsync(PADS, origin)
     else if ((await SecureStore.getItemAsync(PADS)) === origin) await SecureStore.deleteItemAsync(PADS)
   } catch { /* the app then starts padded and the page confirms */ }
+}
+
+// the language the team's page last said (language-v1, src/protocol.ts): the app's own screens use it at the next
+// launch too, for that team only (another team's screens follow the phone's language until its page says)
+const LANGUAGE = 'team-ax.page-language'
+export async function pageLanguageOf(origin: string): Promise<PageLocale | null> {
+  try {
+    const saved: unknown = JSON.parse((await SecureStore.getItemAsync(LANGUAGE)) ?? 'null')
+    return saved && typeof saved === 'object' && (saved as { origin?: unknown }).origin === origin && pageLocale((saved as { locale?: unknown }).locale) ? (saved as { locale: PageLocale }).locale : null
+  } catch { return null }
+}
+export async function rememberPageLanguage(origin: string, locale: PageLocale): Promise<void> {
+  try { await SecureStore.setItemAsync(LANGUAGE, JSON.stringify({ origin, locale })) } catch { /* the phone's language at the next launch, until the page says */ }
 }

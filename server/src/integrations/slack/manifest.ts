@@ -21,7 +21,8 @@ export const BOT_SCOPES = ['app_mentions:read', 'channels:history', 'channels:re
 export const READ_BOT_SCOPES = ['channels:history', 'groups:history'] as const
 /** the bot scopes every saved app must have (BOT_SCOPES without the reading ones) */
 export const BASE_BOT_SCOPES = BOT_SCOPES.filter((s) => !(READ_BOT_SCOPES as readonly string[]).includes(s))
-export const BOT_EVENTS = ['app_mention', 'message.im'] as const
+/** app_home_opened: the Home tab (home.ts: help, support, the AI-accuracy note; views.publish needs no scope) */
+export const BOT_EVENTS = ['app_mention', 'message.im', 'app_home_opened'] as const
 
 /** a bot user name Slack takes: a-z, 0-9, -, _ and . (at most 80) */
 const botName = (s: string) => (s.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'assistant').slice(0, 80)
@@ -33,7 +34,7 @@ export function slackManifest(name = PRODUCT.displayName, redirectUrl: string | 
     _metadata: { major_version: 2, minor_version: 1 },
     display_information: { name: app, description: `Ask ${app} from Slack. Answers come from your team's ${app} with your own permissions.`.slice(0, 140), background_color: '#111111' },
     features: {
-      app_home: { home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false },
+      app_home: { home_tab_enabled: true, messages_tab_enabled: true, messages_tab_read_only_enabled: false },
       bot_user: { display_name: botName(app), always_online: true },
     },
     // no user scopes: "Sign in with Slack" asks for openid and profile in its own flow (they may not be combined with

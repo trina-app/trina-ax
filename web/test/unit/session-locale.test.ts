@@ -47,7 +47,8 @@ describe('session recovery language', () => {
       mockFetch(async () => Response.json(me(locale)))
       await session().load()
       expect(recentLocale()).toBe(locale)
-      expect(storedLocale()).toBeNull()
+      // the account's own choice is this browser's sign-in language too (docs/decisions/20261127-sign-in-language-follows-settings.md)
+      expect(storedLocale()).toBe(locale)
       // Fresh page memory, same origin storage.
       useLocaleStore.getState().setLocale('en')
       useSession.setState({ status: { kind: 'loading' } })
@@ -63,13 +64,14 @@ describe('session recovery language', () => {
       expect(session().status.kind).toBe('signed-in')
       expect(currentLocale()).toBe(next)
       expect(recentLocale()).toBe(next)
-      expect(storedLocale()).toBeNull()
+      // an account that follows its team leaves this browser's pick as it was
+      expect(storedLocale()).toBe(locale)
     })
   }
 
   test('sign-out clears recovery; another account follows its team, not the remembered account or an old login pick', () => {
     storeLocale('id')
-    session().signedIn(me('ko'))
+    session().signedIn(me('ko', 'en', null))
     expect(storedLocale()).toBe('id')
     session().signedOut()
     expect(currentLocale()).toBe('id')
@@ -81,7 +83,7 @@ describe('session recovery language', () => {
   })
 
   test('a 401 clears recovery even if setup is unreachable, then a new team default wins', async () => {
-    session().signedIn(me('ko'))
+    session().signedIn(me('ko', 'en', null))
     mockFetch(async (url) => {
       if (url === '/api/me') return Response.json({ error: { code: 'unauthorized', message: 'Signed out' } }, { status: 401 })
       return offline()
@@ -134,7 +136,34 @@ describe('session recovery language', () => {
     mockFetch(async () => Response.json(me('id')))
     await session().setLocale('id')
     expect(recentLocale()).toBe('id')
+    expect(storedLocale()).toBe('id')
+  })
+
+  // QA 11-27 (the owner on an iPhone): Bahasa Indonesia picked in Settings, in a Korean team; signed out, the sign-in
+  // screen and its errors were Korean
+  test('a language picked in Settings stays for the sign-in screen after signing out; "follow the team" clears it', async () => {
+    session().signedIn(me('ko', 'ko', null))
     expect(storedLocale()).toBeNull()
+    mockFetch(async () => Response.json(me('id', 'ko')))
+    await session().setLocale('id')
+    expect(storedLocale()).toBe('id')
+    session().signedOut()
+    expect(currentLocale()).toBe('id')
+    // a session that ended (401): the sign-in screen in it too, not the team's Korean
+    session().signedIn(me('id', 'ko'))
+    mockFetch(async (url) => url === '/api/me'
+      ? Response.json({ error: { code: 'unauthorized', message: 'Signed out' } }, { status: 401 })
+      : Response.json({ needed: false, teamName: null, defaultLocale: 'ko' }))
+    await session().load()
+    expect(session().status.kind).toBe('signed-out')
+    expect(currentLocale()).toBe('id')
+    // back to following the team: this browser has no pick of its own again
+    session().signedIn(me('id', 'ko'))
+    mockFetch(async () => Response.json(me('ko', 'ko', null)))
+    await session().setLocale(null)
+    expect(storedLocale()).toBeNull()
+    session().signedOut()
+    expect(currentLocale()).toBe('ko')
   })
 
   test('storage quota/write failures leave the normal reload fallback usable', async () => {
@@ -156,10 +185,10 @@ describe('session recovery language', () => {
   test('reset() forgets the team default last seen: the next sign-out is not in the last team\'s language', () => {
     // the web tests' file start runs it (preload.ts); before, a file that signed in to a Korean team left the next
     // file's sign-out in Korean (invite-signed-in's guest sentence test, QA TC-2224, failed on CI in that order)
-    session().signedIn(me('en', 'ko'))
+    session().signedIn(me('en', 'ko', null))
     session().signedOut()
     expect(currentLocale()).toBe('ko')
-    session().signedIn(me('en', 'ko'))
+    session().signedIn(me('en', 'ko', null))
     session().reset()
     session().signedOut()
     expect(currentLocale()).toBe('en')

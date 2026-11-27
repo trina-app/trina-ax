@@ -111,15 +111,23 @@ export class SlackBrokerClient {
   }
 
   private install(raw: unknown): SlackBrokerInstallInfo | null { return raw === null ? null : parseSlackBrokerInstallInfo(raw) }
+  /** The install an answer names: only an explicit `install: null` means "none" (removed there: the team server then
+   * deletes the workspace's Slack data). A missing key, or one that does not parse, is an error: nothing changes here
+   * and the call is tried again. */
+  private installOf(j: Record<string, any>): SlackBrokerInstallInfo | null {
+    if (!('install' in j) || j.install === undefined) throw new SlackBrokerError('unreachable')
+    if (j.install === null) return null
+    const install = this.install(j.install)
+    if (!install) throw new SlackBrokerError('unreachable')
+    return install
+  }
 
   /** The hosting service serves this server now: its app id and this server's install (or none). A short time limit:
    * Admin › Connected apps › Slack waits for it. */
   async status(): Promise<{ appId: string; install: SlackBrokerInstallInfo | null }> {
     const j = await this.call('status', { v: 1 }, undefined, 8000)
     if (j.ok !== true || typeof j.appId !== 'string' || !ID.test(j.appId)) throw new SlackBrokerError('unreachable')
-    const install = this.install(j.install ?? null)
-    if (j.install && !install) throw new SlackBrokerError('unreachable')
-    return { appId: j.appId, install }
+    return { appId: j.appId, install: this.installOf(j) }
   }
 
   /** Slack's "Add to Slack" page for this flow (only ever Slack's own page). */
@@ -154,8 +162,7 @@ export class SlackBrokerClient {
   /** One long poll: acknowledges `ack`, answers this server's envelopes (or none after `waitMs`). */
   async poll(ack: string[], waitMs: number, signal?: AbortSignal): Promise<{ install: SlackBrokerInstallInfo | null; events: SlackBrokerEvent[] }> {
     const j = await this.call('poll', { v: 1, ack, waitMs: Math.min(waitMs, SLACK_BROKER_POLL_MAX_WAIT_MS) }, signal, waitMs + 20_000)
-    const install = this.install(j.install ?? null)
-    if (j.install && !install) throw new SlackBrokerError('unreachable')
+    const install = this.installOf(j)
     const events: SlackBrokerEvent[] = []
     for (const e of Array.isArray(j.events) ? j.events.slice(0, 100) : []) {
       if (!e || typeof e.id !== 'string' || !SLACK_BROKER_EVENT_ID.test(e.id) || !['events_api', 'interactive', 'lifecycle'].includes(e.kind)) continue

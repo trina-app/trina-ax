@@ -11,7 +11,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
-import type { AudienceSplit, FolderRuleInput, Locale, ProjectAccess, ProjectAccessPreview, ProjectOtherRule, ProjectParticipant, ProjectPeople, ProjectPerson } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, type AudienceSplit, type FolderRuleInput, type Locale, type ProjectAccess, type ProjectAccessPreview, type ProjectOtherRule, type ProjectParticipant, type ProjectPeople, type ProjectPerson } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
 import { atLeast, loadPrincipal, RuleSet, splitOf, type Principal } from '../policy/access'
@@ -549,7 +549,7 @@ export function saveParticipants(ctx: AppContext, r: ProjectRow, p: Principal, a
   if (gained) {
     for (const id of sawBefore) {
       if (id === actor.id || !now.includes(id)) continue
-      const loc = (db.query('SELECT locale FROM users WHERE id = ?').get(id) as { locale: Locale | null } | null)?.locale ?? 'ko'
+      const loc = (db.query('SELECT locale FROM users WHERE id = ?').get(id) as { locale: Locale | null } | null)?.locale ?? DEFAULT_LOCALE
       try { ctx.services.realtime.publish(id, { type: 'notice', data: { level: 'info', code: 'project_access_widened', message: tr('projectAccessWidened', loc, { by: actor.name, name: r.name, n: String(gained) }) } }) } catch (e) { ctx.log.warn('project notice failed', { err: e }) }
     }
   }

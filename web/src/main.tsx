@@ -11,7 +11,7 @@ import { applyTheme, storedTheme, watchSystemTheme } from './lib/theme'
 import { applyTextSize, storedTextSize } from './lib/textSize'
 import { loadLocale, localeChosen, localeLoaded, onLocaleLoadFailed, recentLocale, storedLocale, useLocaleStore, t } from './i18n'
 import { reloadForChunkError } from './lib/chunk-reload'
-import { initMobile, MobileFileTooLarge, setMobileSession } from './lib/mobile'
+import { initMobile, MobileFileTooLarge, setAppLanguage, setMobileSession } from './lib/mobile'
 import { useSession } from './store/session'
 import { useAiAccess } from './store/aiAccess'
 import { loadChatList } from './lib/chatListLoad'
@@ -33,6 +33,9 @@ document.documentElement.lang = useLocaleStore.getState().locale
 // the desktop app saves downloads straight into Downloads once this page shows the notice for them
 initDesktopDownloads()
 initMobile(error => toast({ level: 'error', text: t(error instanceof MobileFileTooLarge ? 'mobile.fileTooLarge' : 'mobile.saveFailed') }))
+// the phone app's own screens (offline, cannot reach, team address) follow the page's language (language-v1)
+setAppLanguage(useLocaleStore.getState().locale)
+useLocaleStore.subscribe(state => setAppLanguage(state.locale))
 useSession.subscribe(state => {
   const status = state.status
   setMobileSession(status.kind === 'signed-in' ? `${status.me.user.id}:${status.me.session.id}` : null, status.kind === 'signed-out')

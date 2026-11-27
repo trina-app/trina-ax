@@ -224,6 +224,9 @@ export const useSession = create<SessionState>((set, get) => ({
     const picked = storedLocale()
     if (opts?.adoptPick && pickedBeforeSignIn && picked && me.user.localeChoice === null && picked !== me.user.locale) pendingPick = picked
     pickedBeforeSignIn = false
+    // the person's own language choice is this browser's sign-in language too: signing out, or a session that ends,
+    // shows the sign-in screen in it, not in the team's default (docs/decisions/20261127-sign-in-language-follows-settings.md)
+    if (me.user.localeChoice && !pendingPick) storeLocale(me.user.localeChoice)
     const before = get().status
     if (before.kind === 'signed-in' && before.me.user.id !== me.user.id) {
       // another person signed in over this one (a reset link on a shared computer): a sign-out first
@@ -346,6 +349,8 @@ export const useSession = create<SessionState>((set, get) => ({
     useLocaleStore.getState().setLocale(choice ?? st.me.team.defaultLocale)
     try {
       const me = await api.call(API.updateMe, { body: { locale: choice } })
+      // also this browser's sign-in language; "follow the team" clears it (signedIn above)
+      storeLocale(choice)
       applyMe(me)
       set({ status: { kind: 'signed-in', me } })
     } catch (e) {

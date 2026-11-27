@@ -159,13 +159,13 @@ export const DEFAULT_RECENTS_VIEW = DEFAULT_VIEW
  * list and the drawer (HistoryList). */
 export function DateGroups({ chats, row, by, created, projectTag = false }: { chats: Chat[]; row: (c: Chat, tree?: TreeRow) => ReactNode; by: 'date' | 'none'; created: boolean; projectTag?: boolean }) {
   const t = useT()
-  // continuations under the chat they came from, within one date (lib/forkTree.ts): every chat in its own date and place
+  // continuations right under the chat they came from, in that chat's date and place (lib/forkTree.ts), as the Claude app
   const { groups, treeOf } = useMemo(() => {
     const bucket = (c: Chat) => (by === 'date' ? dateBucket(created ? c.createdAt : c.updatedAt) : '')
     const treeOf = new Map<string, TreeRow>()
     const g = new Map<string, Chat[]>()
-    for (const r of forkRows(chats, { group: bucket })) {
-      const key = bucket(r.chat)
+    for (const r of forkRows(chats)) {
+      const key = bucket(r.top)
       if (!g.has(key)) g.set(key, [])
       g.get(key)!.push(r.chat)
       treeOf.set(r.chat.id, r)
