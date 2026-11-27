@@ -1,0 +1,1 @@
+- No user-visible change (extracted Linux `/proc` parsers in `native/internal/peer` with bounds checks and unit tests).
