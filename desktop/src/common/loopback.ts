@@ -49,3 +49,19 @@ export function closeLoopback(server: Server) {
   server.close()
   ;(server as Server & { closeAllConnections?: () => void }).closeAllConnections?.()
 }
+
+/** The small page the browser shows after a return: the words come from the app (its language). */
+export function donePage(text: string): string {
+  const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc}</title><style>body{font:16px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;min-height:90vh;align-items:center;justify-content:center;color:#14110f;background:#fcfbf8}@media (prefers-color-scheme:dark){body{color:#f2ede6;background:#171411}}</style></head><body><p>${esc}</p></body></html>`
+}
+
+/** The headers of that page: nothing loads, nothing is kept. */
+export const DONE_PAGE_HEADERS = {
+  'Content-Type': 'text/html; charset=utf-8',
+  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+  'Cache-Control': 'no-store',
+  'Referrer-Policy': 'no-referrer',
+  'X-Content-Type-Options': 'nosniff',
+  Connection: 'close',
+} as const

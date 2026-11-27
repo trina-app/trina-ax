@@ -16,7 +16,7 @@
 import crypto from 'node:crypto'
 import { PRODUCT } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
-import { appLink } from './app-return'
+import { appLink, heldLink } from './app-return'
 
 export type AppClient = 'desktop' | 'mobile'
 
@@ -28,7 +28,7 @@ export type GoogleReturn = 'ok' | 'done' | 'handed' | 'cancelled' | 'denied_serv
  * sign-in Google answered in a browser without a session (app-return.ts). `done`: this return found the sign-in
  * already answered by an earlier one (a reload, a second request, another window): 'ready', the account waits to be
  * confirmed in the app; 'completed', it is connected. Never a failure page for a sign-in that worked (owner 2026-11-21). */
-export type CallbackOutcome = { ok: true; app?: AppClient | null; code?: string; who?: { name: string; username: string }; google?: string; done?: 'ready' | 'completed' } | { ok: false; reason: string; app?: AppClient | null }
+export type CallbackOutcome = { ok: true; app?: AppClient | null; code?: string; who?: { name: string; username: string }; google?: string; returnPort?: number | null; done?: 'ready' | 'completed' } | { ok: false; reason: string; app?: AppClient | null }
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): T => ({ ko, en, id, ja, es, zh })
@@ -197,7 +197,7 @@ export const GOOGLE_RETURN_CSP = `default-src 'none'; style-src 'sha256-${crypto
 /** Where the page may send the person: `origin`, this team's address (the desktop app's button opens it in the app);
  * `connector`, the page of this connector in Settings (sign in here, then connect in this browser). */
 /** `who`, `google`: whose Trina account and which Google account a result waiting for the app's code joins */
-export interface ReturnPageOptions { app?: AppClient | null; origin?: string; connector?: string; code?: string; who?: { name: string; username: string }; google?: string }
+export interface ReturnPageOptions { app?: AppClient | null; origin?: string; connector?: string; code?: string; who?: { name: string; username: string }; google?: string; returnPort?: number | null }
 
 /** The return page's HTML and status. */
 export function googleReturnPage(r: GoogleReturn, locale: Locale, o: ReturnPageOptions = {}): { html: string; status: 200 | 400 } {
@@ -211,14 +211,16 @@ export function googleReturnPage(r: GoogleReturn, locale: Locale, o: ReturnPageO
     // that link by itself too (the browser asks first): people go back to the app without the button and the result
     // waited unclaimed until Try again ended it (qa.trina.app 2026-11-21, drive flows of 04:10 and 04:11)
     title = say('hBack', locale); text = say('okCode', locale)
-    head = `<meta http-equiv="refresh" content="0;url=${esc(appLink(origin, o.code))}">`
+    // the app's return address on 127.0.0.1 when the app said one (any browser goes there), else the app link
+    const link = heldLink(origin, o.code, o.returnPort)
+    head = `<meta http-equiv="refresh" content="0;url=${esc(link)}">`
     // whose Trina account and which Google account, so a person who did not start it sees it is not theirs
     const facts = [
       o.who?.username ? say('heldWho', locale).replace('{name}', () => o.who!.name).replace('{username}', () => o.who!.username) : '',
       o.google ? say('heldGoogle', locale).replace('{google}', () => o.google!) : '',
     ].filter(Boolean)
     actions = (facts.length ? `<ul class="facts" data-testid="held-facts">${facts.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` : '')
-      + `<a class="cta" href="${esc(appLink(origin, o.code))}">${esc(say('backToApp', locale))}</a>`
+      + `<a class="cta" href="${esc(link)}">${esc(say('backToApp', locale))}</a>`
       + `<p class="note" data-testid="held-own-app">${esc(say('heldOwnApp', locale))}</p>`
   } else if (r === 'handed') {
     // the result waits for the first page's code (app-return.ts): this one never gets a code

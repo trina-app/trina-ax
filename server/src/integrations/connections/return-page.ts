@@ -7,7 +7,7 @@ import crypto from 'node:crypto'
 import type { Context } from 'hono'
 import { PRODUCT } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
-import { appLink } from '../google-drive/app-return'
+import { appLink, heldLink } from '../google-drive/app-return'
 import { RETURN_STYLE, RETURN_STYLE_SRC } from '../google-drive/callback-page'
 import { say } from './text'
 
@@ -36,9 +36,10 @@ export const backToApp = (L: Locale, origin: string) => ({ href: appLink(origin)
 /** A desktop sign-in held for the app on this computer: the one-time code only in the fragment of the app's own link
  * (no server, proxy or log sees it), opened by itself and by the button. It names whose account it joins, so a person
  * who did not start it sees it is not theirs. */
-export function heldPage(L: Locale, origin: string, held: { code: string; who: { name: string; username: string }; name: string }): string {
+export function heldPage(L: Locale, origin: string, held: { code: string; who: { name: string; username: string }; name: string; returnPort?: number | null }): string {
   const P = { product: PRODUCT.displayName }
-  const link = appLink(origin, held.code)
+  // the app's return address on 127.0.0.1 when its session said one, else the app link (app-return.ts heldLink)
+  const link = heldLink(origin, held.code, held.returnPort)
   return returnPage(L, {
     head: `<meta http-equiv="refresh" content="0;url=${esc(link)}">`,
     title: say('callbackHeldTitle', L, P), text: say('callbackHeld', L, { name: held.name }),

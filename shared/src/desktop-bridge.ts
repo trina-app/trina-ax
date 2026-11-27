@@ -102,6 +102,18 @@ export type WorkFolderId = 'documents' | 'desktop' | 'downloads'
 export type WorkPlaceKind = 'cloud' | 'folder' | 'messenger' | 'home' | 'drive'
 /** The version of the wide look (scan({ wide })) and of fullDisk a desktop app offers (workFiles.wide). */
 export const WORK_FILES_WIDE_VERSION = 1
+/** A sign-in's one-time code back to the desktop app over 127.0.0.1 (desktop/src/common/code-return.ts;
+ * docs/decisions/20261127-desktop-sign-in-code-loopback.md). The page tells its team the app's port in this header on
+ * every API call; a page the browser opens at `http://127.0.0.1:<port>/sign-in-code?code=<code>` hands the
+ * code to the app, which redeems it with its own session (the claim address). The custom-scheme app link needs a
+ * browser that opens apps; some never do (ego lite: ERR_UNKNOWN_URL_SCHEME), and then the app waited forever. */
+export const APP_RETURN_HEADER = 'x-mycel-app-return'
+export const APP_CODE_RETURN_PATH = '/sign-in-code'
+/** a port the header may name (a system-picked port, never a well-known one) */
+export const appReturnPortOf = (v: unknown): number | null => {
+  const n = typeof v === 'string' && /^[1-9][0-9]{3,4}$/.test(v) ? Number(v) : typeof v === 'number' ? v : NaN
+  return Number.isInteger(n) && n >= 1024 && n <= 65535 ? n : null
+}
 /** DesktopBridge.dictation: voice input transcribed on this Mac (0: not offered) */
 export const DICTATION_BRIDGE_VERSION = 1
 /** The in-app browser's own version (DesktopBridge.browser.version), for tools the browser.call contract adds after
@@ -376,6 +388,11 @@ export interface DesktopBridge {
   signInReturn?: {
     open(): Promise<number | null>
     close(port: number): void
+  }
+  /** The port of this app's return address for sign-in codes on 127.0.0.1 (APP_RETURN_HEADER), open while the app runs;
+   * null when none could be opened. Optional: apps before 2026-11-27 do not have it (their sign-ins use the app link). */
+  codeReturn?: {
+    port(): Promise<number | null>
   }
   /**
    * Sign in with Google (GOOGLE_SIGNIN_BRIDGE_VERSION; docs/decisions/20261122-google-login-apps.md): this app opens

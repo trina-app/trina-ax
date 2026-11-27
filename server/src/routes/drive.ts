@@ -114,7 +114,7 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
     // in the person's language, with why it did not work (google-drive/callback-page.ts); static words and same-origin
     // links only (a sign-in started in an app: the app's own link to this team, a desktop one with its one-time code in
     // the fragment): never carry Google's code or the state into a link
-    const page = googleReturnPage(googleReturnOf(r, !!auth), cc.get('locale'), { app: r.app, origin: new URL(c.req.url).origin, connector: '/settings/connectors/google-drive', code: r.ok ? r.code : undefined, who: r.ok ? r.who : undefined, google: r.ok ? r.google : undefined })
+    const page = googleReturnPage(googleReturnOf(r, !!auth), cc.get('locale'), { app: r.app, origin: new URL(c.req.url).origin, connector: '/settings/connectors/google-drive', code: r.ok ? r.code : undefined, who: r.ok ? r.who : undefined, google: r.ok ? r.google : undefined, returnPort: r.ok ? r.returnPort : undefined })
     return c.html(page.html, page.status)
   })
 }

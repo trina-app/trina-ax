@@ -14,7 +14,7 @@ import { onShareOwnerCheck, ownerOk, SHARE_CONTEXT, shareByName, shareRow, share
 import { getSetting, setSetting } from '../../admin/settings'
 import { brokerKey, driveBrokerFor, DriveBroker, type BrokerOptions } from './broker'
 import type { CallbackOutcome } from './callback-page'
-import { CLAIM_MS, GO_PATH, newToken, tokenHash, tokenMatches } from './app-return'
+import { CLAIM_MS, GO_PATH, appReturnPort, newToken, tokenHash, tokenMatches } from './app-return'
 import type { ClientKind } from '@mycel/shared/api'
 import { googleLoginHint } from '../../auth/login-identities'
 
@@ -354,7 +354,7 @@ export class GoogleDrive {
     return no('invalid_flow')
   }
   /** Google's (direct) or the hosting service's (broker: `handoff` instead of `code`) return to this server. */
-  async callback(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<boolean | { code: string; who: { name: string; username: string }; google: string }> {
+  async callback(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<boolean | { code: string; who: { name: string; username: string }; google: string; returnPort: number | null }> {
     this.configured(); this.store.sweep()
     if (!input.state || !/^[A-Za-z0-9_-]{43}$/.test(input.state)) throw new DriveError('invalid_flow')
     const r = this.ctx.db.query('SELECT * FROM drive_oauth_flows WHERE state_hash=?').get(hash(input.state)) as ReturnType<DriveStore['flow']>
@@ -398,7 +398,7 @@ export class GoogleDrive {
         const sealed = this.store.seal(r.user_id, r.id, { ...result, claim: { hash: tokenHash(code), until } })
         this.ctx.db.query("UPDATE drive_oauth_flows SET secret_enc=?,key_version=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, r.id)
         const who = this.ctx.db.query('SELECT name, username FROM users WHERE id=?').get(r.user_id) as { name: string; username: string } | null
-        return { code, who: who ?? { name: '', username: '' }, google: result.account.email ?? result.account.name ?? '' }
+        return { code, who: who ?? { name: '', username: '' }, google: result.account.email ?? result.account.name ?? '', returnPort: appReturnPort(r.session_id) }
       }
       const sealed = this.store.seal(r.user_id, r.id, result)
       this.ctx.db.query("UPDATE drive_oauth_flows SET state='ready',secret_enc=?,key_version=?,account=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, JSON.stringify(result.account), r.id)

@@ -457,6 +457,15 @@ export class AppWindow {
     }
   }
 
+  /** A sign-in's one-time code the browser brought to the app's return address (common/code-return.ts): redeemed like
+   * the code of the app link, for the team on screen with its own session. false: no team page to take it. */
+  claimReturnedCode(code: string): boolean {
+    if (!this.app || this.app.webContents.isDestroyed() || !this.team?.origin) return false
+    handoffLog(`sign-in hand-off: code back over 127.0.0.1 for the team on screen (${this.team.origin}, ${this.mode})`)
+    void this.claimSignIn(code)
+    return true
+  }
+
   /** POST a sign-in's one-time code (Drive, a team Drive share, a Google app, an app connection: the server's claim
    * address tries each) to the team on screen with this app's own session (server google-drive/app-return.ts); the
    * server finishes only a flow this session started. The answer is read and a lost one is sent again

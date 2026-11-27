@@ -45,7 +45,7 @@ import { googleTransport, isGoogleAppSecret, setGoogleFetch, tokensOf, type Goog
 import { workspaceLibraryOf } from './library'
 import { googleLoginHint } from '../../auth/login-identities'
 import type { AppClient, CallbackOutcome } from '../google-drive/callback-page'
-import { CLAIM_MS, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
+import { CLAIM_MS, appReturnPort, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
 
 /** The key of a Google app connection the demo's snapshot builder makes (routes/demo-builder.ts): no Google app made it. */
 export const DEMO_GOOGLE_KEY = 'demo'
@@ -373,7 +373,7 @@ export class GoogleApps {
     const sealed = this.box.seal(flowAad(f), { ...result, claim: { hash: tokenHash(code), until: end } } satisfies FlowSecret)
     if (!this.db.query("UPDATE google_app_flows SET secret_enc=?, key_version=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, f.id).changes) return { ok: false, reason: 'invalid_flow', app: 'desktop' }
     const who = this.db.query('SELECT name, username FROM users WHERE id=?').get(f.user_id) as { name: string; username: string } | null
-    return { ok: true, app: 'desktop', code, who: who ?? { name: '', username: '' }, google: result.account?.email ?? result.account?.name ?? '' }
+    return { ok: true, app: 'desktop', code, who: who ?? { name: '', username: '' }, google: result.account?.email ?? result.account?.name ?? '', returnPort: appReturnPort(f.session_id) }
   }
   /** A return to a sign-in that is no longer waiting for Google: how it went. Another return still talking to Google is
    * waited for (SETTLE_MS). Answered and waiting for the person's confirm: ok ('ready'); confirmed: Connected
