@@ -151,12 +151,16 @@ async function reserveFor(c: Context<AppEnv>, ctx: AppContext, claim: string): P
   return fail('unavailable', msg('consoleUnavailable', locale))
 }
 
-/** The owner's name as an account name: the console's, else the e-mail's part before @, else "Owner". */
-function ownerName(o: OwnerClaimOwner): string {
+/** The first owner's name when the console has none usable: "Admin" in the team's language (English when it is not one
+ * of ours), never a fixed word of one language. */
+export const FIRST_ADMIN_NAME: Record<Locale, string> = { ko: '관리자', en: 'Admin', id: 'Admin', ja: '管理者', es: 'Administrador', zh: '管理员' }
+/** The owner's name as an account name: the console's, else the e-mail's part before @, else "Admin" in the team's
+ * language. */
+export function ownerName(o: Pick<OwnerClaimOwner, 'name' | 'email' | 'locale'>): string {
   for (const n of [o.name, o.email.split('@')[0]!]) { const p = PersonName.safeParse(n); if (p.success) return p.data }
-  return 'Owner'
+  return FIRST_ADMIN_NAME[ownerLocale(o)] ?? FIRST_ADMIN_NAME.en
 }
-function ownerLocale(o: OwnerClaimOwner): Locale {
+function ownerLocale(o: Pick<OwnerClaimOwner, 'locale'>): Locale {
   const p = Locale.safeParse(o.locale.split('-')[0]!.toLowerCase())
   return p.success ? p.data : DEFAULT_LOCALE
 }

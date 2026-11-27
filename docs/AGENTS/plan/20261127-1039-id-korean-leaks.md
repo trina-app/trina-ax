@@ -2,12 +2,12 @@
 
 - Date (UTC): 2026-11-27 10:39
 - Branch: `fix/id-korean-leaks`
-- Status: in progress
+- Status: done
 - Where: web/src (session language), mobile/ (phone app's own screens), server/src (a few messages and names picked by
   the team's language), tests/unit (a guard). Why: the owner set the app to Bahasa Indonesia and still saw Korean on an
   iPhone ("한글이 나오는 곳이 너무 많아").
-- Version impact: patch. Bug fixes in the words shown; no API, data or migration change (one optional, versioned
-  phone-app message; older apps and pages ignore it).
+- Version impact: minor. Three new languages in the phone app and a new optional, versioned phone-app message
+  (`language-v1`); the rest are fixes in the words shown. No API, data or migration change.
 
 ## Goal
 
@@ -49,7 +49,10 @@ Out (left Korean on purpose, or later):
 - Office Mac installer and `teamax` CLI pages (Korean-and-English pairs by design for the Korean office edition).
 - HWP/Hangul document features, Korean matching vocabularies, AI-instruction examples, legacy wordings kept only for
   matching.
-- Trina Cloud (separate repo): its `ko` defaults for a new team's language are reported, not changed here.
+- Trina Cloud (separate repo): its `ko` defaults for a new team's language are reported, not changed here. They are
+  the likely root of Korean seeded names in a team the owner reads in Indonesian: the welcome steps name the brand
+  folder, its images folder and the company intro file in the team's language at the time they run (checked: a team on
+  `id` gets shared/Merek/Gambar and Profil perusahaan.md), and a folder once made keeps its name.
 
 ## Decisions
 
@@ -70,4 +73,12 @@ unit tests, all under Bun 1.3.12.
 
 ## Result
 
-(at the end)
+- Built as planned. Live walk: sign-in after sign-out and its error were Korean at 390 and 1440 in a Korean team with
+  the owner on Indonesian; fixed and checked again on the rebuilt app. Every signed-in main screen, the welcome steps
+  and an AI chat written in Indonesian were already Indonesian (the AI answered in Indonesian; no system prompt forces
+  Korean). The onboarding brand step already names folders in the team's language.
+- Added after review: the phone app clears the page language on a team switch; a guest accepting an invite gets the
+  one-place refusal in their own language; the member archive reuses an archive folder already there in another
+  language; the guard test no longer skips any `const id = {…}` object, replacement strings or 3-argument calls.
+- The guard covers web/src and the phone app string by string; server, desktop, relay and shared code keep their
+  existing file guard (tests/unit/i18n-languages.test.ts).

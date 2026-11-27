@@ -16,7 +16,7 @@
  },
  {
   "file": "admin/users.ts",
-  "sql": "SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL LIMIT 1",
+  "sql": "SELECT id, locale FROM users WHERE role = 'owner' AND deleted_at IS NULL LIMIT 1",
   "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
  },
  {

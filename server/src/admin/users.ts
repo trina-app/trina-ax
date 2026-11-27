@@ -292,10 +292,13 @@ function handlePersonalFolder(ctx: AppContext, id: string, how: 'transfer' | 'de
   try { st = fs.lstatSync(src) } catch { return null }
   if (!st.isDirectory() || st.isSymbolicLink()) return null
   if (how === 'delete') { fs.rmSync(src, { recursive: true, force: true }); return null }
-  const owner = ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL LIMIT 1").get() as { id: string } | null
+  const owner = ctx.db.query("SELECT id, locale FROM users WHERE role = 'owner' AND deleted_at IS NULL LIMIT 1").get() as { id: string; locale: Locale | null } | null
   if (!owner) { fs.rmSync(path.join(src, '.attachments'), { recursive: true, force: true }); return null }
-  const label = ARCHIVE_DIR[getTeamSettings(ctx.db).defaultLocale]
   const ownerDir = path.join(root, 'users', owner.id)
+  // a folder in the owner's own folder, which only they see: named in their language, or the one already there in
+  // another language (never a second archive folder)
+  const label = Object.values(ARCHIVE_DIR).find((n) => { try { return fs.lstatSync(path.join(ownerDir, n)).isDirectory() } catch { return false } })
+    ?? ARCHIVE_DIR[owner.locale ?? getTeamSettings(ctx.db).defaultLocale]
   const dir = path.join(ownerDir, label)
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
   // the archive must be a real folder inside the owner's personal folder, not a link leading elsewhere

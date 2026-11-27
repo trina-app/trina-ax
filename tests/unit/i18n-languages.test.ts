@@ -204,6 +204,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/integrations/slack/text.ts': { why: 'what the Slack connector says in Slack and its screens\' refusals (ko next to en/id/ja/es)' },
   'server/src/admin/team-icon.ts': { why: 'team logo upload refusals (ko next to en/id/ja/es)' },
   'server/src/auth/profiles.ts': { why: 'profile photo upload refusals (ko next to en/id/ja/es)' },
+  'server/src/auth/setup-console.ts': { why: 'the first owner\'s fallback name, "Admin" in the team language (ko next to en/id/ja/es/zh)' },
   'server/src/auth/status-plan.ts': { why: 'status message refusals (ko next to en/id/ja/es)' },
   'server/src/tools/higgsfield.ts': { why: 'the video confirmation card (ko next to en/id/ja/es)' },
   'server/src/tools/save-url.ts': { why: 'the large-download card and the disk refusal (ko next to en/id/ja/es)' },

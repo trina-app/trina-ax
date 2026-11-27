@@ -45,7 +45,7 @@ import { SHARED_LATER, type ChatRow, type MessageRow, type StoredStep } from './
 import { Audiences, chatFor, messageView, ownSessionOn } from './shared'
 import { answerHiddenFrom } from './shared-answers'
 import { othersNotesFor, parseNotes } from './step-record'
-import { tr } from './i18n'
+import { TEXT, tr } from './i18n'
 import { canSeeProject } from './projects'
 
 /** Why this chat cannot be forked by this person (a 409 or 403 with its reason), or null. */
@@ -123,8 +123,7 @@ export function forkChat(rt: ChatRuntime, userId: string, chatId: string, o: For
   // the line back says the original's title; the fork itself is "<title> (이어서)" (once: a fork of a fork keeps one), a
   // name the person changes as any other
   const fromTitle = o.title(src)
-  const suffix = tr('forkTitleSuffix', L)
-  const title = !fromTitle.trim() || fromTitle.endsWith(suffix) ? fromTitle : `${fromTitle.slice(0, 200 - suffix.length)}${suffix}`
+  const title = forkTitle(fromTitle, L)
 
   // my own computer uploads on the branch (uploads/attachments.ts rows, kept with their chat): a row of the fork's own
   // for each, the same file in my folder, so the fork's pictures, an edit and a send again keep them after the original
@@ -264,4 +263,13 @@ export function forkOfOwn(db: ChatRuntime['db'], sourceId: string, userId: strin
   const r = db.query('SELECT user_id, shared_at, people_shared_at FROM chats WHERE id = ?').get(sourceId) as { user_id: string; shared_at: string | null; people_shared_at: string | null } | null
   if (!r) return others ? null : { others }
   return r.user_id !== userId || r.shared_at || r.people_shared_at ? null : { others }
+}
+
+/** "<title> (continued)" in the person's language, once: a fork of a fork made while they read another language keeps
+ * one suffix, in today's language (never "X (이어서) (lanjutan)"). An empty title stays empty (the apps say "New chat"). */
+export function forkTitle(fromTitle: string, locale: Locale): string {
+  const suffix = tr('forkTitleSuffix', locale)
+  const had = Object.values(TEXT.forkTitleSuffix).find((x) => fromTitle.endsWith(x))
+  const base = had ? fromTitle.slice(0, -had.length) : fromTitle
+  return !base.trim() ? fromTitle : `${base.slice(0, 200 - suffix.length)}${suffix}`
 }

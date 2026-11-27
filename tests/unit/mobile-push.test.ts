@@ -4,7 +4,7 @@ import path from 'node:path'
 import { FileTransfers, MobileReceiver, onceEvery, PushRefused, StuckLoad, stillStuck, type TransferIO } from '../../mobile/src/bridge'
 import { currentDevice, leaveTeam, rememberDevice, retryRemovals, startRemovals, type DeviceDeps, type TeamDevice } from '../../mobile/src/device'
 import { readSessionCheck, sessionCheckScript } from '../../mobile/src/session-check'
-import { APPEARANCE_CAPABILITY, CHANGE_TEAM_CAPABILITY, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, notificationPath, parseMessage, tappedNotificationPath, validConfig, validPushToken, type MobileConfig, type PushPermission, type PushToken } from '../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, CHANGE_TEAM_CAPABILITY, LANGUAGE_CAPABILITY, PAGE_LOCALES, type PageLocale, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, notificationPath, parseMessage, tappedNotificationPath, validConfig, validPushToken, type MobileConfig, type PushPermission, type PushToken } from '../../mobile/src/protocol'
 import { DARK, LIGHT, NO_INSETS, frame, insetScript, isDark, padding, pageInsets } from '../../mobile/src/look'
 import { IOS_USAGE, offlineError, stringsFor } from '../../mobile/src/strings'
 import appConfig from '../../mobile/app.config'
@@ -97,7 +97,7 @@ test('the path rule matches the push gateway contract when it exists', async () 
   for (const p of ['/', '/rooms/abc_123', '//evil.example', '/rooms/../admin', '/rooms/a?x=1', '/rooms/a/', '/' + 'a'.repeat(200)]) expect(validPushPath(p)).toBe(notificationPath(p) !== null)
 })
 
-test('native screens speak Korean or English; offline is told apart from an unreachable team', () => {
+test('native screens speak the phone\'s language (English otherwise); offline is told apart from an unreachable team', () => {
   expect(stringsFor('ko').retry).toBe('다시 시도')
   expect(stringsFor('ko-KR').offlineTitle).toContain('인터넷')
   expect(stringsFor('en').retry).toBe('Try again')
@@ -122,6 +122,27 @@ test('a Chinese phone gets the Simplified Chinese screens, whatever its region o
   expect(Object.keys(IOS_USAGE.zh).sort()).toEqual(Object.keys(IOS_USAGE.en).sort())
 })
 
+test('Indonesian, Japanese and Spanish phones get their own screens, with every key and {placeholder} of English', () => {
+  const en = stringsFor('en')
+  for (const [code, want] of [['id', 'Coba lagi'], ['id-ID', 'Coba lagi'], ['in', 'Coba lagi'], ['in_ID', 'Coba lagi'], ['ja', '再試行'], ['ja-JP', '再試行'], ['es', 'Volver a intentar'], ['es-419', 'Volver a intentar'], ['ES_es', 'Volver a intentar']] as const) expect(stringsFor(code).retry, code).toBe(want)
+  for (const code of ['ind', 'jav', 'est', 'eu']) expect(stringsFor(code), code).toBe(en)
+  // every page language has its own table (id, ja, es, ko, zh differ from English; en is English)
+  for (const locale of PAGE_LOCALES) {
+    const t = stringsFor(locale)
+    if (locale !== 'en') expect(t, locale).not.toBe(en)
+    expect(Object.keys(t).sort(), locale).toEqual(Object.keys(en).sort())
+    for (const [k, v] of Object.entries(t)) {
+      expect(v.trim(), `${locale}.${k}`).not.toBe('')
+      expect((v.match(/\{\w+\}/g) ?? []).sort(), `${locale}.${k}`).toEqual((en[k as keyof typeof en].match(/\{\w+\}/g) ?? []).sort())
+    }
+  }
+  // the house voice (scripts/check-i18n.ts voiceRules): Anda, usted, ordenador
+  for (const v of Object.values(stringsFor('id'))) expect(v).not.toMatch(/\b(?:kamu|kau|engkau|dirimu|milikmu|punyamu)\b/i)
+  for (const v of Object.values(stringsFor('es'))) expect(v).not.toMatch(/(?:^|[^\p{L}])(?:tu|tus|tú|contigo|puedes|quieres|tienes|necesitas|eres|estás|asegúrate|inténtalo)(?![\p{L}])|computadora/iu)
+  for (const v of Object.values(stringsFor('ja'))) expect(v).toMatch(/[\u3040-\u30ff\u4e00-\u9fff]/)
+  for (const locale of ['id', 'ja', 'es'] as const) expect(Object.keys(IOS_USAGE[locale]).sort(), locale).toEqual(Object.keys(IOS_USAGE.en).sort())
+})
+
 const env = { ...process.env }
 afterEach(() => { process.env = { ...env } })
 const mobileRoot = path.join(import.meta.dir, '../../mobile')
@@ -135,6 +156,7 @@ test('the Trina edition builds app.trina.ax for iPhone only, with usage strings,
     expect(c.ios?.infoPlist?.[key]).toBeTruthy()
     expect((c.locales?.ko as { ios: Record<string, string> }).ios[key]).toMatch(/[가-힣]/)
     expect((c.locales?.['zh-Hans'] as { ios: Record<string, string> }).ios[key]).toMatch(/[\u4e00-\u9fff]/)
+    for (const locale of ['id', 'ja', 'es'] as const) expect((c.locales?.[locale] as { ios: Record<string, string> }).ios[key], locale).toBe(IOS_USAGE[locale][key as keyof typeof IOS_USAGE.en])
   }
   expect(c.android).toMatchObject({ package: 'app.trina.ax', versionCode: 1 })
   // camera and microphone for the team page as on iOS, and the audio settings the WebView's microphone needs (QA
@@ -307,6 +329,30 @@ test('appearance-v1: only a boolean look (and whether it follows the phone), onl
   const old = permissionApp('granted', config.capabilities)
   expect((await old.send('appearance', { dark: true }))?.ok).toBe(false)
   expect(old.looks).toEqual([])
+})
+
+test('language-v1: only one of the page languages, only with the capability; the app keeps the latest', async () => {
+  const msg = (over: object) => JSON.stringify({ v: 1, nonce: config.nonce, generation: 1, id: 'language-1', type: 'language', ...over })
+  expect(parseMessage(msg({ locale: 'id' }))).toMatchObject({ type: 'language', locale: 'id' })
+  for (const locale of PAGE_LOCALES) expect(parseMessage(msg({ locale }))?.type).toBe('language')
+  for (const bad of [{}, { locale: 'fr' }, { locale: 'ID' }, { locale: 'id-ID' }, { locale: 1 }, { locale: null }]) expect(parseMessage(msg(bad))).toBeNull()
+  const app = (capabilities: readonly string[], language?: (l: PageLocale) => void) => {
+    const receiver = new MobileReceiver('https://team.example', { ...config, capabilities }, new FileTransfers(io), async () => {}, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, language)
+    return (over: object = {}, source = 'https://team.example/settings') => receiver.receive(msg(over), source)
+  }
+  const heard: PageLocale[] = []
+  const send = app([...config.capabilities, LANGUAGE_CAPABILITY], l => { heard.push(l) })
+  expect(await send({ locale: 'id' })).toMatchObject({ ok: true, for: 'language' })
+  expect(await send({ locale: 'ja' })).toMatchObject({ ok: true, for: 'language' })
+  // another origin, an old nonce or a language the app does not know: no answer, nothing kept
+  expect(await send({ locale: 'es' }, 'https://evil.example/')).toBeNull()
+  expect(await send({ locale: 'es', nonce: 'b'.repeat(64) })).toBeNull()
+  expect(await send({ locale: 'fr' })).toBeNull()
+  expect(heard).toEqual(['id', 'ja'])
+  // an app that does not offer it (older store builds), or has no handler: refused
+  expect((await app(config.capabilities, l => { heard.push(l) })({ locale: 'es' }))?.ok).toBe(false)
+  expect((await app([...config.capabilities, LANGUAGE_CAPABILITY])({ locale: 'es' }))?.ok).toBe(false)
+  expect(heard).toEqual(['id', 'ja'])
 })
 
 test('share-text-v1: the phone\'s share sheet with a bounded text, only with the capability and the same checks (QA TC-271)', async () => {
