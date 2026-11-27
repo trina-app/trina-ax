@@ -21,7 +21,8 @@
   - **안 읽음 / Unreads is a switch**, not a section: the list is newest first, read and unread together; the switch
     shows only unread rows. Off by default, remembered in this browser, and the same switch as the phone page's. Below a
     1052 px window it is its bell icon, the word its name and tooltip. With it on and nothing unread: "You're all caught
-    up." and "Show all". Older pages load by themselves only while it is on.
+    up." and "Show all"; "Mark all as read" with it on empties the list to that. Older pages with unread rows
+    load by themselves either way (a few at most), so the chips' dots and "Mark all as read" see them.
   - **Rows are two lines.** A conversation: where (#room › 스레드, a group chat, a shared chat's title) and the time,
     then "who: message" cut to one line. A 1:1 DM says the person's name once, on the first line. An app notice: its
     words (up to two lines) and the time; the three chat notices (shared, lost, left) keep the chat's title as line 2.

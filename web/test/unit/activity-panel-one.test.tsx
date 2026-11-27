@@ -203,6 +203,21 @@ test('안 읽음: off by default; on, only unread rows (a row read while open st
   } finally { await n.unmount() }
 })
 
+test('안 읽음 on, "Mark all as read" empties the list to "모두 읽었어요." (rows read one by one stay; all at once they go)', async () => {
+  useUnreadsOnly.getState().set(true)
+  inbox = [mention(), { ...mention(), id: uuidv7(), createdAt: minute(2) }]
+  useSession.setState({ status: { kind: 'signed-in', me } } as never)
+  const m = await mount(<MemoryRouter initialEntries={['/activity']}><ActivityPanel /></MemoryRouter>)
+  try {
+    await m.until(() => rowsOf(m).length === 2, 'the two unread mentions')
+    await m.click('activity-panel-mark-all')
+    await m.until(() => m.find('activity-panel-empty'), 'the empty line')
+    expect(rowsOf(m).length).toBe(0)
+    expect(m.get('activity-panel-empty').textContent).toContain('모두 읽었어요.')
+    expect(sent).toEqual([{ tab: 'all' }])
+  } finally { await m.unmount() }
+})
+
 test('a 1:1 DM names its person once, on the first line; a shared chat\'s notice keeps the chat\'s title', async () => {
   const dm = InboxNotification.parse({
     id: uuidv7(), eventType: 'room.mention', sourceId: uuidv7(), code: 'room.mention', createdAt: minute(1), readAt: null, chatId: null, link: 'room', outcome: null,

@@ -46,7 +46,7 @@ import { useUnreadsOnly } from '../../lib/unreadsOnly'
 import { ListRow } from '../list/List'
 import { PanelFrame, panelRowBox } from './PanelFrame'
 
-/** with 안 읽음 on, while the unread ones are not all loaded, this many older pages are read by themselves */
+/** while the unread ones are not all loaded, this many older pages are read by themselves */
 const AUTO_PAGES = 9
 const PAGE = 30
 
@@ -219,14 +219,14 @@ export function ActivityPanel() {
     const offs = [notificationsChanged.on(() => void load()), reloadAsked.on(() => void load()), accessChanged.on(() => void load())]
     return () => offs.forEach((off) => off())
   }, [load])
-  // 안 읽음 on and unread ones not loaded yet: the older pages, by themselves, a few at most (with it off the list is
-  // newest first, and "Load more" reads further)
+  // unread ones not loaded yet: the older pages, by themselves, a few at most, whether 안 읽음 is on or not (the chips'
+  // dots and "Mark all as read" under a chip go by the loaded rows, so an old unread mention must be among them)
   const loadedUnread = items?.filter((x) => !x.readAt).length ?? 0
   useEffect(() => {
-    if (!unreadsOnly || !cursor || paging || loadedUnread >= unread || pages.current >= AUTO_PAGES) return
+    if (!cursor || paging || loadedUnread >= unread || pages.current >= AUTO_PAGES) return
     pages.current++
     void load(cursor)
-  }, [unreadsOnly, cursor, paging, loadedUnread, unread, load])
+  }, [cursor, paging, loadedUnread, unread, load])
 
   /** the rows through `f`, on screen and for the reads after */
   const patch = (f: (x: InboxNotification) => InboxNotification) => {
@@ -254,6 +254,8 @@ export function ActivityPanel() {
     const was = unread
     const marked = new Set(itemsRef.current?.filter((x) => !x.readAt && inChip(x, tab)).map((x) => x.id))
     await markAllNoticesRead(tab, (readAt) => {
+      // read all at once: with 안 읽음 on they leave the list ("all caught up"), not one row under the pointer
+      if (readAt) for (const id of marked) wasUnread.current.delete(id)
       patch((x) => (marked.has(x.id) && !x.readAt === !!readAt ? { ...x, readAt } : x))
       // another chip empties only part of the count: the read after says how much
       if (tab === 'all') setUnread(readAt ? 0 : was)
@@ -389,12 +391,14 @@ function FilterLine({ chips, shown, pick, unreadIn }: { chips: readonly Activity
   useEffect(() => {
     if (typeof globalThis.ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(() => refit())
-    for (const el of [box.current, copy.current]) if (el) ro.observe(el)
+    // ("⋯" too: it grows a dot when a chip with something unread moves into its menu, leaving the chips less room)
+    for (const el of [box.current, copy.current, more.current]) if (el) ro.observe(el)
     return () => ro.disconnect()
   }, [refit])
   const on = fit.split(',')
   const onLine = line.filter((c) => on.includes(c))
   const inMenu = [...line.filter((c) => !on.includes(c)), ...MORE_CHIPS.filter((c) => chips.includes(c))]
+  const moreDot = inMenu.some((c) => c !== shown && dots.has(c))
   const dot = (c: ActivityChip) => dots.has(c) && <span className="size-1.5 shrink-0 rounded-full bg-accent" data-testid={`activity-chip-${c}-dot`}><span className="sr-only">{t('notifications.unreadMark')}</span></span>
   return (
     <div ref={box} role="group" aria-label={t('activity.chips')} className="relative flex items-center gap-1 pt-1" data-testid="activity-panel-chips">
@@ -402,7 +406,8 @@ function FilterLine({ chips, shown, pick, unreadIn }: { chips: readonly Activity
       <div ref={copy} aria-hidden className="pointer-events-none invisible absolute top-0 left-0 flex gap-1">
         {line.map((c) => <span key={c} data-chip={c} className={chipCls(c === shown)}>{chipLabel(c, t)}{dots.has(c) && <span className="size-1.5 rounded-full" />}</span>)}
       </div>
-      <div className="flex min-w-0 flex-1 gap-1 overflow-hidden">
+      {/* (cut sideways only: a touch screen's 44 px tap box reaches above and below the chips) */}
+      <div className="flex min-w-0 flex-1 gap-1 overflow-x-clip">
         {onLine.map((c) => (
           <button key={c} type="button" aria-pressed={shown === c} onClick={() => pick(c)} className={chipCls(shown === c)} data-testid={`activity-chip-${c}`}>
             {chipLabel(c, t)}
@@ -412,10 +417,12 @@ function FilterLine({ chips, shown, pick, unreadIn }: { chips: readonly Activity
       </div>
       <div ref={more} className="shrink-0">
         <MenuButton
-          label={t('feed.moreFilters')}
+          // its dot in its name (the button's name is its label: words inside it are not read)
+          label={moreDot ? `${t('feed.moreFilters')}, ${t('notifications.unreadMark')}` : t('feed.moreFilters')}
+          tip={t('feed.moreFilters')}
           bare
           buttonClassName={chipCls(false)}
-          icon={<><MoreHorizontal size={16} aria-hidden />{inMenu.some((c) => c !== shown && dots.has(c)) && <span className="size-1.5 shrink-0 rounded-full bg-accent" data-testid="activity-chip-more-dot"><span className="sr-only">{t('notifications.unreadMark')}</span></span>}</>}
+          icon={<><MoreHorizontal size={16} aria-hidden />{moreDot && <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-accent" data-testid="activity-chip-more-dot" />}</>}
           items={inMenu.map((c) => ({ label: menuLabel(c, t), checked: shown === c, onSelect: () => pick(c), testId: `activity-more-${c}`, dot: dots.has(c) ? t('notifications.unreadMark') : undefined }))}
           testId="activity-chip-more"
         />
@@ -518,6 +525,7 @@ function NoticeRow({ item, open, onOpen }: { item: InboxNotification; open: bool
   const gone = item.code === 'file.shared' && !!item.fileShare?.gone
   const target = gone ? null : noticeTarget(item)
   const chat = noticeChat(item)
+  const text = noticeText(item, t, locale)
   return (
     <ListRow
       to={target?.to}
@@ -527,7 +535,9 @@ function NoticeRow({ item, open, onOpen }: { item: InboxNotification; open: bool
       unread={unread && !gone}
       wrap={!chat}
       icon={<Icon />}
-      name={noticeText(item, t, locale)}
+      name={text}
+      // (a chat's notice is cut to one line above the chat's title: the whole words on hover)
+      nameTitle={chat && typeof text === 'string' ? text : undefined}
       nameEnd={<time dateTime={item.createdAt}>{listTime(item.createdAt, locale, t('sidebar.yesterday'))}</time>}
       nameTestId="activity-panel-text"
       meta={chat ? <bdi data-testid="activity-panel-chat">{chat}</bdi> : undefined}
