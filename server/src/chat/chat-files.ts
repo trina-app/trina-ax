@@ -45,6 +45,7 @@ import { personLocale } from '../files/media-text'
 import { tr } from './i18n'
 import { seesChatFiles } from './chat-files-access'
 import { answerRecord, withheldFrom } from './shared-answers'
+import { copyOffLoop, moveOffLoop } from '../files/copy-off-loop'
 
 /** An upload not sent in a message within a day is removed (as a room's). */
 export const UNSENT_CHAT_FILE_MS = 24 * 3600_000
@@ -301,7 +302,8 @@ export class ChatFiles {
     const id = newId()
     fs.mkdirSync(this.dir(chatId), { recursive: true, mode: 0o700 })
     const dst = this.abs({ chat_id: chatId, id })
-    try { fs.renameSync(src, dst) } catch { fs.copyFileSync(src, dst); fs.rmSync(src, { force: true }) }
+    // another volume: a copy off the event loop (a chat file may be many GB)
+    await moveOffLoop(src, dst)
     fs.chmodSync(dst, 0o600)
     // its time is now (a rename keeps the temp file's): the sweep sets a row-less file aside only an hour after this
     const t = new Date()
@@ -342,7 +344,8 @@ export class ChatFiles {
     const id = newId()
     fs.mkdirSync(this.dir(chatId), { recursive: true, mode: 0o700 })
     const dst = this.abs({ chat_id: chatId, id })
-    try { fs.renameSync(src, dst) } catch { fs.copyFileSync(src, dst); fs.rmSync(src, { force: true }) }
+    // another volume: a copy off the event loop (a chat file may be many GB)
+    await moveOffLoop(src, dst)
     fs.chmodSync(dst, 0o600)
     const t = new Date()
     fs.utimesSync(dst, t, t)
@@ -392,7 +395,7 @@ export class ChatFiles {
       // an earlier upload's thumbnail is copied as it is (the same bytes); else one is made
       if (thumbFrom) {
         const e = path.extname(thumbFrom).slice(1)
-        if (e === 'jpg' || e === 'png') { try { fs.copyFileSync(thumbFrom, `${base}.${e}`); fs.chmodSync(`${base}.${e}`, 0o600); thumb = e } catch { /* made below */ } }
+        if (e === 'jpg' || e === 'png') { try { await copyOffLoop(thumbFrom, `${base}.${e}`); fs.chmodSync(`${base}.${e}`, 0o600); thumb = e } catch { /* made below */ } }
       }
       if (!thumb) {
         try { thumb = await makeThumbnail(dst, base, 320, path.join(this.ctx.config.dataDir, 'work')) } catch (e) { this.ctx.log.debug('chat file thumbnail failed', { err: e }) }

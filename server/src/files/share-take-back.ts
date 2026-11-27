@@ -23,7 +23,8 @@ import { authorize } from '../policy/authorize'
 import { componentC } from '../team-files/component'
 import { SHARE_UNDO_MS, type Locale, type ShareTakeBackResult } from '@mycel/shared/api'
 import { fileSharesOf, type Subject } from './shares'
-import { sha256Regular } from './store'
+import { sha256RegularAsync } from './store'
+import { sameFile } from '../team-files/place'
 
 export interface TakeBackGrant { shareId: string; subjectType: 'user' | 'group'; subjectId: string; at: string }
 export interface TakeBackFolder { path: string; made: string[]; files: { path: string; sha256: string }[] }
@@ -47,7 +48,7 @@ export function saveTakeBack(db: Database, userId: string, grants: readonly Take
 }
 
 /** POST /api/files/shares/take-back */
-export function takeBackShares(ctx: AppContext, userId: string, id: string, L: Locale): ShareTakeBackResult {
+export async function takeBackShares(ctx: AppContext, userId: string, id: string, L: Locale): Promise<ShareTakeBackResult> {
   const db = ctx.db
   const shares = fileSharesOf(ctx)
   const gone = () => new HttpError('not_found')
@@ -100,7 +101,10 @@ export function takeBackShares(ctx: AppContext, userId: string, id: string, L: L
       if (!mine(c.path)) continue
       try {
         const r = authorize(ctx.files.fx, shares.rules(), me, c.path, 'write', { mustExist: true })
-        if (!r.st?.isFile() || sha256Regular(r.abs) !== c.sha256) continue
+        if (!r.st?.isFile()) continue
+        // hashed off the event loop (up to MAX copies of any size); removed only when it is still the file hashed
+        const st = fs.lstatSync(r.abs)
+        if (await sha256RegularAsync(r.abs) !== c.sha256 || !sameFile(st, fs.lstatSync(r.abs))) continue
         svc.remove(userId, c.path, null)
       } catch { /* moved, changed or gone: left */ }
     }

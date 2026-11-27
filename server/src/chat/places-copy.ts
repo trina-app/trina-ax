@@ -179,6 +179,8 @@ async function officeOut(exec: TurnExec, _files: TurnFiles, tmp: string, got: { 
   if (k && 'office' in k && k.office === 'pptx') return { ...got, note: await chartReadBack(exec, _files, tmp, got.size, k.names, 'pptx') }
   if (!k || !('office' in k) || !k.names.some((n) => n.toLowerCase() === 'xl/workbook.xml')) return got
   if (!officeViewer()) return { ...got, note: ' This server cannot calculate the formulas, so a preview may show empty formula cells until the file is opened in Excel: say so.' }
+  // read whole into memory and sent to the office worker: never past the office worker's limit (as the read-backs below)
+  if (got.size > OFFICE_WRITE_MAX) return { ...got, note: ' It is too large for its formula results to be calculated here (the file itself is saved), so a preview may show empty formula cells: say so.' }
   const bytes = new Uint8Array(fs.readFileSync(tmp))
   let out: Uint8Array
   try { out = await officeRecalc(bytes, { user: exec.spec.userId, workBase: exec.rt.ctx.engineConfig.dataDir, signal: exec.abort.signal }) } catch (e) {
