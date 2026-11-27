@@ -48,7 +48,7 @@ test('S0 → S5 for a Google owner: one sign-in in the browser, a name, the wait
   try {
     // S0: two rows and the demo link, no box yet
     await expect(w.getByTestId('create-team')).toContainText('Create a team for free')
-    await expect(w.getByTestId('create-team')).toContainText('Your own team in about a minute or two. Free, no card.')
+    await expect(w.getByTestId('create-team')).toContainText('Free, no card · ready in a minute or two')
     await expect(w.getByTestId('join-team')).toHaveText('Join with an invite link')
     await expect(w.locator('#address')).toHaveCount(0)
     await expect(w.getByText('Install it yourself')).toHaveCount(0)
