@@ -389,8 +389,8 @@ export async function run(home: string): Promise<never> {
       let updating = false
       try { updating = updateRunning(home) } catch {}
       if (updating) { watchdog.started(); return }
-      let kill = false
-      try { kill = officeWatchdogKills(fs.readFileSync(p.env, 'utf8')) } catch {}
+      let kill = officeWatchdogKills(null)
+      try { kill = officeWatchdogKills(fs.readFileSync(p.env, 'utf8')) } catch { /* no office.env: the default */ }
       const act = watchdog.look(h, kill)
       if (!act) return
       say(act.line)

@@ -2498,7 +2498,8 @@ export class FileService {
     // screen's restore asks, team-files/service.ts restoreTrash)
     const now = shareReaders(this.db, r.segs), then = shareReaders(this.db, r.segs, { upTo: t.deleted_at })
     if ([...now].some((id) => !then.has(id))) throw new ToolError('the folder it goes back to is shared with more people now; restore it on the Files screen, which asks first', 'conflict')
-    const bytes = fs.readFileSync(path.join(this.fx.root, ...t.storage_path.split('/')))
+    // read whole into memory: never past readRegular's limit (a trash item may be a file of any size)
+    const bytes = readRegular(path.join(this.fx.root, ...t.storage_path.split('/'))).bytes
     atomicWrite(this.fx.root, r.segs, bytes, { createDirs: true })
     this.db.query('UPDATE trash_items SET restored_at = ? WHERE id = ?').run(new Date().toISOString(), trashId)
     fileEvent(this.db, { turnId: null, userId, path: r.rel, action: 'restore', size: bytes.length, sha256: sha256(bytes) })

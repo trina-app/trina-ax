@@ -1,6 +1,6 @@
 // The office supervisor's watchdog (server/src/office/watchdog.ts; docs/decisions/20261127-restart.md): the same rule as
 // the bootstrap's. Counted only after this start answered; "migrating" is an answer; 10 failures in a row is a hang;
-// log only unless TEAMAX_WATCHDOG_KILL=1; at most 3 kills an hour, then data/liveness.json until the next answer.
+// it restarts unless TEAMAX_WATCHDOG_KILL=0 (log only then); at most 3 kills an hour, then data/liveness.json until the next answer.
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -38,13 +38,13 @@ describe('the office watchdog', () => {
     expect(hang(w, true, 0, WATCH_FAILURES - 1)).toBeNull()
   })
 
-  test('log only without the switch, once per hang', () => {
+  test('log only with the switch off, once per hang', () => {
     const w = new OfficeWatchdog(dir())
     w.started()
     w.look('0.21.0', false, 0)
     const a = hang(w, false, 0)
     expect(a).toMatchObject({ kind: 'log' })
-    expect(a && a.line).toContain('TEAMAX_WATCHDOG_KILL is off')
+    expect(a && a.line).toContain('TEAMAX_WATCHDOG_KILL=0')
     expect(hang(w, false, 0)).toBeNull()
   })
 
@@ -65,15 +65,24 @@ describe('the office watchdog', () => {
     expect(hang(w, true, 5 * 3600_000)?.kind).toBe('kill')
   })
 
-  test('the switch: TEAMAX_WATCHDOG_KILL=1 in office.env, kept when the settings are written again', () => {
-    expect(officeWatchdogKills(null)).toBe(false)
+  test('the switch: on unless TEAMAX_WATCHDOG_KILL=0 in office.env, kept when the settings are written again', () => {
+    expect(officeWatchdogKills(null)).toBe(true)
+    expect(officeWatchdogKills('')).toBe(true)
+    expect(officeWatchdogKills('TEAMAX_LABEL=x\n')).toBe(true)
     expect(officeWatchdogKills('TEAMAX_LABEL=x\nTEAMAX_WATCHDOG_KILL=0\n')).toBe(false)
+    expect(officeWatchdogKills('TEAMAX_LABEL=x\nTEAMAX_WATCHDOG_KILL=0 \n')).toBe(false)
+    expect(officeWatchdogKills('# TEAMAX_WATCHDOG_KILL=0\nTEAMAX_LABEL=x\n')).toBe(true)
     expect(officeWatchdogKills('TEAMAX_LABEL=x\nTEAMAX_WATCHDOG_KILL=1\n')).toBe(true)
+    // an opt-out written by hand is never read as on
+    for (const v of ['"0"', "'0'", '0  # off', 'false', 'off']) expect(officeWatchdogKills(`TEAMAX_WATCHDOG_KILL=${v}\n`)).toBe(false)
+    expect(settingsFrom(dir(), { TEAMAX_WATCHDOG_KILL: '"0"' }).watchdogKill).toBe(false)
     const home = dir()
-    const on = settingsFrom(home, { TEAMAX_WATCHDOG_KILL: '1' })
-    expect(on.watchdogKill).toBe(true)
-    expect(officeWatchdogKills(settingsText(on))).toBe(true)
-    expect(settingsFrom(home, {}).watchdogKill).toBe(false)
-    expect(officeWatchdogKills(settingsText(settingsFrom(home, {})))).toBe(false)
+    const def = settingsFrom(home, {})
+    expect(def.watchdogKill).toBe(true)
+    expect(officeWatchdogKills(settingsText(def))).toBe(true)
+    const off = settingsFrom(home, { TEAMAX_WATCHDOG_KILL: '0' })
+    expect(off.watchdogKill).toBe(false)
+    expect(officeWatchdogKills(settingsText(off))).toBe(false)
+    expect(settingsFrom(home, { TEAMAX_WATCHDOG_KILL: '1' }).watchdogKill).toBe(true)
   })
 })

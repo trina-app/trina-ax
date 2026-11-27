@@ -22,6 +22,7 @@ import { keepSpeech, NOT_WORDS, silent, soundOf, type Sound } from './no-speech'
 import { pieceTurn } from './whisper-turns'
 import { confidence, saysOtherLanguage, scriptOf, UNSURE_LOGPROB, writingSystem, type ScoredAnswer } from './speech-language'
 import { JobFailure } from './service'
+import { copyOffLoop } from '../files/copy-off-loop'
 
 /** the longest a piece waits for the server's one whisper.cpp before the app is told to send it again later */
 export const MEETING_TURN_WAIT_MS = 20_000
@@ -195,7 +196,7 @@ export async function speechPiece(deps: MeetingDeps, userId: string, file: strin
           fs.mkdirSync(deps.stt.workBase, { recursive: true, mode: 0o700 })
           const work = fs.realpathSync(fs.mkdtempSync(path.join(deps.stt.workBase, 'meet-')))
           try {
-            fs.copyFileSync(file, path.join(work, 'piece.wav'), fs.constants.COPYFILE_FICLONE)
+            await copyOffLoop(file, path.join(work, 'piece.wav'))
             // no temperature fallback, as a video read's pieces (whisper-turns, transcribe.ts whisperFile noFallback)
             // (voice input's hint is the app's language, not the speaker's: whisper.cpp told it would translate, so it
             // guesses there)
