@@ -3,7 +3,7 @@
 // Google Workspace MCP server this Trina server runs on its own machine. OAuth secrets and tokens never cross this API.
 import { z } from 'zod'
 import { endpoint, empty } from './endpoint'
-import { DriveAccount, DriveFlow, SetDriveClientBody } from './drive'
+import { DriveAccount, DriveFlow, SetDriveClientBody, StartBody } from './drive'
 import { IntegrationAccess } from './integrations'
 
 export const GOOGLE_APP_IDS = ['gmail', 'calendar', 'docs', 'sheets'] as const
@@ -149,7 +149,7 @@ export type SetGoogleOwnAppBody = z.infer<typeof SetGoogleOwnAppBody>
 const AppParam = '/:app'
 export const GOOGLE_APPS = {
   myGoogleApps: endpoint({ method: 'GET', path: '/api/integrations/google-apps', auth: 'user', owner: 'C', response: z.object({ apps: z.array(GoogleAppView) }), summary: 'Own Gmail, Calendar, Docs and Sheets connections and whether each can be connected; never a token.' }),
-  authorizeGoogleApp: endpoint({ method: 'POST', path: `/api/integrations/google-apps${AppParam}/authorize`, auth: 'user', owner: 'C', body: z.object({}), response: Authorization, summary: 'Start the Google sign-in for one app (gmail, calendar, docs or sheets).' }),
+  authorizeGoogleApp: endpoint({ method: 'POST', path: `/api/integrations/google-apps${AppParam}/authorize`, auth: 'user', owner: 'C', body: StartBody, response: Authorization, summary: 'Start the Google sign-in for one app (gmail, calendar, docs or sheets).' }),
   googleAppFlow: endpoint({ method: 'GET', path: `/api/integrations/google-apps${AppParam}/flows/:id`, auth: 'user', owner: 'C', response: GoogleAppFlow, summary: 'Poll the sign-in started by this same signed-in session.' }),
   completeGoogleAppFlow: endpoint({ method: 'POST', path: `/api/integrations/google-apps${AppParam}/flows/:id/complete`, auth: 'user', owner: 'C', body: z.object({}).strict(), response: GoogleAppView, summary: 'Confirm the Google account shown by this sign-in; the app is connected.' }),
   cancelGoogleAppFlow: endpoint({ method: 'DELETE', path: `/api/integrations/google-apps${AppParam}/flows/:id`, auth: 'user', owner: 'C', response: empty, status: 204, summary: 'Cancel this own sign-in.' }),
@@ -157,7 +157,7 @@ export const GOOGLE_APPS = {
   disconnectGoogleApp: endpoint({ method: 'DELETE', path: `/api/integrations/google-apps${AppParam}`, auth: 'user', owner: 'C', response: z.object({ disconnected: z.literal(true), revocation: z.enum(['revoked', 'unavailable', 'not_needed']) }), summary: "Remove this app's sign-in at once; Google is asked to revoke only when it was the person's last Google sign-in here." }),
   googleAppsAdminStatus: endpoint({ method: 'GET', path: '/api/admin/google-apps', auth: 'admin', owner: 'C', response: z.object({ apps: z.array(GoogleAppAdminStatus) }), summary: 'Whether each Google app is set up, by whom, the APIs to switch on, the team switch and how many members connected; never the client.' }),
   setGoogleAppClient: endpoint({ method: 'PUT', path: `/api/admin/google-apps${AppParam}/client`, auth: 'admin', owner: 'C', body: SetGoogleAppClientBody, response: GoogleAppAdminStatus, summary: "Set up one app with the same Google app as Google Drive, or its own Google OAuth web client. Refused on hosted servers, without a public address, when the operator set it, and where it cannot run." }),
-  authorizeGoogleAppTeam: endpoint({ method: 'POST', path: `/api/admin/google-apps${AppParam}/team/authorize`, auth: 'admin', owner: 'C', body: z.object({}).strict(), response: Authorization, summary: "Owners and admins: start the Google sign-in of the account shared with the team for one app." }),
+  authorizeGoogleAppTeam: endpoint({ method: 'POST', path: `/api/admin/google-apps${AppParam}/team/authorize`, auth: 'admin', owner: 'C', body: StartBody.strict(), response: Authorization, summary: "Owners and admins: start the Google sign-in of the account shared with the team for one app." }),
   googleAppTeamFlow: endpoint({ method: 'GET', path: `/api/admin/google-apps${AppParam}/team/flows/:id`, auth: 'admin', owner: 'C', response: GoogleAppFlow, summary: 'Poll the shared account sign-in started by this same signed-in session.' }),
   cancelGoogleAppTeamFlow: endpoint({ method: 'DELETE', path: `/api/admin/google-apps${AppParam}/team/flows/:id`, auth: 'admin', owner: 'C', response: empty, status: 204, summary: 'Cancel this shared account sign-in.' }),
   completeGoogleAppTeamFlow: endpoint({ method: 'POST', path: `/api/admin/google-apps${AppParam}/team/flows/:id/complete`, auth: 'admin', owner: 'C', body: z.object({ create: z.boolean().optional() }).strict(), response: GoogleAppAdminStatus, summary: "Confirm the Google account shown: it becomes the team's shared account for the app (a new one is used by nobody until its people are saved; a reconnect keeps them). `create`: only when there is none yet (else 409 team_exists: another admin connected one meanwhile). Members' own connections are not touched." }),

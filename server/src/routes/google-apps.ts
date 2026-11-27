@@ -12,6 +12,7 @@ import type { AppContextC } from '../http/env'
 import { GOOGLE_RETURN_CSP, googleReturnOf, googleReturnPage, type CallbackOutcome } from '../integrations/google-drive/callback-page'
 import { isAppId } from '../integrations/google-apps/catalog'
 import { CALLBACK_PATH } from '../integrations/google-apps/config'
+import { startedFrom } from './drive'
 import { googleAppsOf, GoogleAppError } from '../integrations/google-apps/service'
 import { GoogleOwnAppError, ownAppStatusFresh, removeOwnApp, setOwnApp } from '../integrations/google-drive/own-app'
 import { afterServiceSetup, askService, dismissServiceRequests, myServiceRequests, teamServiceRequests, withdrawService } from '../integrations/service-requests'
@@ -37,7 +38,7 @@ async function safe<T>(fn: () => T | Promise<T>): Promise<T> {
 export function registerGoogleAppsRoutes(kit: RouteKit, ctx: AppContext) {
   const svc = () => googleAppsOf(ctx)
   kit.handle(API.myGoogleApps, ({ auth }) => safe(() => svc().list(auth.user.id)))
-  kit.handle(API.authorizeGoogleApp, ({ auth, params }) => safe(() => svc().authorize(auth.user.id, auth.session.id, appOf(params.app))))
+  kit.handle(API.authorizeGoogleApp, ({ auth, params, body }) => safe(() => svc().authorize(auth.user.id, auth.session.id, appOf(params.app), 'personal', startedFrom(auth.session.client, body.client) === 'desktop' ? 'desktop' : undefined)))
   kit.handle(API.googleAppFlow, ({ auth, params }) => safe(() => svc().flow(auth.user.id, auth.session.id, appOf(params.app), params.id)))
   kit.handle(API.completeGoogleAppFlow, ({ auth, params }) => safe(() => svc().complete(auth.user.id, auth.session.id, appOf(params.app), params.id)))
   kit.handle(API.cancelGoogleAppFlow, ({ auth, params }) => safe(() => svc().cancel(auth.user.id, auth.session.id, appOf(params.app), params.id)))
@@ -61,7 +62,7 @@ export function registerGoogleAppsRoutes(kit: RouteKit, ctx: AppContext) {
   // refused while people without a password sign in with it (auth/google-login-admin.ts guardOwnGoogleClient)
   kit.handle(API.removeGoogleOwnApp, ({ c, auth }) => safe(() => refuseClientInUse(c.get('locale'), () => removeOwnApp(ctx, auth.user.id))))
   // the account shared with the team: owners and admins only (the route checks the role; the service checks it again)
-  kit.handle(API.authorizeGoogleAppTeam, ({ auth, params }) => safe(() => svc().authorize(auth.user.id, auth.session.id, appOf(params.app), 'team')))
+  kit.handle(API.authorizeGoogleAppTeam, ({ auth, params, body }) => safe(() => svc().authorize(auth.user.id, auth.session.id, appOf(params.app), 'team', startedFrom(auth.session.client, body.client) === 'desktop' ? 'desktop' : undefined)))
   kit.handle(API.googleAppTeamFlow, ({ auth, params }) => safe(() => svc().flow(auth.user.id, auth.session.id, appOf(params.app), params.id, 'team')))
   kit.handle(API.cancelGoogleAppTeamFlow, ({ auth, params }) => safe(() => svc().cancel(auth.user.id, auth.session.id, appOf(params.app), params.id, 'team')))
   kit.handle(API.completeGoogleAppTeamFlow, ({ auth, params, body }) => safe(() => svc().completeTeam(auth.user.id, auth.session.id, appOf(params.app), params.id, { create: body.create })))
@@ -89,7 +90,7 @@ export function registerGoogleAppsRoutes(kit: RouteKit, ctx: AppContext) {
     // in the person's language, with why it did not work (google-drive/callback-page.ts); static words and same-origin
     // links only (a sign-in started in an app: the app's own link to this team, a desktop one with its one-time code in
     // the fragment): never carry Google's code or the state into a link
-    const page = googleReturnPage(googleReturnOf(r, !!auth), cc.get('locale'), { app: r.app, origin: new URL(c.req.url).origin, code: r.ok ? r.code : undefined, who: r.ok ? r.who : undefined, google: r.ok ? r.google : undefined })
+    const page = googleReturnPage(googleReturnOf(r, !!auth), cc.get('locale'), { app: r.app, origin: new URL(c.req.url).origin, code: r.ok ? r.code : undefined, who: r.ok ? r.who : undefined, google: r.ok ? r.google : undefined, returnPort: r.ok ? r.returnPort : undefined })
     return c.html(page.html, page.status)
   })
 }

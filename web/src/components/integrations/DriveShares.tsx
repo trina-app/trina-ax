@@ -12,7 +12,7 @@ import { useEffect, useRef, useState } from 'react'
 import { API, type DriveAdminStatus, type DriveFlow, type DriveShare, type DriveShareFolder, type IntegrationAccess } from '@mycel/shared/api'
 import { api, ApiError } from '../../lib/api'
 import { openExternal } from '../../lib/mobile'
-import { desktopOpenUrl, driveSignInUrl, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
+import { desktopOpenUrl, driveSignInUrl, googleStartBody, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
 import { isEmptyAccess } from '../../lib/integrations'
 import { useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
@@ -63,7 +63,7 @@ function useShareFlow() {
     popup.current = reserveSignInWindow(place)
     setPopupBlocked(place === 'browser' && !popup.current)
     try {
-      const r = await api.call(API.authorizeDriveShare, { body: shareId ? { shareId } : {} })
+      const r = await api.call(API.authorizeDriveShare, { body: { ...googleStartBody(), ...(shareId ? { shareId } : {}) } })
       if (g !== generation.current) return
       const href = driveSignInUrl(r, place === 'phone')
       setUrl(href)

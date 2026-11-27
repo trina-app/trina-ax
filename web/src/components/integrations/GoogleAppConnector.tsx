@@ -26,9 +26,10 @@ import { AppDetail } from './AppDetail'
 import { AskAdminAction, type AskState } from './AskAdmin'
 import { GoogleUnverifiedNote } from './GoogleUnverifiedNote'
 import { GoogleAccountBlock } from './GoogleAccount'
+import { googleStartBody } from '../../lib/driveSignIn'
 
 const opsFor = (app: GoogleAppId, current: () => Promise<GoogleAppView>): SignInOps<GoogleAppView> => ({
-  authorize: () => api.call(API.authorizeGoogleApp, { params: { app }, body: {} }),
+  authorize: () => api.call(API.authorizeGoogleApp, { params: { app }, body: googleStartBody() }),
   poll: (id) => api.call(API.googleAppFlow, { params: { app, id } }),
   complete: (id) => api.call(API.completeGoogleAppFlow, { params: { app, id }, body: {} }),
   cancel: (id) => api.call(API.cancelGoogleAppFlow, { params: { app, id } }),

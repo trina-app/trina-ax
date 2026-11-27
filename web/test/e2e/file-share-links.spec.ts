@@ -201,11 +201,12 @@ test('Activity: an ask to open a file, its note, Share; the other notices', asyn
   // Bob now has it
   const shares = await (await page.request.get('/api/files/shares?path=users/olga/report.md')).json()
   expect(shares.people.map((p: { subjectId: string }) => p.subjectId)).toEqual(['bob'])
-  // a computer: the 요청 chip holds it, and the notice opens beside the list with what was done
+  // a computer: 요청 (in the filters' "⋯") holds it, and the notice opens beside the list with what was done
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/files')
   await page.getByTestId('rail-activity').click()
-  await page.getByTestId('activity-panel-chips').getByRole('button', { name: t['activity.chip.requests'] }).click()
+  await page.getByTestId('activity-chip-more').click()
+  await page.getByTestId('activity-more-requests').click()
   await page.getByTestId('activity-panel-row').filter({ hasText: 'report.md' }).click()
   await expect(page.getByTestId('file-request-done')).toHaveText(tr('fileRequest.approved', { by: 'Bob' }))
   await shots(page, 'activity-request-answered')

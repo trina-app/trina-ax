@@ -2,8 +2,9 @@
 // added by ApiClient. Every call goes through the shared contract (`API.x`), so request and response shapes are the
 // server's own zod schemas.
 import { API, ApiClient, ApiError, ERROR_MESSAGES, LOCALE_HEADER, isDefaultErrorMessage, type ErrorCode, type Locale } from '@mycel/shared/api'
+import { APP_RETURN_HEADER, appReturnPortOf } from '@mycel/shared/desktop-bridge'
 import { currentLocale, t } from '../i18n'
-import { noPurchaseLinks } from './desktop'
+import { desktop, noPurchaseLinks } from './desktop'
 import { downloadToApp, mobileApp, reportMobileError, sendFileToApp } from './mobile'
 import { xhrFetch } from './xhr'
 import { noteAnswer } from './serverUpdating'
@@ -45,12 +46,21 @@ export function renewWindowId(): string {
 let windowIdValue = typeof window === 'undefined' ? randomId() : loadWindowId()
 export const windowId = () => windowIdValue
 
+/** The desktop app's return address for sign-in codes (DesktopBridge.codeReturn): its port goes with every call, so
+ * the server can send a sign-in's browser back to this app on its computer, whatever the browser (an app link needs a
+ * browser that opens apps). Asked once; an app from before, or none open: no header, the app link as before. */
+let appReturnPort: number | null = null
+try {
+  void desktop()?.codeReturn?.port().then((p) => { appReturnPort = appReturnPortOf(p) }, () => {})
+} catch { /* no bridge */ }
+
 /** A request that always carries the current window id (ApiClient reads it once, so wrap) and the language on screen
  * (the server uses it only without a session, so messages before sign-in match the page). */
 const inWindow = (init?: RequestInit): RequestInit => {
   const headers = new Headers(init?.headers)
   headers.set('x-mycel-window', windowIdValue)
   headers.set(LOCALE_HEADER, currentLocale())
+  if (appReturnPort) headers.set(APP_RETURN_HEADER, String(appReturnPort))
   return { ...init, headers, credentials: 'same-origin' }
 }
 /** A store app (lib/desktop.ts noPurchaseLinks) says "the plan's seats are full" without the server's "change the plan:

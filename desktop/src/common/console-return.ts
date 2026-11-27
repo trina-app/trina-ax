@@ -13,7 +13,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { APP_CALLBACK_PATH, APP_CONNECT_ERRORS, APP_CONNECT_TTL_MS, type AppConnectError } from '@mycel/shared/cloud-protocol/owner-claim'
-import { closeLoopback, listenLoopback, ownPageLoad } from './loopback'
+import { closeLoopback, donePage, listenLoopback, ownPageLoad } from './loopback'
 
 const B64URL43 = /^[A-Za-z0-9_-]{43}$/
 const MAX_QUERY = 4096
@@ -55,12 +55,6 @@ export function callbackQuery(url: string | undefined): { state: string; code: s
   if (code !== null) return B64URL43.test(code) ? { state, code } : null
   if (error !== null) return (APP_CONNECT_ERRORS as readonly string[]).includes(error) ? { state, error: error as AppConnectError } : null
   return null
-}
-
-/** the small page the browser shows after the return: the words come from the app (its language) */
-function donePage(text: string): string {
-  const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc}</title><style>body{font:16px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;min-height:90vh;align-items:center;justify-content:center;color:#14110f;background:#fcfbf8}@media (prefers-color-scheme:dark){body{color:#f2ede6;background:#171411}}</style></head><body><p>${esc}</p></body></html>`
 }
 
 interface Open { server: Server; port: number; state: string; timer: ReturnType<typeof setTimeout>; used: boolean; settle: (a: ConsoleAnswer) => void }

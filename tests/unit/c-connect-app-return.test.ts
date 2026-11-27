@@ -95,6 +95,20 @@ test('desktop sign-in, system browser without a session: held for the app, the a
 })
 
 
+test('a desktop app that said its return port: the held page goes to it on 127.0.0.1 with this team, the app link beside it (docs/decisions/20261127-desktop-sign-in-code-loopback.md)', async () => {
+  const c = await create(olga)
+  // every call of a desktop page names the app's port (web lib/api.ts)
+  const f = await desk.call('POST', `/api/integrations/${c.id}/authorize`, {}, { 'x-mycel-app-return': '50123' })
+  const html = await (await bare(callback(fake.authorize(f.authorizationUrl)))).text()
+  const m = /<meta http-equiv="refresh" content="0;url=http:\/\/127\.0\.0\.1:50123\/sign-in-code\?code=([A-Za-z0-9_-]{43})&#38;team=([^"]+)">/.exec(html)!
+  expect(m).toBeTruthy()
+  expect(decodeURIComponent(m[2]!)).toBe('http://team.localhost')
+  // the app link too, for an app that quit meanwhile; the same code
+  expect(codeOf(html)).toBe(m[1]!)
+  expect(html).toContain('data-testid="held-app-link"')
+  expect((await claim(desk, m[1]!)).status).toBe(200)
+})
+
 test('a browser signed in as another person of the team (a desktop sign-in): refused in plain words, as for Drive and the Google apps; the starter can still finish', async () => {
   const { id, flow, cb } = await start(desk)
   const page = await bob.client.raw('GET', callback(cb))

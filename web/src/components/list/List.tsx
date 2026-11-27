@@ -99,7 +99,7 @@ export const rowTag = 'ml-auto max-w-[40%] shrink-0 truncate text-meta font-norm
  * a page's main list (pageRowBox): taller, flush with its heading, read names in ink; its "···" and `actions` move out
  * with the row, so the times and tags still end at one edge.
  */
-export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name, nameTitle, meta, metaKeep, metaWrap, end, tag, tagTitle, tagTestId, menu, menuSpace, choice, rowMenu, actions, rowRef, rowTitle, strong, scale = 'panel', unread, selected, wrap, disabled, face, testId, nameTestId, metaTestId, link, li, rowClass, onFocus, onBlur, onKeyDown }: {
+export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name, nameTitle, nameEnd, meta, metaKeep, metaWrap, end, tag, tagTitle, tagTestId, menu, menuSpace, choice, rowMenu, actions, rowRef, rowTitle, strong, scale = 'panel', unread, selected, wrap, disabled, face, testId, nameTestId, metaTestId, link, li, rowClass, onFocus, onBlur, onKeyDown }: {
   to?: string
   state?: unknown
   onClick?: (e: MouseEvent<HTMLElement>) => void
@@ -108,6 +108,8 @@ export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name,
   faces?: ReactNode
   name: ReactNode
   nameTitle?: string
+  /** the first line's end, never cut (활동's time: the name is shortened before it) */
+  nameEnd?: ReactNode
   meta?: ReactNode
   /** the second line's end that is never cut (meta is shortened before it) */
   metaKeep?: ReactNode
@@ -157,7 +159,8 @@ export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name,
     page ? [pageRowBox, actions ? '-ml-3' : pageBleed] : [rowBox, 'w-full'],
     (to || onClick || choice) && !disabled && rowOpenHover,
     choice && 'cursor-pointer has-[:disabled]:opacity-60',
-    meta || metaKeep ? 'items-start py-1.5 max-md:items-center max-md:py-2' : face ? 'items-center py-1' : 'items-center',
+    // (a first line with its end, wrapping: 활동's notice, its time at the top right)
+    meta || metaKeep || (wrap && nameEnd) ? 'items-start py-1.5 max-md:items-center max-md:py-2' : face ? 'items-center py-1' : 'items-center',
     selected && 'bg-hover',
     // the "···" (28px on a computer, 44px on a phone) at the row's right: the words end before it
     (menu || menuSpace || rowMenu) && (!history ? 'pr-9 max-md:pr-11' : menu || rowMenu ? rowMenuRoomOnHover : 'max-md:pr-11'),
@@ -166,12 +169,21 @@ export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name,
   )
   const body = (
     <>
-      {icon && <ListIcon face={face} className={meta || metaKeep ? (face ? 'self-center' : 'mt-0.5 max-md:mt-0') : undefined}>{icon}</ListIcon>}
+      {icon && <ListIcon face={face} className={meta || metaKeep || (wrap && nameEnd) ? (face ? 'self-center' : 'mt-0.5 max-md:mt-0') : undefined}>{icon}</ListIcon>}
       {lead && <span className="-mr-1 flex shrink-0 items-center gap-1 self-center">{lead}</span>}
       <span className="min-w-0 flex-1">
-        <span className={clsx(wrap ? 'line-clamp-2 break-words' : 'block truncate', strong ? clsx(history ? 'text-row-history' : 'text-row', 'font-medium text-ink') : rowName({ unread, selected, page, history }))} title={nameTitle} data-testid={nameTestId}>
-          {name}
-        </span>
+        {nameEnd ? (
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className={clsx(wrap ? 'line-clamp-2 break-words' : 'truncate', 'min-w-0 flex-1', strong ? clsx(history ? 'text-row-history' : 'text-row', 'font-medium text-ink') : rowName({ unread, selected, page, history }))} title={nameTitle} data-testid={nameTestId}>
+              {name}
+            </span>
+            <span className="shrink-0 text-meta text-faint tabular-nums">{nameEnd}</span>
+          </span>
+        ) : (
+          <span className={clsx(wrap ? 'line-clamp-2 break-words' : 'block truncate', strong ? clsx(history ? 'text-row-history' : 'text-row', 'font-medium text-ink') : rowName({ unread, selected, page, history }))} title={nameTitle} data-testid={nameTestId}>
+            {name}
+          </span>
+        )}
         {metaKeep ? (
           // the part that may be cut first, then the kept end (no wrap), on one line
           <span className="flex min-w-0 whitespace-nowrap text-meta text-faint tabular-nums" data-testid={metaTestId}>

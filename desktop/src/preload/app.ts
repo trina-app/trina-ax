@@ -150,6 +150,10 @@ const bridge: DesktopBridge = {
     open: () => ipcRenderer.invoke('bridge:sign-in-return-open'),
     close: (port) => ipcRenderer.send('bridge:sign-in-return-close', Number(port)),
   },
+  // a sign-in's one-time code back from the system browser (common/code-return.ts): its port, never its requests
+  codeReturn: {
+    port: () => ipcRenderer.invoke('bridge:code-return-port'),
+  },
   browserSettings: {
     get: () => ipcRenderer.invoke('bridge:browser-settings'),
     onChange: on('bridge:browser-settings'),

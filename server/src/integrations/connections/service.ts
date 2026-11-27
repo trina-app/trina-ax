@@ -29,7 +29,7 @@ import { say, type Reason, type TextKey } from './text'
 import { NOTIFICATION_RETENTION_MS, notifyConnectionReconnect, notifyTemplateLeft, notifyTemplateReconnect } from '../../notifications/service'
 import { refreshGoogleApp } from '../google-apps/tokens'
 import { officialService, serverAppAt, teamAppAt, type ServerApp } from '@mycel/shared'
-import { CLAIM_MS, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
+import { CLAIM_MS, appReturnPort, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
 import { GITHUB_AUTHORIZE_URL, GITHUB_TOKEN_URL, githubAppOf, githubAppView, revokeGitHubToken } from '../github/app'
 import { MICROSOFT_SCOPE, microsoftAppOf, microsoftAppView, microsoftAuthorizeUrl, microsoftTokenUrl } from '../microsoft/app'
 import { answerMicrosoftMcp } from '../microsoft/mcp-server'
@@ -122,7 +122,7 @@ export type FlowFailure = 'denied' | 'invalid' | 'changed' | 'client' | 'client_
 export type CallbackResult =
   /** `held`: a desktop sign-in waiting for the app on this computer: the one-time code for the page's app link (its
    * fragment only), whose account it joins and the connection's name */
-  | { ok: true; held?: { code: string; who: { name: string; username: string }; name: string } }
+  | { ok: true; held?: { code: string; who: { name: string; username: string }; name: string; returnPort?: number | null } }
   /** `handed`: the return of a sign-in whose code already went to the first page (go back to the app);
    * `otherAccount`: this browser is signed in to the team as someone else than who started (refused) */
   | { ok: false; reason: FlowFailure | null; handed?: true; otherAccount?: true; from?: string | null }
@@ -1615,7 +1615,7 @@ export class Integrations {
       return { ok: false, reason: null }
     }
     const who = this.db.query('SELECT name, username FROM users WHERE id=?').get(f.user_id) as { name: string; username: string } | null
-    return { ok: true, held: { code, who: who ?? { name: '', username: '' }, name: row.name } }
+    return { ok: true, held: { code, who: who ?? { name: '', username: '' }, name: row.name, returnPort: appReturnPort(f.session_id) } }
   }
 
   /** A held result that is never claimed (run out, cancelled, replaced, refused at the claim): its tokens are revoked

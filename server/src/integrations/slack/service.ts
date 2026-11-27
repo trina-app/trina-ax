@@ -40,10 +40,11 @@ import type { ChatRow } from '../../chat/store'
 import { HttpError } from '../../http/errors'
 import { resolveLayout } from '../../system/layout'
 import { SecretBox } from '../connections/store'
-import { CLAIM_MS, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
+import { CLAIM_MS, appReturnPort, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
 import { redactorFor } from '../connections/redact'
 import { SlackApi, SlackApiError, type SlackDeps } from './api'
-import { AppMention, BlockActions, EventCallback, ImMessage, type Envelope } from './envelope'
+import { AppHomeOpened, AppMention, BlockActions, EventCallback, ImMessage, type Envelope } from './envelope'
+import { homeView } from './home'
 import { BASE_BOT_SCOPES, READ_BOT_SCOPES, createAppUrl, slackManifest } from './manifest'
 import { SlackSocket, errorCode } from './socket'
 import { SlackBrokerClient, SlackBrokerError, SlackBrokerFeed, challengeOf, slackBrokerFor, type SlackBrokerOptions } from './broker'
@@ -178,7 +179,7 @@ const HELD = 'held'
 interface Held { code?: string; handoff?: string; claim: string; until: number }
 /** the answer to a browser coming back: a result word (the page's ?slack=…) and where the flow started; `held`: the
  * one-time code for the desktop app's link (routes/slack.ts shows the shared held page) */
-export interface SlackReturn { result: string; client: string; held?: { code: string; who: { name: string; username: string }; name: string } }
+export interface SlackReturn { result: string; client: string; held?: { code: string; who: { name: string; username: string }; name: string; returnPort?: number | null } }
 /** a flow claimed by the desktop app, in the claim address's shape (routes/drive.ts) */
 export interface SlackClaimed { flowId: string; state: 'completed' | 'failed'; expiresAt: string; reason: string | null }
 
@@ -513,13 +514,40 @@ export class SlackConnector {
       if (cfg?.mode === 'official' && now?.mode !== 'official' && now?.secret_enc) throw new SlackError('own_app_saved', 'conflict')
       this.forgetWorkspace(); this.db.query('DELETE FROM slack_config').run()
     })()
+    this.forgetCaches()
     if (cfg) audit(this.db, { actor, action: 'slack.removed', target: cfg.team_id, ...(slack ? { detail: { via: 'official', slack } } : {}) })
     this.refresh()
     return this.adminView()
   }
 
   private forgetWorkspace() {
-    for (const t of ['slack_links', 'slack_link_tokens', 'slack_signin_flows', 'slack_install_flows', 'slack_threads', 'slack_requests', 'slack_events']) this.db.query(`DELETE FROM ${t}`).run()
+    // (the earlier design's user tokens: retireUserTokens revokes each at Slack and deletes it at the next refresh)
+    this.dropSlackData(['slack_install_flows'])
+  }
+
+  /** THE list of tables that hold Slack data of the connected workspace, deleted when it is removed (in Slack, or with
+   * Remove; docs/decisions/20261127-slack-marketplace-gaps.md). A feature that keeps more Slack-derived rows adds its
+   * tables HERE, so both removals delete them: e.g. the channel relay's `slack_relay_links`, `slack_relay_outbox` and
+   * its `slack_relay_messages` id map (the copied messages in a conversation are that conversation's, not listed). */
+  static readonly SLACK_DATA_TABLES = ['slack_links', 'slack_link_tokens', 'slack_signin_flows', 'slack_threads', 'slack_requests', 'slack_events'] as const
+
+  /** Delete the workspace's Slack data: SLACK_DATA_TABLES plus `extra`, and the Slack ids in the audit log's Slack rows.
+   * Run inside the caller's transaction where it has one. */
+  private dropSlackData(extra: readonly string[] = []) {
+    for (const t of [...SlackConnector.SLACK_DATA_TABLES, ...extra]) this.db.query(`DELETE FROM ${t}`).run()
+    this.scrubAudit()
+  }
+
+  /** The Slack user ids and channel ids in the audit log's Slack rows (`detail.slackUser`: linked, unlinked, refused;
+   * `detail.channel`: posted) are removed once
+   * the workspace's links are gone; the rows keep what happened, who did it and when (the team's security record). */
+  private scrubAudit() {
+    this.db.query("UPDATE audit_log SET detail = json_remove(detail, '$.slackUser', '$.channel') WHERE action LIKE 'slack.%' AND json_valid(detail) AND (json_type(detail, '$.slackUser') IS NOT NULL OR json_type(detail, '$.channel') IS NOT NULL)").run()
+  }
+
+  /** What memory holds of Slack (the thread given with a question, people's names, shared conversations) */
+  private forgetCaches() {
+    this.asked.clear(); this.names.clear(); this.shared.clear()
   }
 
   // ---------------------------------------------------------------- people (Settings, the link page)
@@ -948,7 +976,7 @@ export class SlackConnector {
     try { sealed = this.box.seal(aad, { ...kept, held: { ...value, claim: tokenHash(code), until } satisfies Held }) } catch { return null }
     if (!this.db.query(`UPDATE ${table} SET verifier_enc = ?, ${keyCol} = ?, reason = ?, expires_at = ? WHERE id = ? AND state = 'pending' AND reason IS NULL`).run(sealed.enc, sealed.keyVersion, HELD, iso(until), f.id).changes) return { result: 'handed', client: f.client }
     const who = this.db.query('SELECT name, username FROM users WHERE id = ?').get(f.user_id) as { name: string; username: string } | null
-    return { result: 'held', client: f.client, held: { code, who: who ?? { name: '', username: '' }, name: 'Slack' } }
+    return { result: 'held', client: f.client, held: { code, who: who ?? { name: '', username: '' }, name: 'Slack', returnPort: appReturnPort(f.session_id) } }
   }
 
   /** the session that started a flow is still there, of an active person */
@@ -1281,12 +1309,23 @@ export class SlackConnector {
   }
 
   /** The official app was removed from the workspace (in Slack, by Slack revoking its token, or by the hosting
-   * service's operator): its token is forgotten; links stay (the same workspace when it is added again). */
+   * service's operator): its token and everything that came from Slack for that workspace are deleted at once
+   * (Slack's Developer Policy: within 14 business days; docs/decisions/20261127-slack-marketplace-gaps.md): every
+   * person's link (Slack user id and name), the one-time links, the Slack threads' and questions' records, the
+   * handled event ids, the sign-ins in progress, the workspace's name, address and bot; the Slack user ids in the
+   * audit log's Slack rows. The row stays (mode, workspace id, "removed") so Admin says "add it again"; an "Add to
+   * Slack" in progress goes on. People link again after it is added again. Chats stay their people's. */
   private removedInSlack(reason: string) {
     const cfg = this.config()
     if (!cfg || cfg.mode !== 'official' || !cfg.secret_enc) return
-    this.db.query("UPDATE slack_config SET secret_enc = NULL, key_version = NULL, install_id = NULL, last_error = 'removed', updated_at = ? WHERE id = 1 AND mode = 'official'").run(iso(this.now()))
-    audit(this.db, { actor: null, action: 'slack.removed_in_slack', target: cfg.team_id, detail: { reason } })
+    this.db.transaction(() => {
+      this.db.query(`UPDATE slack_config SET secret_enc = NULL, key_version = NULL, install_id = NULL, last_error = 'removed', team_name = NULL, team_url = NULL,
+        enterprise_id = NULL, bot_user_id = NULL, bot_name = NULL, bot_scopes = NULL, updated_at = ? WHERE id = 1 AND mode = 'official'`).run(iso(this.now()))
+      // the app is gone at Slack, so the earlier design's user tokens are dead too; an Add to Slack in progress goes on
+      this.dropSlackData(['slack_user_tokens'])
+    })()
+    this.forgetCaches()
+    audit(this.db, { actor: null, action: 'slack.removed_in_slack', target: cfg.team_id, detail: { reason, dataDeleted: true } })
     this.log.info('slack app removed from the workspace', { reason })
     this.refresh()
   }
@@ -1346,6 +1385,9 @@ export class SlackConnector {
         const m = ImMessage.safeParse(ev)
         if (!m.success || m.data.subtype || m.data.bot_id || m.data.user === cfg!.bot_user_id || !m.data.channel.startsWith('D')) return
         await this.question(cfg!, { team: cb.data.team_id, enterprise, user: m.data.user, channel: m.data.channel, kind: 'im', ts: m.data.ts, threadTs: m.data.thread_ts ?? null, text: m.data.text, userTeam: m.data.user_team ?? null, extShared: cb.data.is_ext_shared_channel === true })
+      } else if (ev.type === 'app_home_opened') {
+        const h = AppHomeOpened.safeParse(ev)
+        if (h.success && h.data.tab === 'home') await this.home(cfg!, h.data.user)
       }
       return
     }
@@ -1358,6 +1400,21 @@ export class SlackConnector {
     }
     // slash commands and anything else: acknowledged, nothing to do
   }
+
+  /** The Home tab for this Slack user (home.ts), published at each opening so the link state is current. A linked
+   * person reads it in their language and sees which account it is linked to; anyone else the team's language. */
+  private async home(cfg: ConfigRow, slackUser: string) {
+    const tk = this.tokens(cfg)
+    if (!tk) return
+    const link = this.ownerOf(cfg.team_id!, slackUser)
+    const who = link ? this.db.query("SELECT id, name FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND guest = 0").get(link.user_id) as { id: string; name: string } | null : null
+    const view = homeView({ locale: this.localeOf(who?.id ?? null), bot: cfg.bot_name ?? slackManifest().features.bot_user.display_name, linkedAs: who?.name ?? null, origin: cfg.link_origin, official: cfg.mode === 'official' })
+    try { await this.api.call('views.publish', tk.bot, { user_id: slackUser, view }) }
+    catch (e) { this.log.info('slack home tab not published', { reason: e instanceof SlackApiError ? e.code : 'unknown' }) }
+  }
+
+  /** the bot token saved now is still this one (not removed, not replaced while Slack was asked) */
+  private sameToken(bot: string): boolean { return this.tokens()?.bot === bot }
 
   /** true the first time a key is seen (event id or message), across restarts and processes */
   private seen(key: string): boolean {
@@ -1408,6 +1465,8 @@ export class SlackConnector {
     // where it was asked and the thread so far, for this turn's instructions only (read.ts; the bot token, read now,
     // never stored)
     try { await askedContext(this, tk.bot, who.id, q, chatId) } catch (e) { this.log.warn('slack thread context failed', { err: String(e) }) }
+    // removed (in Slack or with Remove) while Slack was asked: nothing of it is written again after its data was deleted
+    if (!this.sameToken(tk.bot)) { this.asked.delete(chatId); return }
     let started
     try {
       const fresh = existing ? null : newChatEngine(this.ctx, person, {}, locale)
@@ -1475,6 +1534,8 @@ export class SlackConnector {
     const names = { display: m.name, real: m.realName, handle: m.handle }
     const token = crypto.randomBytes(32).toString('base64url')
     let made = false, late: ReturnType<typeof linkWaitOf> = null
+    // removed (in Slack or with Remove) while Slack was asked: no link is kept after its data was deleted
+    if (!this.sameToken(bot)) return
     this.db.transaction(() => {
       // two questions at once: the second sees the first's link (the check above ran before the wait for Slack)
       if ((late = tooSoon())) return
