@@ -336,6 +336,15 @@ export async function codexExport(sock: string): Promise<string | null | undefin
   return typeof e.b64 === 'string' ? Buffer.from(e.b64, 'base64').toString('utf8') : undefined
 }
 
+/** Admin's "AI only" restart (mycel-launcher ending.go restartOp): the launcher refuses new turns, ends the running ones
+ * with the reason "restart" and exits; its supervisor starts it again. The number of turns that ran, or null when it did
+ * not answer (an older launcher answers "unknown op" or nothing). */
+export async function launcherRestart(sock: string, timeoutMs = 5000): Promise<{ live: number } | null> {
+  const { events } = await exchange(sock, { op: 'restart' }, (e) => e.ev === 'restarting' || e.ev === 'error', timeoutMs)
+  const e = events.find((x) => x.ev === 'restarting')
+  return e ? { live: typeof e.live === 'number' ? e.live : 0 } : null
+}
+
 /** The launcher's own report on its sandbox, cgroups and firewall check (`{"op":"status"}`, Linux launchers; see
  * shared/src/engine.ts LauncherStatus). null = unreachable, or a launcher that does not know the request. */
 export async function launcherStatus(sock: string, timeoutMs = 3000, signal?: AbortSignal): Promise<LauncherStatus | null> {

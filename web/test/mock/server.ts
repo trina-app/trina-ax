@@ -5099,6 +5099,8 @@ export class MockServer {
     },
     diagnostics: () => ({ version: this.serverVersion, host: { os: 'darwin', arch: 'arm64', hostname: 'mac-mini' }, disk: { teamFolderFreeBytes: 500e9, dataFreeBytes: 500e9 }, queue: { running: 0, queued: 0, concurrency: 2 }, checks: [{ id: 'relay', group: 'relay', label: 'Relay connection', status: 'warn', detail: 'Relay not configured (dev)' }, { id: 'disk', group: 'disk', label: 'Disk space', status: 'ok', detail: null }], generatedAt: now() }),
     updateStatus: () => ({ current: this.serverVersion, channel: 'stable', available: null, lastCheckedAt: now(), previous: null, managed: this.cloud }),
+    // like server/src/system/restart.ts: the whole app (a supervisor), no AI-only (a dev launcher), nothing waits
+    restartStatus: (c) => ({ options: { server: true, ai: false }, now: c.user.role === 'owner', running: 0, waiting: null, last: null, failed: null, blocked: null, watchdogGaveUp: null }),
     // like server/src/system/after-update.ts: the HWP plugin to-do while the plugin is not on and not dismissed
     afterUpdateActions: () => ({
       items: this.afterDismissed.includes('hwp-plugin') || this.plugins.installed.some((p) => p.id === 'app.trina.hwp-preview' && p.enabled) ? [] : [{ id: 'hwp-plugin', since: '0.4.0-beta.2', to: '/admin/plugins?focus=app.trina.hwp-preview' }],

@@ -157,6 +157,7 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   'system.storage': { reach: 'explains' },
   'system.updates': { reach: 'explains' },
   'system.health': { reach: 'explains' },
+  'system.restart': { reach: 'explains' },
   'system.connection': { reach: 'explains' },
   'system.backups': { reach: 'explains' },
   'system.export': { reach: 'explains' },

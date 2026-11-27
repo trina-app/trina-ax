@@ -29,6 +29,7 @@ import { enPlural, M, stepText, tr } from '../system/messages'
 import { OpsService, type OpsOptions } from '../system/ops'
 import { runUpdate } from '../system/update-job'
 import { skipUpdateWait, updateWaitingFor } from '../system/update-wait'
+import { RestartRefused, RestartService, RT, noteRestarted, type RestartDeps } from '../system/restart'
 import { teamDefaultLocale } from '../admin/settings'
 import { dismissAfterUpdate, pendingAfterUpdate } from '../system/after-update'
 import type { RouteModule } from './module'
@@ -39,6 +40,7 @@ import { setApiEnginePublicOnly } from '../system/egress'
 import { askCleanup } from '../system/storage-cleanup'
 
 const opsByCtx = new WeakMap<AppContext, OpsService>()
+const restartsByCtx = new WeakMap<AppContext, RestartService>()
 /** the people whose own export (Settings › Export) is queued or running: one at a time per person */
 const myExportsByCtx = new WeakMap<AppContext, Set<string>>()
 /** The ops service of a running server (tests, CLI). */
@@ -57,9 +59,11 @@ function exportReadable(ctx: AppContext, userId: string): (rel: string) => boole
 }
 
 export const getOps = (ctx: AppContext) => opsByCtx.get(ctx) ?? null
+/** The restart service of a running server (tests). */
+export const getRestarts = (ctx: AppContext) => restartsByCtx.get(ctx) ?? null
 
 /** Test hook: options for the next OpsService (layout, fake engines, restart). */
-export const systemTestHooks: { opsOptions: OpsOptions | null; restart: (() => void) | null; updateWaitMs?: number } = { opsOptions: null, restart: null }
+export const systemTestHooks: { opsOptions: OpsOptions | null; restart: (() => void) | null; updateWaitMs?: number; restartDeps?: Partial<RestartDeps> | null } = { opsOptions: null, restart: null }
 
 /** Admin > System asks the release feed again when the last check is older than this, and waits at most this long. */
 const UPDATE_CHECK_MAX_AGE_MS = 3600_000
@@ -112,6 +116,9 @@ export const systemRoutes: RouteModule = {
     opsByCtx.set(ctx, ops)
     ops.start()
     ctx.onClose(() => ops.stop())
+    // Admin › System › Health "Restart…" (system/restart.ts); a restart of the server from there finished: audit it
+    restartsByCtx.set(ctx, new RestartService({ ctx, ops: () => ops, restartServer: (why) => scheduleRestart(ctx, why), ...systemTestHooks.restartDeps }))
+    try { noteRestarted(ctx) } catch (e) { ctx.log.warn('restart mark not read', { err: e }) }
     // members' own exports are kept 24 hours (system/my-export.ts)
     myExportsByCtx.set(ctx, new Set())
     sweepMyExports(ctx.config.dataDir)
@@ -127,7 +134,7 @@ export const systemRoutes: RouteModule = {
      * the automatic update (Linux self-host) takes too */
     const exclusive = (name: string, locale: Locale, fn: () => string): string => {
       // the old-version prune (system/prune.ts) holds the lock for seconds: say so, the button works again right after
-      if (!ops().tryLock(name)) fail('busy', tr(locale, ops().busyWith === 'prune' ? T.busyPrune : T.busy))
+      if (!ops().tryLock(name)) fail('busy', tr(locale, ops().busyWith === 'prune' ? T.busyPrune : ops().busyWith === 'restart' ? RT.busyRestart : T.busy))
       try { return fn() } catch (e) { ops().unlock(); throw e }
     }
     const release = () => { ops().unlock() }
@@ -180,6 +187,25 @@ export const systemRoutes: RouteModule = {
       const hold = ops().updateHold()
       return { ...u.status(), auto: ops().autoUpdates, managed: !feature(ctx.config, 'selfUpdate'), ...ops().updateWindowStatus(), hold, ...(hold === 'failed' || hold === 'root_failed' ? { holdReason: ops().updateHoldReason() } : {}), ...(turnAt !== undefined ? { turnAt } : {}),
         running: ops().queue().running, waiting: updateWaitingFor(ctx.config) }
+    })
+
+    // Admin › System › Health "Restart…" (system/restart.ts, docs/decisions/20261127-restart.md)
+    const restarts = () => restartsByCtx.get(ctx)!
+    const restartAnswer = (locale: Locale, role: string) => restarts().status({ owner: role === 'owner', locale })
+    kit.handle(API.restartStatus, ({ c, auth }) => restartAnswer(c.get('locale'), auth.user.role))
+    kit.handle(API.startRestart, async ({ c, body, auth }) => {
+      const locale = c.get('locale')
+      try { await restarts().start({ what: body.what, when: body.when, by: auth.user.id, owner: auth.user.role === 'owner' }) }
+      catch (e) { if (e instanceof RestartRefused) fail(e.code, tr(locale, e.words)); throw e }
+      return restartAnswer(locale, auth.user.role)
+    })
+    kit.handle(API.restartNow, ({ c, auth }) => {
+      if (!restarts().skip()) fail('conflict', tr(c.get('locale'), RT.nothingWaits))
+      return restartAnswer(c.get('locale'), auth.user.role)
+    })
+    kit.handle(API.cancelRestart, ({ c, auth }) => {
+      if (!restarts().cancel(auth.user.id)) fail('conflict', tr(c.get('locale'), RT.nothingWaits))
+      return restartAnswer(c.get('locale'), auth.user.role)
     })
 
     // what a release left for an admin to do (system/after-update.ts)

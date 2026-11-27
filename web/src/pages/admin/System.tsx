@@ -13,14 +13,14 @@ import clsx from 'clsx'
 import { settingDesc, settingName } from '../../components/settings/SettingRow'
 import { createContext, useCallback, useContext, useEffect, useId, useState, type ReactNode } from 'react'
 import { Link, Navigate, useLocation, useParams } from 'react-router-dom'
-import type { ConnectionMode, LastRestore, PlanStatus, StorageBreakdown } from '@mycel/shared/api'
+import type { ConnectionMode, LastRestore, PlanStatus, RestartStatus, RestartWhat, StorageBreakdown } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime, formatRelative, formatSize } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
 import { Badge, Button, CopyButton, ErrorNote, Field, Modal, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
-import { AdminPageHeader, BarTitleProvider, Card, FlatCardsProvider, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad, useReauthCall } from './common'
+import { AdminPageHeader, BarTitleProvider, Card, FlatCardsProvider, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad, useReauthCall, type ReauthProof } from './common'
 import { systemGroup, systemGroups, type SystemGroupId } from './systemGroups'
 import { forgetKeptChecks } from './overview'
 import OfficeUpdate from './OfficeUpdate'
@@ -252,6 +252,8 @@ function SystemSections({ office, shown, focus }: { office: Office; shown: Syste
     <>
       {part('storage', <><PlanCard owner={false} /><Storage /></>)}
       {office.data?.v ? part('updates', <OfficeUpdate status={office.data.v} reload={office.reload} />) : null}
+      {/* an admin's health part: the restart row only (the checks stay the owner's) */}
+      {part('health', <AdminRestart />)}
     </>
   )
   // the owner: what the team sees first (the plan, the space), then the version, the server's health, how the team
@@ -353,7 +355,147 @@ function Health({ rev }: { rev: number }) {
           )
         }}
       </Loadable>
+      <Restart className="mt-3 border-t border-line" />
     </Card>
+  )
+}
+
+/** An admin's Health part: only the restart row, in its own card; nothing when this server offers no restart. */
+export function AdminRestart() {
+  const t = useT()
+  const state = useRestartStatus()
+  const s = state.data
+  if (!s || (!s.options.ai && !s.options.server)) return null
+  return (
+    <Card id="system-health" title={t('system.health')} testId="system-health">
+      <RestartRow state={state} />
+    </Card>
+  )
+}
+
+/** The restart status, read again every 5 seconds while a restart waits (quietly: a failed read, the server going away
+ * for its restart, keeps what is shown). */
+function useRestartStatus() {
+  const state = useLoad(() => api.call(API.restartStatus))
+  const setData = state.setData
+  const waiting = !!state.data?.waiting
+  useEffect(() => {
+    if (!waiting) return
+    let gone = false
+    const id = setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      api.call(API.restartStatus).then((s) => { if (!gone) setData(s) }, () => {})
+    }, 5000)
+    return () => { gone = true; clearInterval(id) }
+  }, [waiting, setData])
+  return state
+}
+
+/** The Health card's restart row (the owner), when this server offers a restart. */
+export function Restart({ className }: { className?: string }) {
+  const state = useRestartStatus()
+  const s = state.data
+  if (!s || (!s.options.ai && !s.options.server)) return null
+  return <div className={className}><RestartRow state={state} /></div>
+}
+
+type RestartState = ReturnType<typeof useRestartStatus>
+
+/** "Restart…" (docs/decisions/20261127-restart.md): one row with what is going on and one button. While a restart waits
+ * for answers (a count only, never whose): "Restart now" (the owner) and "Don't restart". */
+function RestartRow({ state }: { state: RestartState }) {
+  const t = useT()
+  const locale = useLocale()
+  const s = state.data!
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState<'now' | 'cancel' | null>(null)
+  const act = useAction()
+  const w = s.waiting
+  const press = async (which: 'now' | 'cancel') => {
+    setBusy(which)
+    const r = await act(() => which === 'now' ? api.call(API.restartNow, { body: {} }) : api.call(API.cancelRestart))
+    setBusy(null)
+    if (!r) return
+    state.setData(r)
+    if (which === 'cancel') toast({ level: 'success', text: t('system.restart.cancelled') })
+    else if (w?.what === 'server') toast({ level: 'info', text: t('system.restart.started') })
+    else setTimeout(() => void state.reload(), 3000)
+  }
+  const line = w ? (w.going ? t('system.restart.started') : s.running > 0 ? t('system.restart.waiting', { count: s.running }) : t('system.restart.soon'))
+    : s.failed ? t('system.restart.failed')
+    : s.last ? t(s.last.what === 'ai' ? 'system.restart.lastAi' : 'system.restart.lastServer', { when: formatRelative(s.last.at, locale) })
+    : t('system.restart.idle')
+  return (
+    <Rows testId="system-restart">
+      <Row
+        label={t('system.restart.row')}
+        long
+        action={w ? (w.going ? undefined :
+          <span className="flex flex-wrap gap-2">
+            {s.now && <Button size="sm" variant="secondary" busy={busy === 'now'} disabled={!!busy} onClick={() => void press('now')} data-testid="restart-now">{t('system.restart.now')}</Button>}
+            <Button size="sm" variant="ghost" busy={busy === 'cancel'} disabled={!!busy} onClick={() => void press('cancel')} data-testid="restart-cancel">{t('system.restart.cancel')}</Button>
+          </span>
+        ) : (
+          <Button size="sm" variant="secondary" disabled={!!s.blocked} onClick={() => setOpen(true)} data-testid="restart-open">
+            <RotateCcw size={14} aria-hidden /> {t('system.restart.button')}
+          </Button>
+        )}
+      >
+        <span className={clsx(w ? 'font-medium' : s.failed ? 'text-warn' : 'text-muted')} data-testid="restart-line">{line}</span>
+        {s.watchdogGaveUp && !w && <span className="mt-1 block text-xs text-warn" data-testid="restart-gave-up">{t('system.restart.gaveUp')}</span>}
+        {s.blocked && !w && <span className="mt-1 block text-xs text-muted" data-testid="restart-blocked">{s.blocked}</span>}
+      </Row>
+      {open && <RestartDialog s={s} onClose={() => setOpen(false)} onStarted={(r, what) => {
+        state.setData(r)
+        if (what === 'server' && r.waiting?.going) toast({ level: 'info', text: t('system.restart.started') })
+        // the AI's restart takes seconds: read again for its line
+        if (what === 'ai') setTimeout(() => void state.reload(), 3000)
+      }} />}
+    </Rows>
+  )
+}
+
+/** What to restart (when the server offers both) and when; then the password or the Google check. The owner may also
+ * restart right away; an admin only when answers finish. */
+function RestartDialog({ s, onClose, onStarted }: { s: RestartStatus; onClose: () => void; onStarted: (r: RestartStatus, what: RestartWhat) => void }) {
+  const t = useT()
+  const reauth = useReauthCall()
+  const [what, setWhat] = useState<RestartWhat>(s.options.ai ? 'ai' : 'server')
+  const choices = (['ai', 'server'] as const).filter((k) => s.options[k])
+  const send = (when: 'idle' | 'now') => async (proof: ReauthProof) => {
+    const r = await reauth(() => api.call(API.startRestart, { body: { ...proof, what, when } }))
+    if (r && 'refused' in r) return r.refused
+    onClose()
+    if (r) onStarted(r.value, what)
+  }
+  const label = (k: RestartWhat) => t(k === 'ai' ? 'system.restart.ai' : 'system.restart.server')
+  const desc = (k: RestartWhat) => t(k === 'ai' ? 'system.restart.aiDesc' : 'system.restart.serverDesc')
+  return (
+    <ReauthDialog
+      title={t('system.restart.title')}
+      body={
+        <div className="space-y-3" data-testid="restart-dialog">
+          {choices.length > 1 ? (
+            <div role="radiogroup" aria-label={t('system.restart.title')} className="flex flex-col gap-2">
+              {choices.map((k) => (
+                <label key={k} className="flex items-start gap-2.5 text-sm">
+                  <input type="radio" name="restart-what" value={k} checked={what === k} onChange={() => setWhat(k)} className="mt-0.5 size-4 shrink-0" data-testid={`restart-what-${k}`} />
+                  <span><span className="block font-medium text-ink">{label(k)}</span><span className="block text-xs text-muted">{desc(k)}</span></span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <p><span className="block font-medium text-ink">{label(what)}</span><span className="block text-xs text-muted">{desc(what)}</span></p>
+          )}
+          <p data-testid="restart-running">{s.running > 0 ? t('system.restart.running', { count: s.running }) : t('system.restart.runningNone')}</p>
+          <p className="text-xs">{t('system.restart.idleNote')}{s.now ? ` ${t('system.restart.nowNote')}` : ''}</p>
+        </div>
+      }
+      confirm={t('system.restart.whenIdle')}
+      alt={s.now ? { label: t('system.restart.whenNow'), testId: 'restart-now-confirm', onConfirm: send('now') } : undefined}
+      onClose={onClose}
+      onConfirm={send('idle')}
+    />
   )
 }
 
@@ -869,10 +1011,11 @@ function Update() {
               {u.waiting && (u.running ?? 0) > 0 && (
                 // an update (this server's own, or root's `mycel-ctl update`) waits for running tasks before the restart;
                 // this server's own can go on now
-                <Row label={t('system.row.status')} long action={u.waiting.skippable ? (
+                <Row label={t('system.row.status')} long action={u.waiting.skippable && u.waiting.kind !== 'restart' ? (
                   <Button size="sm" variant="secondary" onClick={() => setAsk('anyway')} data-testid="update-waiting-anyway">{t('system.updateAnyway')}</Button>
                 ) : undefined}>
-                  <span className="font-medium" data-testid="update-waiting">{t('system.updateWaiting', { count: u.running ?? 0 })}</span>
+                  {/* a restart from Health waits the same way, in its own words (docs/decisions/20261127-restart.md) */}
+                  <span className="font-medium" data-testid="update-waiting">{t(u.waiting.kind === 'restart' ? 'system.restartWaiting' : 'system.updateWaiting', { count: u.running ?? 0 })}</span>
                 </Row>
               )}
               {u.managed ? (

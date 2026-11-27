@@ -213,6 +213,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/system/egress.ts': { why: 'the cloud API address refusal (ko next to en/id/ja/es)' },
   'server/src/system/messages-linux.ts': { why: 'Linux and cloud diagnostics texts (ko next to en/id/ja/es)' },
   'server/src/system/update-job.ts': { why: 'update progress lines (ko next to en/id/ja/es)' },
+  'server/src/system/restart.ts': { why: 'restart refusals and wait lines (ko next to en/id/ja/es/zh)' },
   'server/src/onboarding/profile.ts': { why: 'company profile save refusals (ko next to en/id/ja/es)' },
   'server/src/onboarding/draft.ts': { why: 'company profile draft: the request message, chat title and refusals (ko next to en/id/ja/es)' },
   'server/src/onboarding/skill-draft.ts': { why: 'team skill draft: the request and rewrite messages, chat title, refusals, the skill file\'s headings and fixed lines, the examples the model gets (ko next to en/id/ja/es)', also: /^\s*(ko: \{ title1:|files: \{ ko:|how: \{ ko:|rules: \{ ko:|ko: \(folder: string, like: string\) =>)/ },

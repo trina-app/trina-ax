@@ -366,10 +366,10 @@ export function continueAfterConnect(names: string[], added: string[]): string {
 
 /** How the engine launcher's orderly stop (mycel-launcher ending.go) ended or refused a launch: an update after which
  * this server switches versions ('update'), an update of the root files only ('update-root'), or another stop
- * ('restart', the launcher's "shutdown"). */
+ * ('restart': the launcher's "shutdown", and Admin's "AI only" restart, "restart"). */
 export type LauncherStop = 'update' | 'update-root' | 'restart'
 function launcherStopOf(signal: unknown): LauncherStop | null {
-  return signal === 'update' ? 'update' : signal === 'update-root' ? 'update-root' : signal === 'shutdown' ? 'restart' : null
+  return signal === 'update' ? 'update' : signal === 'update-root' ? 'update-root' : signal === 'shutdown' || signal === 'restart' ? 'restart' : null
 }
 
 /** Words of a request to save or write something down, in the product's languages (the person's own message: an

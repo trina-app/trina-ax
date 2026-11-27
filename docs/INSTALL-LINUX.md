@@ -579,6 +579,8 @@ trina_admin archive --out /var/lib/mycel/data/off-host.tar.zst.age --password-st
 - 관리자 › 시스템 › 진단: 방화벽(nftables), 실행기, 샌드박스(bwrap·Landlock·seccomp), 커널 격리(ptrace_scope·cgroup·사용자
   네임스페이스), 안전한 PowerPoint(1A를 켰을 때), 저장 공간, 백업, 업데이트. 고칠 명령을 함께 보여 준다.
 - `sudo mycel-ctl status`, `journalctl -u mycel-server -u mycel-launcher -n 200`.
+- 답이 안 나오거나 화면이 멈출 때: 관리자 › 시스템 › 상태 점검의 **다시 시작…**(소유자와 관리자). **AI만**(실행기만 다시 시작)이나 **Trina AX 전체**를
+  답변이 끝나면(최대 10분) 또는 지금 바로(소유자만) 다시 시작한다. 한 시간에 5번까지, 활동 기록에 남는다. SSH에서는 `sudo systemctl restart mycel-server`.
 - 자주 보는 실패:
   - 우분투 24.04에서 샌드박스 실패: AppArmor가 사용자 네임스페이스를 막음. 설치기가 bwrap 전용 프로필을 넣는다(`repair`로 다시).
   - 컨테이너 안 설치: `nesting=1`이 없으면 bwrap의 `/proc` 마운트가 실패한다. 호스트 설정이 필요하다.

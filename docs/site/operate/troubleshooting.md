@@ -14,6 +14,7 @@ Use fictional data when you report a problem. Never paste keys, setup or invite 
 | Socket path too long | The data folder path | Use a short folder in your home directory. |
 | Linux says systemd is required | Is PID 1 systemd? Is cgroup v2 there? | Use a supported VM or host. |
 | A skill is missing | **Team skills** warning, `SKILL.md` header, folder name, permissions | Compare with the [starter skills](../../../examples/README.md). |
+| Answers hang or the screen freezes | **Admin › System › Health**: the **Restart** row | **Restart…**: the AI only, or all of Trina AX, when answers finish (at most 10 minutes) or, for the owner, right away. Self-hosted servers: the supervisor's [watchdog](../../CONFIGURATION.md) can restart a server that stops answering. |
 | Office server stops at logout | The LaunchAgent runs in the signed-in session | Keep the dedicated user signed in. |
 
 ## Status commands
