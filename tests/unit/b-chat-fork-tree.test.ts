@@ -8,7 +8,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, ApiError, type Attachment, type Chat, type Message, type PutChatAudienceResult } from '@mycel/shared/api'
+import { API, ApiError, type Attachment, type Chat, type Message, type PutChatAudienceResult, type ServerFrame } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
 import { forkNote } from '../../server/src/chat/prompt'
@@ -218,6 +218,64 @@ describe('the tree', () => {
     const sql = fs.readFileSync(path.join(import.meta.dir, '../../server/migrations/463_b_chat_fork_tree.sql'), 'utf8')
     expect(sql).toContain('UPDATE chats SET fork_parent = fork_of WHERE fork_of IS NOT NULL')
     expect(sql.split('\n')[0]).toBe('-- min_compatible_reader: 1')
+  })
+})
+
+// QA 11-27: a live update (a reply, a rename, a pin, a new continuation) dropped Chat.forkParents and moved a
+// continuation to the top of the history until a reload. Every chat.updated to the chat's own person says where it rows
+// ([] for a top-level row, chat/shared.ts liveChat), as the list does; someone else's view never has it.
+describe('chat.updated carries forkParents', () => {
+  type Updated = Extract<ServerFrame, { type: 'chat.updated' }>
+  const heard = async (user: string, chatId: string, act: () => Promise<unknown>, pred: (f: Updated) => boolean = () => true) => {
+    ws[user]!.frames.length = 0
+    await act()
+    return (await ws[user]!.next('chat.updated', (f) => f.data.chatId === chatId && !!f.data.chat && pred(f as Updated), 30_000)).data.chat!
+  }
+
+  test('a new continuation, a reply in it, a rename and a pin: each event has its parents, the same as the list', async () => {
+    const a = await own()
+    await ask('alice', a.id, `Root\n${fake({ say: 'R' })}`)
+    ws.alice!.frames.length = 0
+    const f = await fork('alice', a.id)
+    const created = (await ws.alice!.next('chat.updated', (x) => x.data.chatId === f.id && x.data.change === 'created', 30_000)).data.chat!
+    expect(created.forkParents).toEqual([a.id])
+    expect(created.forkedFrom?.chatId).toBe(a.id)
+    // a reply (the turn's start and end tell the chat again)
+    const sent = await heard('alice', f.id, () => ask('alice', f.id, `More\n${fake({ say: 'M' })}`))
+    expect(sent.forkParents).toEqual([a.id])
+    expect(ws.alice!.frames.filter((x) => x.type === 'chat.updated' && x.data.chatId === f.id).every((x) => (x as Updated).data.chat?.forkParents?.[0] === a.id)).toBe(true)
+    const renamed = await heard('alice', f.id, () => h.api('alice').call(API.updateChat, { params: { id: f.id }, body: { title: 'Renamed continuation' } }), (x) => x.data.chat?.title === 'Renamed continuation')
+    expect(renamed.forkParents).toEqual([a.id])
+    const pinned = await heard('alice', f.id, () => h.api('alice').call(API.pinChat, { params: { id: f.id } }))
+    expect(pinned.forkParents).toEqual([a.id])
+    await h.api('alice').call(API.unpinChat, { params: { id: f.id } })
+    const listed = (await h.api('alice').call(API.listChats, { query: { ids: f.id } })).items[0]!
+    expect(listed.forkParents).toEqual(renamed.forkParents!)
+  })
+
+  test('a top-level chat and a detach say [] live (the list and the answer leave it out); another person never gets any', async () => {
+    const a = await own()
+    const top = await heard('alice', a.id, () => ask('alice', a.id, `Top\n${fake({ say: 'T' })}`))
+    expect(top.forkParents).toEqual([])
+    const f = await fork('alice', a.id)
+    const detached = await heard('alice', f.id, () => h.api('alice').call(API.updateChat, { params: { id: f.id }, body: { forkParent: null } }))
+    expect(detached.forkParents).toEqual([])
+    expect((await getChat('alice', f.id)).forkParents).toBeUndefined()
+
+    // a continuation of mine (outside projects) I share later: my event has its line back, bob's has none
+    const b = await own('alice', {})
+    await ask('alice', b.id, `Mine\n${fake({ say: 'B' })}`)
+    const g = await fork('alice', b.id)
+    const subjects = [{ subjectType: 'user' as const, subjectId: 'bob' }]
+    let r: PutChatAudienceResult = await h.api('alice').call(API.putChatAudience, { params: { id: g.id }, body: { subjects } })
+    if (r.status === 'confirm') r = await h.api('alice').call(API.putChatAudience, { params: { id: g.id }, body: { subjects, confirmKey: r.confirmKey } })
+    expect(r.status).toBe('saved')
+    ws.bob!.frames.length = 0
+    const mine = await heard('alice', g.id, () => ask('alice', g.id, `Shared\n${fake({ say: 'S' })}`))
+    expect(mine.forkParents).toEqual([b.id])
+    const bobs = (await ws.bob!.next('chat.updated', (x) => x.data.chatId === g.id && !!x.data.chat, 30_000)).data.chat!
+    expect('forkParents' in bobs).toBe(false)
+    expect(bobs.forkedFrom).toBeUndefined()
   })
 })
 
