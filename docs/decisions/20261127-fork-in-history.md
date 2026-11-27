@@ -32,7 +32,8 @@
     has brought, in one call, `GET /api/chats?ids=` (at most 50, alone): the history's own rule (`historyWhere` and the
     per-row `visible()`), so never a chat in the trash, one I hid, another person's private chat or one no longer shared
     with me; such a continuation stands alone. One the server left out is not asked again until the list is read from
-    its start.
+    its start. A read from the start (a reconnect, an access change) keeps the old copies of the originals page 1's
+    continuations point to and asks for them again; one the server leaves out then goes.
   - **Sections:** a continuation of a chat in one of my sections starts in that section, while it has room; a full
     section leaves it outside, and the continuation is still made.
   - Unchanged: deleted, hidden, filtered-out or not-mine originals hand their continuations up; "목록에서 따로 두기"; the

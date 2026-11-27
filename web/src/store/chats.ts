@@ -240,6 +240,21 @@ let generation = 0
 /** originals asked for (GET /api/chats?ids=): one the server did not answer (deleted, hidden, no longer mine) is not
  * asked again until the list is read from its start again (loadChats(true)) */
 const askedOriginals = new Set<string>()
+/** originals kept from before a read from the start (loadChats(true)): page 1 brings only the newest chats, so the
+ * old copy of an original its continuations still point to stays (no row jumps to 오늘 alone and back) until the next
+ * `?ids=` read says whether it is still mine; one the server leaves out goes then */
+const heldOriginals = new Set<string>()
+/** The old copies of the originals that a fresh first page's continuations point to and that page does not hold: every
+ * parent of such a row (as missingOriginals asks for them) that the list had */
+export function originalsToHold(before: readonly Chat[], page: readonly Chat[]): Chat[] {
+  const fresh = new Set(page.map((c) => c.id))
+  const want = new Set<string>()
+  for (const c of page) {
+    if (!c.forkParents?.length || c.forkParents.some((id) => fresh.has(id))) continue
+    for (const id of c.forkParents) want.add(id)
+  }
+  return before.filter((c) => want.has(c.id) && !fresh.has(c.id) && !c.deletedAt)
+}
 /** at most this many ids in one read (ListChatsQuery.ids) */
 const ORIGINALS_MAX = 50
 /** The chats my list's rows came from (Chat.forkParents) that no page has brought yet: a continuation sits right under
@@ -697,6 +712,7 @@ export const useChats = create<ChatsState>((set, get) => {
     reset: () => {
       generation++
       askedOriginals.clear()
+      heldOriginals.clear()
       queueEpoch = null
       retiredEpochs.clear()
       queueVersions.clear()
@@ -733,7 +749,11 @@ export const useChats = create<ChatsState>((set, get) => {
         // a chat going to the trash or coming back from it stays as it is on screen
         const items = page.items.filter((c) => !trashPending(c.id) || s.chats.some((x) => x.id === c.id)).map((c) => keepPending(s, c))
         const kept = reset ? s.chats.filter((c) => trashPending(c.id) && !items.some((x) => x.id === c.id)) : []
-        const merged = reset ? (kept.length ? sortChats([...items, ...kept]) : items) : [...s.chats, ...items.filter((c) => !s.chats.some((x) => x.id === c.id))]
+        // a read from the start keeps the originals its continuations still point to, until readOriginals asks again
+        const held = reset ? originalsToHold(s.chats, items).filter((c) => !trashPending(c.id) && !kept.includes(c)) : []
+        heldOriginals.clear()
+        for (const c of held) heldOriginals.add(c.id)
+        const merged = reset ? (kept.length || held.length ? sortChats([...items, ...kept, ...held]) : items) : [...s.chats, ...items.filter((c) => !s.chats.some((x) => x.id === c.id))]
         return { chats: merged, chatsCursor: page.nextCursor, chatsLoaded: true }
       })
       // the originals of continuations on these pages that no page has brought: one read, so each sits under its own
@@ -754,17 +774,25 @@ export const useChats = create<ChatsState>((set, get) => {
 
     async readOriginals() {
       const session = generation
-      const ids = missingOriginals(get().chats)
+      // the originals kept from before a read from the start are asked again too: still mine, or gone
+      const held = [...heldOriginals]
+      heldOriginals.clear()
+      const ids = [...new Set([...held, ...missingOriginals(get().chats)])].slice(0, ORIGINALS_MAX)
       if (!ids.length) return
       for (const id of ids) askedOriginals.add(id)
       const wanted = new Set(ids)
       const page = await api.call(API.listChats, { query: { ids: ids.join(',') } }).catch(() => null)
+      // no answer (an older server refuses `ids`, the network): the kept copies stay as they were
       if (!page || session !== generation) return
       set((s) => {
         // only the ids asked: an older server ignores `ids` and answers its first page (a chat on its way to the trash
         // here would come back)
-        const add = page.items.filter((c) => wanted.has(c.id) && !c.deletedAt && !trashPending(c.id) && !s.chats.some((x) => x.id === c.id)).map((c) => keepPending(s, c))
-        return add.length ? { chats: sortChats([...s.chats, ...add]) } : s
+        const got = new Map(page.items.filter((c) => wanted.has(c.id) && !c.deletedAt && !trashPending(c.id)).map((c) => [c.id, c]))
+        // a kept original the server left out (deleted, hidden, no longer mine) leaves the list; one it answered is fresh
+        const gone = new Set(held.filter((id) => !got.has(id)))
+        const rest = s.chats.filter((c) => !gone.has(c.id)).map((c) => (held.includes(c.id) && got.has(c.id) ? keepPending(s, got.get(c.id)!) : c))
+        const add = [...got.values()].filter((c) => !rest.some((x) => x.id === c.id)).map((c) => keepPending(s, c))
+        return add.length || gone.size || held.length ? { chats: sortChats([...rest, ...add]) } : s
       })
     },
 

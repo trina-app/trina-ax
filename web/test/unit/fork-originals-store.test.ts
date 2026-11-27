@@ -1,7 +1,8 @@
 // store/chats.ts readOriginals: a continuation whose original no page has brought (the original is far older than the
 // pages read) gets it in one read, GET /api/chats?ids=, so it sits under it (docs/decisions/20261127-fork-in-history.md).
 // Every parent of such a row is asked once; one the server leaves out (hidden, deleted, no longer mine) is not asked
-// again until the list is read from its start, and the continuation stands alone.
+// again until the list is read from its start, and the continuation stands alone. A read from the start keeps the
+// originals page 1 still points to while it asks again.
 import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { uuidv7, type Chat } from '@mycel/shared/api'
 import { missingOriginals, useChats } from '../../src/store/chats'
@@ -74,4 +75,36 @@ test('an older server that ignores ids and answers its first page: nothing but t
   await Bun.sleep(10)
   expect(asked).toEqual([['A']])
   expect(names(useChats.getState().chats.map((c) => c.id))).toEqual(['F'])
+})
+
+// a read from the start (a reconnect's reloadAll, the access_changed notice) brings only page 1: the originals its
+// continuations point to keep their old copy while ?ids= asks again, so no continuation jumps to 오늘 alone and back;
+// one the server now leaves out goes
+test('a reload from the start keeps the fetched originals until ?ids= answers, and drops one it leaves out', async () => {
+  page = [chat('F', ['A']), chat('G', ['C']), chat('B')]
+  known.A = chat('A', undefined, '2026-09-01T09:00:00.000Z')
+  known.C = chat('C', undefined, '2026-08-01T09:00:00.000Z')
+  await useChats.getState().loadChats(true)
+  await Bun.sleep(10)
+  expect(names(useChats.getState().chats.map((c) => c.id))).toEqual(['F', 'G', 'B', 'A', 'C'])
+  // C is hidden from my list meanwhile; A is renamed
+  delete known.C
+  known.A = { ...chat('A', undefined, '2026-09-01T09:00:00.000Z'), title: 'A renamed' }
+  await useChats.getState().loadChats(true)
+  // right after page 1: both originals still there (the old copies), under their continuations
+  expect(names(useChats.getState().chats.map((c) => c.id))).toEqual(['F', 'G', 'B', 'A', 'C'])
+  await Bun.sleep(10)
+  expect(asked.at(-1)!.sort()).toEqual(['A', 'C'])
+  expect(names(useChats.getState().chats.map((c) => c.id))).toEqual(['F', 'G', 'B', 'A'])
+  expect(useChats.getState().chats.find((c) => c.id === id('A'))!.title).toBe('A renamed')
+})
+
+test('a reload keeps nothing a continuation on page 1 does not point to', async () => {
+  page = [chat('F', ['A'])]
+  known.A = chat('A', undefined, '2026-09-01T09:00:00.000Z')
+  await useChats.getState().loadChats(true)
+  await Bun.sleep(10)
+  page = [chat('B')]
+  await useChats.getState().loadChats(true)
+  expect(names(useChats.getState().chats.map((c) => c.id))).toEqual(['B'])
 })
