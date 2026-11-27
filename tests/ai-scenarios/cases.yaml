@@ -2876,7 +2876,7 @@ cases:
   prompt: 새로 오는 직원한테 초대 링크 보낼 건데, 비밀번호 안 만들고 구글 계정으로 가입하게 할 수 있어?
   expect:
     outcome: explain
-    good: Yes where the team offers Google, in a web browser. He sends the invite or the team link as usual; on that page the new person types a name and a username and presses Join with Google instead of making a password, then signs in with Google from then on. A guest invite still asks for a password. In the phone or desktop app the page keeps the password form, so the person opens the link in a browser. If the button is not there, the team or this address does not offer Google. Plain words, no invented settings.
+    good: Yes where the team offers Google, in a web browser. He sends the invite or the team link as usual; on that page the new person presses Continue with Google at the top instead of making a password (the name comes from Google, the username from the Google address, both changeable later in Profile), then signs in with Google from then on. A guest invite still asks for a password. In the phone or desktop app the page keeps the password form, so the person opens the link in a browser. If the button is not there, the team or this address does not offer Google. Plain words, no invented settings.
     checks: []
 
 # auth.google-reauth (docs/decisions/20261122-google-reauth.md): an account made with Google has no password; where

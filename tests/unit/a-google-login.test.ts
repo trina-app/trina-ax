@@ -5,6 +5,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { DEFAULT_LIMITS } from '../../server/src/auth/rate-limit'
 import { googleClaims } from '../../server/src/auth/google-login'
+import { googleDomainAllowed, googleSignInDomains } from '../../server/src/auth/google-login-admin'
 import { googleDriveOf } from '../../server/src/integrations/google-drive/oauth'
 import { OWNER_PW, addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 
@@ -18,7 +19,7 @@ const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
 const jwt = (claims: Record<string, unknown>) => `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64(claims)}.c2ln`
 
 /** What the fake Google answers next: the account that signs in (its sub and e-mail) or a refusal */
-let nextAccount: { sub: string; email: string; verified?: boolean } = { sub: '100', email: 'olga@acme.test' }
+let nextAccount: { sub: string; email: string; verified?: boolean; hd?: string } = { sub: '100', email: 'olga@acme.test' }
 /** the token requests the fake Google got */
 const tokenCalls: URLSearchParams[] = []
 /** nonce of each authorization address, by its state (the fake Google echoes it in the id_token) */
@@ -29,7 +30,7 @@ const fakeFetch = (async (url: string | URL | Request, init?: RequestInit) => {
   const body = new URLSearchParams(String(init?.body ?? ''))
   tokenCalls.push(body)
   const nonce = nonces.get(body.get('code') ?? '') ?? ''
-  const id_token = jwt({ iss: 'https://accounts.google.com', aud: CLIENT_ID, azp: CLIENT_ID, exp: Math.floor(Date.now() / 1000) + 600, nonce, sub: nextAccount.sub, email: nextAccount.email, email_verified: nextAccount.verified ?? true })
+  const id_token = jwt({ iss: 'https://accounts.google.com', aud: CLIENT_ID, azp: CLIENT_ID, exp: Math.floor(Date.now() / 1000) + 600, nonce, sub: nextAccount.sub, email: nextAccount.email, email_verified: nextAccount.verified ?? true, ...(nextAccount.hd ? { hd: nextAccount.hd } : {}) })
   return new Response(JSON.stringify({ access_token: 'at', expires_in: 3600, token_type: 'Bearer', id_token }), { status: 200, headers: { 'content-type': 'application/json' } })
 }) as unknown as typeof fetch
 
@@ -244,6 +245,114 @@ describe('Sign in with Google', () => {
       nextAccount = { sub: '100', email: 'olga@acme.test' }
       expect((await back(s.state, s.gsi)).headers.get('location')).toBe('/')
     }
+  })
+})
+
+describe('the domain list (Google’s hd) and Try it (docs/decisions/20261127-google-signin-selfhost.md)', () => {
+  let h: Harness
+  let owner: Client
+  beforeAll(async () => {
+    h = await harness('google-login-domains')
+    owner = await withOwner(h)
+    h.auth.limiter.limits = { ...DEFAULT_LIMITS, perGoogleStart: 1000 }
+    googleDriveOf(h.ctx, { config: { clientId: CLIENT_ID, clientSecret: 'secret', redirectUri: `http://team.localhost${CALLBACK}` }, fetch: fakeFetch, broker: null })
+  })
+  afterAll(() => h.close())
+  const started = async (res: Response) => {
+    expect(res.status).toBe(200)
+    const u = new URL(((await res.json()) as { url: string }).url)
+    const state = u.searchParams.get('state')!
+    const gsi = res.headers.getSetCookie().find((c) => c.startsWith(`${GSI}=`))!.split(';')[0]!
+    nonces.set(`code-${state.slice(0, 8)}`, u.searchParams.get('nonce')!)
+    return { state, gsi }
+  }
+  const back = (state: string, cookie: string) => h.fetch(`${CALLBACK}?${new URLSearchParams({ state, code: `code-${state.slice(0, 8)}` })}`, { headers: { cookie } })
+  const domains = (list: string[]) => owner.call('PATCH', '/api/admin/settings', { googleSignInDomains: list })
+
+  test('the setting: empty by default, lower-case domain names only, each once', async () => {
+    expect((await owner.call('GET', '/api/admin/settings')).googleSignInDomains).toEqual([])
+    expect((await owner.try('PATCH', '/api/admin/settings', { googleSignInDomains: ['Acme.com'] })).status).toBe(400)
+    expect((await owner.try('PATCH', '/api/admin/settings', { googleSignInDomains: ['acme'] })).status).toBe(400)
+    expect((await owner.try('PATCH', '/api/admin/settings', { googleSignInDomains: ['@acme.com'] })).status).toBe(400)
+    expect((await domains(['acme.test', 'acme.test', 'b.acme.test'])).googleSignInDomains).toEqual(['acme.test', 'b.acme.test'])
+    await domains([])
+  })
+
+  test('connect and sign-in: off by default (personal Gmail works); set, only Google’s hd counts, never the e-mail', async () => {
+    // no list: a personal account connects
+    nextAccount = { sub: '200', email: 'olga.personal@gmail.test' }
+    let c = await started(await owner.raw('POST', '/api/me/google/connect', { password: OWNER_PW }))
+    expect((await back(c.state, `${owner.cookie}; ${c.gsi}`)).headers.get('location')).toBe('/settings/security?google=connected')
+    await domains(['acme.test'])
+    // signing in with it now: refused, audited without the address
+    let s = await started(await h.client().raw('POST', '/api/auth/google/start', {}))
+    expect((await back(s.state, s.gsi)).headers.get('location')).toBe('/login?google=wrong_domain')
+    const audit = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'auth.login_failed' ORDER BY rowid DESC LIMIT 1").get() as { detail: string }
+    expect(JSON.parse(audit.detail).reason).toBe('google_domain')
+    expect(audit.detail).not.toContain('gmail')
+    // a personal account with the company's address and no hd: refused to connect
+    nextAccount = { sub: '201', email: 'olga@acme.test' }
+    c = await started(await owner.raw('POST', '/api/me/google/connect', { password: OWNER_PW }))
+    expect((await back(c.state, `${owner.cookie}; ${c.gsi}`)).headers.get('location')).toBe('/settings/security?google=wrong_domain')
+    expect((h.ctx.db.query("SELECT subject FROM login_identities WHERE user_id = 'olga'").get() as { subject: string }).subject).toBe('200')
+    // the Workspace account (hd acme.test, any case): connects and signs in
+    nextAccount = { sub: '202', email: 'olga@acme.test', hd: 'ACME.test' }
+    c = await started(await owner.raw('POST', '/api/me/google/connect', { password: OWNER_PW }))
+    expect((await back(c.state, `${owner.cookie}; ${c.gsi}`)).headers.get('location')).toBe('/settings/security?google=connected')
+    s = await started(await h.client().raw('POST', '/api/auth/google/start', {}))
+    expect((await back(s.state, s.gsi)).headers.get('location')).toBe('/')
+    await domains([])
+  })
+
+  test('a stored list with a bad entry ignores only that entry; before saving, the people it would lock out are counted', async () => {
+    h.ctx.db.query("INSERT INTO settings (key, value) VALUES ('googleSignInDomains', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(['acme.test', 'NOT A DOMAIN']))
+    expect(googleSignInDomains(h.ctx.db)).toEqual(['acme.test'])
+    expect(googleDomainAllowed(h.ctx.db, 'other.test')).toBe(false)
+    expect(googleDomainAllowed(h.ctx.db, 'acme.test')).toBe(true)
+    await domains([])
+    // two people without a password: one of acme.test, one personal (no hd); a person with a password never counts
+    const a = await addMember(h, owner, { username: 'nopw-a' }), b = await addMember(h, owner, { username: 'nopw-b' }), c = await addMember(h, owner, { username: 'haspw' })
+    for (const [m, sub, hd] of [[a, 'la', 'acme.test'], [b, 'lb', null], [c, 'lc', null]] as const) h.ctx.db.query("INSERT INTO login_identities (user_id, provider, subject, email, hd, linked_at) VALUES (?, 'google', ?, 'x@y.test', ?, ?)").run(m.id, sub, hd, new Date().toISOString())
+    h.ctx.db.query('UPDATE users SET password_hash = NULL WHERE id IN (?, ?)').run(a.id, b.id)
+    const check = (list: string[]) => owner.call('POST', '/api/admin/google-login/domains-check', { domains: list })
+    expect(await check([])).toEqual({ lockedOut: 0 })
+    expect(await check(['acme.test'])).toEqual({ lockedOut: 1 })
+    expect(await check(['other.test'])).toEqual({ lockedOut: 2 })
+    expect((await c.client.try('POST', '/api/admin/google-login/domains-check', { domains: ['acme.test'] })).status).toBe(403)
+    // nothing was saved by the check
+    expect((await owner.call('GET', '/api/admin/settings')).googleSignInDomains).toEqual([])
+    h.ctx.db.query('DELETE FROM users WHERE id IN (?, ?, ?)').run(a.id, b.id, c.id)
+  })
+
+  test('Try it: an admin only; the return names the Google account and the domain list’s answer, signing nobody in', async () => {
+    const m = await addMember(h, owner, { username: 'mia' })
+    expect((await m.client.try('POST', '/api/admin/google-login/try')).status).toBe(403)
+    expect(await owner.call('GET', '/api/admin/google-login')).toEqual({ client: true, via: 'own', tryable: true })
+    // with the team switch off too: an admin tries before turning it on
+    await owner.call('PATCH', '/api/admin/settings', { googleSignIn: false })
+    nextAccount = { sub: '300', email: 'someone@gmail.test' }
+    const before = h.ctx.db.query('SELECT COUNT(*) AS n FROM login_identities').get() as { n: number }
+    let t = await started(await owner.raw('POST', '/api/admin/google-login/try'))
+    let r = await back(t.state, `${owner.cookie}; ${t.gsi}`)
+    expect(r.status).toBe(200)
+    let html = await r.text()
+    expect(html).toContain('someone@gmail.test')
+    expect(html).toContain('href="/admin/sign-in"')
+    expect(r.headers.getSetCookie().some((x) => x.startsWith('mycel-dev-sid=') && !x.startsWith('mycel-dev-sid=;'))).toBe(false)
+    expect(h.ctx.db.query('SELECT COUNT(*) AS n FROM login_identities').get()).toEqual(before)
+    // a domain list that keeps it out: said so, with the list
+    await domains(['acme.test'])
+    t = await started(await owner.raw('POST', '/api/admin/google-login/try'))
+    r = await back(t.state, `${owner.cookie}; ${t.gsi}`)
+    html = await r.text()
+    expect(html).toContain('acme.test')
+    expect(html).toContain('someone@gmail.test')
+    // another browser cannot finish an admin's try
+    t = await started(await owner.raw('POST', '/api/admin/google-login/try'))
+    r = await back(t.state, `${m.client.cookie}; ${t.gsi}`)
+    expect(r.status).toBe(400)
+    await domains([])
+    await owner.call('PATCH', '/api/admin/settings', { googleSignIn: true })
   })
 })
 

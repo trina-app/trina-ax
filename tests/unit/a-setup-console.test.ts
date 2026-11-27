@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from
 import crypto from 'node:crypto'
 import { OWNER_CLAIM_CONFIRM_PATH, OWNER_CLAIM_RESERVE_PATH, ownerClaimSigningString, parseOwnerClaimRequest, type OwnerClaimOwner, type OwnerClaimPath } from '../../shared/src/cloud-protocol/owner-claim'
 import { parseDriveBrokerAuthorization } from '../../shared/src/cloud-protocol/drive-broker'
-import { confirmInBackground, setOwnerClaimClient, type OwnerClaimClient } from '../../server/src/auth/setup-console'
+import { confirmInBackground, nameFromEmail, ownerName, setOwnerClaimClient, type OwnerClaimClient } from '../../server/src/auth/setup-console'
 import { bootstrapOwner } from '../../server/src/auth/accounts'
 import { getUser } from '../../server/src/auth/users'
 import { getTeamSettings } from '../../server/src/admin/settings'
@@ -73,7 +73,7 @@ describe('setup from the hosting console', () => {
     const claim = cp.add()
     const app = h.client()
     const pre = await app.call('POST', PREVIEW, { claim })
-    expect(pre).toEqual({ teamName: 'Acme Studio', name: 'Alex Kim', email: OWNER.email, google: false })
+    expect(pre).toEqual({ teamName: 'Acme Studio', name: 'Alex Kim', email: OWNER.email, google: false, username: 'alex.kim' })
     // the preview spends nothing and makes nothing
     expect(cp.claims.get(claim)!.spent).toBe(false)
     expect(users()).toBe(0)
@@ -218,6 +218,26 @@ describe('setup from the hosting console', () => {
     ])
     expect([a.status, b.status].filter((s) => s === 201).length).toBe(1)
     expect(users()).toBe(1)
+  })
+
+  test('the name: never the e-mail +tag; the one typed on the page wins; then the e-mail works to sign in', async () => {
+    // a console that sends the e-mail's part before @ as the name (an e-mail-code account has no name)
+    const claim = cp.add({ ...OWNER, email: 'daehyeonnam+create1127@example.com', name: 'daehyeonnam+create1127' })
+    const pre = await h.client().call('POST', PREVIEW, { claim })
+    expect(pre.name).toBe('daehyeonnam')
+    expect(pre.username).toBe('daehyeonnam')
+    const r = await h.client().call('POST', SETUP, { claim, password: 'owner horse battery 42', name: '  Dae Nam ' })
+    expect(r.me.user.name).toBe('Dae Nam')
+    expect(r.me.user.username).toBe('daehyeonnam')
+    expect((await h.client().try('POST', '/api/auth/login', { username: 'daehyeonnam+create1127@example.com', password: 'owner horse battery 42' })).status).toBe(200)
+    expect(ownerName({ name: '', email: 'kim+x@example.com' })).toBe('kim')
+    expect(ownerName({ name: 'Kim Lee', email: 'kim+x@example.com' })).toBe('Kim Lee')
+    expect(nameFromEmail('a+b+c@example.com')).toBe('a')
+  })
+  test('a name typed that is not a name falls back to the preview', async () => {
+    const claim = cp.add()
+    const r = await h.client().call('POST', SETUP, { claim, password: 'owner horse battery 42', name: '   ' })
+    expect(r.me.user.name).toBe('Alex Kim')
   })
 
   test('bootstrapOwner: the username from the e-mail when none is given', async () => {

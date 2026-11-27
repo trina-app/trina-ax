@@ -48,7 +48,7 @@ test('S0 → S5 for a Google owner: one sign-in in the browser, a name, the wait
   try {
     // S0: two rows and the demo link, no box yet
     await expect(w.getByTestId('create-team')).toContainText('Create a team for free')
-    await expect(w.getByTestId('create-team')).toContainText('Your own team in about a minute or two. Free, no card.')
+    await expect(w.getByTestId('create-team')).toContainText('No card · ready in a minute or two')
     await expect(w.getByTestId('join-team')).toHaveText('Join with an invite link')
     await expect(w.locator('#address')).toHaveCount(0)
     await expect(w.getByText('Install it yourself')).toHaveCount(0)
@@ -458,6 +458,29 @@ test('a setup that fails while the team still reads as being made: never a wait 
     await expect(page.locator('#welcome')).toHaveText('Welcome to Acme Cafe, owner')
   } finally {
     await close(again.app)
+  }
+})
+
+// The app's own Electron net.fetch (no mock) asks the console whether it offers the flow (GET /api/app/v1/me). Live QA
+// of 0.20.0: the first screen stayed on the old box. A first ask that failed (a redirect, which net.fetch with
+// redirect 'manual' throws on, or the console not answering yet) was never asked again. These tests start the app
+// while the console still fails, and the create row must come by itself.
+test('the console answers only after a redirect and an error: the create row comes by itself, through the real net.fetch', async () => {
+  fake.sc.meFirst = ['redirect', 503]
+  const { app, w } = await start(newUserData('en'), { MYCEL_DESKTOP_TEST_OFFER_RETRY_MS: '200' })
+  try {
+    await expect(w.getByTestId('create-team')).toBeVisible({ timeout: 10_000 })
+    // the asks were the app's own (no token), and the redirect was not followed
+    const asks = fake.log.filter((l) => l.path === '/api/app/v1/me' && l.auth === null)
+    expect(asks.length).toBeGreaterThanOrEqual(3)
+    expect(fake.log.some((l) => l.path === '/somewhere-else')).toBe(false)
+    // and the flow goes on with the real net.fetch for the token too
+    await w.getByTestId('create-team').click()
+    await w.getByTestId('signin-google').click()
+    await signInBrowser(app, 1)
+    await expect(w.getByRole('heading', { name: 'Name your team' })).toBeVisible()
+  } finally {
+    await close(app)
   }
 })
 

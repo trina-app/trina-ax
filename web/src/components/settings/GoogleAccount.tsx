@@ -26,7 +26,7 @@ import { SettingRow } from './SettingRow'
 /** how a connect that came back here ended (?google=<result>) */
 const RESULT: Record<string, MessageKey> = {
   connected: 'settings.google.result.connected', in_use: 'settings.google.result.in_use', cancelled: 'settings.google.result.cancelled',
-  expired: 'settings.google.result.expired', failed: 'settings.google.result.failed',
+  expired: 'settings.google.result.expired', failed: 'settings.google.result.failed', wrong_domain: 'settings.google.result.wrong_domain',
 }
 
 /** `frame`: the computer layout's section around the row (Settings.tsx Section), left out when nothing shows */

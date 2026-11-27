@@ -1,7 +1,7 @@
 # An admin can't give a guest an e-mail used in the team
 
 - Date: 2026-11-16
-- Status: accepted
+- Status: superseded by [20261127-one-email-one-account](20261127-one-email-one-account.md)
 - Supersedes: the "Left as is" line of [A guest can't take an e-mail used in the team](../DECISIONS.md#a-guest-cant-take-an-e-mail-used-in-the-team--게스트는-팀에서-쓰는-이메일을-못-쓴다-fixguest-email-unique-2026-11-16-the-owner)
 - Branch: fix/admin-guest-email-unique (the owner)
 

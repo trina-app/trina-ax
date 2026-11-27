@@ -1,9 +1,9 @@
 // Sign up with Google (server/src/auth/google-signup.ts; docs/AGENTS/plan/20261122-0756-google-signup.md): the setup page
-// offers Start with Google, the invite and team link pages Join with Google, only where the server says so
-// (googleSignUp). The setup page checks only the team's part before Google; a join page only the name and the username.
+// offers Sign up with Google, the invite and team link pages Continue with Google (Google's own button texts), above
+// the password form, only where the server says so (googleSignUp). The setup page checks only the team's part before
+// Google; a join page asks for nothing first (the name comes from Google, the username from the Google address).
 // Google's return (a made-up Google page here) signs in, or comes back to the page with ?google=<result>: the invite
-// page through /invite (the token is never in that address), with what was typed kept, so a taken username can be
-// changed and tried again. The mock's Google rules are POST /__test/google-login (web/test/mock/server.ts googleStart,
+// page through /invite (the token is never in that address). A guest invite has no Google button. The mock's Google rules are POST /__test/google-login (web/test/mock/server.ts googleStart,
 // googleReturn, googleSignUp); the server's own checks are tests/unit/a-google-signup.test.ts.
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
@@ -31,7 +31,7 @@ async function fakeGoogle(page: Page) {
   return opened
 }
 
-test('setup: Start with Google needs only the team, then makes the owner and opens the next step', async ({ page }) => {
+test('setup: Sign up with Google needs only the team, then makes the owner and opens the next step', async ({ page }) => {
   await reset(page, { setup: true, teamLocale: 'en' })
   await googleLogin(page, { client: 'here', account: { sub: '900', email: 'kim.owner@acme.test', name: 'Kim Owner' } })
   const opened = await fakeGoogle(page)
@@ -41,6 +41,11 @@ test('setup: Start with Google needs only the team, then makes the owner and ope
   await page.getByTestId('setup-locale').selectOption('en')
   await expect(page.getByTestId('setup-google')).toHaveText(t['setup.google'])
   await expect(page.getByText(t['setup.googleHint'])).toBeVisible()
+  // after the team part (Google needs it), before the owner's password account
+  const y = async (id: string) => (await page.getByTestId(id).boundingBox())!.y
+  expect(await y('setup-section-team')).toBeLessThan(await y('setup-google'))
+  expect(await y('setup-google')).toBeLessThan(await y('auth-or'))
+  expect(await y('auth-or')).toBeLessThan(await y('setup-section-owner'))
   // the team name first; the owner's own fields are not asked for
   await page.getByTestId('setup-google').click()
   await expect(page.getByTestId('setup-section-team')).toContainText(t['auth.required'])
@@ -64,7 +69,7 @@ test('setup: Start with Google needs only the team, then makes the owner and ope
   expect(realErrors(errors)).toEqual([])
 })
 
-test('setup: no Google client here, no Start with Google', async ({ page }) => {
+test('setup: no Google client here, no Sign up with Google', async ({ page }) => {
   await reset(page, { setup: true, teamLocale: 'en' })
   await googleLogin(page, { client: 'elsewhere' })
   await page.goto(`/setup#token=${SETUP_TOKEN}`)
@@ -72,10 +77,30 @@ test('setup: no Google client here, no Start with Google', async ({ page }) => {
   await expect(page.getByTestId('setup-google')).toHaveCount(0)
 })
 
-test('an invite: Join with Google with the name and username; a username taken meanwhile comes back to change it', async ({ page, browser }) => {
+/** The page's Google button sits above the password form: the Google button, then "or", then the first form field. */
+async function googleFirst(page: Page, googleId: string, firstFieldId: string) {
+  const y = async (id: string) => (await page.getByTestId(id).boundingBox())!.y
+  const google = await y(googleId)
+  const or = (await page.getByTestId('auth-or').boundingBox())!.y
+  expect(google).toBeLessThan(or)
+  expect(or).toBeLessThan(await y(firstFieldId))
+  // Google's colour "G" inside the button
+  await expect(page.getByTestId(googleId).getByTestId('google-mark')).toBeVisible()
+}
+
+test('labels are Google\'s own texts, and the Google button comes before the password form', () => {
+  expect(t['auth.googleSignIn']).toBe('Sign in with Google')
+  expect(t['setup.google']).toBe('Sign up with Google')
+  expect(t['invite.google']).toBe('Continue with Google')
+})
+
+test('an invite: Continue with Google on top, nothing to type first; the username from the Google address', async ({ page, browser }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
-  await googleLogin(page, { client: 'here', account: { sub: '901', email: 'nico@acme.test' } })
+  await googleLogin(page, { client: 'here', account: { sub: '901', email: 'nico+work@acme.test', name: 'Nico Park' } })
   await signIn(page)
+  // "nico" is taken already: the server picks the next free one
+  const taken = await page.request.post('/api/admin/users', { headers: { [CSRF_HEADER]: '1' }, data: { username: 'nico', name: 'Other Nico', role: 'member', groupIds: [] } })
+  expect(taken.ok()).toBe(true)
   const made = await page.request.post('/api/admin/invites', { headers: { [CSRF_HEADER]: '1' }, data: { role: 'member', groupIds: [] } })
   expect(made.ok()).toBe(true)
   const { token } = (await made.json()) as { token: string }
@@ -85,36 +110,45 @@ test('an invite: Join with Google with the name and username; a username taken m
   const errors = watchConsole(p2)
   await p2.goto(`/invite/${token}`)
   await expect(p2.getByTestId('join-google')).toHaveText(t['invite.google'])
-  // the name and the username first; no password
+  await expect(p2.getByText(t['invite.googleHint'])).toBeVisible()
+  await googleFirst(p2, 'join-google', 'invite-name')
+  // cancelled at Google: back on the same invite (never its token in Google's return address), saying so
   await p2.getByTestId('join-google').click()
-  await expect(p2.getByTestId('join-form')).toContainText(t['auth.required'])
-  expect(opened).toHaveLength(0)
-  await p2.getByTestId('invite-name').fill('Nico')
-  await p2.getByTestId('invite-username').fill('nico')
-  await p2.getByTestId('join-google').click()
-  await expect(p2.locator('#pick')).toBeVisible()
-  // someone takes "nico" while this person is at Google
-  const taken = await page.request.post('/api/admin/users', { headers: { [CSRF_HEADER]: '1' }, data: { username: 'nico', name: 'Other Nico', role: 'member', groupIds: [] } })
-  expect(taken.ok()).toBe(true)
-  await p2.locator('#pick').click()
-  // back on the same invite (never its token in Google's return address), saying so, with what was typed
-  await expect(p2).toHaveURL(new RegExp(`/invite/${token}\\?google=username_taken$`))
-  await expect(p2.getByTestId('join-google-result')).toHaveText(t['auth.google.username_taken'])
-  await expect(p2.getByTestId('invite-name')).toHaveValue('Nico')
-  await expect(p2.getByTestId('invite-username')).toHaveValue('nico')
-  await p2.getByTestId('invite-username').fill('nico.g')
+  await expect(p2.locator('#cancel')).toBeVisible()
+  expect(opened).toHaveLength(1)
+  await p2.locator('#cancel').click()
+  await expect(p2).toHaveURL(new RegExp(`/invite/${token}\\?google=cancelled$`))
+  await expect(p2.getByTestId('join-google-result')).toHaveText(t['auth.google.cancelled'])
   await p2.getByTestId('join-google').click()
   await p2.locator('#pick').click()
   await expect(p2).toHaveURL(/\/$/)
   const me = await (await p2.request.get('/api/me')).json()
-  expect(me.user).toMatchObject({ username: 'nico.g', name: 'Nico', role: 'member' })
+  expect(me.user).toMatchObject({ username: 'nico-2', name: 'Nico Park', role: 'member' })
   expect(realErrors(errors)).toEqual([])
   await other.close()
 })
 
-test('the team link: Join with Google lands on Home', async ({ page, browser }) => {
+test('a guest invite: the password form only, no Google button', async ({ page, browser }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
-  await googleLogin(page, { client: 'here', account: { sub: '902', email: 'rosa@acme.test' } })
+  await googleLogin(page, { client: 'here' })
+  await signIn(page)
+  const project = await page.request.post('/api/projects', { headers: { [CSRF_HEADER]: '1' }, data: { name: 'Quotes', scope: 'team' } })
+  expect(project.ok()).toBe(true)
+  const g = await page.request.post('/api/guest-invites', { headers: { [CSRF_HEADER]: '1' }, data: { place: { kind: 'project', id: ((await project.json()) as { id: string }).id }, name: 'Gina' } })
+  expect(g.ok()).toBe(true)
+  const { url } = (await g.json()) as { url: string }
+  const other = await browser.newContext({ locale: 'en-US' })
+  const p2 = await other.newPage()
+  await p2.goto(new URL(url, 'http://x.test').pathname)
+  await expect(p2.getByTestId('invite-submit')).toBeVisible()
+  await expect(p2.getByTestId('join-google')).toHaveCount(0)
+  await expect(p2.getByTestId('auth-or')).toHaveCount(0)
+  await other.close()
+})
+
+test('the team link: Continue with Google on top lands on Home', async ({ page, browser }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await googleLogin(page, { client: 'here', account: { sub: '902', email: 'rosa@acme.test', name: 'Rosa Lee' } })
   await signIn(page)
   const made = await page.request.post('/api/admin/team-link', { headers: { [CSRF_HEADER]: '1' }, data: {} })
   expect(made.ok()).toBe(true)
@@ -123,18 +157,17 @@ test('the team link: Join with Google lands on Home', async ({ page, browser }) 
   const p2 = await other.newPage()
   await fakeGoogle(p2)
   await p2.goto(url)
-  await p2.getByTestId('invite-name').fill('Rosa')
-  await p2.getByTestId('invite-username').fill('rosa')
-  // cancelled: back on /join, which still has the link, with what was typed
+  await expect(p2.getByTestId('join-google')).toHaveText(t['invite.google'])
+  await googleFirst(p2, 'join-google', 'invite-name')
+  // cancelled: back on /join, which still has the link
   await p2.getByTestId('join-google').click()
   await p2.locator('#cancel').click()
   await expect(p2).toHaveURL(/\/join\?google=cancelled$/)
   await expect(p2.getByTestId('join-google-result')).toHaveText(t['auth.google.cancelled'])
-  await expect(p2.getByTestId('invite-username')).toHaveValue('rosa')
   await p2.getByTestId('join-google').click()
   await p2.locator('#pick').click()
   await expect(p2).toHaveURL(/\/$/)
   const me = await (await p2.request.get('/api/me')).json()
-  expect(me.user).toMatchObject({ username: 'rosa', role: 'member' })
+  expect(me.user).toMatchObject({ username: 'rosa', name: 'Rosa Lee', role: 'member' })
   await other.close()
 })
