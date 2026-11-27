@@ -12,6 +12,7 @@ import { readUnsentChat, writeUnsentChat, type KeptChatSend } from '../lib/unsen
 import { draftKey } from '../lib/localData'
 import { useSession } from './session'
 import { keepFaces } from '../lib/sharedChat'
+import { withForkParents } from '../lib/forkTree'
 import { browserTimeZone } from '../lib/time-zones'
 import { applyCreated, applyDelta, applyDone, applyStep, emptyThread, markLocal, mergeFresh, mergeTurnStarted, optimisticUserMessage, prependPage, runningMessage, type Delta, type Thread } from './thread'
 
@@ -1037,7 +1038,8 @@ export const useChats = create<ChatsState>((set, get) => {
           if (trashPending(chatId)) return
           // a chat in the trash is in no list, also when the end of a turn there tells about it after the delete
           if (change === 'deleted' || change === 'purged' || chat?.deletedAt) get().removeChat(chatId)
-          else if (chat) get().upsertChat(keepPending(get(), chat))
+          // where it rows in my history: an event without it keeps what the list knows (lib/forkTree.ts withForkParents)
+          else if (chat) get().upsertChat(keepPending(get(), withForkParents(get().chats.find((x) => x.id === chatId) ?? get().others[chatId], chat)))
           return
         }
         case 'turn.request': {
