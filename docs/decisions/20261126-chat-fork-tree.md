@@ -1,7 +1,7 @@
 # "Continue in a new chat" from any chat of mine, under the chat it came from in the Trina history
 
 - Date: 2026-11-26
-- Status: accepted
+- Status: accepted (its date-group rule, sections and the project page are superseded by [Fork in history](20261127-fork-in-history.md))
 - Supersedes: decision 1 (entry point A, only the shared chat's title menu) and the item's label of [Chat fork](20261126-chat-fork.md)
 - Branch: feat/chat-fork-tree (the owner's team chat, 2026-11-26, then an independent UX review for people who are not
   developers; plan [20261126-1013-chat-fork-tree](../AGENTS/plan/20261126-1013-chat-fork-tree.md))

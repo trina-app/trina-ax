@@ -29,10 +29,11 @@
 //     copied turns of that session carry the copy as theirs): resetEngineSessions and every other cleanup cover it. A
 //     failure leaves a fork without a session, never a stray file. chat/turn.ts resumes it once (fork_pending) with the
 //     checks for this person only.
-// Not copied: pins, mute, threads under answers, schedules, the people or the share, open cards.
+// Not copied: pins, mute, threads under answers, schedules, the people or the share, open cards. My section: the
+// continuation starts in the one its chat is in, while it has room (docs/decisions/20261127-fork-in-history.md).
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Attachment, Locale } from '@mycel/shared/api'
+import { NAV_FOLDER_ITEMS_MAX, type Attachment, type Locale } from '@mycel/shared/api'
 import { newId } from '../db'
 import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
@@ -147,6 +148,7 @@ export function forkChat(rt: ChatRuntime, userId: string, chatId: string, o: For
     return nid
   }
 
+  let sectioned = false
   db.transaction(() => {
     db.query(`INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at, seen_at, active_leaf_id,
         session_tainted, others_words, room_outside, session_read_scope, fork_of, fork_at, fork_title, fork_pending, fork_parent) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)`)
@@ -156,6 +158,13 @@ export function forkChat(rt: ChatRuntime, userId: string, chatId: string, o: For
         c.session_tainted || (others ? 1 : 0), c.others_words || (others ? 1 : 0), c.room_outside, c.session_read_scope, src.id, msgs[msgs.length - 1]!.id, fromTitle,
         // it sits under the chat it came from in my list (migration 463; "Detach to top level" clears it)
         src.id)
+    // the chat in one of my sections: its continuation starts there too, so it sits right under it
+    // (docs/decisions/20261127-fork-in-history.md); a full section: outside, the fork never fails for it
+    const sec = db.query("SELECT i.folder_id FROM nav_folder_items i JOIN nav_folders f ON f.id = i.folder_id WHERE i.user_id = ? AND i.chat_id = ? AND f.user_id = ? AND f.kind = 'chats'").get(userId, src.id, userId) as { folder_id: string } | null
+    if (sec && (db.query('SELECT COUNT(*) n FROM nav_folder_items WHERE folder_id = ? AND user_id = ?').get(sec.folder_id, userId) as { n: number }).n < NAV_FOLDER_ITEMS_MAX) {
+      db.query("INSERT INTO nav_folder_items (folder_id, user_id, kind, chat_id, room_id, added_at) VALUES (?, ?, 'chats', ?, NULL, ?)").run(sec.folder_id, userId, forkId, now)
+      sectioned = true
+    }
     const insMsg = db.query(`INSERT INTO messages (id, chat_id, parent_id, role, author_id, content, attachments, steps, step_notes, status, error, turn_id, engine, model, files,
         created_at, updated_at, stop_reason, history_trimmed, history_small_model, stopped_for, fork_copy, withheld_copy) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)`)
     const insTurn = db.query(`INSERT INTO turns (id, chat_id, user_id, engine, model, status, started_at, ended_at, message_id, user_message_id, shared_checked, people_checked, stop_reason)
@@ -246,6 +255,8 @@ export function forkChat(rt: ChatRuntime, userId: string, chatId: string, o: For
       }
     }
   } catch (e) { rt.log.warn('fork session copy failed', { err: e, chat: forkId }) }
+  // my sections' counts in my other windows (as chat/nav-folders.ts tells a change of them)
+  if (sectioned) rt.ctx.services.realtime.publish(userId, { type: 'navFolders.changed', data: { kind: 'chats' } })
   return rt.store.chatRow(forkId)!
 }
 

@@ -20,7 +20,7 @@
 // files asked for go as room files. "share files" answers with a quote in my folder, a shared file and one nobody opens.
 // The rooms answer their own reads (the room, its messages, members, AI, read) from what was sent.
 // Test-only controls: POST /__test/file {path, text | base64} (a team file and its folders), POST /__test/rmdir {path} (a folder gone from disk; its rule rows stay), POST /__test/download-only {path} (a generated, quarantined file: FileEntry.downloadOnly), POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
-// boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password), withAdmin?: boolean (admins dana / 'dana password 1' and eve)}, POST /__test/drop-ws, POST /__test/presence {people: [{id, state}]} (who is online or away: a change to every socket; GET it for the frames the pages sent), POST /__test/server-version, POST /__test/upload-delay {ms} (an upload's answer comes that late, until the next reset), POST /__test/file-rank {ai, delayMs} (팀 파일's AI picks answer that way; GET lists what each pick was sent),
+// boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password), withAdmin?: boolean (admins dana / 'dana password 1' and eve)}, POST /__test/drop-ws, POST /__test/chat-at {chatId, at} (a chat made and last used at that instant), POST /__test/presence {people: [{id, state}]} (who is online or away: a change to every socket; GET it for the frames the pages sent), POST /__test/server-version, POST /__test/upload-delay {ms} (an upload's answer comes that late, until the next reset), POST /__test/file-rank {ai, delayMs} (팀 파일's AI picks answer that way; GET lists what each pick was sent),
 // POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice), POST /__test/skills
 // {files: [{path, name, description}]} (skill files; skills/임원/ is for admins only),
 // POST /__test/schedule-review (the owner gets a scheduled task nobody confirmed, paused for review; "siteask" with
@@ -91,7 +91,7 @@ const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m 
 import {
   AiAllowance, type MyAutoMode, ApiErrorResponse, CSRF_HEADER, sideQuoteOf, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, PresenceFrame, RoomTypingFrame, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
-  SetStatusBody, type MyStatus, type StatusClear,
+  SetStatusBody, type MyStatus, type StatusClear, NAV_FOLDER_ITEMS_MAX,
   MemberEngineChoice, CARD_NEWS_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, PROMO_STYLES, DECK_ARTIFACT_KEY, NOTES_FOLDER, BRAND_FOLDER, BRAND_IMAGES_FOLDER, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule, type DeckBuild,
 } from '@mycel/shared/api'
 import fs from 'node:fs'
@@ -3094,6 +3094,8 @@ export class MockServer {
       if (c.query.projectId) list = list.filter((x) => x.projectId === c.query.projectId)
       if (c.query.sideRoomId) list = list.filter((x) => x.sideRoomId === c.query.sideRoomId)
       if (q) list = list.filter((x) => x.title.toLowerCase().includes(q) || this.messages.some((m) => m.chatId === x.id && m.content.toLowerCase().includes(q)))
+      // ids: only these chats of my list (the originals of continuations no page brought), pins not first
+      if (c.query.ids) { const ids = String(c.query.ids).split(','); return { items: list.filter((x) => ids.includes(x.id)).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)), nextCursor: null } }
       const newest = [...list].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
       // pinned chats first (server/src/routes/chats.ts listChats), not in a search or the trash
       if (q || trash) return { items: newest, nextCursor: null }
@@ -6613,6 +6615,13 @@ export class MockServer {
       this.publish({ type: 'queue.position', data: { chatId, messageId: assistant.id, turnId: assistant.turnId, position, epoch: this.epoch, revision: ++this.queueRevision } })
     }
     else if (p === '/__test/confidential') this.allConfidential = body.all === true
+    // a chat made and last used at another time (`at`, an ISO instant), for the history's date groups
+    else if (p === '/__test/chat-at') {
+      const chat = this.chats.find((x) => x.id === String(body.chatId))
+      if (!chat || typeof body.at !== 'string') return Response.json({ ok: false }, { status: 404 })
+      chat.createdAt = body.at
+      chat.updatedAt = body.at
+    }
     else if (p === '/__test/people-chat') {
       const chat = this.chats.find((x) => x.id === String(body.chatId))
       if (!chat) return Response.json({ ok: false }, { status: 404 })
@@ -8694,6 +8703,16 @@ export class MockServer {
       let items = r.items.map((x) => withFolder(c.user.id, x))
       if (c.query.folderId) items = items.filter((x) => x.folderId === c.query.folderId)
       return { ...r, items }
+    })
+    // a continuation of a chat in one of my sections starts there too, while it has room (server chat/fork.ts)
+    over('forkChat', (c, base) => {
+      const out = base(c) as { status: number; body: Chat }
+      const f = this.navItems.get(key(c.user.id, c.params.id!))
+      if (f && [...this.navItems.values()].filter((v) => v === f).length < NAV_FOLDER_ITEMS_MAX) {
+        this.navItems.set(key(c.user.id, out.body.id), f)
+        changed(c, 'chats')
+      }
+      return { ...out, body: withFolder(c.user.id, out.body) }
     })
     over('listChatGroups', (c, base) => {
       const g = base(c) as { pinned: Chat[]; other: { items: Chat[]; nextCursor: string | null }; projects: unknown[] }
