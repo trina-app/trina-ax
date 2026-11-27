@@ -41,6 +41,8 @@ export interface FakeBroker {
   clientId: string
   botToken: string
   install: SlackBrokerInstallInfo | null
+  /** answer status and poll without the `install` key (a broken or older answer: not "removed") */
+  omitInstall: boolean
   /** the next install's workspace (Slack's answer at redeem) */
   nextInstall: Partial<SlackBrokerInstallInfo>
   /** refuse the next redeem with this code */
@@ -68,7 +70,7 @@ export function startFakeBroker(o: { servedKey: string; botToken: string; teamOr
   let seq = 0
   const fake: FakeBroker = {
     url: '', servedKey: o.servedKey, serving: true, appId: 'A0APP', clientId: '1111111111.2222222222', botToken: o.botToken,
-    install: null, nextInstall: {}, redeemError: null, signinAs: { slackUserId: 'U0ALICE', slackTeamId: 'T0ACME' }, calls: [], acks: [],
+    install: null, omitInstall: false, nextInstall: {}, redeemError: null, signinAs: { slackUserId: 'U0ALICE', slackTeamId: 'T0ACME' }, calls: [], acks: [],
     slackReturn(kind, x = {}) {
       const last = [...states.entries()].reverse().find(([, s]) => s.kind === kind)
       if (!last) throw new Error(`no ${kind} was started at the fake broker`)
@@ -126,7 +128,7 @@ export function startFakeBroker(o: { servedKey: string; botToken: string; teamOr
       switch (op) {
         case 'status':
           if (!parseSlackBrokerStatus(body)) return fail('invalid_request', 400)
-          return Response.json({ ok: true, appId: fake.appId, install: fake.install })
+          return Response.json({ ok: true, appId: fake.appId, ...(fake.omitInstall ? {} : { install: fake.install }) })
         case 'install':
         case 'signinStart': {
           const b = op === 'install' ? parseSlackBrokerInstall(body) : parseSlackBrokerSigninStart(body)
@@ -161,7 +163,7 @@ export function startFakeBroker(o: { servedKey: string; botToken: string; teamOr
           if (!due().length && b.waitMs > 0) await new Promise<void>((done) => { const t = setTimeout(done, b.waitMs); waiters.push(() => { clearTimeout(t); done() }); req.signal.addEventListener('abort', () => { clearTimeout(t); done() }) })
           const out = due().slice(0, 50)
           for (const q of out) q.leasedUntil = Date.now() + 60_000
-          return Response.json({ install: fake.install, events: out.map((q) => q.e) })
+          return Response.json({ ...(fake.omitInstall ? {} : { install: fake.install }), events: out.map((q) => q.e) })
         }
         case 'uninstall':
           fake.install = null

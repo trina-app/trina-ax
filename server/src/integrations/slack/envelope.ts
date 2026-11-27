@@ -60,6 +60,13 @@ export const ImMessage = z.object({
   user_team: SlackId.optional(),
 })
 
+/** a person opened the app's Home tab (no scope; home.ts). `tab` is `messages` for the Messages tab: not answered */
+export const AppHomeOpened = z.object({
+  type: z.literal('app_home_opened'),
+  user: SlackId,
+  tab: z.string().max(32),
+})
+
 /** a button of ours pressed (interactive envelope, payload type block_actions) */
 export const BlockActions = z.object({
   type: z.literal('block_actions'),
