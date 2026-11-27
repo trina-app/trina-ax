@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-27 03:29
 - Branch: `feat/slack-channel-relay` (this plan: `plan/slack-channel-relay`)
-- Status: draft (research and plan only; the open decisions at the end are for the owner)
+- Status: built (v1); owner decisions 1-5 settled 2026-11-27
 - Where: trina-ax `server/src/integrations/slack/`, `server/src/rooms/apps/`, `shared/src/api/room-apps.ts`, the web room
   apps dialog; the hosting service's Slack broker (trina-cloud `src/slack-broker/`) and its contract
   `shared/src/cloud-protocol/slack-broker.ts` (MIT). Why: the relay is a room app that uses the Slack connector the team
@@ -431,4 +431,23 @@ from post errors and `conversations.info`; cuts (avatar URL, Admin line, delayed
 
 ## Result
 
-Filled in at the end.
+Built on `feat/slack-channel-relay` (team server, web) and trina-cloud `feat/slack-relay-channels` (broker, migration
+115, PR #183); privacy bullet in trina-ax-website PR #43.
+
+- Migration **367_c_slack_relay** (component C's range; 703 was component G's).
+- Live check on the test workspace (2026-11-27):
+  - Adding `message.channels` / `message.groups` to an app that already had the history scopes delivered events at once,
+    no reinstall (a new scope does need one).
+  - `message_changed` and `message_deleted` arrive. Slack also sends `message_changed` when only a thread's reply count
+    changes or a broadcast gains its root (same text): ignored.
+  - A post with `username` shows the custom name **with the APP badge**; `icon_url` changes the icon. Its echo is
+    `bot_message` with `bot_id` and `app_id`, no `user`, no `bot_profile`: loop prevention keys on our bot id
+    (auth.test) and, for the own app, the app id.
+  - Private channels' `group_archive` / `group_rename` are accepted as Events API subscriptions and arrive: subscribed.
+  - Slack Connect: available on the trial plan, not checked (no second organization allowed).
+- Independent review: 4 must-fix (account-removal coverage, AI/app text quoted out in a pre-link thread reply, the
+  team's room-apps cap, archived rooms), fixed; most should-fix items fixed (channel-scoped lookups, echo without a bot
+  id, confirmed channel_left, pending posts resumed after a restart, AI-app posts not relayed, no switches on the link,
+  mentions on edits, avatar limits).
+- Not done in v1: Slack Connect live check; the Slack row is not reachable when a server has no internet address and no
+  email (the picker shows "no address"); search hits show a relayed sender as "Slack".
