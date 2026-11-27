@@ -77,8 +77,10 @@ import { dismissKeyboard } from '../../lib/viewport'
 import { useRoomTitle } from './RoomIcon'
 import { AppTile } from './apps/AppParts'
 import { AppSender } from './apps/AppSender'
+import { SlackFace, SlackRelayedBody, SlackSender, SlackSentLine, slackText } from './SlackMessage'
 import { appPlainText, serviceOf, unescapeAppBody } from '../../lib/roomApps'
 import { mayManageApps } from '../../store/roomApps'
+import { useSlackRelay } from '../../store/slackRelay'
 import { copyLinkOf } from '../../lib/messageLinks'
 import { MessageLinkCard } from './MessageLinkCard'
 import { MessageLinkPreviews, useLinkHosts, usePlaceLabel } from './MessageLinkChip'
@@ -232,9 +234,10 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
             {run.newDay && !(i === 0 && dayBefore && localDayKey(dayBefore) === localDayKey(first.createdAt)) && <DayLine at={first.createdAt} />}
             {first.event ? <EventLine m={first} /> : (
             <RunShell
-              face={first.app ? <AppTile service={serviceOf(first.app)} app={first.app} size="face" className="mt-0.5" /> : <RunFace user={first.author} ai={first.authorKind === 'ai'} />}
+              // a message relayed from Slack: the sender's Slack picture and name with the Slack mark, never a team member
+              face={first.slackAuthor ? <SlackFace author={first.slackAuthor} className="mt-0.5" /> : first.app ? <AppTile service={serviceOf(first.app)} app={first.app} size="face" className="mt-0.5" /> : <RunFace user={first.author} ai={first.authorKind === 'ai'} />}
               // an app's message: its name (who set it up, a tap away) and the "App" tag, never a person
-              name={first.app ? <AppSender roomId={roomId} app={first.app} /> : <RunName user={first.author} ai={first.authorKind === 'ai'} left={first.authorLeft} />}
+              name={first.slackAuthor ? <SlackSender author={first.slackAuthor} /> : first.app ? <AppSender roomId={roomId} app={first.app} /> : <RunName user={first.author} ai={first.authorKind === 'ai'} left={first.authorLeft} />}
               at={first.createdAt}
               repeat={repeats[i]}
             >
@@ -378,9 +381,11 @@ function EventLine({ m }: { m: RoomMessage }) {
   const t = useT()
   const locale = useLocale()
   const nameOf = useNameOf()
+  // a Slack line's "/invite @<app>": the app's name in Slack, when this conversation's link was read
+  const bot = useSlackRelay((s) => (m.event?.type === 'slack' ? s.status[m.roomId]?.botName ?? null : null))
   if (!m.event) return null
   // the chat attachments folder in my language (shown so everywhere: chatFilesWord), not the team's
-  const text = eventText(m.event, m.author, { t, nameOf: (u) => nameOf(u) ?? t('rooms.goneUser'), folder: CHAT_FILES_FOLDER[locale] ?? CHAT_FILES_FOLDER.en })
+  const text = eventText(m.event, m.author, { t, nameOf: (u) => nameOf(u) ?? t('rooms.goneUser'), folder: CHAT_FILES_FOLDER[locale] ?? CHAT_FILES_FOLDER.en, bot })
   // a line that names a project: its name opens the project page only while I can open it now (eventProjectOf); in the
   // trash, deleted or out of my reach it is plain text
   const e = m.event
@@ -391,7 +396,7 @@ function EventLine({ m }: { m: RoomMessage }) {
     body = parts.length === 2 ? <>{parts[0]}<a href={`/projects/${project.id}`} onClick={(ev) => { if (ev.metaKey || ev.ctrlKey || ev.shiftKey) return; ev.preventDefault(); navigateTo(`/projects/${project.id}`) }} className="font-medium text-muted underline underline-offset-2 hover:text-ink" data-testid="room-event-project">{project.name}</a>{parts[1]}</> : text
   }
   return (
-    <p id={messageDomId(m.id)} className="px-6 pt-3 pb-1 text-center text-xs break-words text-faint" title={formatDateTime(m.createdAt, locale)} data-testid="room-event" data-project={project?.state}>
+    <p id={messageDomId(m.id)} className="px-6 pt-3 pb-1 text-center text-xs break-words text-faint" title={formatDateTime(m.createdAt, locale)} data-testid="room-event" data-project={project?.state} data-slack={e.type === 'slack' ? e.what : undefined}>
       {body}
     </p>
   )
@@ -477,7 +482,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
     ...(threadOn ? [{ id: 'thread' as const, label: t('rooms.replyInThread'), run: () => onThread!(m.id, true), testId: 'message-thread', menuTestId: 'message-reply-thread' }] : []),
     ...(askOn ? [{ id: 'askTrina' as const, label: t('sideChat.askAbout'), run: () => onAskTrina!(m), testId: 'message-ask-trina', menuTestId: 'message-ask-trina-menu' }] : []),
     // an app's message: its card's plain words (its body escapes Markdown marks for older apps)
-    ...(m.body ? [{ id: 'copy' as const, label: t('common.copy'), copy: { text: () => (app ? appPlainText(m) : m.body) }, menuTestId: 'message-copy' }] : []),
+    ...(m.body ? [{ id: 'copy' as const, label: t('common.copy'), copy: { text: () => (m.slackAuthor ? slackText(m) : app ? appPlainText(m) : m.body) }, menuTestId: 'message-copy' }] : []),
     // the message's address (docs/DECISIONS.md "Message links and their previews"): pasted elsewhere, it shows as a card;
     // the team address when there is one: a link copied in the desktop app on the office network opens for the others too
     ...(m.visibility === 'room' && !m.event ? [{ id: 'copyLink' as const, label: t('rooms.menu.copyLink'), copy: { text: () => copyLinkOf(roomId, m.id, m.threadRootId, me?.team?.address, location.origin), done: t('rooms.menu.linkCopied') }, menuTestId: 'message-copy-link' }] : []),
@@ -515,6 +520,10 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
       <ViewerMeta sender={ai ? { kind: 'ai' } : { kind: 'user', user: m.author }} at={m.createdAt} messageId={m.id} rootId={m.threadRootId ?? m.id} threadable={!!m.threadRootId || (m.visibility === 'room' && !m.event)}>
       {ai && !deleted ? (
         <Markdown text={m.body} className={clsx('min-w-0', WORDS, ANSWER_QUOTES)} openable={openable} />
+      ) : m.slackAuthor && !deleted ? (
+        // relayed from Slack (components/rooms/SlackMessage.tsx): its words as plain text with their line breaks, never
+        // Markdown and never a link found in them; its files' names with Open in Slack
+        <SlackRelayedBody m={{ ...m, slackAuthor: m.slackAuthor }} className={WORDS} after={meta} />
       ) : app && !deleted ? (
         // an app's card (components/rooms/AppCard.tsx): plain text, its one checked link (never Markdown, never links
         // found in its words); a reply in its thread as short lines; a quiet one (and the paused line) as one short line
@@ -539,6 +548,8 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
       )}
       </ViewerMeta>
       </RoomLinkMessage.Provider>
+      {/* a conversation linked to Slack: what of it did not go there (Retry for its author) */}
+      {!deleted && !app && m.slackSent && <SlackSentLine roomId={roomId} m={m} mine={mine} />}
       {!deleted && <ReactionChips roomId={roomId} m={m} />}
       {variant === 'timeline' && onThread && !m.threadRootId && <ThreadLine summary={m.thread} onOpen={() => onThread(m.id)} testId="room-thread-line" />}
       {/* computers: the hover bar (reactions, reply in thread, ⋮); touch screens and phones: a long press opens the same

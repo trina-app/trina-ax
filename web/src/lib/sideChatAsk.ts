@@ -4,14 +4,16 @@
 // its own column (a phone: its sheet). The asks themselves (a message, a file) are made here too.
 import type { RoomMessage } from '@mycel/shared/api'
 import type { SideSeed } from '../components/rooms/SideChatPanel'
-import { appPlainText } from './roomApps'
+import { appPlainText, slackText } from './roomApps'
 
 /** "Ask Trina about this" on a message of the room: who wrote it (the AI by its name), when, its text, and the thread an
  * answer about it may go to (its own, or the one it is a reply in) when it can have one: a message the whole room sees
  * that is not an event line. A private AI preview (only I see it) is never a thread's first message, nor is one in a
  * thread: it gets none, and an answer about it goes to the room (lib/sideChatSend.ts). */
-export function messageSeed(m: Pick<RoomMessage, 'id' | 'authorKind' | 'author' | 'createdAt' | 'body' | 'visibility' | 'event' | 'threadRootId' | 'app' | 'appCard'>, ai: string): SideSeed {
+export function messageSeed(m: Pick<RoomMessage, 'id' | 'authorKind' | 'author' | 'createdAt' | 'body' | 'visibility' | 'event' | 'threadRootId' | 'app' | 'appCard'> & Partial<Pick<RoomMessage, 'slackAuthor'>>, ai: string): SideSeed {
   const thread = m.visibility === 'room' && !m.event ? m.threadRootId ?? m.id : undefined
+  // relayed from Slack: its sender by their Slack name, and its words (marked an app's: outside words)
+  if (m.app && m.slackAuthor) return { key: `${m.id}:${Date.now()}`, author: m.slackAuthor.name, at: m.createdAt, text: slackText(m), app: true, ...(thread ? { thread } : {}) }
   // an app's message: the app by its name and its card's plain words (its body escapes Markdown marks)
   if (m.app) return { key: `${m.id}:${Date.now()}`, author: m.app.name, at: m.createdAt, text: appPlainText(m), app: true, ...(thread ? { thread } : {}) }
   return { key: `${m.id}:${Date.now()}`, author: m.authorKind === 'ai' ? ai : m.author?.name ?? '', at: m.createdAt, text: m.body, ...(thread ? { thread } : {}) }

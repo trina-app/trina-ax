@@ -5,7 +5,7 @@
 import { expect, test } from 'bun:test'
 import { DICTS } from '../../src/i18n'
 import { ROOM_APP_PRESET_NEEDS, ROOM_APP_PRESET_SIGNING, ROOM_APP_PRESET_SWITCHES, RoomAppPreset } from '@mycel/shared/api'
-import { appChip, appPlainText, EMAIL, appStatus, HUBSPOT_ROWS, isPreset, kindOf, MAKE_BODY, MORE_SERVICES, needsOf, notSetUp, NOTHING_YET, PICKER_GROUPS, serviceOf, signingOf, STRIPE_EVENTS, switchesOf, TOSS_EVENTS, unescapeAppBody } from '../../src/lib/roomApps'
+import { appChip, appPlainText, EMAIL, SLACK, appStatus, HUBSPOT_ROWS, isPreset, kindOf, MAKE_BODY, MORE_SERVICES, needsOf, notSetUp, NOTHING_YET, PICKER_GROUPS, serviceOf, signingOf, STRIPE_EVENTS, switchesOf, TOSS_EVENTS, unescapeAppBody } from '../../src/lib/roomApps'
 import { mayManageApps } from '../../src/store/roomApps'
 import { roomMenuActions } from '../../src/components/rooms/RoomMenu'
 import { pausedNoticeText, startsAtTime } from '../../src/components/rooms/apps/PausedNotice'
@@ -40,8 +40,9 @@ test('presets: the picker\'s groups, Email and Other last, the service of an app
   // "Show more services": the regional ones, folded, the same for everyone
   expect(MORE_SERVICES).toEqual(['toss_payments', 'channel_talk', 'portone'])
   // every preset this build knows is in a group, under "Show more services", or Email (with Other in "Any other way",
-  // after the divider, only when the server says email can be added: plan 20261123-0421-room-email)
-  expect([...RoomAppPreset.options].sort()).toEqual([...picked, ...MORE_SERVICES, EMAIL].filter(isPreset).sort())
+  // after the divider, only when the server says email can be added: plan 20261123-0421-room-email), or Slack (first in
+  // the Work group: Connect a Slack channel, no Webhook URL: plan 20261127-0329-slack-channel-relay)
+  expect([...RoomAppPreset.options].sort()).toEqual([...picked, ...MORE_SERVICES, EMAIL, SLACK].filter(isPreset).sort())
   expect(picked).not.toContain('other')
   expect(picked).not.toContain('email' as never)
   expect(serviceOf({ kind: 'other', preset: 'stripe' })).toBe('stripe')

@@ -57,6 +57,7 @@ import { messageDomId, RoomMessages } from '../components/rooms/RoomMessages'
 import { ImageGroup } from '../components/ImageViewer'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
 import { RoomMenu } from '../components/rooms/RoomMenu'
+import { SlackChip, SlackRelayHost, useSlackRelayWatch } from '../components/rooms/SlackChip'
 import { mayManageApps, useRoomApps } from '../store/roomApps'
 import { SaveToTeamSheet } from '../components/rooms/SaveToTeamSheet'
 import { isAppService } from '../lib/roomApps'
@@ -473,6 +474,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const notFound = missing || badThread || (!!timeline?.error && (isApiError(timeline.error, 'not_found') || isApiError(timeline.error, 'forbidden')))
 
   const messages = timeline?.messages ?? NO_MESSAGES
+  // a channel or project linked to a Slack channel: the header chip and the composer's words (components/rooms/SlackChip.tsx)
+  useSlackRelayWatch(room, messages)
   const peerTitle = usePeople((s) => (room?.kind === 'dm' && room.peers[0] ? s.byId[room.peers[0].id]?.title : undefined)) || null
   // a DM: the other person's online status (docs/DECISIONS.md "접속 상태"), on their picture on a computer and as a dot
   // before the name on a phone (which shows no picture here)
@@ -686,6 +689,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
               </button>
             </Tooltip>
           )}
+          {/* linked to a Slack channel: "#client-acme · Slack", which opens its status (a phone: the mark only) */}
+          {room && <SlackChip roomId={room.id} />}
           </div>
           {peerTitle && (
             <p className="truncate text-xs text-muted" data-testid="room-peer-title">
@@ -780,6 +785,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
         }}
       />
       )}
+      {room && <SlackRelayHost roomId={room.id} />}
       <MembersDialog
         open={showMembers}
         onClose={() => setShowMembers(false)}

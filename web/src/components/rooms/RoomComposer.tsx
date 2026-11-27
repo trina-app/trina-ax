@@ -41,6 +41,7 @@ import { api, API, errorText, roomFileUrl } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
 import { formatSize } from '../../lib/format'
 import { NO_UPLOADS, nextUploadKey, roomTarget as targetOf, setPlaceUploads, teamCopies, useRoomUploads, type RoomUpload } from '../../store/roomUploads'
+import { useSlackLink } from '../../store/slackRelay'
 import { cancelUpload, SINGLE_REQUEST_MAX, unreadableFile, uploadFile, uploadPercent } from '../../lib/upload'
 import { UploadLabel } from '../UploadLabel'
 import { pastedFiles } from '../../lib/paste'
@@ -281,7 +282,12 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   }, [editing, editMsg?.id])
 
   // (the field grows with its text and its placeholder: composer/ComposerField.tsx)
-  const placeholder = voice.transcribing ? voice.transcribingText : threadRootId ? t('rooms.threadPlaceholder') : t('rooms.placeholder')
+  // a conversation linked to a Slack channel (docs/SLACK.md "Channel relay"): nobody is surprised that it goes there too
+  const slack = useSlackLink(roomId)
+  const relayed = slack?.state === 'active'
+  const placeholder = voice.transcribing ? voice.transcribingText
+    : threadRootId ? (relayed ? t('slackRelay.threadPlaceholder') : t('rooms.threadPlaceholder'))
+    : relayed ? t('slackRelay.placeholder', { channel: slack.channelName }) : t('rooms.placeholder')
   // back after a recording: the newest words in sight, as they were while recording
   useEndAfterRecording(input, voice.recording, voice.busy, text)
   // a thread just opened (from "reply in thread"): the box is where the person types next

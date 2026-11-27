@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import type { RoomAppIcon, RoomAppRef } from '@mycel/shared/api'
 import { useT } from '../../../i18n'
 import { appTone, firstLetter } from '../../../lib/appTone'
+import { slackLogo } from '../../../lib/connectors'
 import type { AppService } from '../../../lib/roomApps'
 import { Badge } from '../../ui'
 
@@ -60,6 +61,14 @@ export function AppTile({ service, app, size = 'face', className }: { service: A
         style={{ width: px, height: px, borderRadius: radius }}
         className={clsx('shrink-0 bg-hover object-cover select-none', className)} data-testid="app-tile" data-kind={service} data-icon="image"
       />
+    )
+  }
+  // Slack's mark in its own colours (web/public/icons/connectors/slack.svg, as Admin › Connected apps shows it)
+  if (service === 'slack') {
+    return (
+      <span aria-hidden style={{ width: px, height: px, borderRadius: radius }} className={clsx('flex shrink-0 items-center justify-center bg-hover select-none', className)} data-testid="app-tile" data-kind={service}>
+        <img src={slackLogo} alt="" width={mark} height={mark} draggable={false} decoding="async" style={{ width: mark, height: mark }} data-testid="app-logo" />
+      </span>
     )
   }
   const emoji = own?.icon && 'emoji' in own.icon ? own.icon.emoji : null
