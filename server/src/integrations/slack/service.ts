@@ -514,8 +514,6 @@ export class SlackConnector {
     let slack: 'removed' | 'unavailable' | null = null
     // an install still waiting for Slack's check is not taken up after this
     this.pending = null
-    // the linked conversations say so (their links stay: the same workspace when Slack is added again)
-    try { this.relay.teamRemoved() } catch (e) { this.log.warn('slack relay lines not written', { err: String(e) }) }
     if (cfg?.mode === 'official') {
       this.feed?.stop(); this.feed = null
       slack = this.broker ? await this.broker.uninstall() : 'unavailable'
@@ -526,6 +524,8 @@ export class SlackConnector {
       if (cfg?.mode === 'official' && now?.mode !== 'official' && now?.secret_enc) throw new SlackError('own_app_saved', 'conflict')
       this.forgetWorkspace(); this.db.query('DELETE FROM slack_config').run()
     })()
+    // the channel relay's links end (a line in each linked conversation) and what it kept from Slack goes
+    try { this.relay.forgetWorkspace() } catch (e) { this.log.warn('slack relay data not deleted', { err: String(e) }) }
     if (cfg) audit(this.db, { actor, action: 'slack.removed', target: cfg.team_id, ...(slack ? { detail: { via: 'official', slack } } : {}) })
     this.refresh()
     return this.adminView()
@@ -1300,7 +1300,8 @@ export class SlackConnector {
   private removedInSlack(reason: string) {
     const cfg = this.config()
     if (!cfg || cfg.mode !== 'official' || !cfg.secret_enc) return
-    try { this.relay.teamRemoved() } catch (e) { this.log.warn('slack relay lines not written', { err: String(e) }) }
+    // the channel relay's links end (a line in each linked conversation) and what it kept from Slack goes
+    try { this.relay.forgetWorkspace() } catch (e) { this.log.warn('slack relay data not deleted', { err: String(e) }) }
     this.db.query("UPDATE slack_config SET secret_enc = NULL, key_version = NULL, install_id = NULL, last_error = 'removed', updated_at = ? WHERE id = 1 AND mode = 'official'").run(iso(this.now()))
     audit(this.db, { actor: null, action: 'slack.removed_in_slack', target: cfg.team_id, detail: { reason } })
     this.log.info('slack app removed from the workspace', { reason })

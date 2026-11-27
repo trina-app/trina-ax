@@ -256,10 +256,17 @@ test('guests: a conversation with a guest cannot be linked, a guest cannot join 
   // a project, its chat room linked, then a guest invited to it: refused
   const p = await teamProject(ada.client, 'client-work')
   const room = (await ada.client.call('POST', `/api/projects/${p.id}/room`)).id as string
+  // a guest link made before the project's conversation is linked
+  const early = await ada.client.call('POST', '/api/guest-invites', { place: { kind: 'project', id: p.id } })
   expect((await ada.client.call('POST', `/api/rooms/${room}/slack`, { channelId: 'C0PROJ' })).link.channelName).toBe('proj')
-  let refused: unknown = null
-  try { await addGuest(h, ada.client, { username: 'gina', place: { kind: 'project', id: p.id } }) } catch (e) { refused = e }
-  expect(String((refused as Error)?.message ?? refused)).toContain('slack_relay_guest')
+  // a new guest link: refused when it is made, with the reason the app says in words
+  const made = await ada.client.try('POST', '/api/guest-invites', { place: { kind: 'project', id: p.id } })
+  expect([made.status, made.body?.error?.params?.reason]).toEqual([409, 'slack_relay_guest'])
+  // the earlier link stops while the link lasts: nobody gets in by it
+  const tok = String(early.url).split('/invite/')[1]!
+  const accepted = await h.client({ ip: '10.0.0.9' }).try('POST', `/api/invites/${tok}/accept`, { username: 'gail', name: 'GAIL', password: 'guest river lamp 77' })
+  expect(accepted.status).toBeGreaterThanOrEqual(400)
+  expect(h.ctx.db.query("SELECT COUNT(*) n FROM users WHERE username = 'gail'").get()).toEqual({ n: 0 })
   // disconnected: the guest can come in; a conversation with a guest cannot be linked
   await ada.client.call('DELETE', `/api/rooms/${room}/slack`)
   expect(await slackLines(ada.client, room)).toEqual(['connected', 'disconnected'])
@@ -291,3 +298,25 @@ test('disconnect via the app\'s Remove: the line, the audit, nothing more comes 
   expect(relayed()).toBe(kept)
   expect(h.ctx.db.query("SELECT COUNT(*) n FROM room_messages WHERE body LIKE '%after the end in Slack%'").get()).toEqual({ n: 0 })
 })
+
+test('Slack removed from the team: every link ends with its line, and what the relay kept from Slack is deleted', async () => {
+  // connected again, one message in and one out
+  expect((await ada.client.call('POST', `/api/rooms/${team}/slack`, { channelId: CH })).link.state).toBe('active')
+  say('before the removal', { user: 'U0EXT' })
+  await waitFor(async () => (await appMessages(mia.client)).some((m) => m.body.includes('before the removal')))
+  const count = (t: string) => (h.ctx.db.query(`SELECT COUNT(*) n FROM ${t}`).get() as { n: number }).n
+  expect(count('slack_relay_messages')).toBeGreaterThan(0)
+  await owner.call('DELETE', '/api/admin/slack')
+  expect([count('slack_relay_links'), count('slack_relay_messages'), count('slack_relay_outbox')]).toEqual([0, 0, 0])
+  expect(h.ctx.db.query("SELECT COUNT(*) n FROM room_apps WHERE preset = 'slack'").get()).toEqual({ n: 0 })
+  // the relayed words stay, without the Slack user id, picture or permalink
+  const left = (h.ctx.db.query("SELECT app_card FROM room_messages WHERE app_card IS NOT NULL").all() as { app_card: string }[]).map((r) => JSON.parse(r.app_card).slack).filter(Boolean)
+  expect(left.length).toBeGreaterThan(0)
+  for (const s of left) {
+    expect(s.user ?? s.avatar ?? s.permalink ?? null).toBeNull()
+    expect([s.ts, s.channel]).toEqual(['', ''])
+  }
+  expect((await slackLines(mia.client)).at(-1)).toBe('team_removed')
+  expect((await mia.client.call('GET', `/api/rooms/${team}/slack`)).link).toBeNull()
+})
+

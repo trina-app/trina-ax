@@ -271,7 +271,10 @@ work in Trina; the client stays in Slack and notices no change.
 - **States** (event lines in the conversation): the app removed from the channel (`channel_left` / `group_left`, or a
   post answered `not_in_channel` / `channel_not_found`) stops both ways until it is invited again; archived or deleted
   ends the link; shared with another organization (`channel_shared`) is said and the relay goes on; Slack removed from
-  the team is said. A private channel's `group_archive` / `group_rename` arrive too (live check 2026-11-27, though
+  the team (Admin › Remove, or the app removed in Slack) ends every link with that line and deletes what the relay kept
+  from Slack at once (the links, the `(channel, ts)` pairs, the outbox, and in the relayed messages the Slack user ids,
+  pictures and permalinks; their words stay with the sender's name, as after Disconnect): connect again after Slack is
+  added again. A private channel's `group_archive` / `group_rename` arrive too (live check 2026-11-27, though
   Slack's docs list them for RTM); a refused post and `conversations.info` (at start and every 6 hours) decide as much
   as an event.
 - **Catch-up:** after a gap (the server started, the connection came back, the hosting service's queue let go of
@@ -295,7 +298,8 @@ work in Trina; the client stays in Slack and notices no change.
 
 What the relay keeps: each relayed message as a message of that conversation (its text, the sender's Slack name, id
 and picture address, its Slack ts), like the rest of the team's content, until it is deleted in Slack or here; the
-link (`slack_relay_links`), the `(channel, ts)` pairs and the outbox of posts not sent yet. Slack people's names: 10
+link (`slack_relay_links`), the `(channel, ts)` pairs and the outbox of posts not sent yet (all but the words gone
+when Slack is removed from the team, above). Slack people's names: 10
 minutes in memory; pictures: a day in memory.
 
 ## Scopes (bot token)

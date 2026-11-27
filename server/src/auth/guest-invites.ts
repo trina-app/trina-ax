@@ -20,6 +20,7 @@ import { RuleSet, atLeast, loadPrincipal } from '../policy/access'
 import { assertGuestFree, guestLimit, guestsUsed, projectFolder } from './guests'
 import { AUTH_MESSAGES } from './messages'
 import { planManageUrl } from '../system/limits'
+import { relayLinkedProjectAt } from '../integrations/slack/relay-store'
 import { hashToken, newToken } from './passwords'
 import { authOf } from './service'
 
@@ -113,6 +114,16 @@ export function assertGuestLinkFree(db: Database, locale: Locale, now: number): 
   fail('plan_limit', (AUTH_MESSAGES.guestLimitLinks[locale] ?? AUTH_MESSAGES.guestLimitLinks.en).replace('{n}', String(max)), { params: { reason: 'guest_limit', limit: max, pending, changePlan: true, ...(url ? { manageUrl: url } : {}) } })
 }
 
+/** A project whose conversation is linked to a Slack channel takes no guest (admin/folders.ts guestRulesInPlace holds
+ * the same line when the rule is written): an invite to it is refused when it is made, and one made before the link
+ * stops while it lasts (accounts.ts makerReason). */
+export function relayBlocksGuestPlace(db: Database, place: GuestPlace): boolean {
+  if (place.kind !== 'project') return false
+  const folder = projectFolder(db, place.id)
+  return !!folder && !!relayLinkedProjectAt(db, folder)
+}
+const refuseRelayGuest = () => fail('conflict', 'Disconnect Slack first to invite a guest.', { params: { reason: 'slack_relay_guest' } })
+
 /** Make a guest invite (POST /api/guest-invites, and POST /api/admin/invites with role guest). */
 export function createGuestInvite(c: Context<AppEnv>, ctx: AppContext, b: In<typeof CreateGuestInviteBody>, linkBase: string, toInvite: (id: string) => Invite) {
   const auth = c.get('auth')!
@@ -121,6 +132,7 @@ export function createGuestInvite(c: Context<AppEnv>, ctx: AppContext, b: In<typ
   const place = b.place
   // one answer for a place that does not exist and one the caller may not open a guest into: 403 (no probing)
   if (!inviteMakerOk(ctx.db, auth.user.id, place, ai)) fail('forbidden')
+  if (relayBlocksGuestPlace(ctx.db, place)) refuseRelayGuest()
   const now = authOf(ctx).now()
   assertGuestLinkFree(ctx.db, locale, now)
   const token = newToken()
@@ -129,6 +141,7 @@ export function createGuestInvite(c: Context<AppEnv>, ctx: AppContext, b: In<typ
   const expiresAt = new Date(now + b.expiresInHours * 3600_000).toISOString()
   ctx.db.transaction(() => {
     if (!inviteMakerOk(ctx.db, auth.user.id, place, ai)) fail('forbidden')
+    if (relayBlocksGuestPlace(ctx.db, place)) refuseRelayGuest()
     assertGuestLinkFree(ctx.db, locale, now)
     ctx.db.query(`INSERT INTO invites (id, role, group_ids, token_hash, created_by, created_at, expires_at, guest_place_kind, guest_place_id, guest_ai, guest_name)
       VALUES (?, 'guest', '[]', ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, hashToken(token), auth.user.id, createdAt, expiresAt, place.kind, place.id, JSON.stringify(ai), b.name ?? null)

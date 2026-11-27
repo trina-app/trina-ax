@@ -111,7 +111,11 @@ export class SlackRelay {
       void this.serial(`out:${r.channel_id}`, () => this.post(r.link_id, r.room_message_id))
     }
   }
-  stop() { if (this.timer) clearInterval(this.timer); this.timer = null; this.started = false }
+  stop() {
+    if (this.timer) clearInterval(this.timer)
+    if (this.syncAgain) clearTimeout(this.syncAgain)
+    this.timer = null; this.syncAgain = null; this.started = false
+  }
 
   private links(): RelayLinkRow[] {
     const cfg = this.slack.config()
@@ -344,10 +348,29 @@ export class SlackRelay {
     this.announce(l.room_id, line)
   }
 
-  /** Slack was removed from the team (the app removed in Slack, its token refused, Admin › Remove): one line in each
-   * linked conversation; the links stay (the same workspace when it is added again). */
-  teamRemoved() {
-    for (const l of this.links()) if (l.state === 'active') this.setState(l, null, 'team_removed', 'team_removed')
+  /** Slack removed from the team (Admin › Remove, or the app removed in Slack): every link ends, with its line, and
+   * what the relay kept from Slack goes at once (Slack's Developer Policy, docs/decisions/20261127-slack-marketplace-gaps.md):
+   * the links (channel ids and names), their apps, the queue, the (channel, ts) map, and in the relayed messages the
+   * Slack user ids, pictures and permalinks. The relayed words stay in the conversation with the sender's name, as
+   * after Disconnect (owner decision 4). Connect again after Slack is added again. */
+  forgetWorkspace() {
+    const all = this.db.query('SELECT * FROM slack_relay_links ORDER BY created_at').all() as RelayLinkRow[]
+    const now = nowIso()
+    const lines: [string, string][] = []
+    this.db.transaction(() => {
+      for (const l of all) {
+        if (l.state === 'active') lines.push([l.room_id, systemLine(this.db, l.room_id, { type: 'slack', what: 'team_removed', channel: l.channel_name }, now, null)])
+        audit(this.db, { actor: null, action: 'slack.relay_ended', target: l.id, detail: { reason: 'slack_removed', channel: l.channel_id } })
+      }
+      this.db.query('DELETE FROM slack_relay_outbox').run()
+      this.db.query("DELETE FROM room_apps WHERE id IN (SELECT app_id FROM slack_relay_links)").run()
+      this.db.query('DELETE FROM slack_relay_links').run()
+      this.db.query('DELETE FROM slack_relay_messages').run()
+      this.db.query(`UPDATE room_messages SET app_card = json_set(json_remove(app_card, '$.slack.user', '$.slack.avatar', '$.slack.permalink', '$.link'), '$.slack.ts', '', '$.slack.channel', '')
+        WHERE app_card IS NOT NULL AND json_valid(app_card) AND json_type(app_card, '$.slack') = 'object'`).run()
+    })()
+    this.people.clear(); this.avatars.clear(); this.channelLists.clear(); this.capNoted.clear(); this.lastSent.clear()
+    for (const [roomId, line] of lines) this.announce(roomId, line)
   }
 
   // ---------------------------------------------------------------- the hosting service and rechecks
@@ -363,8 +386,18 @@ export class SlackRelay {
         if (a.notMember.includes(l.channel_id) && l.state === 'active') this.setState(l, 'bot_removed', 'bot_removed', 'not_member')
         else if (a.channels.includes(l.channel_id) && l.state === 'bot_removed') this.setState(l, 'active', 'back', 'back')
       }
-    } catch (e) { this.log.info('slack relay channels not sent to the hosting service', { reason: (e as { code?: string })?.code ?? 'unknown' }) }
+    } catch (e) {
+      const code = (e as { code?: string })?.code ?? 'unknown'
+      this.log.info('slack relay channels not sent to the hosting service', { reason: code })
+      // the hosting service or Slack did not answer: told again in a minute (until then it forwards the channels it
+      // kept, a new one none), not only at the 6-hour recheck
+      if (this.started && !this.syncAgain && ['unreachable', 'provider_error', 'rate_limited', 'internal'].includes(code)) {
+        this.syncAgain = setTimeout(() => { this.syncAgain = null; void this.syncBroker() }, 60_000)
+        ;(this.syncAgain as { unref?: () => void }).unref?.()
+      }
+    }
   }
+  private syncAgain: ReturnType<typeof setTimeout> | null = null
 
   /** Each link checked with Slack (conversations.info): the app still in the channel, not archived, its name. */
   async recheck(): Promise<void> {
@@ -659,10 +692,11 @@ export class SlackRelay {
   private deletedInSlack(l: RelayLinkRow, ts: string | null) {
     if (!ts) return
     const r = this.db.query("SELECT room_message_id FROM slack_relay_messages WHERE channel_id = ? AND ts = ? AND direction = 'in'").get(l.channel_id, ts) as { room_message_id: string } | null
-    if (!r) return
+    // only in this link's conversation: a channel connected again elsewhere leaves the earlier one's history alone
+    if (!r || !messageRow(this.db, l.room_id, r.room_message_id)) return
     const now = nowIso()
     this.db.transaction(() => {
-      this.db.query("UPDATE room_messages SET body = '', mentions = '[]', deleted_at = ?, app_card = json_object('title', '', 'details', json('[]'), 'app', json_extract(app_card, '$.app')) WHERE id = ? AND deleted_at IS NULL").run(now, r.room_message_id)
+      this.db.query("UPDATE room_messages SET body = '', mentions = '[]', deleted_at = ?, app_card = json_object('title', '', 'details', json('[]'), 'app', json_extract(app_card, '$.app')) WHERE id = ? AND room_id = ? AND deleted_at IS NULL").run(now, r.room_message_id, l.room_id)
       this.db.query('DELETE FROM room_reactions WHERE message_id = ?').run(r.room_message_id)
       this.db.query('DELETE FROM room_notices WHERE source_id = ? AND room_id = ?').run(r.room_message_id, l.room_id)
     })()

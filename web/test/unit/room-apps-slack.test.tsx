@@ -102,7 +102,7 @@ test('linked to Slack: the channels (a taken one greyed, a private one locked), 
   expect(rows[2]!.textContent).toContain('Connected to another conversation')
   expect(a.get('slack-relay-channel-C0ACME04').disabled).toBe(true)
   expect(a.get('slack-relay-invite').textContent).toBe('Channel not here? Invite the app in Slack: /invite @trina')
-  expect(a.get('slack-relay-who').textContent).toBe("Everyone in this conversation will see this channel's messages from now on, and what you write here goes to Slack under your name.")
+  expect(a.get('slack-relay-who').textContent).toBe("Everyone in this conversation will see this channel's messages from now on, and what each person writes here goes to Slack under their own name.")
   // nothing picked yet: Connect waits
   expect(a.get('slack-relay-connect').disabled).toBe(true)
   // a browser checks the radio before the click's listeners run, past React's value tracker (this small DOM does not)
