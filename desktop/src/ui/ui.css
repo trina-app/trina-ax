@@ -245,8 +245,9 @@ h1 {
   font-size: 13px;
   color: var(--faint);
 }
-/* another team's "Open": the plain outlined button (button above), smaller, inside the row's one button; it darkens
-   with the row's hover or focus. Never the accent: Continue is the one orange button on this screen. */
+/* another team's "Open": the plain outlined button (button above), smaller, inside the row's one button. It shows on
+   the row's hover or keyboard focus (always on a touch screen), so a resting list is not a column of buttons; the whole
+   row opens the team. Never the accent. */
 .team-row .open-pill {
   flex: none;
   padding: 3px 12px;
@@ -257,9 +258,13 @@ h1 {
   line-height: 18px;
   font-weight: 500;
   color: var(--text);
+  opacity: 0;
+  transition: opacity 120ms ease;
 }
 .team-row:hover .open-pill,
-.team-row:focus-visible .open-pill {
+.team-row:focus-visible .open-pill,
+.teams li.menu-open .open-pill {
+  opacity: 1;
   border-color: var(--text);
 }
 /* the row's "···": at its right, faint until the row is hovered or focused (full on a touch screen) */
@@ -278,7 +283,7 @@ h1 {
   border-radius: 6px;
   background: transparent;
   color: var(--faint);
-  opacity: 0.45;
+  opacity: 0.75;
 }
 .teams li:hover .more,
 .teams li:focus-within .more,
@@ -303,6 +308,10 @@ h1 {
   }
   .team-row .open-pill {
     padding: 6px 14px;
+    opacity: 1;
+  }
+  .action-row {
+    min-height: 56px;
   }
 }
 .row-menu {
@@ -360,21 +369,40 @@ h2.another {
   gap: 12px;
   margin-top: 20px;
 }
+/* the language: a compact quiet control at the foot's right (a globe and the select, no visible label), the ghost
+   buttons' muted text and hover fill; its name "Language" is read out (welcome.ts languagePicker) */
 .language {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 2px;
+  margin-right: -8px;
+  padding-left: 8px;
+  border-radius: 8px;
   font-size: 13px;
   color: var(--muted);
 }
+.language:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+/* the keyboard ring goes round the whole control (globe and select), not the select alone */
+.language:has(select:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.language select:focus-visible {
+  outline: none;
+}
 .language select {
   min-height: 32px;
-  border: 1px solid var(--field-border);
+  border: none;
   border-radius: 8px;
-  padding: 5px 8px;
-  background: var(--bg);
+  padding: 5px 4px;
+  background: transparent;
   color: inherit;
   font: inherit;
+  cursor: pointer;
+  field-sizing: content;
 }
 
 /* a quiet text button (the help links under the box, the host strip's "other team") */
@@ -435,38 +463,105 @@ button.ghost:hover {
   margin: 14px 0 0;
 }
 
-/* S0's two full-width rows (welcome.ts start): Create is the one accent, Join the plain outlined row */
-.choices {
+/* S0's actions (welcome.ts start): one short list under the teams, in its own voice so it never reads as more teams
+   (docs/AGENTS/plan/20261127-1053-team-picker-polish-2.md): 40px rows, a bare line icon in the 28px tile's place (team
+   rows have a filled tile), a 14px title (team names are 15px), a faint chevron at the right (team rows have none).
+   The same 12px inset as the team rows, so icons and titles line up with the initials and names above. Create's "+"
+   tile is the screen's one accent; on the first run Create leads with a hairline outline and its short line. */
+.action-rows {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin: 14px 0 10px;
-}
-button.choice {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
   gap: 2px;
+  margin: 12px -12px 0;
+}
+.action-rows.after-teams {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+button.action-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   width: 100%;
-  min-height: 48px;
-  padding: 12px 14px;
-  border-radius: 10px;
+  min-height: 40px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
   text-align: left;
 }
-button.choice:not(.primary):hover {
+button.action-row:hover {
   background: var(--hover);
 }
-button.choice.primary:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
+button.action-row:focus-visible {
+  outline-offset: -2px;
 }
-.choice-title {
+.action-row .tile {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+.action-row:hover .tile {
+  color: var(--text);
+}
+.action-row.icon-plus .tile {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.action-row .words {
+  flex: 1;
+  min-width: 0;
+}
+.action-row .name {
+  display: block;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+}
+/* the demo: the least of the three, muted until pointed at */
+.action-row.quiet .name {
+  font-weight: 400;
+  color: var(--muted);
+}
+.action-row.quiet:hover .name {
+  color: var(--text);
+}
+/* the row goes somewhere: a faint chevron (the demo: an arrow out), darker on hover */
+.action-row .go {
+  flex: none;
+  display: flex;
+  color: var(--faint);
+}
+.action-row:hover .go {
+  color: var(--text);
+}
+/* the first run's Create: nothing above it to open, so it is the one thing to press; a hairline, not a coloured block */
+button.action-row.lead {
+  min-height: 60px;
+  padding: 9px 11px;
+  margin-bottom: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+button.action-row.lead:hover {
+  border-color: var(--field-border);
+}
+.action-row.lead .name {
   font-size: 15px;
   font-weight: 600;
 }
-.choice-sub {
+/* the create row's short line: may wrap at a narrow window, never clipped */
+.action-row .sub-line {
+  display: block;
   font-size: 13px;
-  font-weight: 400;
+  line-height: 18px;
+  color: var(--faint);
 }
 /* a link-like text button inside a line ("Change", "Sign in", the terms) */
 button.inline {

@@ -25,6 +25,7 @@ import type { ToolRegistry } from '../tools/registry'
 import { DURATION } from './layout'
 import { mp4Available, mp4Why, noFileReason, promoVideoFile, promoVideoInfo, renderCpuCount, renderPromoVideo, renderTimeLimitMs, type StoredSpec } from './render'
 import { teamPathOf } from './spec'
+import { copyOffLoop } from '../files/copy-off-loop'
 
 export const SAVE_PROMO_TOOL = 'save_promo_video'
 export const SavePromoVideoInput = z.strictObject({
@@ -100,7 +101,7 @@ export async function savePromoVideo(ctx: AppContext, a: z.output<typeof SavePro
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-promo-'))
   try {
     const tmp = path.join(work, 'video.mp4')
-    fs.copyFileSync(promoVideoFile(ctx, t.user.id, row.artifact_id).abs, tmp)
+    await copyOffLoop(promoVideoFile(ctx, t.user.id, row.artifact_id).abs, tmp)
     const made = await placeProduced(ctx, files, t, segs, tmp, SAVE_PROMO_TOOL, undefined, { thisAnswerOnly: true, detail: { from: `promo video ${row.artifact_id}` } })
     const mb = (made.size / 1048576).toFixed(1)
     return {

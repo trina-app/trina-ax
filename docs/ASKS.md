@@ -67,10 +67,10 @@ switch); "ask every time" counts the rest (most are one-off confirms of the pers
 | Rooms (대화방) | 5 | 4 | 1 | 0 | 0 |
 | AI questions (AI의 질문) | 2 | 0 | 2 | 0 | 0 |
 | When guests are there (게스트가 있을 때) | 4 | 0 | 4 | 0 | 0 |
-| Screen confirm dialogs (화면 확인창) | 102 | 4 | 98 | 0 | 0 |
+| Screen confirm dialogs (화면 확인창) | 103 | 4 | 99 | 0 | 0 |
 | Sign-in, setup and updates (로그인·설정·업데이트) | 15 | 7 | 8 | 0 | 0 |
 | System permissions (시스템 권한) | 21 | 18 | 3 | 0 | 0 |
-| **all** | 219 | 75 | 144 | 0 | 0 |
+| **all** | 220 | 75 | 145 | 0 | 0 |
 
 ## Registry
 
@@ -315,6 +315,7 @@ step the person starts; scheduled runs never reach them. "hidden for guests" mea
 | `ui.admin.team.iconRemove` | `web/src/pages/admin/TeamSettings.tsx:354` | Remove the team logo. | Remove the team logo? / 팀 로고를 지울까요? | Remove / Cancel | none | n/a | n/a | admin only | irreversible | OK |
 | `ui.admin.team.removeAllShares` | `web/src/pages/admin/TeamSettings.tsx:512` | Remove every share with outside people. | Remove access for # people to {what}? / {people}명의 {what} 접근 권한을 없앨까요? | Remove all / Cancel | none | n/a | n/a | admin only | irreversible | OK |
 | `ui.admin.team.speechKeyRemove` | `web/src/pages/admin/TeamSettings.tsx:725` | Remove the speech key. | Remove the OpenRouter key? / OpenRouter 키를 지울까요? | Remove key / Cancel | none | n/a | n/a | admin only | other:feature-stops | OK |
+| `ui.admin.signIn.domainsLock` | `web/src/pages/admin/SignInMethods.tsx` (through `web/src/lib/destructive.ts`) | Admin › Sign-in methods › Save a Google Workspace domain list that people without a password are outside of (the server counts them); skipped when none are. | Save this domain list? / 이 도메인 목록을 저장할까요? (`signIn.domainsLock`) | Save anyway / Cancel | none | n/a | n/a | admin only | other:locks-out | OK |
 | `ui.handover.transfer` | `web/src/components/handover/HandoverDialog.tsx:152` | The owner hands the team to another member; password again. | Make {name} the owner? / {name}님을 팀장으로 정할까요? (`handover.title`) | Transfer / Cancel | none | n/a | n/a | admin only | irreversible, security | OK |
 | `ui.share.chatProject` | `web/src/components/chat/ShareChat.tsx:85` | The web side of `dialog.chat.project`: share a chat with its project's members. | Share this chat so {n} people can see it? / 이 채팅을 공유해서 {n}명이 볼 수 있게 할까요? (`chat.shareChat.title`) | Cancel / Share | none | n/a | n/a | same | irreversible, shows-private-to-others | OK |
 | `ui.room.makeProject` | `web/src/components/rooms/MakeProjectDialog.tsx:190` | Make a project from a room or a 1:1 chat (its people become members). | Make project / 프로젝트 만들기 (`rooms.makeProject.confirm`) | Cancel / Make project | none | n/a | n/a | same | sends-to-others | OK |

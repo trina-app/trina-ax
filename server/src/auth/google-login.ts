@@ -41,12 +41,12 @@ import { GOOGLE_AUTH, GOOGLE_TOKEN } from '../integrations/google-drive/client'
 import { configKey, hash as driveHash, type DriveConfig } from '../integrations/google-drive/config'
 import { googleDriveOf } from '../integrations/google-drive/oauth'
 import { publicHostOf } from '../system/deployment'
-import { brokerClientOf, brokerFlowKey, googleSigninBrokerOf } from './google-login-broker'
+import { brokerClientOf, brokerFlowKey, brokerUnreachable, googleSigninBrokerOf } from './google-login-broker'
 import { verifyGoogleIdToken } from './google-id-token'
 import { viaOf } from './accounts'
 import { isGuest } from './guests'
 import { forgetLoginIdentities, passwordlessCount } from './login-identities'
-import { googleSignInOn } from './google-login-admin'
+import { googleBrokerUnreachable, googleClientKind, googleDomainAllowed, googleSignInDomains, googleSignInOn } from './google-login-admin'
 import { notifyGoogleConnected, notifySignInChange } from '../notifications/service'
 import { CLOSE_SCRIPT, returnHeaders, returnPage } from '../integrations/connections/return-page'
 import { msg } from './messages'
@@ -86,6 +86,14 @@ export type GoogleResult = 'connected' | 'not_connected' | 'account_off' | 'pass
   | 'username_taken' | 'gone' | 'full'
   // a re-check (intent 'reauth'): confirmed for the person's connected Google account, or another Google account
   | 'confirmed' | 'wrong_account'
+  // the team lets in only Google Workspace accounts of some domains (google-login-admin.ts googleDomainAllowed), and
+  // Google's `hd` is not one of them
+  | 'wrong_domain'
+
+/** A "Try it" flow (Admin › Sign-in methods): a connect flow of the admin's session whose `next` is this page. Its
+ * return signs nobody in and connects nothing; it says which Google account answered (google-login.ts tryPage). No new
+ * intent: migration 131's CHECK has none for it. */
+export const TRY_NEXT = '/admin/sign-in'
 
 /** binding_hash: the browser's binding cookie's hash ('web'), or the hash of the secret the app keeps ('desktop',
  * 'mobile': auth/google-login-apps.ts, migration 133) */
@@ -99,6 +107,10 @@ interface FlowRow {
 export interface GoogleClaims { sub: string; email: string | null; hd: string | null; name?: string; iat?: number; authTime?: number }
 /** How a return ended: a result for the page, a web sign-in's address to open, or an app's one-time code */
 type Settled = { row: FlowRow | null; result: GoogleResult } | { row: FlowRow; next: string } | { row: FlowRow; code: string; who: { name: string; username: string } }
+  // a "Try it" (TRY_NEXT): the Google account that answered and whether the domain list lets it in
+  | { row: FlowRow; tried: Tried }
+/** what "Try it" found: Google's address for the account, whether the domain list lets it in, and that list */
+interface Tried { email: string | null; allowed: boolean; domains: string[] }
 /** what binds a new flow: the browser's cookie, or the secret an app keeps (only its hash comes here) */
 type Binding = { client: 'web' } | { client: GoogleAppClient; secretHash: string }
 
@@ -139,12 +151,7 @@ export function safeNextPath(v: string | null | undefined): string | null {
  * (people without a password sign in and re-check with Google whatever it says). */
 function googleClientMode(ctx: AppContext, anyway = false): 'direct' | 'broker' | null {
   if (ctx.config.demo || isFreeRoam(ctx.config) || (!anyway && !googleSignInOn(ctx.db))) return null
-  const drive = googleDriveOf(ctx)
-  if (drive.config) return 'direct'
-  // an operator's own client file that does not load: no fallback to the hosting service (as for Drive)
-  if (drive.clientFromEnv) return null
-  const broker = googleSigninBrokerOf(ctx)
-  return broker && publicHostOf(ctx.config) && broker.serves() ? 'broker' : null
+  return googleClientKind(ctx)
 }
 
 /** How this page signs in with Google, or null when it cannot: googleClientMode, and the page is at the address Google
@@ -169,17 +176,42 @@ export function googleLoginAvailable(ctx: AppContext, reqUrl: string): boolean {
  * stops new people joining, connecting or starting with Google). */
 const signInAnyway = (ctx: AppContext): boolean => !googleSignInOn(ctx.db) && passwordlessCount(ctx.db) > 0
 
+/** The hosting service's sign-in service cannot be asked now, and someone here has no password (Google is their only
+ * way in): the sign-in button stays, and a click says it can't be reached and to ask an admin for a temporary password
+ * (begin). `reqUrl`: a browser's page, which must be at this server's public address (where the service comes back). */
+function brokerOutage(ctx: AppContext, reqUrl?: string): boolean {
+  if (ctx.config.demo || isFreeRoam(ctx.config) || !googleBrokerUnreachable(ctx) || !passwordlessCount(ctx.db)) return false
+  if (reqUrl === undefined) return true
+  try { return new URL(reqUrl).origin === new URL(`https://${publicHostOf(ctx.config)}`).origin } catch { return false }
+}
+
 /** The sign-in page offers "Sign in with Google": googleLoginAvailable, or, with the team switch off, while someone
- * here has no password. */
+ * here has no password; or while the hosting service cannot be asked and someone has no password (brokerOutage). */
 export function googleSignInPageAvailable(ctx: AppContext, reqUrl: string): boolean {
-  return googleLoginMode(ctx, reqUrl, signInAnyway(ctx)) !== null
+  return googleLoginMode(ctx, reqUrl, signInAnyway(ctx)) !== null || brokerOutage(ctx, reqUrl)
 }
 
 /** The desktop and phone apps can use it (auth/google-login-apps.ts): googleClientMode, from any address the app shows
  * (an office LAN address too): their flow is bound to a secret the app keeps, not to a cookie of one address. */
 export function googleAppLoginAvailable(ctx: AppContext): boolean {
-  return googleClientMode(ctx, signInAnyway(ctx)) !== null
+  return googleClientMode(ctx, signInAnyway(ctx)) !== null || brokerOutage(ctx)
 }
+
+/** Admin › Sign-in methods' "Try it" can start at this page's address: a Google client here, whatever the team switch
+ * says (an admin tries before turning it on). */
+export function googleTryAvailable(ctx: AppContext, reqUrl: string): boolean {
+  return googleLoginMode(ctx, reqUrl, true) !== null
+}
+
+/** POST /api/admin/google-login/try: Google for the admin's own browser session; the return says which Google account
+ * answered and whether the domain list lets it in (settle, tryPage). Signs nobody in, connects nothing. */
+export function startGoogleTry(c: Context<AppEnv>, ctx: AppContext): Promise<{ url: string }> {
+  const auth = c.get('auth')!
+  if (auth.via !== 'cookie') fail('forbidden')
+  return begin(c, ctx, 'connect', { userId: auth.user.id, sessionId: auth.session.id }, TRY_NEXT)
+}
+
+const isTry = (row: Pick<FlowRow, 'intent' | 'next'>) => row.intent === 'connect' && row.next === TRY_NEXT
 
 /** The flow row, the binding (a cookie for a browser; for an app, the hash of its secret) and Google's address (direct:
  * built here; broker: the console's start answer, its client id kept in the flow). Each start counts against the
@@ -193,8 +225,12 @@ export async function begin(c: Context<AppEnv>, ctx: AppContext, intent: FlowRow
   const hold = intent === 'setup' || intent === 'join' ? { wait: 0 } : a.limiter.hold(googleStartKeys(c.get('info').ip))
   if (hold.wait > 0) fail('rate_limited', msg('tooManyAttempts', locale), { retryAfter: hold.wait })
   // the team switch stops new people only: a re-check, and a sign-in while someone has no password, go on
-  const anyway = intent === 'reauth' || (intent === 'signin' && signInAnyway(ctx))
+  // an admin's "Try it" too (it signs nobody in)
+  const anyway = intent === 'reauth' || isTry({ intent, next }) || (intent === 'signin' && signInAnyway(ctx))
   const mode = bind.client === 'web' ? googleLoginMode(ctx, c.req.url, anyway) : googleClientMode(ctx, anyway)
+  // the hosting service cannot be asked: say so, and what a person without a password does meanwhile
+  const unreachable = () => fail('unavailable', msg('googleUnreachable', locale), { params: { reason: 'unreachable' } })
+  if (!mode && googleBrokerUnreachable(ctx)) unreachable()
   if (!mode) fail('unavailable', msg('googleSignInOff', locale))
   const drive = googleDriveOf(ctx)
   ctx.db.query('DELETE FROM google_signin_flows WHERE expires_at <= ?').run(new Date(a.now()).toISOString())
@@ -223,7 +259,7 @@ export async function begin(c: Context<AppEnv>, ctx: AppContext, intent: FlowRow
     // the hosting service's client: our state comes back on GOOGLE_SIGNIN_TEAM_RETURN_PATH, our nonce is in Google's
     // address, our challenge binds the handoff to this flow's verifier
     let r: { url: string; clientId: string }
-    try { r = await googleSigninBrokerOf(ctx)!.start(state, challenge, nonce) } catch { return fail('unavailable', msg('googleSignInOff', locale)) }
+    try { r = await googleSigninBrokerOf(ctx)!.start(state, challenge, nonce) } catch (e) { return brokerUnreachable(e) ? unreachable() : fail('unavailable', msg('googleSignInOff', locale)) }
     key = brokerFlowKey(r.clientId)
     // a re-check asks Google for a new sign-in here too: Google's page, checked above, with two more questions
     const url = new URL(r.url)
@@ -362,6 +398,8 @@ async function finish(c: Context<AppEnv>, ctx: AppContext, mode: 'direct' | 'bro
   c.header('Referrer-Policy', 'no-referrer')
   // a re-check came back in the window the tab opened for it: a page there, the tab learns it by asking
   if (s.row?.intent === 'reauth') return reauthPage(c, 'result' in s ? s.result : 'failed')
+  // an admin's "Try it": a page that says how it went, with the way back to Admin › Sign-in methods
+  if (s.row && isTry(s.row)) return tryPage(c, 'tried' in s ? s.tried : null, 'result' in s ? s.result : 'failed')
   return c.redirect('next' in s ? s.next : backTo(s.row, 'result' in s ? s.result : 'failed'), 302)
 }
 
@@ -396,7 +434,8 @@ async function settle(c: Context<AppEnv>, ctx: AppContext, mode: 'direct' | 'bro
   if (error) return end(error === 'access_denied' || error === 'consent_denied' ? 'cancelled' : 'failed')
   // turned off for the team meanwhile (Admin › Team settings): nobody new connects or joins any more; a sign-in goes on
   // only for an account without a password (signInWith), a re-check always (only such accounts make one)
-  if (!googleSignInOn(ctx.db) && row.intent !== 'signin' && row.intent !== 'reauth') return end('failed')
+  // (an admin's "Try it" goes on: it signs nobody in)
+  if (!googleSignInOn(ctx.db) && row.intent !== 'signin' && row.intent !== 'reauth' && !isTry(row)) return end('failed')
   const drive = googleDriveOf(ctx)
   const cfg = drive.config
   // a flow comes back the way it went: a direct one through the Drive callback, a broker one through its return route
@@ -425,6 +464,13 @@ async function settle(c: Context<AppEnv>, ctx: AppContext, mode: 'direct' | 'bro
   } catch { claims = null }
   if (!claims) return end('failed')
   if (row.intent === 'reauth') return end(reauthWith(c, ctx, row, claims))
+  if (isTry(row)) return tryWith(c, ctx, row, claims)
+  // only Google Workspace accounts of the team's domains, by Google's `hd` (never the e-mail address): a sign-in, a
+  // connect and a sign-up alike. A re-check above only confirms the account already connected
+  if (!googleDomainAllowed(ctx.db, claims.hd)) {
+    if (row.intent === 'signin') audit(ctx.db, { actor: null, action: 'auth.login_failed', target: null, detail: { ip: c.get('info').ip, via: viaOf(c.get('info')), method: 'google', reason: 'google_domain', ...(row.client === 'web' ? {} : { client: row.client }) } })
+    return end('wrong_domain')
+  }
   if (row.intent === 'connect') return end(connect(c, ctx, row, claims))
   if (row.intent === 'setup' || row.intent === 'join') {
     // a sign-up (auth/google-signup.ts): the account made and signed in, refused, or this Google account already signs
@@ -488,6 +534,32 @@ export function signInWith(c: Context<AppEnv>, ctx: AppContext, row: FlowRow, g:
   a.signIn(c, u.id, 'web', 'cookie')
   // `next` of a sign-up is the page it started from (google-signup.ts), never where a sign-in goes
   return { row, next: (row.intent === 'signin' ? row.next : null) ?? '/' }
+}
+
+/** An admin's "Try it" Google answered: still that admin's session in this browser, still an owner or admin. Nothing is
+ * kept: the page says which Google account it was and whether the domain list lets it in. */
+function tryWith(c: Context<AppEnv>, ctx: AppContext, row: FlowRow, g: GoogleClaims): Settled {
+  const auth = c.get('auth')
+  if (!auth || auth.session.id !== row.session_id || auth.user.id !== row.user_id) return { row, result: 'expired' }
+  const u = getUser(ctx.db, auth.user.id)
+  if (!u || u.deleted_at || u.status !== 'active' || (u.role !== 'owner' && u.role !== 'admin')) return { row, result: 'expired' }
+  return { row, tried: { email: g.email, allowed: googleDomainAllowed(ctx.db, g.hd), domains: googleSignInDomains(ctx.db) } }
+}
+
+/** The page after "Try it": it works (the Google account's address, and when a domain list keeps it out, which
+ * domains it lets in), or why not; the way back to Admin › Sign-in methods. */
+function tryPage(c: Context<AppEnv>, tried: Tried | null, result: GoogleResult): Response {
+  const L = c.get('locale')
+  returnHeaders(c)
+  const back = { href: TRY_NEXT, label: msg('googleTryBack', L), testid: 'google-try-back' }
+  if (!tried) {
+    const text = result === 'cancelled' ? 'googleTryCancelled' : result === 'expired' ? 'googleTryExpired' : 'googleTryFailed'
+    return c.html(returnPage(L, { title: msg('googleTryNotTitle', L), text: msg(text, L), cta: back }), 400)
+  }
+  const who = tried.email ?? msg('googleTryNoEmail', L)
+  const text = tried.allowed ? msg('googleTryWorks', L).replace('{email}', who)
+    : msg('googleTryDomain', L).replace('{email}', who).replace('{domains}', tried.domains.join(', '))
+  return c.html(returnPage(L, { title: msg(tried.allowed ? 'googleTryWorksTitle' : 'googleTryDomainTitle', L), text, cta: back }), 200)
 }
 
 function connect(c: Context<AppEnv>, ctx: AppContext, row: FlowRow, g: GoogleClaims): GoogleResult {

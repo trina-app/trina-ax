@@ -20,7 +20,7 @@
 // phones: a list you tap into"). Team settings is one more list there: its groups, each a page at
 // /admin/settings/<group> under "‹ Team settings" (teamSettingsGroups.ts); System too, at /admin/system/<group> under
 // "‹ System" (systemGroups.ts). Computers keep each one page.
-import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
+import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, KeyRound, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, useLocation, useParams } from 'react-router-dom'
 import clsx from 'clsx'
@@ -55,9 +55,10 @@ const TeamSettingsPage = lazy(() => import('./TeamSettings'))
 const Usage = lazy(() => import('./Usage'))
 const Audit = lazy(() => import('./Audit'))
 const System = lazy(() => import('./System'))
+const SignInMethods = lazy(() => import('./SignInMethods'))
 
 /** the pages that are a form: one narrow column (centred) on a computer */
-const NARROW = new Set(['settings', 'system'])
+const NARROW = new Set(['settings', 'system', 'sign-in'])
 
 type Section = { id: string; label: MessageKey; icon: typeof Users; ownerOnly?: boolean }
 
@@ -70,6 +71,7 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
       { id: 'members', label: 'admin.members', icon: Users },
       { id: 'groups', label: 'admin.groups', icon: UsersRound },
       { id: 'folders', label: 'admin.folders', icon: FolderLock },
+      { id: 'sign-in', label: 'admin.signIn', icon: KeyRound },
     ],
   },
   {
@@ -265,6 +267,7 @@ export default function AdminLayout() {
       {section === 'audit' && <Audit />}
       {section === 'settings' && <TeamSettingsPage />}
       {section === 'system' && <System />}
+      {section === 'sign-in' && <SignInMethods />}
     </Suspense>
     </AdminBarSlot>
     </AdminBarProvider>

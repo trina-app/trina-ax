@@ -35,6 +35,12 @@ admin asks for a personal tool; it only sorts the list (`shared/src/api/team-too
   self-registrations. Each person connects their own Google with one click, no admin step. Without a public address,
   with `MYCEL_GOOGLE_DRIVE_BROKER_URL=off`, or while the hosting service says no, it needs its own Google Cloud client
   (`google-apps.ts:96-98`, `docs/site/use/google-apps.md`); a client of its own always wins.
+- **Sign in with Google (signing in to the team, not a connector):** hosted teams and, since 2026-11-27, self-hosted
+  servers with a public address use the hosting service's sign-in broker (`auth/google-login-broker.ts`; it registers the
+  server itself with Drive's `register` when the console answers `not_hosted`, independent of Drive). The console serves
+  a self-registered server only under its own flag `CP_GOOGLE_SIGNIN_SELF`. A server's own Google client (Drive's)
+  always wins. Admin › Sign-in methods holds the switch, an optional Google Workspace domain list (Google's `hd`) and
+  "Try it" (`docs/decisions/20261127-google-signin-selfhost.md`).
 - **Slack:** "Add to Slack" (the hosting service's app) is hosted-only; self-host pastes its own app's tokens, owner only
   (`slack.ts:35-37`).
 - **GitHub:** works where the server holds a GitHub App file; otherwise the card says "Not set up yet".

@@ -158,7 +158,9 @@ export const Me = z.object({
 export type Me = z.infer<typeof Me>
 
 export const LoginBody = z.object({
-  username: z.string().min(1).max(64),
+  /** the username, or the account's e-mail address (exact, any case) when no username is written that way and only
+   * one account has that address (server/src/auth/accounts.ts signInUser) */
+  username: z.string().min(1).max(254),
   password: z.string().min(1).max(256),
   client: ClientKind.default('web'),
   /** 'cookie' (web, desktop) sets __Host-sid; 'bearer' (mobile shells, scripts) returns the token in the body */
@@ -298,12 +300,18 @@ export const ConsoleSetupPreview = z.object({
   /** the owner signed in to the console with Google: the account is made with that Google account and no password;
    * false: the page asks for a password (for the phone and other computers) */
   google: z.boolean(),
+  /** the username the owner will have (from the e-mail, users.ts usernameFromEmail): the page shows it, since the
+   * person never chose it; signing in also takes the e-mail */
+  username: z.string(),
 })
 export type ConsoleSetupPreview = z.infer<typeof ConsoleSetupPreview>
 export const ConsoleSetupBody = z.object({
   claim: z.string().min(1).max(200),
   /** required unless the owner signed in with Google (then refused); its strength is checked like every new password */
   password: z.string().max(200).optional(),
+  /** the owner's name as they wrote it on the page (prefilled from the preview); absent or not a valid name: the
+   * preview's */
+  name: z.string().max(200).optional(),
   client: z.literal('desktop').default('desktop'),
   tokenMode: z.enum(['cookie']).default('cookie'),
 })
@@ -354,13 +362,15 @@ export const GoogleSetupBody = SetupBody.pick({ setupToken: true, teamName: true
   next: z.string().max(500).optional(),
 })
 /** Join with Google from an invite or the team link (server/src/auth/google-signup.ts): the token in the body (never in
- * an address), and the username, name and language the person picked. The flow keeps the invite's or link's id, not the
- * token. Google's return makes the account (no password) or, when this Google account is already someone's here, signs
- * that person in and leaves the invite unused. Guest invites join with a password only. */
+ * an address) and the page's language. The flow keeps the invite's or link's id, not the token. Google's return makes
+ * the account (no password) or, when this Google account is already someone's here, signs that person in and leaves the
+ * invite unused. Guest invites join with a password only. `username` and `name` are optional (the pages send neither):
+ * omitted, the username comes from the Google address (users.ts usernameFromEmail: "+tag" dropped, made unique) and the
+ * name from Google; given (older clients), the username is checked at the start as before. */
 export const GoogleJoinBody = z.object({
   token: z.string().min(16).max(200),
-  username: Username,
-  name: PersonName,
+  username: Username.optional(),
+  name: PersonName.optional(),
   /** the language the person picked on the page; omitted = follow the team default */
   locale: Locale.optional(),
 })

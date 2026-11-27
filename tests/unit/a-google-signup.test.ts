@@ -24,19 +24,19 @@ const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
 const jwt = (claims: Record<string, unknown>) => `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64(claims)}.c2ln`
 
 /** Who the fake Google signs in as, per code (the account picked on Google's page) */
-const accounts = new Map<string, { sub: string; email: string; name?: string }>()
+const accounts = new Map<string, { sub: string; email: string; name?: string; hd?: string }>()
 const nonces = new Map<string, string>()
 const fakeFetch = (async (_url: string | URL | Request, init?: RequestInit) => {
   const code = new URLSearchParams(String(init?.body ?? '')).get('code') ?? ''
   const who = accounts.get(code)!
-  const id_token = jwt({ iss: 'https://accounts.google.com', aud: CLIENT_ID, azp: CLIENT_ID, exp: Math.floor(Date.now() / 1000) + 600, nonce: nonces.get(code) ?? '', sub: who.sub, email: who.email, email_verified: true, ...(who.name ? { name: who.name } : {}) })
+  const id_token = jwt({ iss: 'https://accounts.google.com', aud: CLIENT_ID, azp: CLIENT_ID, exp: Math.floor(Date.now() / 1000) + 600, nonce: nonces.get(code) ?? '', sub: who.sub, email: who.email, email_verified: true, ...(who.name ? { name: who.name } : {}), ...(who.hd ? { hd: who.hd } : {}) })
   return new Response(JSON.stringify({ access_token: 'at', expires_in: 3600, token_type: 'Bearer', id_token }), { status: 200, headers: { 'content-type': 'application/json' } })
 }) as unknown as typeof fetch
 
 const useGoogle = (h: Harness) => googleDriveOf(h.ctx, { config: { clientId: CLIENT_ID, clientSecret: 'secret', redirectUri: `http://team.localhost${CALLBACK}` }, fetch: fakeFetch, broker: null })
 
 /** A start's Google address and binding cookie; Google will sign in as `who` */
-async function started(res: Response, who: { sub: string; email: string; name?: string }) {
+async function started(res: Response, who: { sub: string; email: string; name?: string; hd?: string }) {
   expect(res.status).toBe(200)
   const u = new URL(((await res.json()) as { url: string }).url)
   const state = u.searchParams.get('state')!
@@ -134,7 +134,7 @@ describe('joining with Google', () => {
     const r = await by.call('POST', '/api/admin/invites', { role, groupIds })
     return { id: r.invite.id as string, token: r.url.split('/invite/')[1] as string }
   }
-  const startInvite = async (token: string, username: string, who: { sub: string; email: string; name?: string }, ip = '10.0.1.1') =>
+  const startInvite = async (token: string, username: string, who: { sub: string; email: string; name?: string; hd?: string }, ip = '10.0.1.1') =>
     started(await h.client({ ip }).raw('POST', '/api/invites/google', { token, username, name: username.toUpperCase(), locale: 'ja' }), who)
   const used = (id: string) => (h.ctx.db.query('SELECT used_at FROM invites WHERE id = ?').get(id) as { used_at: string | null }).used_at
   const link = async (o: Record<string, unknown> = {}) => {
@@ -142,6 +142,26 @@ describe('joining with Google', () => {
     return { id: r.link.id as string, token: new URL(r.link.url).hash.replace(/^#t=/, '') }
   }
   const linkAttempts = (id: string) => (h.ctx.db.query("SELECT COUNT(*) AS n FROM login_attempts WHERE key LIKE ?").get(`%${id}%`) as { n: number }).n
+
+  test('the domain list: a join works only for a Google Workspace account of a listed domain, by Google’s hd, never the e-mail', async () => {
+    await owner.call('PATCH', '/api/admin/settings', { googleSignInDomains: ['acme.example'] })
+    try {
+      const inv = await invite()
+      // a personal Google account with a company-looking address and no hd: refused, the invite stays unused
+      const s = await startInvite(inv.token, 'hana', { sub: 'g-hana', email: 'hana@acme.example' }, '10.0.4.1')
+      const res = await back(h, s)
+      expect(res.headers.get('location')).toContain('google=wrong_domain')
+      expect(used(inv.id)).toBeNull()
+      expect(userRow(h, 'hana')).toBeNull()
+      // another Workspace's hd: refused too
+      const o = await startInvite(inv.token, 'hana', { sub: 'g-hana', email: 'hana@other.example', hd: 'other.example' }, '10.0.4.2')
+      expect((await back(h, o)).headers.get('location')).toContain('google=wrong_domain')
+      // the listed domain's hd: in
+      const ok = await startInvite(inv.token, 'hana', { sub: 'g-hana', email: 'hana@acme.example', hd: 'acme.example' }, '10.0.4.3')
+      expect((await back(h, ok)).headers.get('location')).toBe('/')
+      expect(userRow(h, 'hana')).not.toBeNull()
+    } finally { await owner.call('PATCH', '/api/admin/settings', { googleSignInDomains: [] }) }
+  })
 
   test('the invite page offers it for a member invite, not a guest invite, and a guest invite cannot start it', async () => {
     const inv = await invite()
@@ -276,6 +296,44 @@ describe('joining with Google', () => {
     // a sign-in start still is
     expect((await h.client({ ip: '10.0.4.1' }).try('POST', '/api/auth/google/start', {})).status).toBe(200)
     expect((await h.client({ ip: '10.0.4.1' }).try('POST', '/api/auth/google/start', {})).status).toBe(429)
+  })
+
+  test('an invite without a username: the server picks a free one from the Google address ("+tag" dropped), the name from Google', async () => {
+    await addMember(h, owner, { username: 'vera' })
+    const inv = await invite()
+    // the pages send only the token and the language now
+    const s = await started(await h.client({ ip: '10.0.5.1' }).raw('POST', '/api/invites/google', { token: inv.token, locale: 'ko' }), { sub: 'g-vera', email: 'Vera+work@acme.example', name: 'Vera Lind' })
+    const res = await back(h, s, '10.0.5.1')
+    expect(res.headers.get('location')).toBe('/')
+    expect(await meOf(h, res)).toMatchObject({ username: 'vera-2', name: 'Vera Lind', email: 'Vera+work@acme.example', role: 'member', localeChoice: 'ko' })
+    expect(userRow(h, 'vera-2')!.password_hash).toBeNull()
+    expect(used(inv.id)).toBeTruthy()
+    // no name from Google: the username stands in
+    const inv2 = await invite()
+    const t = await started(await h.client({ ip: '10.0.5.2' }).raw('POST', '/api/invites/google', { token: inv2.token }), { sub: 'g-wim', email: 'wim@acme.example' })
+    expect((await back(h, t, '10.0.5.2')).headers.get('location')).toBe('/')
+    expect(userRow(h, 'wim')).toMatchObject({ name: 'wim', password_hash: null })
+  })
+
+  test('the team link without a username: one from the Google address, made unique', async () => {
+    const l = await link({ maxUses: 3 })
+    await addMember(h, owner, { username: 'xena' })
+    const s = await started(await h.client({ ip: '10.0.6.1' }).raw('POST', '/api/team-link/google', { token: l.token }), { sub: 'g-xena', email: 'xena+team@acme.example', name: 'Xena Ott' })
+    expect((await back(h, s, '10.0.6.1')).headers.get('location')).toBe('/')
+    expect(userRow(h, 'xena-2')).toMatchObject({ name: 'Xena Ott', role: 'member', password_hash: null })
+    expect((h.ctx.db.query('SELECT uses FROM team_links WHERE id = ?').get(l.id) as { uses: number }).uses).toBe(1)
+    // a second person with the same address part gets the next free one
+    const t = await started(await h.client({ ip: '10.0.6.2' }).raw('POST', '/api/team-link/google', { token: l.token }), { sub: 'g-xena-b', email: 'xena@other.example', name: 'Xena B' })
+    expect((await back(h, t, '10.0.6.2')).headers.get('location')).toBe('/')
+    expect(userRow(h, 'xena-3')?.name).toBe('Xena B')
+  })
+
+  test('a guest invite is refused without a username too', async () => {
+    const project = await owner.call('POST', '/api/projects', { name: 'Specs', scope: 'team' })
+    const g = await owner.call('POST', '/api/guest-invites', { place: { kind: 'project', id: project.id }, name: 'Gus' })
+    const refused = await h.client().try('POST', '/api/invites/google', { token: g.url.split('/invite/')[1] })
+    expect(refused.status).toBe(403)
+    expect(refused.body.error.params.reason).toBe('guest_password_only')
   })
 
   test('the owner who signs in with a password is unchanged', async () => {

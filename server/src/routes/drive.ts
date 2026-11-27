@@ -19,6 +19,7 @@ import { googleAppsOf, GoogleAppError } from '../integrations/google-apps/servic
 import { slackOf } from '../integrations/slack/service'
 import { integrationsOf } from '../integrations/connections/service'
 import { finishGoogle, ownsGoogleState } from '../auth/google-login'
+import { googleSigninBrokerOf } from '../auth/google-login-broker'
 import type { Context } from 'hono'
 import type { AppEnv } from '../http/env'
 
@@ -92,13 +93,17 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
     return c.html(drivePreGooglePage(cc.get('locale'), go), 200)
   })
   // The hosting service's proof that this self-installed server's relay key belongs to this address (google-drive/
-  // broker.ts `register`): the PUBLIC key only, no session; 404 unless this server registers itself there
+  // broker.ts `register`): the PUBLIC key only, no session; 404 unless this server registers itself there, for Drive
+  // (google-drive/broker.ts) or for Sign in with Google (auth/google-login-broker.ts): one registration serves both,
+  // so sign-in works on a server whose Drive has a client of its own or is turned off
   kit.raw('GET', GOOGLE_BROKER_KEY_PATH, async c => {
     c.header('Cache-Control', 'no-store')
-    const broker = googleDriveOf(ctx).broker
-    if (!broker?.o.selfOrigin) return c.json({ error: { code: 'not_found' } }, 404)
+    const drive = googleDriveOf(ctx).broker
+    const signin = googleSigninBrokerOf(ctx)
+    const identity = drive?.o.selfOrigin ? drive.o.identity : signin?.registersItself() ? signin.identity : null
+    if (!identity) return c.json({ error: { code: 'not_found' } }, 404)
     let key: string
-    try { key = broker.o.identity().publicKey } catch { return c.json({ error: { code: 'unavailable' } }, 503) }
+    try { key = identity().publicKey } catch { return c.json({ error: { code: 'unavailable' } }, 503) }
     return c.json({ v: 1, key }, 200)
   })
   kit.raw('GET', CALLBACK_PATH, async c => {
