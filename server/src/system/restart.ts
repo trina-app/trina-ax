@@ -11,8 +11,9 @@
 //   state.json pending / forward is this version (the update is still checked: an exit counts towards a roll-back),
 //   app/current is another version, or the limit (accepted requests in the audit log, every kind together: 5 an hour,
 //   2 minutes apart; refusals and the watchdog's restarts are not in it).
-// - Audit: system.restart_requested {what, when}, system.restart_cancelled {what}, system.restarted {what} (a server
-//   restart: at the next start, from data/restart.json).
+// - Audit: system.restart_requested {what, when}, system.restart_now {what} (the owner made a waiting one go at once),
+//   system.restart_cancelled {what} (called off; {what, reason} when an update or restore came during the wait),
+//   system.restarted {what} (a server restart: at the next start, from data/restart.json).
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Locale, RestartStatus, RestartWhat } from '@mycel/shared/api'
@@ -115,18 +116,24 @@ export class RestartService {
   /** why no restart may start now (null: one may) */
   refusal(): RestartRefused | null {
     if (this.waiting) return new RestartRefused('busy', RT.waitingAlready)
-    const ops = this.d.ops()
-    if (ops.busyWith) return new RestartRefused('busy', RT.busy)
+    if (this.d.ops().busyWith) return new RestartRefused('busy', RT.busy)
+    return this.conflict() ?? this.limit()
+  }
+
+  /** An update or a restore that a restart must not cut: checked when it is asked for, and again when its wait ends
+   *  (the ops lock holds this server's own maintenance back meanwhile, not root's mycel-ctl update or office's update
+   *  agent, which wait for the same answers and then switch app/current). */
+  private conflict(): RestartRefused | null {
     const w = updateWaitingFor(this.ctx.config)
     if (w && w.kind !== 'restart') return new RestartRefused('conflict', RT.updating)
     if (updateUnderway(this.ctx.config, this.ctx.version)) return new RestartRefused('conflict', RT.updating)
     // the bootstrap still checks the version it just started: an exit now counts towards a roll-back
     try {
-      const st = ops.updates.readState()
+      const st = this.d.ops().updates.readState()
       if (st.pending === this.ctx.version || st.forward === this.ctx.version) return new RestartRefused('conflict', RT.checkingUpdate)
     } catch {}
     if (fs.existsSync(path.join(this.ctx.config.dataDir, 'restore-pending.json'))) return new RestartRefused('conflict', RT.restorePrepared)
-    return this.limit()
+    return null
   }
 
   /** accepted requests of the last hour (the audit log, so a restart does not reset it) */
@@ -187,10 +194,11 @@ export class RestartService {
     w.done = this.run(w).catch((e) => { this.ctx.log.error('restart failed', { err: e }) })
   }
 
-  /** the waiting restart goes now (the owner) */
-  skip(): boolean {
-    if (!this.waiting || this.waiting.going) return false
+  /** the waiting restart goes now (the owner): audited, as it ends the running answers someone else's request waited for */
+  skip(by: string): boolean {
+    if (!this.waiting || this.waiting.going || this.waiting.skip) return false
     this.waiting.skip = true
+    audit(this.ctx.db, { actor: by, action: 'system.restart_now', detail: { what: this.waiting.what } })
     return true
   }
 
@@ -220,6 +228,15 @@ export class RestartService {
     // the running answers finish (a count; never whose), at most until `until`, or until "now" / "don't restart"
     while (!w.cancel && !w.skip && Date.now() < w.until && this.d.ops().queue().running > 0) await this.sleep(2000)
     if (w.cancel) { this.ctx.log.info('restart called off', { what: w.what }); this.release(); return }
+    // an update (root's or office's) or a restore came while it waited: it restarts the server itself, and a restart
+    // in the middle of it would cut its switch (or count towards a roll-back)
+    const late = this.conflict()
+    if (late) {
+      this.ctx.log.info('restart called off: an update or restore came meanwhile', { what: w.what, why: late.words.en })
+      audit(this.ctx.db, { actor: null, action: 'system.restart_cancelled', detail: { what: w.what, reason: late.code === 'conflict' ? late.words.en : late.code } })
+      this.release()
+      return
+    }
     w.going = true
     if (w.what === 'server') {
       // the next start says it restarted (audit), from this mark

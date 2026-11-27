@@ -69,6 +69,9 @@ function rootWait(rootDir: string | null | undefined, now: Date): UpdateWait | n
 /** Is an update under way that waits (or waited) for running work? null: no. */
 export function updateWaiting(o: { rootDir?: string | null; now?: Date } = {}): UpdateWait | null {
   if (local && local.endsBy !== undefined && Date.now() >= local.endsBy) local = null
+  // a restart's own mark never hides root's update: Admin, the scheduled runs and the restart itself (its check when
+  // its wait ends) see the update
+  if (local?.kind === 'restart') return rootWait(o.rootDir, o.now ?? new Date()) ?? { since: local.since, until: local.until, skippable: false, kind: 'restart' }
   if (local) return { since: local.since, until: local.until, skippable: local.kind === 'update' && local.waiting && !local.skip, kind: local.kind }
   return rootWait(o.rootDir, o.now ?? new Date())
 }

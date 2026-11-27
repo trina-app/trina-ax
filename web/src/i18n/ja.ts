@@ -2862,6 +2862,7 @@ export const ja: Record<MessageKey, string> = {
   'audit.act.export.start': "チームのデータを書き出し",
   "audit.act.system.restart_requested": "再起動を依頼",
   "audit.act.system.restart_cancelled": "再起動をやめた",
+  "audit.act.system.restart_now": "すぐに再起動した",
   "audit.act.system.restarted": "再起動した",
   "settings.export": "エクスポート",
   "settings.find.export": "チャット ダウンロード zip バックアップ",

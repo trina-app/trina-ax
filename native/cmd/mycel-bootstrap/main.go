@@ -133,7 +133,9 @@ func writeState(st appState) error {
 		st.History = st.History[len(st.History)-50:]
 	}
 	b, _ := json.MarshalIndent(st, "", "  ")
-	tmp := statePath() + ".tmp"
+	// its own temp name: the server writes state.json through state.json.tmp (system/update.ts), and the watchdog writes
+	// at times nobody asked for, so the two never share (or interleave in) one temp file
+	tmp := statePath() + ".tmp-bootstrap"
 	if err := os.WriteFile(tmp, append(b, '\n'), 0o640); err != nil {
 		return err
 	}

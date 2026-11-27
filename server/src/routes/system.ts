@@ -200,7 +200,7 @@ export const systemRoutes: RouteModule = {
       return restartAnswer(locale, auth)
     })
     kit.handle(API.restartNow, ({ c, auth }) => {
-      if (!restarts().skip()) fail('conflict', tr(c.get('locale'), RT.nothingWaits))
+      if (!restarts().skip(auth.user.id)) fail('conflict', tr(c.get('locale'), RT.nothingWaits))
       return restartAnswer(c.get('locale'), auth)
     })
     kit.handle(API.cancelRestart, ({ c, auth }) => {

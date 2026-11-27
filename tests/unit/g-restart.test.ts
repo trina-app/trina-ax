@@ -246,6 +246,8 @@ describe('the wait', () => {
     expect((await req('/api/admin/restart/now', { method: 'POST', as: 'owner', body: JSON.stringify({ password: 'pw' }) })).status).toBe(200)
     await getRestarts(ctx)!.settled()
     expect(launcher.calls).toBe(1)
+    // it ends the answers the request waited for: who chose that is in the log
+    expect(auditRows('system.restart_now').map((x) => [x.actor_id, JSON.parse(x.detail!).what])).toEqual([['olga', 'ai']])
 
     ctx.db.query("DELETE FROM audit_log WHERE action LIKE 'system.restart%'").run()
     await start({ what: 'server', when: 'idle' })
@@ -259,6 +261,41 @@ describe('the wait', () => {
     // nothing waits: both say so
     expect((await req('/api/admin/restart', { method: 'DELETE', as: 'owner' })).status).toBe(409)
     expect((await req('/api/admin/restart/now', { method: 'POST', as: 'owner', body: JSON.stringify({ password: 'pw' }) })).status).toBe(409)
+  })
+
+  test('an update or a restore that came during the wait: the restart does not go (checked again when the wait ends)', async () => {
+    const ops = getOps(ctx)!
+    const readState = ops.updates.readState.bind(ops.updates)
+    // root's mycel-ctl update (or office's) installed this version meanwhile: the bootstrap checks it now
+    running = 1
+    await start({ what: 'server', when: 'idle' })
+    ops.updates.readState = () => ({ ...emptyAppState(), pending: ctx.version })
+    try {
+      running = 0
+      await getRestarts(ctx)!.settled()
+    } finally { ops.updates.readState = readState }
+    expect(restarts).toBe(0)
+    // a restore prepared meanwhile: the AI option does not go either
+    ctx.db.query("DELETE FROM audit_log WHERE action LIKE 'system.restart%'").run()
+    running = 1
+    await start({ what: 'ai', when: 'idle' })
+    fs.writeFileSync(path.join(ctx.config.dataDir, 'restore-pending.json'), '{}')
+    running = 0
+    await getRestarts(ctx)!.settled()
+    expect(launcher.calls).toBe(0)
+    expect(auditRows('system.restart_cancelled').map((x) => [x.actor_id, JSON.parse(x.detail!).what, JSON.parse(x.detail!).reason])).toEqual([[null, 'ai', expect.stringContaining('restore is prepared')]])
+    expect(ops.busyWith).toBeNull()
+    expect(updateWaiting()).toBeNull()
+  })
+
+  test('its own mark never hides root\'s update wait', () => {
+    const root = path.join(BASE, 'root-wait')
+    fs.mkdirSync(root, { recursive: true })
+    beginUpdateWait(new Date(), new Date(Date.now() + 60_000), 'restart')
+    expect(updateWaiting({ rootDir: root })).toMatchObject({ kind: 'restart' })
+    fs.writeFileSync(path.join(root, 'update-waiting.json'), JSON.stringify({ since: new Date().toISOString(), until: new Date(Date.now() + 60_000).toISOString() }))
+    expect(updateWaiting({ rootDir: root })).toMatchObject({ kind: 'update', skippable: false })
+    _resetUpdateWait()
   })
 
   test('the wait ends at its limit even when answers still run', async () => {

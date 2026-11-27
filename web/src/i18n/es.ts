@@ -2862,6 +2862,7 @@ export const es: Record<MessageKey, string> = {
   'audit.act.export.start': "Exportó los datos del equipo",
   "audit.act.system.restart_requested": "Pidió reiniciar",
   "audit.act.system.restart_cancelled": "Canceló un reinicio",
+  "audit.act.system.restart_now": "Reinició de inmediato",
   "audit.act.system.restarted": "Se reinició",
   "settings.export": "Exportar",
   "settings.find.export": "descargar chats zip copia",

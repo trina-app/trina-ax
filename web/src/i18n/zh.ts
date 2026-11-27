@@ -2858,6 +2858,7 @@ export const zh: Record<MessageKey, string> = {
   "audit.act.export.start": "导出了团队数据",
   "audit.act.system.restart_requested": "请求重启",
   "audit.act.system.restart_cancelled": "取消了重启",
+  "audit.act.system.restart_now": "立即重启",
   "audit.act.system.restarted": "已重启",
   "settings.export": "导出",
   "settings.find.export": "download 下载 对话 zip 备份",

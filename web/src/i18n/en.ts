@@ -2902,6 +2902,7 @@ export const en: Record<MessageKey, string> = {
   'audit.act.export.start': "Exported team data",
   "audit.act.system.restart_requested": "Asked to restart",
   "audit.act.system.restart_cancelled": "Called off a restart",
+  "audit.act.system.restart_now": "Restarted right away",
   "audit.act.system.restarted": "Restarted",
   "settings.export": "Export",
   "settings.find.export": "download chats zip backup",

@@ -2900,6 +2900,7 @@ export const ko = {
   'audit.act.export.start': "팀 데이터 내보내기",
   "audit.act.system.restart_requested": "다시 시작 요청",
   "audit.act.system.restart_cancelled": "다시 시작 그만두기",
+  "audit.act.system.restart_now": "바로 다시 시작",
   "audit.act.system.restarted": "다시 시작함",
   "settings.export": "내보내기",
   "settings.find.export": "채팅 다운로드 zip 백업",

@@ -2900,6 +2900,7 @@ export const id: Record<MessageKey, string> = {
   'audit.act.export.start': "Mengekspor data tim",
   "audit.act.system.restart_requested": "Meminta mulai ulang",
   "audit.act.system.restart_cancelled": "Membatalkan mulai ulang",
+  "audit.act.system.restart_now": "Memulai ulang sekarang juga",
   "audit.act.system.restarted": "Dimulai ulang",
   "settings.export": "Ekspor",
   "settings.find.export": "unduh chat zip cadangan",
