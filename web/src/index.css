@@ -387,9 +387,16 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--c-accent); }
   }
 }
 
-/* A continuation's row in the Trina history (nav/ChatItem.tsx, lib/forkTree.ts; docs/decisions/20261126-chat-fork-tree.md):
-   one level of indent (20px) under the chat it came from, the whole row (its hover too) moved in. */
-.tree-row { margin-left: 1.25rem; }
+/* A continuation's row under the chat it came from (lib/forkTree.ts; docs/decisions/20261127-fork-in-history.md): the
+   Trina history (nav/ChatItem.tsx) and a project's chat list (pages/Projects.tsx ProjectChatRow). One level, 28px in, the
+   whole row (its hover too) moved in, and one small "└" in front of it, as the Claude app's session list. In a list with
+   dividers (a project's page) no divider between a chat and its continuations: the tree reads as one. */
+.tree-row { position: relative; margin-inline-start: 1.75rem; }
+.tree-row::before {
+  content: ""; position: absolute; inset-inline-start: -0.9375rem; top: 0; height: 50%; width: 0.5rem; pointer-events: none;
+  border-inline-start: 1px solid var(--color-line-strong); border-bottom: 1px solid var(--color-line-strong); border-end-start-radius: 3px;
+}
+li:has(+ li.tree-row) { border-bottom-color: transparent; }
 
 /* A row that scrolls sideways (useEdgeFade in components/ui.tsx): an edge with more behind it fades out, in both
    themes (a mask, not a colour), and a tab scrolled into view keeps a margin from the edge instead of sitting cut. */

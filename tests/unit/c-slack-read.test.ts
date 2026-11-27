@@ -316,7 +316,9 @@ describe('the AI\'s Slack tools: bot token, conversations the bot and the person
   })
 
   test('the official app: a refused read with a token that is no longer the saved one leaves the new install alone', () => {
-    const before = h.ctx.db.query('SELECT mode, secret_enc, key_version, install_id, last_error FROM slack_config WHERE id = 1').get() as Record<string, unknown>
+    // removed in Slack deletes the workspace's Slack data (links, the workspace's names): kept here to put back after
+    const before = h.ctx.db.query('SELECT * FROM slack_config WHERE id = 1').get() as Record<string, string | number | null>
+    const links = h.ctx.db.query('SELECT * FROM slack_links').all() as Record<string, string | number | null>[]
     h.ctx.db.query("UPDATE slack_config SET mode = 'official'").run()
     try {
       const s = slackOf(h.ctx)
@@ -328,8 +330,13 @@ describe('the AI\'s Slack tools: bot token, conversations the bot and the person
       // the saved token refused: the app is removed, as Slack's own event says
       s.tokenRefused(new SlackApiError('token_revoked'), saved!)
       expect(h.ctx.db.query('SELECT secret_enc, last_error FROM slack_config WHERE id = 1').get()).toEqual({ secret_enc: null, last_error: 'removed' })
+      // and the workspace's Slack data with it (docs/decisions/20261127-slack-marketplace-gaps.md)
+      expect((h.ctx.db.query('SELECT count(*) n FROM slack_links').get() as { n: number }).n).toBe(0)
     } finally {
-      h.ctx.db.query('UPDATE slack_config SET mode = ?, secret_enc = ?, key_version = ?, install_id = ?, last_error = ? WHERE id = 1').run(before.mode as string, before.secret_enc as Uint8Array, before.key_version as number, (before.install_id ?? null) as string | null, (before.last_error ?? null) as string | null)
+      const cols = Object.keys(before).filter((k) => k !== 'id')
+      h.ctx.db.query(`UPDATE slack_config SET ${cols.map((k) => `${k} = ?`).join(', ')} WHERE id = 1`).run(...cols.map((k) => before[k]!))
+      h.ctx.db.query('DELETE FROM slack_links').run()
+      for (const l of links) h.ctx.db.query(`INSERT INTO slack_links (${Object.keys(l).join(', ')}) VALUES (${Object.keys(l).map(() => '?').join(', ')})`).run(...Object.values(l))
       slackOf(h.ctx).refresh()
     }
   })

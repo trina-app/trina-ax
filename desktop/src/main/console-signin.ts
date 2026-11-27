@@ -53,7 +53,9 @@ export class ConsoleSignIn {
     this.probing ??= (async () => {
       let status: number | null = null
       try {
-        const r = await this.o.fetch(this.o.origin + APP_PATHS.me, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(5000) })
+        // no cookies: with cookie encryption on, the first request that reads them waits for the keychain key, and
+        // macOS may be asking "allow?" for it (a Safe Storage item another copy made): the answer never came then
+        const r = await this.o.fetch(this.o.origin + APP_PATHS.me, { method: 'GET', credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(5000) })
         status = r.status
       } catch {}
       const value = offerFromProbe(status)
@@ -106,6 +108,7 @@ export class ConsoleSignIn {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ v: 1, code: a.code, verifier }),
+        credentials: 'omit',
         redirect: 'error',
         signal: AbortSignal.timeout(15_000),
       })

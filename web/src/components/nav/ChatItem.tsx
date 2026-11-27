@@ -33,8 +33,8 @@ import type { TreeRow } from '../../lib/forkTree'
  * computer and always on a phone; a right-click on the row opens it too, and on a touch screen a long press (a sheet on
  * a phone, the chat's title on top; the finger lifting opens no chat, and starts no text selection). Every row has it:
  * "상단에 고정" / "고정 해제" is anyone's who sees the chat. A pinned row has a pin before its title. */
-/** `tree`: the row's place among continuations (lib/forkTree.ts): one level of indent under the chat it came from
- * (docs/decisions/20261126-chat-fork-tree.md); no arrow, nothing folds. */
+/** `tree`: the row's place among continuations (lib/forkTree.ts): one level of indent and a "└" under the chat it came
+ * from (docs/decisions/20261127-fork-in-history.md); no arrow, nothing folds. */
 export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false, sections = true, tree }: { chat: Chat; onNavigate: () => void; peek: ChatPeek; onMove: (c: Chat) => void; projectTag?: boolean; sections?: boolean; tree?: TreeRow }) {
   const t = useT()
   const more = useRef<HTMLButtonElement>(null)
@@ -76,7 +76,7 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false, s
       selected={selected}
       unread={needsMe(marker)}
       li={{ ref, ...menu.row, ...drag, onMouseEnter: (e) => peek.soon(chat, e.currentTarget, 400), onMouseLeave: peek.hide, 'data-marker': marker?.kind, 'data-chat-id': chat.id, 'data-pinned': chat.pinnedAt ? '' : undefined,
-        // a continuation's one level of indent under the chat it came from (index.css .tree-row)
+        // a continuation's one level of indent and its "└" under the chat it came from (index.css .tree-row)
         ...(tree?.depth ? { className: 'tree-row', 'data-tree-depth': '1' } : {}), ...(tree?.under ? { 'data-forks': String(tree.under) } : {}) }}
       onClick={(e) => {
         menu.guard(e)

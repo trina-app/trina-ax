@@ -1,7 +1,7 @@
 // The one API client of the web app: same-origin (served by the team server), cookie session, CSRF + window headers
 // added by ApiClient. Every call goes through the shared contract (`API.x`), so request and response shapes are the
 // server's own zod schemas.
-import { API, ApiClient, ApiError, ERROR_MESSAGES, LOCALE_HEADER, type ErrorCode, type Locale } from '@mycel/shared/api'
+import { API, ApiClient, ApiError, ERROR_MESSAGES, LOCALE_HEADER, isDefaultErrorMessage, type ErrorCode, type Locale } from '@mycel/shared/api'
 import { APP_RETURN_HEADER, appReturnPortOf } from '@mycel/shared/desktop-bridge'
 import { currentLocale, t } from '../i18n'
 import { desktop, noPurchaseLinks } from './desktop'
@@ -153,8 +153,9 @@ export function errorText(e: unknown, locale: Locale, networkText: string): stri
     if (e.body.params?.reason === 'demo_busy') return t('demo.free.busy')
     if (e.body.params?.reason === 'demo_rest') return t('demo.free.rest')
     const known = ERROR_MESSAGES[e.code]
-    // handler-specific messages (e.g. "Someone else saved first.") are kept; default ones follow the UI language
-    const isDefault = known && Object.values(known).includes(e.message)
+    // handler-specific messages (e.g. "Someone else saved first.") are kept; default ones, older wordings included
+    // (a Korean default saved with an answer before 0.2.16), follow the UI language
+    const isDefault = !!known && isDefaultErrorMessage(e.code, e.message)
     if (e.code === 'validation' && e.body.fields) {
       // a specific message is already in the person's language; the field detail is for developers (English)
       if (e.message && !isDefault) return e.message

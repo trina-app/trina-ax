@@ -67,7 +67,7 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.listRooms, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return { items: rooms.list(auth.user.id), alerts: rooms.alerts(auth.user.id) } })
     kit.handle(API.createRoom, ({ c, auth, body }) => (body.kind === 'dm' ? rooms.openDm(auth.user.id, body.userId) : rooms.createGroup(auth.user.id, body.userIds, body.name, c.get('locale'))))
     kit.handle(API.getRoom, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return rooms.get(auth.user.id, params.id) })
-    kit.handle(API.updateRoom, ({ auth, params, body }) => rooms.update(auth.user.id, params.id, body))
+    kit.handle(API.updateRoom, ({ c, auth, params, body }) => rooms.update(auth.user.id, params.id, body, c.get('locale')))
     kit.handle(API.listRoomMessages, ({ c, auth, params, query }) => { c.header('Cache-Control', 'no-store'); return rooms.messages(auth.user.id, params.id, query) })
     // ⌘K: the messages I can see in my rooms (docs/DECISIONS.md "⌘K에서 대화방 메시지 찾기", rooms/search.ts)
     kit.handle(API.searchRoomMessages, ({ c, auth, query }) => { c.header('Cache-Control', 'no-store'); return rooms.search(auth.user.id, query) })

@@ -18,7 +18,7 @@ import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { parseInput, walk } from '../policy/resolve'
 import { msg } from '../auth/messages'
-import { userRef } from '../auth/users'
+import { getUser, userRef } from '../auth/users'
 import { audit } from './audit'
 import { teamDefaultLocale } from './settings'
 import { claimGuestProject, guestsAmong } from '../auth/guests'
@@ -196,14 +196,16 @@ export function validateRules(db: Database, rules: readonly FolderRuleInput[], l
  * one). A project exception (a person's own none on projects/<name>) stays unless `rules` names that person (added back
  * by name). A person rule saved with the same access keeps its origin (C1-A: an unrelated edit never strips it).
  */
-export function writeFolderAccess(db: Database, folderId: string, next: { rules: readonly FolderRuleInput[]; limited?: boolean; managed?: boolean }, actor: string | null): void {
+/** `locale`: the language of a refusal (409 guest_one_place) when it goes to someone other than `actor` (a guest accepting
+ * their invite); else the actor's, the team's for the system. */
+export function writeFolderAccess(db: Database, folderId: string, next: { rules: readonly FolderRuleInput[]; limited?: boolean; managed?: boolean }, actor: string | null, locale?: Locale): void {
   for (const r of next.rules) {
     if (r.access === 'none') throw new Error('writeFolderAccess: a "no access" rule (only the project exception, through setProjectException)')
     if ((r.subjectType as string) === 'role') throw new Error('writeFolderAccess: a role rule (only the managed marker, through `managed`)')
   }
   const f = getFolder(db, folderId)
   if (!f) throw new Error('writeFolderAccess: no such folder row')
-  guestRulesInPlace(db, f.path, folderId, next.rules)
+  guestRulesInPlace(db, f.path, folderId, next.rules, actor, locale)
   const limited = next.limited ?? f.limited === 1
   if ((f.limited === 1) !== limited) db.query('UPDATE folders SET limited = ? WHERE id = ?').run(limited ? 1 : 0, folderId)
   const existing = db.query('SELECT id, subject_type, subject_id, access, origin FROM folder_rules WHERE folder_id = ?').all(folderId) as { id: string; subject_type: string; subject_id: string | null; access: Access; origin: string | null }[]
@@ -237,11 +239,13 @@ export function writeFolderAccess(db: Database, folderId: string, next: { rules:
  * change_project_members, Admin › Folder permissions, a new project's people) is refused in the same write with 409
  * guest_one_place; a rule they already have there may be kept or changed.
  */
-function guestRulesInPlace(db: Database, folderPath: string, folderId: string, rules: readonly FolderRuleInput[]): void {
+function guestRulesInPlace(db: Database, folderPath: string, folderId: string, rules: readonly FolderRuleInput[], actor: string | null, asked?: Locale): void {
+  // the refusal goes back to whoever is changing the people: in their language, the team's for a change by the system
+  const locale = asked ?? (actor ? getUser(db, actor)?.locale : undefined) ?? teamDefaultLocale(db)
   const named = rules.filter((r) => r.subjectType === 'user' && r.subjectId && r.access !== 'none').map((r) => r.subjectId!)
   for (const id of guestsAmong(db, named)) {
     if (db.query("SELECT 1 FROM folder_rules WHERE folder_id = ? AND subject_type = 'user' AND subject_id = ? AND access <> 'none'").get(folderId, id)) continue
-    claimGuestProject(db, id, folderPath, teamDefaultLocale(db))
+    claimGuestProject(db, id, folderPath, locale)
   }
 }
 
