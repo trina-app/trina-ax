@@ -130,7 +130,8 @@ export class Attachments {
     let r: ReturnType<typeof authorize>
     try {
       const final = freeName(dir.abs, clean)
-      r = authorize(this.files.fx, rules, user, [...dir.segs, final].join('/'), 'write', { mustExist: false })
+      // the rules and the person as they are now (an upload from another volume was copied, maybe for minutes)
+      r = authorize(this.files.fx, this.files.rules(), this.files.principal(userId), [...dir.segs, final].join('/'), 'write', { mustExist: false })
       commitStaged(staged, r.segs)
     } finally { abortStaged(staged) }
     const final = r.segs[r.segs.length - 1]!

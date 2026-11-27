@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-27 05:48
 - Branch: `fix/async-large-copies` (stacked on `fix/watchdog-kill-default`, #682)
-- Status: in progress
+- Status: done
 - Where: server/src/team-files (place.ts, service.ts), server/src/files/copy-off-loop.ts, the other copy sites
   (uploads, chat files, tools, jobs), native/cmd/mycel-bootstrap/watchdog.go, docs.
   Why: #682 left the bootstrap (Linux, Docker, Mac installs) log-only because big copies ran as one
@@ -61,3 +61,12 @@ check that a name is free or a file unchanged runs again after the awaited copie
 `tests/unit/g-copy-off-loop.test.ts`, `c-files-replace-race`, the team-files, uploads, room-file-moves, make-file,
 share and restore tests, the security tests, `go test ./cmd/mycel-bootstrap/`, `bun run typecheck`,
 `bun run check:prepush`.
+
+## Result
+
+Done as planned. Independent review (a fresh agent that saw only the diff), fixed: the rules, the person and the
+"more people will see it" yes are checked again after the awaited copies (copy, folder copy, upload, attachment); a
+replace upload moves next to the file only after the old version is copied; placeProduced copies the old version only
+for a file it may replace, and keeps the version only after its last checks (each kind undone when the rename fails);
+a real-copy event-loop test; the bootstrap logs a server.json that does not parse. Noted, no fix: a crash during a copy
+leaves a temp name (as before); the guard is a tripwire by file, not by call.

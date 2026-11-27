@@ -199,11 +199,14 @@ export function installRenamed(root: string, segs: string[], src: string): void 
  * `src` stays until finish(true) (placed: the source goes) or finish(false) (not placed: the copy goes, `src` keeps the
  * bytes), so a failed placement leaves the caller's file where it was.
  */
-export async function onTeamVolume(root: string, src: string): Promise<{ file: string; finish: (placed: boolean) => void }> {
+export async function onTeamVolume(root: string, src: string, near?: string): Promise<{ file: string; finish: (placed: boolean) => void }> {
   const sys = path.join(root, PRODUCT.systemDir)
   fs.mkdirSync(sys, { recursive: true, mode: 0o700 })
-  if (fs.lstatSync(src).dev === fs.lstatSync(sys).dev) return { file: src, finish: () => {} }
-  const tmp = tmpName(sys)
+  // the volume of the folder it goes into when that is there already (a mount inside the team folder), else the team's
+  let dev = fs.lstatSync(sys).dev
+  if (near) try { const st = fs.lstatSync(near); if (st.isDirectory()) dev = st.dev } catch { /* made later: the team's */ }
+  if (fs.lstatSync(src).dev === dev) return { file: src, finish: () => {} }
+  const tmp = tmpName(dev === fs.lstatSync(sys).dev ? sys : near!)
   await copyOffLoop(src, tmp)
   return {
     file: tmp,
@@ -303,22 +306,24 @@ export function dropVersion(k: KeptCopy): void {
 
 /**
  * Keep the current content of team file `abs` (team path `rel`, as hashed: `sha256`, the file then `st`) as a version
- * and put `incoming` at `segs` in its place. The slow part (the copy of the old content) runs first, off the event
- * loop; then, in one synchronous step, the file must still be the one that was hashed (sameFile with `st`): the version
+ * and put the new content (`incoming()`: staged once, by the caller's cache, after the old content's copy) at `segs` in
+ * its place. The slow parts (the copies) run first, off the event loop; then, in one synchronous step, the file must still be the one that was hashed (sameFile with `st`): the version
  * row, the rename of the new content, `check` right before (a grant, a storage check). A failure of the rename takes
  * the version back. false: the file changed meanwhile (nothing changed, `incoming` still staged): the caller looks again.
  */
-export async function replaceKeeping(db: Database, abs: string, rel: string, segs: string[], st: fs.Stats, sha256: string, incoming: Staged, by: { userId: string; turnId: string | null }, kind: 'edit' | 'restore', check?: () => void): Promise<boolean> {
+export async function replaceKeeping(db: Database, root: string, abs: string, rel: string, segs: string[], st: fs.Stats, sha256: string, incoming: () => Promise<Staged>, by: { userId: string; turnId: string | null }, kind: 'edit' | 'restore', check?: () => void): Promise<boolean> {
   let k: KeptCopy
-  try { k = await stageVersion(incoming.root, abs) } catch (e) { if (e instanceof Denied && e.message === 'path changed while copying') return false; throw e }
+  try { k = await stageVersion(root, abs) } catch (e) { if (e instanceof Denied && e.message === 'path changed while copying') return false; throw e }
   try {
+    // the new content next to the file only now: an upload stays where it was while the old version is copied
+    const inc = await incoming()
     // from here on, nothing awaits: what was checked is what is replaced
     let now: fs.Stats
     try { now = checkRegular(abs) } catch { return false }
     if (!sameFile(st, k.st) || !sameFile(st, now)) return false
     check?.()
     const id = commitVersion(db, k, rel, by, kind, sha256)
-    try { commitStaged(incoming, segs) } catch (e) { undoVersion(db, k, id); throw e }
+    try { commitStaged(inc, segs) } catch (e) { undoVersion(db, k, id); throw e }
     return true
   } finally { dropVersion(k) }
 }

@@ -130,6 +130,25 @@ test('copyOffLoop copies, never over an existing file, and leaves nothing behind
   expect(fs.existsSync(path.join(dir, 'd'))).toBe(false)
 })
 
+test('copyOffLoop does not hold the event loop: a real copy (no clone where the disk has none, as ext4 in CI)', async () => {
+  const dir = path.join(A.data, 'lag')
+  fs.mkdirSync(dir, { recursive: true })
+  const src = path.join(dir, 'big'), MB = 1024 * 1024
+  const fd = fs.openSync(src, 'w')
+  const chunk = Buffer.alloc(8 * MB, 7)
+  try { for (let i = 0; i < 24; i++) fs.writeSync(fd, chunk) } finally { fs.closeSync(fd) }
+  let max = 0, last = performance.now()
+  const iv = setInterval(() => { const n = performance.now(); max = Math.max(max, n - last); last = n }, 2)
+  const t0 = performance.now()
+  try { await copyOffLoop(src, path.join(dir, 'copy')) } finally { clearInterval(iv) }
+  const took = performance.now() - t0
+  expect(fs.statSync(path.join(dir, 'copy')).size).toBe(24 * 8 * MB)
+  // a clone (APFS) takes no time and proves nothing; a copy that took long must have let the timer run meanwhile (a
+  // synchronous copy gives one gap as long as the copy)
+  if (took > 500) expect(max).toBeLessThan(took * 0.6)
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
 test('a replace upload: the event loop runs while the old version is copied, readers see the old file whole, then the new one', async () => {
   const files = componentC(A.ctx).files
   const p = 'shared/loop.txt', abs = path.join(A.team, p)
@@ -162,7 +181,9 @@ test('a file changed while its old version was copied: looked at again, every ve
   fs.writeFileSync(abs, orig)
   const up = await writeTemp(path.join(A.data, 'up'), new TextEncoder().encode(neu))
   let wrote = false
-  const g = gateCopies(() => {
+  const dsts: string[] = []
+  const g = gateCopies((_src, dst) => {
+    dsts.push(dst)
     // someone saves the file (a new inode, as an editor does) while the first copy of the old version waits
     if (wrote) return
     wrote = true
@@ -179,6 +200,8 @@ test('a file changed while its old version was copied: looked at again, every ve
   // the copy taken of the original is dropped (the file changed under it); what was replaced is what was kept
   expect(v.map((x) => x.sha256)).toEqual([sha256hex(outside)])
   for (const x of v) expect(blobOk(x)).toBe(true)
+  // the copy that waited was the old version's (in .system/history), after the hash: not the upload's
+  expect(dsts[0]!.startsWith(path.join(A.team, PRODUCT.systemDir, 'history') + path.sep)).toBe(true)
   expect(temps(A.team)).toEqual([])
 })
 

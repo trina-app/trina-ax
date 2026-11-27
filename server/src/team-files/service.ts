@@ -309,8 +309,7 @@ export class TeamFiles {
         const v = o.skip(h)
         if (v !== undefined) return { replaced: false, value: v }
       }
-      incoming ??= await o.incoming()
-      if (await replaceKeeping(this.ctx.db, r.abs, r.rel, r.segs, st, h, incoming, { userId: o.userId, turnId: null }, o.kind, o.check)) return { replaced: true }
+      if (await replaceKeeping(this.ctx.db, this.root, r.abs, r.rel, r.segs, st, h, async () => (incoming ??= await o.incoming()), { userId: o.userId, turnId: null }, o.kind, o.check)) return { replaced: true }
     }
     throw new HttpError('conflict')
   }
@@ -1067,8 +1066,8 @@ export class TeamFiles {
    * A source the caller cannot read answers exactly like a missing one (not_found).
    */
   async copy(userId: string, from: string, to: string, o: { baseSha256?: string | null; dryRun?: boolean; onExists?: 'fail' | 'replace' | 'rename'; skillGrant?: string; confirm?: boolean } & By = {}): Promise<{ path: string; sha256: string } | { viewersAdded: number }> {
-    const user = this.principal(userId)
-    const rules = this.rules()
+    let user = this.principal(userId)
+    let rules = this.rules()
     const fr = authorize(this.fx, rules, user, from, 'read', { mustExist: true })
     if (fr.st!.isDirectory()) throw new ToolError('folder', 'is_folder')
     const st = checkRegular(fr.abs)
@@ -1088,14 +1087,14 @@ export class TeamFiles {
       if ((o.onExists ?? 'rename') !== 'fail' || o.dryRun) throw new Denied(SKILL_FILES_REFUSAL)
       grant = takeSkillAction(this.ctx.files, o.skillGrant, { userId, turnId: o.turnId, action: 'copy', from: fr.rel, to: r.rel })
     }
-    const added = this.viewersAdded(rules, user.id, fr.segs, r.segs)
-    if (o.dryRun) return { viewersAdded: added }
+    const added0 = this.viewersAdded(rules, user.id, fr.segs, r.segs)
+    if (o.dryRun) return { viewersAdded: added0 }
     // the AI's copy is a new file the AI puts into a team folder: the one check (files/office-exit.ts), by its content,
     // with only a replaced file (as this caller last saw it, baseSha256) vouching for what it already held
     if (o.turnId != null) await assertSafeTeamPath(name, fr.abs, (o.onExists === 'replace' && r.exists) ? replacedAsRead(r.abs, o.baseSha256 ?? undefined) : null, undefined, { writeBack: false })
     // into a folder its owner shares, where more people will see it: the person's yes first (the dry run's count on the
     // Files screen, the AI's card), whatever the client did before (409 audience_widened without confirm)
-    this.assertSharedConfirmed(r.segs, added, o.confirm)
+    this.assertSharedConfirmed(r.segs, added0, o.confirm)
     // with a plan, the team disk near full or over the plan's limit (system/storage.ts): a tool gets a tool error, the
     // Files screen a 507. A server with no plan has no check here, as before.
     if (currentPlan()) { if (o.tool) assertStorageRoomForAI(st.size); else assertStorageRoom(st.size) }
@@ -1110,8 +1109,15 @@ export class TeamFiles {
     // still free when the copy appears there
     const inc = await stageTeamCopy(this.root, fr.abs, pr.segs)
     let out: fs.Stats
+    let added = added0
     try {
-      r = authorize(this.fx, this.rules(), user, [...pr.segs, name].join('/'), 'write', { mustExist: false })
+      // the rules and the person as they are now (the copy may have taken minutes): may they still write here, and
+      // did the folder get more readers meanwhile (the yes is asked again)
+      user = this.principal(userId)
+      rules = this.rules()
+      r = authorize(this.fx, rules, user, [...pr.segs, name].join('/'), 'write', { mustExist: false })
+      added = this.viewersAdded(rules, user.id, fr.segs, r.segs)
+      if (added > added0) this.assertSharedConfirmed(r.segs, added, o.confirm)
       let placed = false
       if (r.exists) {
         if (r.st!.isDirectory() || onExists === 'fail') fileError('conflict', 'exists', { to: r.rel })
@@ -1290,8 +1296,14 @@ export class TeamFiles {
     if (o.dryRun) return { viewersAdded: added }
     this.assertSharedConfirmed(tr.segs, added, o.confirm)
     const { files, bytes } = await this.copyTree(user, rules, fr, pr.abs, (tmp) => {
-      // a name checked free before the copies were made (they are awaited): looked at again right before the rename
+      // checked before the copies were made (they are awaited, maybe for minutes): looked at again right before the
+      // rename, with the rules as they are now: the name still free, the person may still write there, and a folder
+      // that got more readers meanwhile asks the yes again
       if (fs.existsSync(tr.abs)) fileError('conflict', 'exists', { to: tr.rel })
+      const nowRules = this.rules(), nowUser = this.principal(userId)
+      authorize(this.fx, nowRules, nowUser, tr.rel, 'write', { mustExist: false })
+      const nowAdded = this.viewersAdded(nowRules, nowUser.id, fr.segs, tr.segs)
+      if (nowAdded > added) this.assertSharedConfirmed(tr.segs, nowAdded, o.confirm)
       verifyChain(this.root, tr.segs, true); fs.renameSync(tmp, tr.abs)
     }, o)
     this.hookSafe(userId, tr.abs)
@@ -2471,25 +2483,35 @@ export class TeamFiles {
       if (same) return { ...same, kept: true }
     }
     const size = fs.statSync(src).size
-    // refused before anything is moved (and again after)
-    if (onExists !== 'rename') {
-      const pre = authorize(this.fx, rules, user, [...fr.segs, finalName].join('/'), 'write', { mustExist: false })
-      if (pre.exists && (pre.st!.isDirectory() || onExists === 'fail')) fileError('conflict', 'exists', { name: pre.rel })
-    }
-    // the upload goes next to its place first (a rename, or a copy off the event loop when the upload folder is on
-    // another volume); from the free name below to the rename, every step is synchronous
-    const inc = await stageInstall(this.root, fr.segs, src)
     let r: Authorized
     let action: FileChange['action'] = 'create'
+    // refused before anything is moved (and again after)
+    const pre = onExists === 'rename' ? null : authorize(this.fx, rules, user, [...fr.segs, finalName].join('/'), 'write', { mustExist: false })
+    if (pre?.exists && (pre.st!.isDirectory() || onExists === 'fail')) fileError('conflict', 'exists', { name: pre.rel })
+    // the upload goes next to its place (a rename, or a copy off the event loop when the upload folder is on another
+    // volume): for a replace only after the old version was copied (replacing), so a crash meanwhile leaves the upload
+    // where it was; else first, and from the free name below to the rename every step is synchronous
+    let inc: Staged | null = null
+    const stage = async () => (inc ??= await stageInstall(this.root, fr.segs, src))
     try {
-      if (onExists === 'rename') finalName = freeName(fr.abs, finalName, false, (n) => siblingVisible(this.fx, rules, user, fr.segs, n), o.taken)
-      r = authorize(this.fx, rules, user, [...fr.segs, finalName].join('/'), 'write', { mustExist: false })
-      if (r.exists) {
-        if (r.st!.isDirectory() || onExists === 'fail') fileError('conflict', 'exists', { name: r.rel })
-        await this.replacing(r, { userId, kind: 'edit', incoming: async () => inc })
-        action = 'update'
-      } else commitStaged(inc, r.segs)
-    } finally { abortStaged(inc) }
+      let replacedPre = false
+      if (pre?.exists && onExists === 'replace') {
+        // (gone meanwhile: placed as a new file below)
+        try { await this.replacing(pre, { userId, kind: 'edit', incoming: stage }); replacedPre = true } catch (e) { if (!(e instanceof ToolError && e.code === 'not_found')) throw e }
+      }
+      if (replacedPre) { r = pre!; action = 'update' } else {
+        const s = await stage()
+        // the rules and the person as they are now (an upload from another volume was copied, maybe for minutes)
+        const nowUser = this.principal(userId), nowRules = this.rules()
+        if (onExists === 'rename') finalName = freeName(fr.abs, finalName, false, (n) => siblingVisible(this.fx, nowRules, nowUser, fr.segs, n), o.taken)
+        r = authorize(this.fx, nowRules, nowUser, [...fr.segs, finalName].join('/'), 'write', { mustExist: false })
+        if (r.exists) {
+          if (r.st!.isDirectory() || onExists === 'fail') fileError('conflict', 'exists', { name: r.rel })
+          await this.replacing(r, { userId, kind: 'edit', incoming: async () => s })
+          action = 'update'
+        } else commitStaged(s, r.segs)
+      }
+    } finally { if (inc) abortStaged(inc) }
     fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: event?.action ?? 'upload', size, sha256: sha, detail: { replaced: action === 'update', ...event?.detail } })
     this.extractText(r.rel)
     this.publish([{ path: r.rel, action, by: this.by(userId), turnId: null }])

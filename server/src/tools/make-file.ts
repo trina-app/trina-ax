@@ -57,7 +57,7 @@ import { deckPdf, type DrawnDeck } from '../files/deck-pdf'
 import type { SlidesHtml } from '../files/pptx-html'
 import { encodeHwpxRequest, firstDifference, HWPX_MARKDOWN, hwpxMarkdown, HWPX_TEMPLATE_MAX, HWPX_WRITE_MODE, hwpxExpectedLines, hwpxReadLines } from '../files/hwpx-check'
 import { readForMakeFile, readThisAnswer, type ToolCtx } from '../files/service'
-import { conflictCopyName, fileEvent, readRegular, recordConflictCopy, saveVersion, sha256 } from '../files/store'
+import { conflictCopyName, fileEvent, READ_REGULAR_MAX, readRegular, recordConflictCopy, saveVersion, sha256 } from '../files/store'
 import { sourceOf, widening } from '../chat/read-scope'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
@@ -1089,11 +1089,18 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   // the slow copies too, off the event loop (a 20 GB file on ext4 takes minutes: docs/decisions/20261127-restart.md):
   // the produced file onto the team folder's volume (placed below with a rename), and the content of the file it may
   // replace (its version, used only when the section below finds that very file there still: place.ts KeptCopy)
-  const vol = await onTeamVolume(fx.root, produced)
+  const vol = await onTeamVolume(fx.root, produced, path.join(fx.root, ...segs.slice(0, -1)))
   let kept: KeptCopy | null = null
   let placed = false
   try {
-    try { if (fs.lstatSync(path.join(fx.root, ...segs)).isFile()) kept = await stageVersion(fx.root, path.join(fx.root, ...segs)) } catch { kept = null }
+    c.signal?.throwIfAborted()
+    // only for a file that can be replaced below: one this chat read (else it becomes a conflict copy) and that
+    // readRegular takes (else the save is refused)
+    const at = path.join(fx.root, ...segs), key = segs.join('/')
+    try {
+      const st = fs.lstatSync(at)
+      if (st.isFile() && st.size <= READ_REGULAR_MAX && (c.files.readHashes.get(key) ?? Map.prototype.get.call(c.files.readHashes, key)) !== undefined) kept = await stageVersion(fx.root, at)
+    } catch { kept = null }
     return placeChecked()
   } finally { if (kept) dropVersion(kept); vol.finish(placed) }
 
@@ -1105,7 +1112,7 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
     const rules = files.rules()
     let conflictOf: string | undefined
     let action: 'create' | 'update' = 'create'
-    let keptId: string | null = null
+    let keep: (() => () => void) | null = null
     // looked at again now, not before the conversion: someone may have saved a file there in the meantime
     const now = authorize(fx, rules, c.user, segs.join('/'), 'write', { mustExist: false, createDirs: true })
     if (now.exists && now.st!.isDirectory()) throw new ToolError(`'${now.rel}' is a folder`)
@@ -1127,9 +1134,15 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
       // make_file replaces a whole file: only from a read this session still holds (readForMakeFile); the in-place tools
       // (edit_hwp, comment_docx, the PDF and image tools) work from the old bytes and use every unchanged read
       if ((po.thisAnswerOnly ? readThisAnswer(c.files, rel0) : tool === 'make_file' ? readForMakeFile(c.files, rel0) : c.files.readHashes.get(rel0)) === cur) {
-        // the copy made above when it is of this very file; else (changed while it was copied) the bytes just read
-        if (kept && sameFile(kept.st, read.st)) keptId = commitVersion(ctx.db, kept, rel0, { userId: c.user.id, turnId: c.turnId }, 'edit', cur)
-        else saveVersion(ctx.db, fx.root, rel0, read.bytes, { userId: c.user.id, turnId: c.turnId })
+        // kept as a version right before the rename below (after the last checks), from the copy made above when it is
+        // of this very file, else (changed while it was copied) from the bytes just read; each returns its undo
+        const by = { userId: c.user.id, turnId: c.turnId }
+        keep = kept && sameFile(kept.st, read.st)
+          ? () => { const k = kept!, id = commitVersion(ctx.db, k, rel0, by, 'edit', cur); return () => undoVersion(ctx.db, k, id) }
+          : () => {
+            const v = saveVersion(ctx.db, fx.root, rel0, read.bytes, by)
+            return () => { ctx.db.query('DELETE FROM file_versions WHERE id = ?').run(v.id); fs.rmSync(path.join(fx.root, ...v.storage.split('/')), { force: true }) }
+          }
         action = 'update'
       } else {
         // never overwrite a file the AI has not read in this chat (this answer or, unchanged, an earlier one of the
@@ -1145,7 +1158,8 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
     if (po.turnFiles !== false && !c.files.filesWritten.has(target.join('/')) && c.files.filesWritten.size >= max.files) throw new ToolError(writeLimitText('files', max.files, target.join('/')))
     // final check right before the rename (rules may have changed during the conversion)
     authorize(fx, files.rules(), c.user, target.join('/'), 'write', { mustExist: false, createDirs: true })
-    try { installRenamed(fx.root, target, vol.file) } catch (e) { if (kept && keptId) undoVersion(ctx.db, kept, keptId); throw e }
+    const undo = keep?.()
+    try { installRenamed(fx.root, target, vol.file) } catch (e) { undo?.(); throw e }
     placed = true
     consumeSkillApproval(c, rel0)
     const rel = target.join('/')

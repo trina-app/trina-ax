@@ -86,7 +86,12 @@ func killOn() bool {
 			Kill json.RawMessage `json:"kill"`
 		} `json:"watchdog"`
 	}
-	if json.Unmarshal(b, &c) != nil || c.Watchdog == nil || len(c.Watchdog.Kill) == 0 {
+	if err := json.Unmarshal(b, &c); err != nil {
+		// a hand-edited server.json that does not parse: its opt-out cannot be read, so said in the log
+		logf("watchdog: %s is not valid JSON (%v); watchdog.kill is read as on (the default)", *configFile, err)
+		return true
+	}
+	if c.Watchdog == nil || len(c.Watchdog.Kill) == 0 {
 		return true
 	}
 	return !killOff(c.Watchdog.Kill)
