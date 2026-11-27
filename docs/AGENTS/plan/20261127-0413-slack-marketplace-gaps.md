@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-27 04:13
 - Branch: `feat/slack-marketplace-gaps`
-- Status: in progress
+- Status: done
 - Where: trina-ax `server/src/integrations/slack/`. Why: the team server holds the Slack links and answers the
   Home tab (docs/REPOSITORY-RULES.md: Slack connector, component C).
 - Version impact: minor. A new user-visible feature (the Slack app's Home tab) and a changed data rule (Slack data is
@@ -76,4 +76,11 @@ Out:
 
 ## Result
 
-(filled in at the end)
+Built as planned. Removal (in Slack, or Remove) deletes the workspace's Slack data at once (`removedInSlack`,
+`forgetWorkspace`, `scrubAudit`, `forgetCaches`); `slack_install_flows` stay so an Add to Slack in progress goes on.
+The Home tab is `home.ts` plus one branch in `onEnvelope`; the own app's manifest has the tab and the event.
+`tests/unit/c-slack-read.test.ts` (a simulated official removal) now puts the workspace's links back after it, since
+removal deletes them. `home.ts` is listed in `tests/unit/i18n-languages.test.ts` (its ko text sits next to the others,
+as `text.ts` does). The trina-cloud side (routing `app_home_opened`, `/slack/add`, the manifest file, the switch steps)
+is trina-cloud branch `feat/slack-marketplace-gaps`; the website page and privacy section are trina-ax-website
+`feat/slack-page-privacy`.
