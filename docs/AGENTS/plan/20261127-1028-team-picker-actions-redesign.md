@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-27 10:28
 - Branch: `feat/team-picker-actions-redesign`
-- Status: in progress
+- Status: done
 - Where: `desktop/src/ui/` (welcome.ts, ui.css) and `desktop/src/common/i18n.ts`. Why: the desktop app's own first
   screen lives there (docs/REPOSITORY-RULES.md)
 - Version impact: patch. A visual change to one existing screen; no new feature, setting or API.
@@ -60,4 +60,4 @@ tests/unit/e-desktop-common.test.ts`, desktop e2e `create-team.spec.ts` and `lan
 
 ## Result
 
-Filled in at the end.
+Built as planned. Create and Join are list rows with a 28px tile ("+" in the accent-soft fill, the one accent; link in the plain fill) under a hairline; the create line is shorter in all six languages; Language is a globe plus a content-sized select with a ring round both; "Open" shows on hover, keyboard focus and an open menu (always on touch screens). References (Notion join/create rows, Linear and Figma switchers with a check on the current workspace, Discord's create/join rows) all use quiet rows and almost no colour. Tests: the two unit files, desktop e2e create-team, language and keyboard-focus.
