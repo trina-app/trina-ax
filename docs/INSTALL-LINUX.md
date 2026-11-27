@@ -591,8 +591,8 @@ trina_admin archive --out /var/lib/mycel/data/off-host.tar.zst.age --password-st
     확인한다: `firewallLive`).
   - 커널이 오래됨(6.12 미만): 진단 "커널 격리"·"샌드박스"가 경고. 배포판 커널을 올린다.
   - 서버가 돌지만 응답하지 않을 때: 부트스트랩이 30초마다 `/api/health`를 묻고, 10번 내리 답이 없으면(약 5분) 멈춘 것으로 본다.
-    지금은 로그에만 남긴다(`journalctl -u mycel-server`의 `watchdog:` 줄). `server.json`에 `"watchdog": {"kill": true}`를 넣으면
-    서버를 다시 시작한다(재시작 필요 없음, 한 시간에 3번까지). 그 뒤에는 그대로 두고 `sudo mycel-ctl status`가 `SERVER HANGS`로
+    그러면 서버를 다시 시작한다(`journalctl -u mycel-server`의 `watchdog:` 줄, 한 시간에 3번까지). `server.json`에
+    `"watchdog": {"kill": false}`를 넣으면 로그에만 남긴다(재시작 필요 없음). 3번 뒤에는 그대로 두고 `sudo mycel-ctl status`가 `SERVER HANGS`로
     알린다. 서버가 다시 답하면 풀린다. 그때는 `sudo systemctl restart mycel-server`로 직접 다시 시작한다([설정](CONFIGURATION.md)).
 
 ## 12. 보안 모델(요약)

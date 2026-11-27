@@ -57,11 +57,11 @@ func waitHealthy(t *testing.T, v string) {
 }
 
 // A server that answered once, then stops answering (a fake hung server: health takes longer than the timeout), is
-// stopped and started again with watchdog.kill on. The new start is not watched until it answers itself.
+// stopped and started again: the default, with no watchdog block in server.json. The new start is not watched until
+// it answers itself.
 func TestWatchdogRestartsHungServer(t *testing.T) {
 	f := newFakeInstall(t)
 	fastWatchdog(t, 3)
-	f.config(`"watchdog":{"kill":true}`)
 	f.version("1.0.0", f.healthyBody("1.0.0"))
 	if err := switchTo("1.0.0"); err != nil {
 		t.Fatal(err)
@@ -85,10 +85,11 @@ func TestWatchdogRestartsHungServer(t *testing.T) {
 	}
 }
 
-// Without server.json watchdog.kill the watchdog only logs (QA turns it on after watching the log).
-func TestWatchdogLogOnlyByDefault(t *testing.T) {
+// With server.json watchdog.kill false the watchdog only logs.
+func TestWatchdogLogOnlyWhenOff(t *testing.T) {
 	f := newFakeInstall(t)
 	fastWatchdog(t, 3)
+	f.config(`"watchdog":{"kill":false}`)
 	f.version("1.0.0", f.healthyBody("1.0.0"))
 	switchTo("1.0.0")
 	stop := f.start()
@@ -197,4 +198,29 @@ func TestWatchdogIgnoresPendingVersion(t *testing.T) {
 	os.WriteFile(heal, nil, 0o644)
 	f.waitFor("ok", func(st appState) bool { return len(st.History) == 1 && st.History[0].Result == "ok" })
 	stop()
+}
+
+// The kill switch: on unless server.json turns it off, a hand-written off honoured in the forms people write.
+func TestWatchdogKillSwitch(t *testing.T) {
+	saved := *configFile
+	t.Cleanup(func() { *configFile = saved })
+	dir := t.TempDir()
+	*configFile = filepath.Join(dir, "missing.json")
+	if !killOn() {
+		t.Fatal("no server.json: want on")
+	}
+	for body, want := range map[string]bool{
+		`{}`: true, `not json`: true, `{"watchdog":{}}`: true, `{"watchdog":null}`: true, `{"watchdog":{"kill":null}}`: true,
+		`{"watchdog":{"kill":true}}`: true, `{"watchdog":{"kill":1}}`: true, `{"watchdog":{"kill":"yes"}}`: true,
+		`{"watchdog":{"kill":false}}`: false, `{"watchdog":{"kill":0}}`: false, `{"watchdog":{"kill":"false"}}`: false,
+		`{"watchdog":{"kill":"0"}}`: false, `{"watchdog":{"kill":" Off "}}`: false, `{"watchdog":{"kill":"no"}}`: false,
+	} {
+		*configFile = filepath.Join(dir, "server.json")
+		if err := os.WriteFile(*configFile, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := killOn(); got != want {
+			t.Errorf("%s: killOn %v, want %v", body, got, want)
+		}
+	}
 }

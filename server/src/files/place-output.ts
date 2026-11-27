@@ -27,6 +27,7 @@ import { mayAttachChatFile, PLACE_WORDS, resolvePlace, type ResolveCtx } from '.
 import type { ToolCtx, TurnFiles } from './service'
 import type { VersionSource } from '../chat/chat-files'
 import { turnWriteLimits } from './turn-write-limits'
+import { copyOffLoop } from './copy-off-loop'
 
 /** The chat's places for one tool call (chat/place-ctx.ts builds it from the turn; absent outside a chat turn) */
 export interface ChatPlaces {
@@ -250,7 +251,7 @@ export async function readPlaceFile(ctx: AppContext, c: ToolCtx, input: string, 
   if (f.quarantined) throw new ToolError(`'${f.name}' is held by the team's safety check, so it is not read`, 'held')
   const st = checkRegular(f.abs)
   if (st.size > max) throw new ToolError(`'${f.name}' is too large (${(st.size / 1024 ** 2).toFixed(0)} MB; at most ${(max / 1024 ** 2).toFixed(0)} MB here)`, 'too_large')
-  fs.copyFileSync(f.abs, dest, fs.constants.COPYFILE_EXCL)
+  await copyOffLoop(f.abs, dest)
   return { local: dest, name: f.name, size: st.size, sha256: f.sha256, place: chatFilePath(f.id, f.name), base: { kind: 'chatFiles' } }
 }
 

@@ -17,7 +17,7 @@ import { authorize } from '../policy/authorize'
 import { badSegment } from '../policy/names'
 import { publishChanges } from '../team-files/changes'
 import { fileError } from '../team-files/errors'
-import { checkRegular, freeName, hashFile, installFile } from '../team-files/place'
+import { abortStaged, checkRegular, commitStaged, freeName, hashFile, stageInstall } from '../team-files/place'
 import { mimeOf, type TeamFiles } from '../team-files/service'
 import { displaySize, firstBytes, makeThumbnail, mayHaveAlpha, type ThumbExt } from './image'
 import type { TeamFileRefs } from './team-refs'
@@ -119,14 +119,21 @@ export class Attachments {
       let cur = this.files.root
       for (const s of dir.segs) { cur = path.join(cur, s); try { fs.mkdirSync(cur, { mode: 0o700 }) } catch (e: any) { if (e.code !== 'EEXIST') throw e } }
     }
-    const final = freeName(dir.abs, clean)
-    const r = authorize(this.files.fx, rules, user, [...dir.segs, final].join('/'), 'write', { mustExist: false })
     const head = Buffer.alloc(64 * 1024)
     const fd = fs.openSync(src, 'r')
     let headLen = 0
     try { headLen = fs.readSync(fd, head, 0, head.length, 0) } finally { fs.closeSync(fd) }
     const size = fs.statSync(src).size
-    installFile(this.files.root, r.segs, src)
+    // next to its place first (a rename, or a copy off the event loop from another volume); the free name and the
+    // rename into it in one synchronous step
+    const staged = await stageInstall(this.files.root, dir.segs, src)
+    let r: ReturnType<typeof authorize>
+    try {
+      const final = freeName(dir.abs, clean)
+      r = authorize(this.files.fx, rules, user, [...dir.segs, final].join('/'), 'write', { mustExist: false })
+      commitStaged(staged, r.segs)
+    } finally { abortStaged(staged) }
+    const final = r.segs[r.segs.length - 1]!
     const quarantined = this.ctx.files.quarantine.hasHash(sha256)
     const kind = attachmentKind(final)
     const id = newId()

@@ -57,7 +57,7 @@ import { deckPdf, type DrawnDeck } from '../files/deck-pdf'
 import type { SlidesHtml } from '../files/pptx-html'
 import { encodeHwpxRequest, firstDifference, HWPX_MARKDOWN, hwpxMarkdown, HWPX_TEMPLATE_MAX, HWPX_WRITE_MODE, hwpxExpectedLines, hwpxReadLines } from '../files/hwpx-check'
 import { readForMakeFile, readThisAnswer, type ToolCtx } from '../files/service'
-import { conflictCopyName, fileEvent, readRegular, recordConflictCopy, sha256 } from '../files/store'
+import { conflictCopyName, fileEvent, readRegular, recordConflictCopy, saveVersion, sha256 } from '../files/store'
 import { sourceOf, widening } from '../chat/read-scope'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
@@ -65,7 +65,7 @@ import { writeLimitText } from '../policy/refusal'
 import { badSegment } from '../policy/names'
 import { bundledFontDir, which } from '../config'
 import { publishChanges } from '../team-files/changes'
-import { checkRegular, freeName, hashFile, installFile, snapshotVersion } from '../team-files/place'
+import { checkRegular, commitVersion, dropVersion, freeName, hashFile, installRenamed, onTeamVolume, sameFile, stageVersion, undoVersion, type KeptCopy } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
 import { makeWorkDir, readOutput, runIsolated } from './isolate'
 import { consumeSkillApproval, requireSkillApproval } from '../skills/guard'
@@ -1086,65 +1086,83 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   // Finish asynchronous work BEFORE the fresh principal/content/conflict check. The final
   // check-to-install section is synchronous, so server saves and policy mutations cannot interleave.
   const sha = await hashFile(produced)
-  c.signal?.throwIfAborted()
-  c.user=ctx.files.principal(c.user.id)
-  guard?.()
-  c.beforePlace?.()
-  const rules = files.rules()
-  let conflictOf: string | undefined
-  let action: 'create' | 'update' = 'create'
-  // looked at again now, not before the conversion: someone may have saved a file there in the meantime
-  const now = authorize(fx, rules, c.user, segs.join('/'), 'write', { mustExist: false, createDirs: true })
-  if (now.exists && now.st!.isDirectory()) throw new ToolError(`'${now.rel}' is a folder`)
-  segs = now.segs
-  let target = segs
-  const rel0 = now.rel
-  // under skills/ only after the person confirmed this save on the server's card (skills/guard.ts); fail closed
-  requireSkillApproval(c, rel0, null)
-  // a new file where a file was moved away from (QA TC-7234, real claude-code run: the remade poster went to its old
-  // place, the moved one stayed on the old date, and the answer said "saved the same file"): said first, once per answer
-  // and place, with where the file is now (when this person, and everyone in the chat, may read it there). A second
-  // call for the same place makes the new file (the person may want one there)
-  if (!now.exists && po.movedCheck && c.turnId) movedAwayCheck(ctx, c, rel0)
-  if (now.exists) {
-    const abs = path.join(fx.root, ...segs)
-    checkRegular(abs)
-    const cur = sha256(readRegular(abs, undefined, now.st).bytes)
-    // make_file replaces a whole file: only from a read this session still holds (readForMakeFile); the in-place tools
-    // (edit_hwp, comment_docx, the PDF and image tools) work from the old bytes and use every unchanged read
-    if ((po.thisAnswerOnly ? readThisAnswer(c.files, rel0) : tool === 'make_file' ? readForMakeFile(c.files, rel0) : c.files.readHashes.get(rel0)) === cur) {
-      snapshotVersion(ctx.db, fx.root, rel0, { userId: c.user.id, turnId: c.turnId }, 'edit', cur)
-      action = 'update'
-    } else {
-      // never overwrite a file the AI has not read in this chat (this answer or, unchanged, an earlier one of the
-      // person's: files/service.ts ReadHashes; changed since then it asks for a new read): keep both
-      const dir = segs.slice(0, -1)
-      let name = conflictCopyName(segs[segs.length - 1]!, c.user.name, new Date(), teamDefaultLocale(ctx.db), teamTimeZone(ctx.db))
-      if (badSegment(name)) name = `copy-${Date.now()}-${segs[segs.length - 1]}`
-      name = freeName(path.join(fx.root, ...dir), name)
-      target = authorize(fx, rules, c.user, [...dir, name].join('/'), 'write', { mustExist: false }).segs
-      conflictOf = rel0
+  // the slow copies too, off the event loop (a 20 GB file on ext4 takes minutes: docs/decisions/20261127-restart.md):
+  // the produced file onto the team folder's volume (placed below with a rename), and the content of the file it may
+  // replace (its version, used only when the section below finds that very file there still: place.ts KeptCopy)
+  const vol = await onTeamVolume(fx.root, produced)
+  let kept: KeptCopy | null = null
+  let placed = false
+  try {
+    try { if (fs.lstatSync(path.join(fx.root, ...segs)).isFile()) kept = await stageVersion(fx.root, path.join(fx.root, ...segs)) } catch { kept = null }
+    return placeChecked()
+  } finally { if (kept) dropVersion(kept); vol.finish(placed) }
+
+  function placeChecked(): MadeFile {
+    c.signal?.throwIfAborted()
+    c.user=ctx.files.principal(c.user.id)
+    guard?.()
+    c.beforePlace?.()
+    const rules = files.rules()
+    let conflictOf: string | undefined
+    let action: 'create' | 'update' = 'create'
+    let keptId: string | null = null
+    // looked at again now, not before the conversion: someone may have saved a file there in the meantime
+    const now = authorize(fx, rules, c.user, segs.join('/'), 'write', { mustExist: false, createDirs: true })
+    if (now.exists && now.st!.isDirectory()) throw new ToolError(`'${now.rel}' is a folder`)
+    segs = now.segs
+    let target = segs
+    const rel0 = now.rel
+    // under skills/ only after the person confirmed this save on the server's card (skills/guard.ts); fail closed
+    requireSkillApproval(c, rel0, null)
+    // a new file where a file was moved away from (QA TC-7234, real claude-code run: the remade poster went to its old
+    // place, the moved one stayed on the old date, and the answer said "saved the same file"): said first, once per answer
+    // and place, with where the file is now (when this person, and everyone in the chat, may read it there). A second
+    // call for the same place makes the new file (the person may want one there)
+    if (!now.exists && po.movedCheck && c.turnId) movedAwayCheck(ctx, c, rel0)
+    if (now.exists) {
+      const abs = path.join(fx.root, ...segs)
+      checkRegular(abs)
+      const read = readRegular(abs, undefined, now.st)
+      const cur = sha256(read.bytes)
+      // make_file replaces a whole file: only from a read this session still holds (readForMakeFile); the in-place tools
+      // (edit_hwp, comment_docx, the PDF and image tools) work from the old bytes and use every unchanged read
+      if ((po.thisAnswerOnly ? readThisAnswer(c.files, rel0) : tool === 'make_file' ? readForMakeFile(c.files, rel0) : c.files.readHashes.get(rel0)) === cur) {
+        // the copy made above when it is of this very file; else (changed while it was copied) the bytes just read
+        if (kept && sameFile(kept.st, read.st)) keptId = commitVersion(ctx.db, kept, rel0, { userId: c.user.id, turnId: c.turnId }, 'edit', cur)
+        else saveVersion(ctx.db, fx.root, rel0, read.bytes, { userId: c.user.id, turnId: c.turnId })
+        action = 'update'
+      } else {
+        // never overwrite a file the AI has not read in this chat (this answer or, unchanged, an earlier one of the
+        // person's: files/service.ts ReadHashes; changed since then it asks for a new read): keep both
+        const dir = segs.slice(0, -1)
+        let name = conflictCopyName(segs[segs.length - 1]!, c.user.name, new Date(), teamDefaultLocale(ctx.db), teamTimeZone(ctx.db))
+        if (badSegment(name)) name = `copy-${Date.now()}-${segs[segs.length - 1]}`
+        name = freeName(path.join(fx.root, ...dir), name)
+        target = authorize(fx, rules, c.user, [...dir, name].join('/'), 'write', { mustExist: false }).segs
+        conflictOf = rel0
+      }
     }
+    if (po.turnFiles !== false && !c.files.filesWritten.has(target.join('/')) && c.files.filesWritten.size >= max.files) throw new ToolError(writeLimitText('files', max.files, target.join('/')))
+    // final check right before the rename (rules may have changed during the conversion)
+    authorize(fx, files.rules(), c.user, target.join('/'), 'write', { mustExist: false, createDirs: true })
+    try { installRenamed(fx.root, target, vol.file) } catch (e) { if (kept && keptId) undoVersion(ctx.db, kept, keptId); throw e }
+    placed = true
+    consumeSkillApproval(c, rel0)
+    const rel = target.join('/')
+    if (counted) c.files.bytesWritten += size
+    if (po.turnFiles !== false) c.files.filesWritten.add(rel)
+    c.files.readHashes.set(rel, sha)
+    // made by the AI here (not a copy of someone's file from the web or a room): stamp_pdf / edit_pdf may change it in place
+    if (MADE_BY.has(tool)) c.files.madeHashes.set(rel, sha); else c.files.madeHashes.delete(rel)
+    // a conflict copy is told to both people and listed in the original's history (before the copy's own event)
+    if (conflictOf) recordConflictCopy(ctx.db, ctx.files.events, { original: conflictOf, copy: rel, userId: c.user.id, turnId: c.turnId, size, sha256: sha, tool })
+    fileEvent(ctx.db, { turnId: c.turnId, userId: c.user.id, path: rel, action, size, sha256: sha, detail: { tool, ...po.detail, ...(po.fetched ? { fetched: true } : {}), ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) } })
+    // All office consumers already run in workers; PPTX was validated before this
+    // publication. Never add an in-process document parser here.
+    files.extractText(rel)
+    publishChanges(ctx, [{ path: rel, action, by: { id: c.user.id, name: c.user.name }, turnId: c.turnId }])
+    return { path: rel, size, sha256: sha, ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) }
   }
-  if (po.turnFiles !== false && !c.files.filesWritten.has(target.join('/')) && c.files.filesWritten.size >= max.files) throw new ToolError(writeLimitText('files', max.files, target.join('/')))
-  // final check right before the rename (rules may have changed during the conversion)
-  authorize(fx, files.rules(), c.user, target.join('/'), 'write', { mustExist: false, createDirs: true })
-  installFile(fx.root, target, produced)
-  consumeSkillApproval(c, rel0)
-  const rel = target.join('/')
-  if (counted) c.files.bytesWritten += size
-  if (po.turnFiles !== false) c.files.filesWritten.add(rel)
-  c.files.readHashes.set(rel, sha)
-  // made by the AI here (not a copy of someone's file from the web or a room): stamp_pdf / edit_pdf may change it in place
-  if (MADE_BY.has(tool)) c.files.madeHashes.set(rel, sha); else c.files.madeHashes.delete(rel)
-  // a conflict copy is told to both people and listed in the original's history (before the copy's own event)
-  if (conflictOf) recordConflictCopy(ctx.db, ctx.files.events, { original: conflictOf, copy: rel, userId: c.user.id, turnId: c.turnId, size, sha256: sha, tool })
-  fileEvent(ctx.db, { turnId: c.turnId, userId: c.user.id, path: rel, action, size, sha256: sha, detail: { tool, ...po.detail, ...(po.fetched ? { fetched: true } : {}), ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) } })
-  // All office consumers already run in workers; PPTX was validated before this
-  // publication. Never add an in-process document parser here.
-  files.extractText(rel)
-  publishChanges(ctx, [{ path: rel, action, by: { id: c.user.id, name: c.user.name }, turnId: c.turnId }])
-  return { path: rel, size, sha256: sha, ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) }
 }
 
 /** Raw formats pandoc's docx, pptx and typst writers ignore: their blocks are dropped (\newpage, \pagebreak). */

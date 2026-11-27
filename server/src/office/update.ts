@@ -51,6 +51,7 @@ import { isMigrating, MIGRATE_WAIT_MS, probeHealth, type HealthAnswer } from './
 import { dbReaderLevel, healFile, recoveryAdvice, releaseIn, unreadablePrevious, UNREADABLE } from './forward'
 import { diskStat, DiskSpaceUnknown } from '../system/disk-stat'
 import { primeDiskSpace } from '../system/layout'
+import { copyOffLoop } from '../files/copy-off-loop'
 
 // ---- settings and state ------------------------------------------------------------------------------------------
 
@@ -891,7 +892,7 @@ export async function offerMac(dir: string, tmp: string, m: MacRelease, d: Pick<
       fs.copyFileSync(yml, t)
       fs.chmodSync(t, 0o600)
       if (zip) {
-        try { fs.renameSync(zip, tz) } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e; fs.copyFileSync(zip, tz) }
+        try { fs.renameSync(zip, tz) } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e; fs.rmSync(tz, { force: true }); await copyOffLoop(zip, tz) }
         fs.chmodSync(tz, 0o600)
         if (fs.statSync(tz).size !== m.zip.size) throw new UpdateFailure(`${m.zip.file} changed while it was offered`)
         fs.renameSync(tz, path.join(dir, m.zip.file))
@@ -1048,7 +1049,7 @@ export async function offerLinux(dir: string, tmp: string, l: LinuxRelease, d: P
       const p = linuxParts(l, g.arch)
       const ti = path.join(dir, `.${p.appImage.file}.tmp-${process.pid}`)
       temps.push(ti)
-      try { fs.renameSync(g.img, ti) } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e; fs.copyFileSync(g.img, ti) }
+      try { fs.renameSync(g.img, ti) } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e; fs.rmSync(ti, { force: true }); await copyOffLoop(g.img, ti) }
       fs.chmodSync(ti, 0o600)
       if (fs.statSync(ti).size !== p.appImage.size) throw new UpdateFailure(`${p.appImage.file} changed while it was offered`)
       fs.renameSync(ti, path.join(dir, p.appImage.file))

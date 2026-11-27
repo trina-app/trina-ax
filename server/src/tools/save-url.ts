@@ -62,6 +62,7 @@ export const ASK_ABOVE_BYTES = 1024 ** 3
 // free space a download must leave on the data disk (system/disk-stat.ts, shared with the speech model's download)
 export { DISK_RESERVE_FRACTION, DISK_RESERVE_MAX, DISK_RESERVE_MIN, diskReserve } from '../system/disk-stat'
 import { diskReserve } from '../system/disk-stat'
+import { copyOffLoop } from '../files/copy-off-loop'
 
 export const TEXT = {
   large: {
@@ -220,7 +221,7 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
       if (!item) throw new ToolError(`no file ${source.slice(0, 60)} in this chat: an mcp-file handle works only in the chat whose connection answer named it, for 24 hours. Call the service again to get the file`)
       await widen()
       room(item.meta.size, false)
-      fs.copyFileSync(item.file, tmp, fs.constants.COPYFILE_EXCL)
+      await copyOffLoop(item.file, tmp)
       const fd = fs.openSync(tmp, 'r')
       try { first = Buffer.alloc(Math.min(64, item.meta.size)); fs.readSync(fd, first, 0, first.length, 0) } finally { fs.closeSync(fd) }
       kind = judge(first, item.meta.declared, firstName)

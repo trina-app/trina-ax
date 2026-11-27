@@ -58,7 +58,8 @@ import { TIMEOUT_NEXT } from '../policy/refusal'
 import fs from 'node:fs'
 import path from 'node:path'
 import { componentC } from '../team-files/component'
-import { sha256Regular } from '../files/store'
+import { sha256RegularAsync } from '../files/store'
+import { sameFile } from '../team-files/place'
 import { saveTakeBack, type TakeBackFolder } from '../files/share-take-back'
 import { hiddenName, keptNames } from '../files/share-places'
 import { foldKey } from '../policy/names'
@@ -415,7 +416,7 @@ export function shareFolderTool(exec: TurnExec): Tool {
         }
       } finally {
         // a folder made for this call whose share did not go through: taken away again (nothing of it stays behind)
-        if (made && shared?.outcome !== 'done') { try { dropChatFolder(exec, made) } catch (e) { rt.log.warn('a folder made for the chat files could not be taken away', { err: e }) } }
+        if (made && shared?.outcome !== 'done') { try { await dropChatFolder(exec, made) } catch (e) { rt.log.warn('a folder made for the chat files could not be taken away', { err: e }) } }
         label(named, detail, shared, fixes)
       }
     },
@@ -457,18 +458,23 @@ async function makeChatFolder(exec: TurnExec, files: string[]): Promise<TakeBack
       const r = await svc.copy(userId, p, `${f.path}/${p.split('/').pop()}`, { onExists: 'rename', turnId: exec.spec.turnId, tool: SHARE_FOLDER_TOOL })
       if ('path' in r) out.files.push({ path: r.path, sha256: r.sha256 })
     }
-  } catch (e) { dropChatFolder(exec, out); throw e }
-  if (!out.files.length) { dropChatFolder(exec, out); throw new Error('nothing copied') }
+  } catch (e) { await dropChatFolder(exec, out); throw e }
+  if (!out.files.length) { await dropChatFolder(exec, out); throw new Error('nothing copied') }
   svc.recordFolders(userId, f.created, { turnId: exec.spec.turnId, tool: SHARE_FOLDER_TOOL })
   return out
 }
 
 /** Take a folder makeChatFolder made away again: its copies (unchanged ones), then its folders while empty. */
-function dropChatFolder(exec: TurnExec, m: TakeBackFolder): void {
+async function dropChatFolder(exec: TurnExec, m: TakeBackFolder): Promise<void> {
   const svc = componentC(exec.rt.ctx).files, userId = exec.spec.userId
   const root = exec.rt.ctx.files.fx.root
   for (const c of m.files) {
-    try { if (sha256Regular(path.join(root, ...c.path.split('/'))) === c.sha256) svc.remove(userId, c.path, null) } catch { /* gone or changed: left */ }
+    try {
+      // hashed off the event loop (a copy may be many GB); removed only when it is still the file that was hashed
+      const abs = path.join(root, ...c.path.split('/'))
+      const st = fs.lstatSync(abs)
+      if (await sha256RegularAsync(abs) === c.sha256 && sameFile(st, fs.lstatSync(abs))) svc.remove(userId, c.path, null)
+    } catch { /* gone or changed: left */ }
   }
   for (const d of [...m.made].reverse()) svc.removeEmptyFolder(userId, d)
 }
