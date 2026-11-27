@@ -328,12 +328,12 @@ export class Rooms {
 
   /** My level for the room (notifyLevel; null: my default; the older apps' muted: true is 'off', false brings 'off' back
    * to my default) and the room's own name (mayRename: else 403). A name change is an event line. */
-  update(userId: string, roomId: string, b: { muted?: boolean; notifyLevel?: RoomNotifyLevel | null; name?: string | null }): Room {
+  update(userId: string, roomId: string, b: { muted?: boolean; notifyLevel?: RoomNotifyLevel | null; name?: string | null }, locale: Locale = DEFAULT_LOCALE): Room {
     const { room, me } = this.mine(userId, roomId)
     // a guest changes only their own level, never the room's name
     if (b.name !== undefined && isGuest(this.db, userId)) fail('forbidden')
     // a project's room is named after the project (rooms/project-room.ts followNames)
-    if (b.name !== undefined) refuseInProjectRoom(this.db, room, DEFAULT_LOCALE)
+    if (b.name !== undefined) refuseInProjectRoom(this.db, room, locale)
     if (b.name !== undefined) this.rename(userId, room, b.name)
     const level = b.notifyLevel !== undefined ? b.notifyLevel : b.muted === true ? 'off' : b.muted === false ? (ownLevel(me) === 'off' ? null : ownLevel(me)) : undefined
     if (level !== undefined) {

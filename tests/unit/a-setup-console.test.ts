@@ -230,8 +230,8 @@ describe('setup from the hosting console', () => {
     expect(r.me.user.name).toBe('Dae Nam')
     expect(r.me.user.username).toBe('daehyeonnam')
     expect((await h.client().try('POST', '/api/auth/login', { username: 'daehyeonnam+create1127@example.com', password: 'owner horse battery 42' })).status).toBe(200)
-    expect(ownerName({ name: '', email: 'kim+x@example.com' })).toBe('kim')
-    expect(ownerName({ name: 'Kim Lee', email: 'kim+x@example.com' })).toBe('Kim Lee')
+    expect(ownerName({ name: '', email: 'kim+x@example.com', locale: 'en' })).toBe('kim')
+    expect(ownerName({ name: 'Kim Lee', email: 'kim+x@example.com', locale: 'en' })).toBe('Kim Lee')
     expect(nameFromEmail('a+b+c@example.com')).toBe('a')
   })
   test('a name typed that is not a name falls back to the preview', async () => {

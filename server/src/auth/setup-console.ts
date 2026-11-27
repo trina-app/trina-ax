@@ -151,22 +151,25 @@ async function reserveFor(c: Context<AppEnv>, ctx: AppContext, claim: string): P
   return fail('unavailable', msg('consoleUnavailable', locale))
 }
 
+/** The first owner's name when the console has none usable: "Admin" in the team's language (English when it is not one
+ * of ours), never a fixed word of one language. */
+export const FIRST_ADMIN_NAME: Record<Locale, string> = { ko: '관리자', en: 'Admin', id: 'Admin', ja: '管理者', es: 'Administrador', zh: '管理员' }
 /** The e-mail's part before @ without a "+tag" (`kim+create1127@…` → `kim`), as a name to start from. */
 export const nameFromEmail = (email: string): string => email.split('@')[0]!.split('+')[0]!
 /** The owner's name as an account name: the console's (a console that sent the e-mail's part before @ as the name
- * gets it without its +tag), else the e-mail's part before @ without the tag, else "Owner". */
-export function ownerName(o: Pick<OwnerClaimOwner, 'name' | 'email'>): string {
+ * gets it without its +tag), else the e-mail's part before @ without the tag, else "Admin" in the team's language. */
+export function ownerName(o: Pick<OwnerClaimOwner, 'name' | 'email' | 'locale'>): string {
   const local = o.email.split('@')[0]!
   const given = o.name === local || /^[^\s@+]+\+[^\s@]*$/.test(o.name) ? o.name.split('+')[0]! : o.name
   for (const n of [given, nameFromEmail(o.email)]) { const p = PersonName.safeParse(n); if (p.success && p.data) return p.data }
-  return 'Owner'
+  return FIRST_ADMIN_NAME[ownerLocale(o)] ?? FIRST_ADMIN_NAME.en
 }
 /** the name the person wrote on the page, when it is one (PersonName's rule) */
 function typedName(n: string | undefined): string | null {
   const p = n === undefined ? null : PersonName.safeParse(n)
   return p?.success && p.data ? p.data : null
 }
-function ownerLocale(o: OwnerClaimOwner): Locale {
+function ownerLocale(o: Pick<OwnerClaimOwner, 'locale'>): Locale {
   const p = Locale.safeParse(o.locale.split('-')[0]!.toLowerCase())
   return p.success ? p.data : DEFAULT_LOCALE
 }

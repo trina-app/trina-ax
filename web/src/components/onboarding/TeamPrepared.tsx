@@ -91,11 +91,11 @@ export function useTeamPrepared(enabled = true, again: unknown = null): { data: 
 
 /** The team folder as people read it: "groups/Acme/회사 자료" → "Acme › 회사 자료", "shared" → "전사 공유" (the top
  * folders' words, shared/src/folder-labels.ts). */
-export const folderLabel = (path: string, locale: Locale = 'ko') => (path.startsWith('groups/') ? path.slice('groups/'.length).split('/').join(' › ') : labeledPath(path, locale, null, ' › '))
+export const folderLabel = (path: string, locale: Locale = 'en') => (path.startsWith('groups/') ? path.slice('groups/'.length).split('/').join(' › ') : labeledPath(path, locale, null, ' › '))
 
 /** 물어보기's question: the folder by the name people read ("예시커피 폴더"), the brand folder (`without[0]`, its name in
  * the team's language) and the skills folder left out in words, as the count leaves them out. */
-export const filesQuestion = (t: (k: 'home.prepared.filesAsk', p: Record<string, string>) => string, f: Pick<NonNullable<TeamPreparedData['teamFolder']>, 'path' | 'without'>, locale: Locale = 'ko') =>
+export const filesQuestion = (t: (k: 'home.prepared.filesAsk', p: Record<string, string>) => string, f: Pick<NonNullable<TeamPreparedData['teamFolder']>, 'path' | 'without'>, locale: Locale = 'en') =>
   t('home.prepared.filesAsk', { folder: folderLabel(f.path, locale), brand: f.without[0] ?? '' })
 
 /** What the block shows for this person (the rules above), apart from the data load. Exported for its test. */
