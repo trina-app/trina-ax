@@ -127,7 +127,9 @@ export const RestartStatus = z.object({
   running: z.number().int().nonnegative(),
   /** a restart that waits for running answers: what, since when, at the latest until when; going: the wait is over and
    * it restarts now (no "now" or "don't restart" any more) */
-  waiting: z.object({ what: RestartWhat, since: IsoTime, until: IsoTime, going: z.boolean().optional() }).nullable(),
+  waiting: z.object({ what: RestartWhat, since: IsoTime, until: IsoTime, going: z.boolean().optional(),
+    /** the caller may call it off: the owner, or the admin who asked for it (never whose it is) */
+    mayCancel: z.boolean().optional() }).nullable(),
   /** the last restart in the last 24 hours */
   last: z.object({ what: RestartWhat, at: IsoTime }).nullable(),
   /** the last "AI only" restart got no answer from the launcher (in the last 24 hours, newer than `last`) */
@@ -340,8 +342,8 @@ export const SYSTEM = {
   startUpdate: endpoint({ method: 'POST', path: '/api/admin/update', auth: 'owner-reauth', owner: 'G', status: 202, body: StartUpdateBody, response: JobAccepted, summary: 'Back up the DB, switch app/current, restart; roll back if the health check fails.' }),
   restartStatus: endpoint({ method: 'GET', path: '/api/admin/restart', auth: 'admin', owner: 'G', response: RestartStatus, summary: 'What Restart offers on this server (the AI only, the whole app), the restart waiting for running answers (a count, no names), the last one, and why one cannot start now.' }),
   startRestart: endpoint({ method: 'POST', path: '/api/admin/restart', auth: 'admin-reauth', owner: 'G', status: 202, body: StartRestartBody, response: RestartStatus, summary: 'Restart the AI or the whole app when running answers finish (at most 10 minutes) or at once (owner only). Refused during maintenance, an update, a prepared restore, and past 5 an hour (2 minutes apart). Audited.' }),
-  restartNow: endpoint({ method: 'POST', path: '/api/admin/restart/now', auth: 'owner', owner: 'G', body: z.object({}), response: RestartStatus, summary: 'The waiting restart goes at once (running answers end and say so, with Try again).' }),
-  cancelRestart: endpoint({ method: 'DELETE', path: '/api/admin/restart', auth: 'admin', owner: 'G', response: RestartStatus, summary: 'The waiting restart is called off.' }),
+  restartNow: endpoint({ method: 'POST', path: '/api/admin/restart/now', auth: 'owner-reauth', owner: 'G', body: ReauthBody, response: RestartStatus, summary: 'The waiting restart goes at once (running answers end and say so, with Try again).' }),
+  cancelRestart: endpoint({ method: 'DELETE', path: '/api/admin/restart', auth: 'admin', owner: 'G', response: RestartStatus, summary: 'The waiting restart is called off (the owner, or the admin who asked for it).' }),
   afterUpdateActions: endpoint({ method: 'GET', path: '/api/admin/after-update', auth: 'admin', owner: 'G', response: z.object({ items: z.array(AfterUpdateAction) }), summary: 'What a release left for an admin to do and that still applies to this team (not dismissed).' }),
   dismissAfterUpdate: endpoint({ method: 'POST', path: '/api/admin/after-update/:id/dismiss', auth: 'admin', owner: 'G', status: 204, body: z.object({}), response: empty, summary: 'Remember for the team that one after-update to-do is not needed.' }),
   listBackups: endpoint({ method: 'GET', path: '/api/admin/backups', auth: 'owner', owner: 'G', response: z.object({ items: z.array(BackupInfo), lastRestore: LastRestore.nullable().optional(), retentionDays: z.number().int().positive().optional() }), summary: 'Backups in .system/backups/, the last restore (which backup, when, by whom, ok), and how many days this server keeps its backups (retentionDays: the plan\'s localBackupRetentionDays, else 14).' }),

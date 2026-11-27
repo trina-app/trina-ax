@@ -38,10 +38,11 @@ beforeAll(() => {
       if (method !== 'GET') sent.push({ method, path: url.pathname, body: init?.body ? JSON.parse(String(init.body)) : null })
       if (method === 'POST' && url.pathname === '/api/admin/restart') {
         const b = JSON.parse(String(init!.body)) as { what: 'ai' | 'server'; when: string }
-        status = { ...status, waiting: b.when === 'idle' ? { what: b.what, since: '2026-11-27T01:00:00.000Z', until: '2026-11-27T01:10:00.000Z' } : null }
+        status = { ...status, waiting: b.when === 'idle' ? { what: b.what, since: '2026-11-27T01:00:00.000Z', until: '2026-11-27T01:10:00.000Z', mayCancel: true } : null }
         return json(status, 202)
       }
       if (method === 'DELETE') { status = { ...status, waiting: null }; return json(status) }
+      if (method === 'POST' && url.pathname === '/api/admin/restart/now') { status = { ...status, waiting: status.waiting && { ...status.waiting, going: true, mayCancel: false } }; return json(status) }
       return json(status)
     }
     return json({ error: { code: 'not_found', message: url.pathname } }, 404)
@@ -96,6 +97,34 @@ describe('the restart row', () => {
       await m.type('reauth-password', 'river stone')
       await m.click('reauth-confirm')
       await m.until(() => m.find('restart-cancel'), 'waiting')
+      expect(m.find('restart-now')).toBeNull()
+    } finally { await m.unmount() }
+  })
+
+  test('the owner: Restart now while one waits asks for the password again', async () => {
+    useSession.setState({ status: { kind: 'signed-in', me: me('owner') } })
+    status = base({ waiting: { what: 'server', since: '2026-11-27T01:00:00.000Z', until: '2026-11-27T01:10:00.000Z', mayCancel: true } })
+    const m = await mount(<MemoryRouter><Restart /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('restart-now'), 'Restart now')
+      await m.click('restart-now')
+      await m.until(() => m.find('restart-now-dialog'), 'the password dialog')
+      expect(sent).toHaveLength(0)
+      await m.type('reauth-password', 'river stone')
+      await m.click('reauth-confirm')
+      await m.until(() => sent.length, 'the request')
+      expect(sent[0]).toEqual({ method: 'POST', path: '/api/admin/restart/now', body: { password: 'river stone' } })
+      await m.until(() => !m.find('restart-now-dialog') && m.get('restart-line').textContent === en('system.restart.started'), 'going')
+    } finally { await m.unmount() }
+  })
+
+  test('an admin cannot call off a restart someone else asked for', async () => {
+    useSession.setState({ status: { kind: 'signed-in', me: me('admin') } })
+    status = base({ now: false, waiting: { what: 'server', since: '2026-11-27T01:00:00.000Z', until: '2026-11-27T01:10:00.000Z', mayCancel: false } })
+    const m = await mount(<MemoryRouter><AdminRestart /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('restart-line'), 'the row')
+      expect(m.find('restart-cancel')).toBeNull()
       expect(m.find('restart-now')).toBeNull()
     } finally { await m.unmount() }
   })

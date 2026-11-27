@@ -408,17 +408,29 @@ function RestartRow({ state }: { state: RestartState }) {
   const locale = useLocale()
   const s = state.data!
   const [open, setOpen] = useState(false)
-  const [busy, setBusy] = useState<'now' | 'cancel' | null>(null)
+  // "Restart now" cuts running answers: the password again, as for "Update now anyway"
+  const [askNow, setAskNow] = useState(false)
+  const [busy, setBusy] = useState<'cancel' | null>(null)
   const act = useAction()
+  const reauth = useReauthCall()
   const w = s.waiting
-  const press = async (which: 'now' | 'cancel') => {
-    setBusy(which)
-    const r = await act(() => which === 'now' ? api.call(API.restartNow, { body: {} }) : api.call(API.cancelRestart))
+  // the owner, or the admin who asked for it (an older server does not say: the owner's and every admin's)
+  const mayCancel = w?.mayCancel ?? true
+  const cancel = async () => {
+    setBusy('cancel')
+    const r = await act(() => api.call(API.cancelRestart))
     setBusy(null)
     if (!r) return
     state.setData(r)
-    if (which === 'cancel') toast({ level: 'success', text: t('system.restart.cancelled') })
-    else if (w?.what === 'server') toast({ level: 'info', text: t('system.restart.started') })
+    toast({ level: 'success', text: t('system.restart.cancelled') })
+  }
+  const now = async (proof: ReauthProof) => {
+    const r = await reauth(() => api.call(API.restartNow, { body: proof }))
+    if (r && 'refused' in r) return r.refused
+    setAskNow(false)
+    if (!r) return
+    state.setData(r.value)
+    if (w?.what === 'server') toast({ level: 'info', text: t('system.restart.started') })
     else setTimeout(() => void state.reload(), 3000)
   }
   const line = w ? (w.going ? t('system.restart.started') : s.running > 0 ? t('system.restart.waiting', { count: s.running }) : t('system.restart.soon'))
@@ -432,8 +444,8 @@ function RestartRow({ state }: { state: RestartState }) {
         long
         action={w ? (w.going ? undefined :
           <span className="flex flex-wrap gap-2">
-            {s.now && <Button size="sm" variant="secondary" busy={busy === 'now'} disabled={!!busy} onClick={() => void press('now')} data-testid="restart-now">{t('system.restart.now')}</Button>}
-            <Button size="sm" variant="ghost" busy={busy === 'cancel'} disabled={!!busy} onClick={() => void press('cancel')} data-testid="restart-cancel">{t('system.restart.cancel')}</Button>
+            {s.now && <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => setAskNow(true)} data-testid="restart-now">{t('system.restart.now')}</Button>}
+            {mayCancel && <Button size="sm" variant="ghost" busy={busy === 'cancel'} disabled={!!busy} onClick={() => void cancel()} data-testid="restart-cancel">{t('system.restart.cancel')}</Button>}
           </span>
         ) : (
           <Button size="sm" variant="secondary" disabled={!!s.blocked} onClick={() => setOpen(true)} data-testid="restart-open">
@@ -445,6 +457,8 @@ function RestartRow({ state }: { state: RestartState }) {
         {s.watchdogGaveUp && !w && <span className="mt-1 block text-xs text-warn" data-testid="restart-gave-up">{t('system.restart.gaveUp')}</span>}
         {s.blocked && !w && <span className="mt-1 block text-xs text-muted" data-testid="restart-blocked">{s.blocked}</span>}
       </Row>
+      {askNow && w && <ReauthDialog title={t('system.restart.whenNow')} danger body={<p data-testid="restart-now-dialog">{t('system.restart.nowNote')}</p>}
+        confirm={t('system.restart.whenNow')} onClose={() => setAskNow(false)} onConfirm={now} />}
       {open && <RestartDialog s={s} onClose={() => setOpen(false)} onStarted={(r, what) => {
         state.setData(r)
         if (what === 'server' && r.waiting?.going) toast({ level: 'info', text: t('system.restart.started') })

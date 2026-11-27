@@ -113,9 +113,27 @@ describe('who may', () => {
     expect((await errorOf(r)).message).toContain('Only the owner')
     running = 1
     expect((await start({ what: 'ai', when: 'idle' }, 'admin')).status).toBe(202)
-    expect((await req('/api/admin/restart/now', { method: 'POST', as: 'admin', body: '{}' })).status).toBe(403)
-    // an admin may call it off
+    expect((await req('/api/admin/restart/now', { method: 'POST', as: 'admin', body: JSON.stringify({ password: 'pw' }) })).status).toBe(403)
+    // an admin may call off their own
+    expect((await status('admin')).waiting?.mayCancel).toBe(true)
     expect((await req('/api/admin/restart', { method: 'DELETE', as: 'admin' })).status).toBe(200)
+    await getRestarts(ctx)!.settled()
+    expect(launcher.calls).toBe(0)
+  })
+
+  test('"now" asks the owner\'s password again; an admin cannot call off the owner\'s restart', async () => {
+    running = 1
+    expect((await start({ what: 'ai', when: 'idle' })).status).toBe(202)
+    expect((await status('admin')).waiting?.mayCancel).toBe(false)
+    expect((await status('owner')).waiting?.mayCancel).toBe(true)
+    const no = await req('/api/admin/restart', { method: 'DELETE', as: 'admin' })
+    expect(no.status).toBe(403)
+    expect((await errorOf(no)).message).toContain('Only the owner')
+    expect(auditRows('system.restart_cancelled')).toHaveLength(0)
+    expect((await req('/api/admin/restart/now', { method: 'POST', as: 'owner', body: '{}' })).status).toBe(400)
+    expect((await req('/api/admin/restart/now', { method: 'POST', as: 'owner', body: JSON.stringify({ password: 'wrong' }) })).status).toBe(403)
+    expect(launcher.calls).toBe(0)
+    expect((await req('/api/admin/restart', { method: 'DELETE', as: 'owner' })).status).toBe(200)
     await getRestarts(ctx)!.settled()
     expect(launcher.calls).toBe(0)
   })
@@ -225,7 +243,7 @@ describe('the wait', () => {
   test('"now" ends the wait; "don\'t restart" calls it off and frees the lock', async () => {
     running = 1
     await start({ what: 'ai', when: 'idle' })
-    expect((await req('/api/admin/restart/now', { method: 'POST', as: 'owner', body: '{}' })).status).toBe(200)
+    expect((await req('/api/admin/restart/now', { method: 'POST', as: 'owner', body: JSON.stringify({ password: 'pw' }) })).status).toBe(200)
     await getRestarts(ctx)!.settled()
     expect(launcher.calls).toBe(1)
 
@@ -240,7 +258,7 @@ describe('the wait', () => {
     expect(auditRows('system.restart_cancelled')).toHaveLength(1)
     // nothing waits: both say so
     expect((await req('/api/admin/restart', { method: 'DELETE', as: 'owner' })).status).toBe(409)
-    expect((await req('/api/admin/restart/now', { method: 'POST', as: 'owner', body: '{}' })).status).toBe(409)
+    expect((await req('/api/admin/restart/now', { method: 'POST', as: 'owner', body: JSON.stringify({ password: 'pw' }) })).status).toBe(409)
   })
 
   test('the wait ends at its limit even when answers still run', async () => {

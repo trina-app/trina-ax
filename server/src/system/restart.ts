@@ -5,7 +5,8 @@
 //   where it comes back by itself.
 // - When: 'idle' waits for the running answers, at most RESTART_WAIT_MS; meanwhile the update-wait mark (kind
 //   'restart') holds scheduled runs back, the ops lock refuses other maintenance with its own words, and the restart can
-//   go at once (the owner) or be called off (owner or admin). 'now' (the owner only) goes at once.
+//   go at once (the owner, with the password again) or be called off (the owner, or the admin who asked for it). 'now'
+//   (the owner only) goes at once.
 // - Refused: the ops lock is taken, an update waits or runs (this server's, root's, office's), a restore is prepared,
 //   state.json pending / forward is this version (the update is still checked: an exit counts towards a roll-back),
 //   app/current is another version, or the limit (accepted requests in the audit log, every kind together: 5 an hour,
@@ -47,6 +48,7 @@ export const RT = {
   restorePrepared: { ko: '복원할 백업이 준비되어 있어요. 다시 시작하면 복원이 적용돼요. 복원하려면 백업 화면에서 진행해 주세요.', en: 'A restore is prepared and a restart would apply it. To restore, go on from Backups.', id: 'Pemulihan sudah disiapkan dan mulai ulang akan menerapkannya. Untuk memulihkan, lanjutkan dari Cadangan.', ja: '復元の準備ができており、再起動すると復元が適用されます。復元する場合はバックアップから進めてください。', es: 'Hay una restauración preparada y un reinicio la aplicaría. Para restaurar, continúe desde Copias de seguridad.', zh: '已有准备好的恢复，重启会应用它。如需恢复，请从“备份”继续。' },
   tooSoon: { ko: '방금 다시 시작했어요. 잠시 뒤에 다시 해 주세요.', en: 'It was just restarted. Try again in a little while.', id: 'Baru saja dimulai ulang. Coba lagi sebentar lagi.', ja: '再起動したばかりです。少し待ってからもう一度お試しください。', es: 'Se acaba de reiniciar. Vuelva a intentarlo dentro de un rato.', zh: '刚刚重启过。请稍后再试。' },
   tooMany: { ko: '지난 한 시간 동안 여러 번 다시 시작했어요. 조금 뒤에 다시 해 주세요.', en: 'It was restarted several times in the last hour. Try again a little later.', id: 'Sudah dimulai ulang beberapa kali dalam satu jam terakhir. Coba lagi nanti.', ja: 'この1時間で何度も再起動しています。少し時間をおいてからもう一度お試しください。', es: 'Se reinició varias veces en la última hora. Vuelva a intentarlo un poco más tarde.', zh: '过去一小时内已重启多次。请稍后再试。' },
+  notYours: { ko: '다른 사람이 요청한 다시 시작은 소유자만 그만둘 수 있어요.', en: 'Only the owner can call off a restart someone else asked for.', id: 'Hanya pemilik yang bisa membatalkan mulai ulang yang diminta orang lain.', ja: '他の人が依頼した再起動を取りやめられるのはオーナーだけです。', es: 'Solo el propietario puede cancelar un reinicio que pidió otra persona.', zh: '只有所有者可以取消别人请求的重启。' },
   nothingWaits: { ko: '기다리는 다시 시작이 없어요.', en: 'No restart is waiting.', id: 'Tidak ada mulai ulang yang menunggu.', ja: '待機中の再起動はありません。', es: 'No hay ningún reinicio en espera.', zh: '没有正在等待的重启。' },
   /** the update-wait mark's line while a restart waits (Admin › System › Updates says it in its own words too) */
   waitingAnswers: (n: number): T6 => ({ ko: `진행 중인 답변 ${n}개가 끝나면 다시 시작해요`, en: `Restarting when ${enPlural(n, 'running answer finishes', 'running answers finish')}`, id: `Dimulai ulang setelah ${n} jawaban yang berjalan selesai`, ja: `実行中の回答${n}件が終わったら再起動します`, es: `Se reiniciará cuando ${n === 1 ? 'termine 1 respuesta en curso' : `terminen ${n} respuestas en curso`}`, zh: `${n}个进行中的回答结束后重启` }),
@@ -136,7 +138,7 @@ export class RestartService {
     return null
   }
 
-  async status(o: { owner: boolean; locale: Locale }): Promise<RestartStatus> {
+  async status(o: { owner: boolean; locale: Locale; userId?: string }): Promise<RestartStatus> {
     const now = Date.now()
     const last = this.ctx.db.query("SELECT detail, at FROM audit_log WHERE action = 'system.restarted' AND at > ? ORDER BY at DESC LIMIT 1")
       .get(iso(now - LAST_FOR_MS)) as { detail: string | null; at: string } | null
@@ -156,7 +158,7 @@ export class RestartService {
       options: { server, ai },
       now: o.owner,
       running: this.d.ops().queue().running,
-      waiting: w ? { what: w.what, since: iso(w.since), until: iso(w.until), ...(w.going ? { going: true } : {}) } : null,
+      waiting: w ? { what: w.what, since: iso(w.since), until: iso(w.until), ...(w.going ? { going: true } : {}), mayCancel: !w.going && (o.owner || w.by === o.userId) } : null,
       last: last ? { what: lastWhat, at: new Date(last.at).toISOString() } : null,
       failed: failed ? { what: failed.what, at: iso(failed.at) } : null,
       blocked: refused ? tr(o.locale, refused.words) : null,
@@ -172,7 +174,9 @@ export class RestartService {
     if (no) throw no
     const ops = this.d.ops()
     if (!ops.tryLock('restart')) throw new RestartRefused('busy', RT.busy)
-    audit(this.ctx.db, { actor: o.by, action: 'system.restart_requested', detail: { what: o.what, when: o.when } })
+    // the audit row is the limit's count: no row, no restart (and the lock is not left held)
+    try { audit(this.ctx.db, { actor: o.by, action: 'system.restart_requested', detail: { what: o.what, when: o.when } }) }
+    catch (e) { ops.unlock(); throw e }
     this.ctx.log.info('restart requested', { what: o.what, when: o.when, by: o.by })
     const since = Date.now()
     const until = since + (o.when === 'now' ? 0 : this.d.waitMs ?? RESTART_WAIT_MS)
@@ -190,10 +194,11 @@ export class RestartService {
     return true
   }
 
-  /** the waiting restart is called off */
-  cancel(by: string): boolean {
+  /** the waiting restart is called off: by the owner, or by the admin who asked for it ('not-yours' otherwise) */
+  cancel(by: string, owner: boolean): boolean | 'not-yours' {
     const w = this.waiting
     if (!w || w.cancel || w.going) return false
+    if (!owner && w.by !== by) return 'not-yours'
     w.cancel = true
     audit(this.ctx.db, { actor: by, action: 'system.restart_cancelled', detail: { what: w.what } })
     return true

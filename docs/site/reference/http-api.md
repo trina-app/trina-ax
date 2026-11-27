@@ -463,8 +463,8 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `POST` | `/api/admin/update` | Owner + password | Back up the DB, switch app/current, restart; roll back if the health check fails. |
 | `GET` | `/api/admin/restart` | Admin | What Restart offers on this server (the AI only, the whole app), the restart waiting for running answers (a count, no names), the last one, and why one cannot start now. |
 | `POST` | `/api/admin/restart` | Admin + password | Restart the AI or the whole app when running answers finish (at most 10 minutes) or at once (owner only). Refused during maintenance, an update, a prepared restore, and past 5 an hour (2 minutes apart). Audited. |
-| `POST` | `/api/admin/restart/now` | Owner | The waiting restart goes at once (running answers end and say so, with Try again). |
-| `DELETE` | `/api/admin/restart` | Admin | The waiting restart is called off. |
+| `POST` | `/api/admin/restart/now` | Owner + password | The waiting restart goes at once (running answers end and say so, with Try again). |
+| `DELETE` | `/api/admin/restart` | Admin | The waiting restart is called off (the owner, or the admin who asked for it). |
 | `GET` | `/api/admin/after-update` | Admin | What a release left for an admin to do and that still applies to this team (not dismissed). |
 | `POST` | `/api/admin/after-update/:id/dismiss` | Admin | Remember for the team that one after-update to-do is not needed. |
 | `GET` | `/api/admin/backups` | Owner | Backups in .system/backups/, the last restore (which backup, when, by whom, ok), and how many days this server keeps its backups (retentionDays: the plan's localBackupRetentionDays, else 14). |

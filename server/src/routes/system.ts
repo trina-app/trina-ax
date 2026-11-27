@@ -191,21 +191,23 @@ export const systemRoutes: RouteModule = {
 
     // Admin › System › Health "Restart…" (system/restart.ts, docs/decisions/20261127-restart.md)
     const restarts = () => restartsByCtx.get(ctx)!
-    const restartAnswer = (locale: Locale, role: string) => restarts().status({ owner: role === 'owner', locale })
-    kit.handle(API.restartStatus, ({ c, auth }) => restartAnswer(c.get('locale'), auth.user.role))
+    const restartAnswer = (locale: Locale, auth: { user: { id: string; role: string } }) => restarts().status({ owner: auth.user.role === 'owner', locale, userId: auth.user.id })
+    kit.handle(API.restartStatus, ({ c, auth }) => restartAnswer(c.get('locale'), auth))
     kit.handle(API.startRestart, async ({ c, body, auth }) => {
       const locale = c.get('locale')
       try { await restarts().start({ what: body.what, when: body.when, by: auth.user.id, owner: auth.user.role === 'owner' }) }
       catch (e) { if (e instanceof RestartRefused) fail(e.code, tr(locale, e.words)); throw e }
-      return restartAnswer(locale, auth.user.role)
+      return restartAnswer(locale, auth)
     })
     kit.handle(API.restartNow, ({ c, auth }) => {
       if (!restarts().skip()) fail('conflict', tr(c.get('locale'), RT.nothingWaits))
-      return restartAnswer(c.get('locale'), auth.user.role)
+      return restartAnswer(c.get('locale'), auth)
     })
     kit.handle(API.cancelRestart, ({ c, auth }) => {
-      if (!restarts().cancel(auth.user.id)) fail('conflict', tr(c.get('locale'), RT.nothingWaits))
-      return restartAnswer(c.get('locale'), auth.user.role)
+      const r = restarts().cancel(auth.user.id, auth.user.role === 'owner')
+      if (r === 'not-yours') fail('forbidden', tr(c.get('locale'), RT.notYours))
+      if (!r) fail('conflict', tr(c.get('locale'), RT.nothingWaits))
+      return restartAnswer(c.get('locale'), auth)
     })
 
     // what a release left for an admin to do (system/after-update.ts)

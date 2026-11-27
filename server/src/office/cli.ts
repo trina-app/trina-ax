@@ -384,6 +384,11 @@ export async function run(home: string): Promise<never> {
       const me = child
       const h = await probeHealth(s.appPort, WATCH_TIMEOUT_MS)
       if (stopping || restarting || child !== me) return
+      // an update run (the update agent) stops and starts the server itself: like the bootstrap with a pending
+      // version, the watchdog never acts then, and counts again from the next answer
+      let updating = false
+      try { updating = updateRunning(home) } catch {}
+      if (updating) { watchdog.started(); return }
       let kill = false
       try { kill = officeWatchdogKills(fs.readFileSync(p.env, 'utf8')) } catch {}
       const act = watchdog.look(h, kill)

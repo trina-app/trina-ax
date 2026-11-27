@@ -899,7 +899,7 @@ export const SPECS: Record<string, Spec> = {
   // one waits is the owner's; nothing waits in the matrix (409 for the allowed)
   restartStatus: { build: (c) => c.get('/api/admin/restart'), scope: 'byLevel' },
   startRestart: { skipPositive: true, build: (c) => c.post('/api/admin/restart', { what: 'server', when: 'idle', password: 'wrong-pass' }), scope: 'byLevel' },
-  restartNow: { skipPositive: true, build: (c) => c.post('/api/admin/restart/now', {}), scope: 'byLevel' },
+  restartNow: { skipPositive: true, build: (c) => c.post('/api/admin/restart/now', { password: 'wrong-pass' }), scope: 'byLevel' },
   cancelRestart: { skipPositive: true, build: (c) => c.del('/api/admin/restart'), scope: 'byLevel' },
   // office mode automatic updates (admin and owner): status is null outside office mode; "now" re-asks the password
   officeUpdateStatus: { build: (c) => c.get('/api/admin/office-update'), scope: 'byLevel' },
