@@ -286,6 +286,8 @@ jobs:
           dpkg-deb -I "desktop/release/$artifact-$base-ci.2-linux-arm64.deb" | grep -q 'Architecture: arm64'
       - name: Tools for the check (a virtual display, window search, the link handler, fusermount for the AppImage)
         run: |
+          # the runner image's Microsoft apt source answered 403 (2026-11-27) and failed the apt index update; every package here is Ubuntu's
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
           sudo apt-get update -q
           sudo apt-get install -y -q xvfb xdotool xdg-utils fuse3 binutils file > /dev/null
       # QA TC-5356: both AppImages' runtimes name no unversioned library (the arm64 one of 0.5.18 needed libz.so, from
@@ -342,6 +344,8 @@ jobs:
           path: arm64
       - name: Tools for the check
         run: |
+          # the runner image's Microsoft apt source answered 403 (2026-11-27) and failed the apt index update; every package here is Ubuntu's
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
           sudo apt-get update -q
           sudo apt-get install -y -q xvfb xdotool xdg-utils binutils file > /dev/null
       - name: "The arm64 AppImage runtime: no unversioned libraries, starts in a stock Fedora"
@@ -402,6 +406,8 @@ jobs:
       # a virtual display, a session bus and a keyring (local-apps.spec seals a setting with safeStorage)
       - name: Display, session bus and keyring
         run: |
+          # the runner image's Microsoft apt source answered 403 (2026-11-27) and failed the apt index update; every package here is Ubuntu's
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
           sudo apt-get update -q
           sudo apt-get install -y -q xvfb dbus-x11 gnome-keyring libsecret-1-0 libsecret-tools > /dev/null
       - name: Desktop e2e subset (real Electron under xvfb, fake team servers, made-up homes)

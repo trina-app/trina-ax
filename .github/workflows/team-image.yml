@@ -343,6 +343,8 @@ jobs:
       - name: qemu-img
         if: steps.feed.outputs.build == 'true'
         run: |
+          # the runner image's Microsoft apt source answered 403 (2026-11-27) and failed the apt index update; every package here is Ubuntu's
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends qemu-utils
           # the raw file is the volume's size (sparse): on /mnt, the runner's big disk
