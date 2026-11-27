@@ -141,6 +141,15 @@ describe('off-site backup: prepare, upload, download, restore, verify', () => {
     expect([r.files, r.bytes]).toEqual([lastTotals!.files, lastTotals!.bytes])
     await expect(restoreArtifacts(download, to)).rejects.toThrow(/already exists/)
 
+    // folders named by the control plane's backup ids (mycel-enroll before 2026-11-27): the chain is checked with each
+    // backup's own id from meta.json, so it still restores (found on staging: "<cp id> builds on <local id>")
+    const byCpId = path.join(W, 'download-cp-ids')
+    fs.cpSync(path.join(download, full.id), path.join(byCpId, '01cp-full'), { recursive: true })
+    fs.cpSync(path.join(download, inc.id), path.join(byCpId, '01cp-inc'), { recursive: true })
+    fs.writeFileSync(path.join(byCpId, 'chain.json'), JSON.stringify({ format: 1, chain: [{ backupId: '01cp-full', files: [] }, { backupId: '01cp-inc', files: [] }] }))
+    const r2 = await restoreArtifacts(byCpId, path.join(W, 'restored-cp-ids'))
+    expect([r2.files, r2.bytes]).toEqual([r.files, r.bytes])
+
     const v = await restoreVerify(download, JSON.stringify(lastTotals), e.cfg.dataDir)
     expect(v).toMatchObject({ ok: true, files: lastTotals!.files, bytes: lastTotals!.bytes, problem: null })
     const bad = await restoreVerify(download, JSON.stringify({ ...lastTotals, files: lastTotals!.files + 1 }), e.cfg.dataDir)
