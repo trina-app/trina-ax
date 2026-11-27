@@ -757,10 +757,13 @@ export const useChats = create<ChatsState>((set, get) => {
       const ids = missingOriginals(get().chats)
       if (!ids.length) return
       for (const id of ids) askedOriginals.add(id)
+      const wanted = new Set(ids)
       const page = await api.call(API.listChats, { query: { ids: ids.join(',') } }).catch(() => null)
       if (!page || session !== generation) return
       set((s) => {
-        const add = page.items.filter((c) => !c.deletedAt && !s.chats.some((x) => x.id === c.id)).map((c) => keepPending(s, c))
+        // only the ids asked: an older server ignores `ids` and answers its first page (a chat on its way to the trash
+        // here would come back)
+        const add = page.items.filter((c) => wanted.has(c.id) && !c.deletedAt && !trashPending(c.id) && !s.chats.some((x) => x.id === c.id)).map((c) => keepPending(s, c))
         return add.length ? { chats: sortChats([...s.chats, ...add]) } : s
       })
     },
