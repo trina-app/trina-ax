@@ -44,9 +44,19 @@ You can't connect a Google account:
   different one;
 - to swap the Google account of an account that has no password (see below): ask an admin.
 
+## Join or set up the team with Google
+
+In a web browser, an invite and the team invite link have **Continue with Google** at the top, above the password form.
+Choose it and pick your Google account: your name comes from Google, and your username from your Google address (the
+part before @, without a "+tag"; with a number added if someone has it already). There is nothing to type first and no
+password. You can change your name and username later in **Profile**. The first owner sees **Sign up with Google** on
+the setup page in the same way.
+
+A guest invite has no Google button: guests choose a password.
+
 ## Sign in
 
-On the sign-in page, choose **Sign in with Google** and pick the same Google account. You land where you were going.
+On the sign-in page, choose **Sign in with Google** at the top and pick the same Google account. You land where you were going.
 
 | What you see | What to do |
 |---|---|
@@ -78,8 +88,8 @@ If you joined or set up the team with **Google**, your account has no password: 
 - **Turn it on or off.** **Admin › Team settings › Members and AI › Sign in with Google**, on by default. Off: nobody
   new connects or joins with Google, and people with a password sign in with it. While anyone in the team has no
   password (made with Google), the sign-in page keeps the **Sign in with Google** button for them: it's their only way
-  in. The Google accounts people connected stay, and work again when you turn it back on. The row is there only when
-  your server has a Google app (see below).
+  in. The Google accounts people connected stay, and work again when you turn it back on. A team hosted by Trina has
+  the row with its switch; on a server you run yourself it is there when your server has a Google app (see below).
 - **See who uses it.** **Admin › Members & invites** shows **Google** beside each person who connected one.
 - **Remove someone's.** In the person's **⋯**, choose **Disconnect Google**. They sign in with their password from
   then on, and they are signed out on every device. The usual rules apply: nobody changes the owner here, and only the

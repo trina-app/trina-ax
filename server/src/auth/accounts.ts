@@ -615,7 +615,7 @@ export function afterInviteJoin(ctx: AppContext, invite: Pick<InviteRow, 'id' | 
  * password), a free username and a free seat. Google's return checks them all again in joinWithInvite. Only the
  * invite's id goes on with the flow, never its token.
  */
-export function inviteForGoogle(c: Context<AppEnv>, ctx: AppContext, token: string, username: string): { id: string } {
+export function inviteForGoogle(c: Context<AppEnv>, ctx: AppContext, token: string, username: string | undefined): { id: string } {
   const a = authOf(ctx)
   const locale = c.get('locale')
   const guard = tokenGuard(ctx, c.get('info').ip)
@@ -623,7 +623,7 @@ export function inviteForGoogle(c: Context<AppEnv>, ctx: AppContext, token: stri
   if (!r) { guard.fail(); return fail('not_found') }
   if (!inviteValid(ctx.db, r, a.now())) failDead(ctx.db, r, a.now(), locale)
   if (r.role === 'guest') fail('forbidden', msg('googleGuestJoin', locale), { params: { reason: 'guest_password_only' } })
-  if (usernameTaken(ctx.db, username)) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
+  if (username !== undefined && usernameTaken(ctx.db, username)) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
   if (seatsFull(ctx.db)) fail('plan_limit', msg('inviteTeamFull', locale), { params: { reason: 'seat_limit', limit: seatLimit() ?? 0 } })
   return { id: r.id }
 }

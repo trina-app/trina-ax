@@ -46,7 +46,7 @@ import { verifyGoogleIdToken } from './google-id-token'
 import { viaOf } from './accounts'
 import { isGuest } from './guests'
 import { forgetLoginIdentities, passwordlessCount } from './login-identities'
-import { googleSignInOn } from './google-login-admin'
+import { googleClientKind, googleSignInOn } from './google-login-admin'
 import { notifyGoogleConnected, notifySignInChange } from '../notifications/service'
 import { CLOSE_SCRIPT, returnHeaders, returnPage } from '../integrations/connections/return-page'
 import { msg } from './messages'
@@ -139,12 +139,7 @@ export function safeNextPath(v: string | null | undefined): string | null {
  * (people without a password sign in and re-check with Google whatever it says). */
 function googleClientMode(ctx: AppContext, anyway = false): 'direct' | 'broker' | null {
   if (ctx.config.demo || isFreeRoam(ctx.config) || (!anyway && !googleSignInOn(ctx.db))) return null
-  const drive = googleDriveOf(ctx)
-  if (drive.config) return 'direct'
-  // an operator's own client file that does not load: no fallback to the hosting service (as for Drive)
-  if (drive.clientFromEnv) return null
-  const broker = googleSigninBrokerOf(ctx)
-  return broker && publicHostOf(ctx.config) && broker.serves() ? 'broker' : null
+  return googleClientKind(ctx)
 }
 
 /** How this page signs in with Google, or null when it cannot: googleClientMode, and the page is at the address Google

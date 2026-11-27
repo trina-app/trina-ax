@@ -305,7 +305,8 @@ const deletionDue = (at: string) => new Date(Date.parse(at) + ACCOUNT_DELETION_G
  * server keeps the invite's or link's id) */
 type MockSignUp =
   | { kind: 'setup'; teamName: string; locale: Locale; timeZone: string | null; site: string | null }
-  | { kind: 'invite' | 'link'; token: string; username: string; name: string; locale: Locale | null }
+  // username and name null: picked on Google's return from the Google address and name (the pages send neither)
+  | { kind: 'invite' | 'link'; token: string; username: string | null; name: string | null; locale: Locale | null }
 export class MockServer {
   setupNeeded = false
   serverVersion = '0.1.0'
@@ -1806,31 +1807,40 @@ export class MockServer {
     const taken = (n: string) => this.users.some((u) => u.username.toLowerCase() === n.toLowerCase())
     // a user id from a username, like server/src/auth/users.ts deriveUserId (a "." is no id character)
     const idOf = (n: string) => n.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^[-_]+|[-_]+$/g, '') || 'user'
+    // a free username from the Google address, like server/src/auth/users.ts usernameFromEmail ("+tag" dropped, -2, -3, ...)
+    const fromEmail = (fallback: string) => {
+      let base = a.email.split('@')[0]!.split('+')[0]!.replace(/[^A-Za-z0-9._-]+/g, '').toLowerCase()
+      if (base.length < 2) base = fallback
+      if (!taken(base)) return base
+      for (let i = 2; ; i++) if (!taken(`${base}-${i}`)) return `${base}-${i}`
+    }
     if (s.kind === 'setup') {
       if (!this.setupNeeded) return 'gone'
       this.setupNeeded = false
       this.settings.teamName = s.teamName
       this.settings.defaultLocale = s.locale
       if (s.timeZone) this.settings.timeZone = s.timeZone
-      const base = a.email.split('@')[0]!.split('+')[0]!.replace(/[^A-Za-z0-9._-]+/g, '').toLowerCase() || 'owner'
+      const base = fromEmail('owner')
       const u = this.addUser({ id: idOf(base) || 'owner', username: base, name: a.name ?? base, role: 'owner', groupIds: [], email: a.email }, '')
       this.files.set('users', { type: 'folder', mtime: now() })
       const at = now()
       this.welcome ??= this.welcomeSaved({ startedAt: at, updatedAt: at, teamType: null, steps: { profile: null, result: null, skills: null, files: null, tools: null, invite: null }, resultChatId: null, inviteShownAt: null, site: s.site, dismissedAt: null, finishedAt: null }, at)
       return u
     }
-    if (taken(s.username)) return 'username_taken'
+    const username = s.username ?? fromEmail('member')
+    const name = s.name ?? a.name ?? username
+    if (taken(username)) return 'username_taken'
     if (s.kind === 'invite') {
       const i = this.invites.find((x) => x.token === s.token && !x.usedAt)
       if (!i || (i as { deadReason?: string }).deadReason) return 'gone'
-      const u = this.addUser({ id: idOf(s.username), username: s.username, name: s.name, role: i.role, groupIds: i.groupIds, localeChoice: s.locale, email: a.email }, '')
+      const u = this.addUser({ id: idOf(username), username, name, role: i.role, groupIds: i.groupIds, localeChoice: s.locale, email: a.email }, '')
       i.usedAt = now()
       i.usedBy = { id: u.id, name: u.name }
       return u
     }
     const l = this.teamLink?.token === s.token ? this.teamLink : null
     if (!l || l.uses >= l.maxUses) return 'gone'
-    const u = this.addUser({ id: idOf(s.username), username: s.username, name: s.name, role: 'member', groupIds: l.groupIds, localeChoice: s.locale, email: a.email }, '')
+    const u = this.addUser({ id: idOf(username), username, name, role: 'member', groupIds: l.groupIds, localeChoice: s.locale, email: a.email }, '')
     l.uses++
     return u
   }
@@ -3083,8 +3093,9 @@ export class MockServer {
       const i = this.invites.find((x) => x.token === c.body.token && !x.usedAt)
       if (!i) fail('gone', 410)
       if (i!.role === 'guest') fail('forbidden', 403, serverMsg('googleGuestJoin', this.localeOf(c.req)), undefined, { reason: 'guest_password_only' })
-      if (this.users.some((u) => u.username.toLowerCase() === c.body.username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.', { 'body.username': 'taken' })
-      return this.googleStart(c.req, 'join', null, '/invite', { kind: 'invite', token: c.body.token, username: c.body.username, name: c.body.name, locale: c.body.locale ?? null })
+      const username = c.body.username
+      if (username && this.users.some((u) => u.username.toLowerCase() === username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.', { 'body.username': 'taken' })
+      return this.googleStart(c.req, 'join', null, '/invite', { kind: 'invite', token: c.body.token, username: username ?? null, name: c.body.name ?? null, locale: c.body.locale ?? null })
     },
 
     listChats: (c) => {
@@ -4421,8 +4432,9 @@ export class MockServer {
       const l = this.teamLink?.token === c.body.token ? this.teamLink : null
       if (!l) fail('not_found', 404)
       if (l!.uses >= l!.maxUses) fail('gone', 410, '이 링크로 들어올 수 있는 인원이 다 찼어요. 링크를 보낸 분께 새 링크를 부탁해 주세요.')
-      if (this.users.some((u) => u.username.toLowerCase() === c.body.username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.', { 'body.username': 'taken' })
-      return this.googleStart(c.req, 'join', null, '/join', { kind: 'link', token: c.body.token, username: c.body.username, name: c.body.name, locale: c.body.locale ?? null })
+      const username = c.body.username
+      if (username && this.users.some((u) => u.username.toLowerCase() === username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.', { 'body.username': 'taken' })
+      return this.googleStart(c.req, 'join', null, '/join', { kind: 'link', token: c.body.token, username: username ?? null, name: c.body.name ?? null, locale: c.body.locale ?? null })
     },
     joinTeamLink: (c) => {
       const l = this.teamLink?.token === c.body.token ? this.teamLink : null

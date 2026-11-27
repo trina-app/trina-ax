@@ -42,6 +42,7 @@ import { needsGoogleCheck } from '../lib/googleCheck'
 import { FreeRoamStart } from '../components/demo/FreeRoam'
 import { freeRoamSignInLocales } from '../lib/freeRoam'
 import { useDemo, useFreeRoam } from '../store/demo'
+import { GoogleButton } from '../components/GoogleButton'
 
 /** The password rule's minimum (server: server/src/auth/passwords.ts, the same 8 everywhere). */
 export const PASSWORD_MIN = 8
@@ -397,22 +398,29 @@ const GOOGLE_RESULT: Record<string, MessageKey> = {
   username_taken: 'auth.google.username_taken', gone: 'auth.google.gone', full: 'auth.google.full',
 }
 
-/** "Start with Google" / "Join with Google" under a sign-up form (server/src/auth/google-signup.ts): a plain browser
- * only, where the server's info says so (googleSignUp). Google opens in this window; its return comes back signed in,
- * or to this page with ?google=<result> (lib/googleSignUp.ts keeps what the page needs to try again). */
-function GoogleSignUpButton({ label, hint, busy, onClick, testId }: { label: string; hint: string; busy: boolean; onClick: (e: React.MouseEvent<HTMLButtonElement>) => void; testId: string }) {
+/** "or" between the Google button (on top) and the password form under it */
+function OrLine() {
   const t = useT()
   return (
+    <div className="flex items-center gap-3 text-xs text-faint" aria-hidden data-testid="auth-or">
+      <span className="h-px flex-1 bg-line" />
+      {t('auth.or')}
+      <span className="h-px flex-1 bg-line" />
+    </div>
+  )
+}
+
+/** "Sign up with Google" / "Continue with Google" above a sign-up form (server/src/auth/google-signup.ts), then "or": a
+ * plain browser only, where the server's info says so (googleSignUp). Google opens in this window; its return comes back
+ * signed in, or to this page with ?google=<result> (lib/googleSignUp.ts keeps what the page needs to try again). */
+function GoogleSignUpButton({ label, hint, busy, onClick, testId }: { label: string; hint: string; busy: boolean; onClick: (e: React.MouseEvent<HTMLButtonElement>) => void; testId: string }) {
+  return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3 text-xs text-faint" aria-hidden>
-        <span className="h-px flex-1 bg-line" />
-        {t('auth.or')}
-        <span className="h-px flex-1 bg-line" />
-      </div>
-      <Button type="button" className="w-full" busy={busy} onClick={onClick} data-testid={testId}>
+      <GoogleButton busy={busy} onClick={onClick} data-testid={testId}>
         {label}
-      </Button>
+      </GoogleButton>
       <p className="text-center text-xs text-muted">{hint}</p>
+      <OrLine />
     </div>
   )
 }
@@ -427,7 +435,7 @@ function GoogleBackLine({ text, testId }: { text: string | null; testId: string 
   )
 }
 
-/** "Sign in with Google" under the form, in the way this client can (lib/googleSignIn.ts googleSignInWay).
+/** "Sign in with Google" above the form, then "or", in the way this client can (lib/googleSignIn.ts googleSignInWay).
  * - A browser (GET /api/setup googleSignIn: this server has a Google client and Google comes back to this address):
  *   Google's page opens in this window; the server signs in on the way back and opens `next`.
  * - The desktop app (googleAppSignIn and its bridge flag): Google opens in the system browser (Google refuses the app's
@@ -482,19 +490,15 @@ function GoogleSignIn({ next, way, onResult }: { next: string | null; way: Googl
   }
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3 text-xs text-faint" aria-hidden>
-        <span className="h-px flex-1 bg-line" />
-        {t('auth.or')}
-        <span className="h-px flex-1 bg-line" />
-      </div>
-      <Button type="button" className="w-full" busy={busy} onClick={() => void go()} data-testid="login-google" data-way={way}>
+      <GoogleButton busy={busy} onClick={() => void go()} data-testid="login-google" data-way={way}>
         {t('auth.googleSignIn')}
-      </Button>
+      </GoogleButton>
       {waiting && (
         <p role="status" className="text-sm text-muted" data-testid="login-google-browser">
           {t('auth.google.inBrowser')}
         </p>
       )}
+      <OrLine />
     </div>
   )
 }
@@ -631,6 +635,7 @@ export function Login() {
             {t(googleResult)}
           </p>
         )}
+        {googleWay && <GoogleSignIn next={safeNext(location.search)} way={googleWay} onResult={setAppGoogleResult} />}
         <Field label={t('auth.username')} error={errorOf('username')}>
           <input className={inputCls} name="username" autoComplete="username" autoCapitalize="none" value={username} onChange={(e) => setUsername(e.target.value)} required data-testid="login-username" />
         </Field>
@@ -647,7 +652,6 @@ export function Login() {
             {t('auth.signIn')}
           </Button>
         </SubmitBar>
-        {googleWay && <GoogleSignIn next={safeNext(location.search)} way={googleWay} onResult={setAppGoogleResult} />}
         {!removedTeam && <ForgotLine url={status.kind === 'signed-out' ? status.ownerRecoveryUrl : undefined} />}
       </form>
     </AuthFrame>
@@ -690,7 +694,7 @@ export function Setup() {
     username: usernameCheck(form.username),
     password: form.password ? null : 'auth.required',
   })
-  // Start with Google (server/src/auth/google-signup.ts): only the team's part of the form; the owner's name and username
+  // Sign up with Google (server/src/auth/google-signup.ts): only the team's part of the form; the owner's name and username
   // come from Google, and there is no password
   const google = useFieldChecks({ setupToken: linkToken ? null : requiredCheck(form.setupToken), teamName: fixed ? null : requiredCheck(form.teamName) })
   const errorOf = (k: 'setupToken' | 'teamName' | 'name' | 'username' | 'password') => formErrorOf(k) ?? (k === 'setupToken' || k === 'teamName' ? google.errorOf(k) : null)
@@ -764,6 +768,8 @@ export function Setup() {
             </Field>
           )}
         </FormSection>
+        {/* Google first, then "or" and the owner's password account: Google needs only the team part above */}
+        {googleOffered && <GoogleSignUpButton label={t('setup.google')} hint={t('setup.googleHint')} busy={busy || toGoogle} onClick={startGoogle} testId="setup-google" />}
         <FormSection title={t('setup.section.owner')} testId="setup-section-owner">
           <Field label={t('setup.name')} error={errorOf('name')}>
             <input className={inputCls} name="name" value={form.name} onChange={set('name')} required autoComplete="name" maxLength={100} data-testid="setup-name" />
@@ -787,7 +793,6 @@ export function Setup() {
             {t(fixed ? 'setup.createHosted' : 'setup.create')}
           </Button>
         </SubmitBar>
-        {googleOffered && <GoogleSignUpButton label={t('setup.google')} hint={t('setup.googleHint')} busy={busy || toGoogle} onClick={startGoogle} testId="setup-google" />}
       </form>
     </AuthFrame>
   )
@@ -806,8 +811,9 @@ export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort, initi
   initialName?: string
   /** the Username field's start (back from Google: what the person typed before, to change when it was taken) */
   initialUsername?: string
-  /** "Join with Google" under the form (server/src/auth/google-signup.ts): the name and the username, no password */
-  google?: { busy: boolean; onStart: (v: Omit<JoinValues, 'password'>) => void }
+  /** "Continue with Google" above the form (server/src/auth/google-signup.ts): nothing to type first; the name comes from
+   * Google and the server picks the username from the Google address (the person can change both in Profile) */
+  google?: { busy: boolean; onStart: () => void }
   /** why Google's return came back to this page (?google=<result>), in words */
   notice?: string | null }) {
   const t = useT()
@@ -815,15 +821,7 @@ export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort, initi
   const reveal = usePasswordReveal()
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
   // the form checks its own fields (noValidate): errors under the field in the screen language, never a browser popup
-  const { errorOf: formErrorOf, check } = useFieldChecks({ name: requiredCheck(form.name), username: usernameCheck(form.username), password: form.password ? null : 'auth.required' })
-  // Join with Google checks only the name and the username
-  const googleChecks = useFieldChecks({ name: requiredCheck(form.name), username: usernameCheck(form.username) })
-  const errorOf = (k: 'name' | 'username' | 'password') => formErrorOf(k) ?? (k === 'password' ? null : googleChecks.errorOf(k))
-  const startGoogle = (e: React.MouseEvent<HTMLButtonElement>) => {
-    const f = e.currentTarget.form
-    if (f && !googleChecks.check(f)) return
-    google?.onStart({ name: form.name.trim(), username: form.username.trim() })
-  }
+  const { errorOf, check } = useFieldChecks({ name: requiredCheck(form.name), username: usernameCheck(form.username), password: form.password ? null : 'auth.required' })
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!check(e.currentTarget)) return
@@ -833,6 +831,7 @@ export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort, initi
   return (
     <form onSubmit={submit} noValidate className="space-y-3" data-testid="join-form">
       {!error && <GoogleBackLine text={notice ?? null} testId="join-google-result" />}
+      {google && <GoogleSignUpButton label={t('invite.google')} hint={t('invite.googleHint')} busy={google.busy} onClick={() => google.onStart()} testId="join-google" />}
       <Field label={t('auth.name')} error={errorOf('name')}>
         <input className={inputCls} name="name" value={form.name} onChange={set('name')} required autoComplete="name" maxLength={100} data-testid="invite-name" />
       </Field>
@@ -851,7 +850,6 @@ export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort, initi
           {submitLabel}
         </Button>
       </SubmitBar>
-      {google && <GoogleSignUpButton label={t('invite.google')} hint={t('invite.googleHint')} busy={google.busy} onClick={startGoogle} testId="join-google" />}
     </form>
   )
 }
@@ -1188,13 +1186,14 @@ export function AcceptInvite() {
         navigate(guestPlacePath(r.me) ?? '/', { replace: true })
       } catch (e) { pageRefusal(e) }
     })
-  // Join with Google (never for a guest invite): the token only in the body; Google's return signs in on Home, or comes
-  // back here through /invite, so this tab keeps this page's address and what was typed
-  const startGoogle = (v: Omit<JoinValues, 'password'>) =>
+  // Continue with Google (never for a guest invite): the token only in the body, no username (the server picks one from
+  // the Google address); Google's return signs in on Home, or comes back here through /invite, so this tab keeps this
+  // page's address
+  const startGoogle = () =>
     void run(async () => {
       try {
-        const r = await api.call(API.startGoogleInvite, { body: { token: token!, ...v, locale: storedLocale() ?? undefined } })
-        keepGoogleSignUp({ page: 'invite', path: `/invite/${token}`, ...v })
+        const r = await api.call(API.startGoogleInvite, { body: { token: token!, locale: storedLocale() ?? undefined } })
+        keepGoogleSignUp({ page: 'invite', path: `/invite/${token}` })
         setToGoogle(true)
         window.location.assign(r.url)
       } catch (e) { pageRefusal(e) }
@@ -1343,12 +1342,12 @@ export function TeamJoin() {
       signedIn(r.me)
       navigate('/', { replace: true })
     })
-  // Join with Google: the token only in the body; Google's return signs in on Home, or comes back here (/join), where
-  // this tab still has the link's token and keeps what was typed
-  const startGoogle = (v: Omit<JoinValues, 'password'>) =>
+  // Continue with Google: the token only in the body, no username (the server picks one from the Google address);
+  // Google's return signs in on Home, or comes back here (/join), where this tab still has the link's token
+  const startGoogle = () =>
     void run(async () => {
-      const r = await api.call(API.startGoogleJoin, { body: { token: link.token!, ...v, locale: storedLocale() ?? undefined } })
-      keepGoogleSignUp({ page: 'join', ...v })
+      const r = await api.call(API.startGoogleJoin, { body: { token: link.token!, locale: storedLocale() ?? undefined } })
+      keepGoogleSignUp({ page: 'join' })
       setToGoogle(true)
       window.location.assign(r.url)
     })

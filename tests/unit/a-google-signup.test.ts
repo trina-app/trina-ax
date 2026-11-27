@@ -278,6 +278,44 @@ describe('joining with Google', () => {
     expect((await h.client({ ip: '10.0.4.1' }).try('POST', '/api/auth/google/start', {})).status).toBe(429)
   })
 
+  test('an invite without a username: the server picks a free one from the Google address ("+tag" dropped), the name from Google', async () => {
+    await addMember(h, owner, { username: 'vera' })
+    const inv = await invite()
+    // the pages send only the token and the language now
+    const s = await started(await h.client({ ip: '10.0.5.1' }).raw('POST', '/api/invites/google', { token: inv.token, locale: 'ko' }), { sub: 'g-vera', email: 'Vera+work@acme.example', name: 'Vera Lind' })
+    const res = await back(h, s, '10.0.5.1')
+    expect(res.headers.get('location')).toBe('/')
+    expect(await meOf(h, res)).toMatchObject({ username: 'vera-2', name: 'Vera Lind', email: 'Vera+work@acme.example', role: 'member', localeChoice: 'ko' })
+    expect(userRow(h, 'vera-2')!.password_hash).toBeNull()
+    expect(used(inv.id)).toBeTruthy()
+    // no name from Google: the username stands in
+    const inv2 = await invite()
+    const t = await started(await h.client({ ip: '10.0.5.2' }).raw('POST', '/api/invites/google', { token: inv2.token }), { sub: 'g-wim', email: 'wim@acme.example' })
+    expect((await back(h, t, '10.0.5.2')).headers.get('location')).toBe('/')
+    expect(userRow(h, 'wim')).toMatchObject({ name: 'wim', password_hash: null })
+  })
+
+  test('the team link without a username: one from the Google address, made unique', async () => {
+    const l = await link({ maxUses: 3 })
+    await addMember(h, owner, { username: 'xena' })
+    const s = await started(await h.client({ ip: '10.0.6.1' }).raw('POST', '/api/team-link/google', { token: l.token }), { sub: 'g-xena', email: 'xena+team@acme.example', name: 'Xena Ott' })
+    expect((await back(h, s, '10.0.6.1')).headers.get('location')).toBe('/')
+    expect(userRow(h, 'xena-2')).toMatchObject({ name: 'Xena Ott', role: 'member', password_hash: null })
+    expect((h.ctx.db.query('SELECT uses FROM team_links WHERE id = ?').get(l.id) as { uses: number }).uses).toBe(1)
+    // a second person with the same address part gets the next free one
+    const t = await started(await h.client({ ip: '10.0.6.2' }).raw('POST', '/api/team-link/google', { token: l.token }), { sub: 'g-xena-b', email: 'xena@other.example', name: 'Xena B' })
+    expect((await back(h, t, '10.0.6.2')).headers.get('location')).toBe('/')
+    expect(userRow(h, 'xena-3')?.name).toBe('Xena B')
+  })
+
+  test('a guest invite is refused without a username too', async () => {
+    const project = await owner.call('POST', '/api/projects', { name: 'Specs', scope: 'team' })
+    const g = await owner.call('POST', '/api/guest-invites', { place: { kind: 'project', id: project.id }, name: 'Gus' })
+    const refused = await h.client().try('POST', '/api/invites/google', { token: g.url.split('/invite/')[1] })
+    expect(refused.status).toBe(403)
+    expect(refused.body.error.params.reason).toBe('guest_password_only')
+  })
+
   test('the owner who signs in with a password is unchanged', async () => {
     expect((await h.client().login('olga', OWNER_PW)).me.user.username).toBe('olga')
   })

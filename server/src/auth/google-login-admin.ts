@@ -21,9 +21,20 @@ export const GOOGLE_SIGN_IN_SETTING = 'googleSignIn'
  * every sign-in page, so one setting row, not all of them. */
 export const googleSignInOn = (db: Database): boolean => getSetting<unknown>(db, GOOGLE_SIGN_IN_SETTING) !== false
 
-/** This server has a Google client Sign in with Google can use: its own (googleLoginAvailable in google-login.ts reads
- * the same). Part B adds the hosting service's here. */
-export const googleSignInClient = (ctx: AppContext): boolean => !!googleDriveOf(ctx).config
+/** Which Google client Sign in with Google uses here, whatever the team switch says: 'direct', this server's own (the
+ * one Google Drive uses); 'broker', the hosting service's, on a hosted server without an own client while the service
+ * serves it; null when neither. An operator's own client file that does not load: null, no fallback to the hosting
+ * service (as for Drive). google-login.ts googleClientMode reads this too. */
+export function googleClientKind(ctx: AppContext): 'direct' | 'broker' | null {
+  const drive = googleDriveOf(ctx)
+  if (drive.config) return 'direct'
+  if (drive.clientFromEnv) return null
+  const broker = googleSigninBrokerOf(ctx)
+  return broker && publicHostOf(ctx.config) && broker.serves() ? 'broker' : null
+}
+
+/** This server has a Google client Sign in with Google can use: its own, or the hosting service's (googleClientKind). */
+export const googleSignInClient = (ctx: AppContext): boolean => googleClientKind(ctx) !== null
 
 /** The server's own Google client would go while people without a password sign in only with it. */
 export class GoogleClientInUse extends Error {

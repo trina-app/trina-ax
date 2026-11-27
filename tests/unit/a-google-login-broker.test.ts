@@ -167,6 +167,26 @@ describe('Sign in with Google through the hosting service', () => {
     expect(JSON.parse(status.body)).toEqual({ v: 1 })
   })
 
+  test('Admin › Team settings shows the switch on a team the console serves (no own Google client); not while it does not', async () => {
+    expect(await owner.call('GET', '/api/admin/google-login')).toEqual({ client: true })
+    const broker = googleSigninBrokerOf(h.ctx)!
+    cp.configured = false
+    try {
+      await broker.check()
+      expect(await owner.call('GET', '/api/admin/google-login')).toEqual({ client: false })
+    } finally {
+      cp.configured = true
+      await broker.check()
+    }
+    expect(await owner.call('GET', '/api/admin/google-login')).toEqual({ client: true })
+    // the switch works there: off, no button for new people; on again, back
+    await owner.call('PATCH', '/api/admin/settings', { googleSignIn: false })
+    expect((await browser().call('GET', '/api/setup')).googleSignIn).toBeUndefined()
+    expect(await owner.call('GET', '/api/admin/google-login')).toEqual({ client: true })
+    await owner.call('PATCH', '/api/admin/settings', { googleSignIn: true })
+    expect((await browser().call('GET', '/api/setup')).googleSignIn).toBe(true)
+  })
+
   test('the start: our state, challenge and nonce to the console; its Google address checked and passed on', async () => {
     const before = cp.calls.length
     const s = await signInStart(browser())

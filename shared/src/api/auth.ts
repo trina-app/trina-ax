@@ -354,13 +354,15 @@ export const GoogleSetupBody = SetupBody.pick({ setupToken: true, teamName: true
   next: z.string().max(500).optional(),
 })
 /** Join with Google from an invite or the team link (server/src/auth/google-signup.ts): the token in the body (never in
- * an address), and the username, name and language the person picked. The flow keeps the invite's or link's id, not the
- * token. Google's return makes the account (no password) or, when this Google account is already someone's here, signs
- * that person in and leaves the invite unused. Guest invites join with a password only. */
+ * an address) and the page's language. The flow keeps the invite's or link's id, not the token. Google's return makes
+ * the account (no password) or, when this Google account is already someone's here, signs that person in and leaves the
+ * invite unused. Guest invites join with a password only. `username` and `name` are optional (the pages send neither):
+ * omitted, the username comes from the Google address (users.ts usernameFromEmail: "+tag" dropped, made unique) and the
+ * name from Google; given (older clients), the username is checked at the start as before. */
 export const GoogleJoinBody = z.object({
   token: z.string().min(16).max(200),
-  username: Username,
-  name: PersonName,
+  username: Username.optional(),
+  name: PersonName.optional(),
   /** the language the person picked on the page; omitted = follow the team default */
   locale: Locale.optional(),
 })

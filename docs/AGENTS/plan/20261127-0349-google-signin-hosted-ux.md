@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-27 03:49
 - Branch: `fix/google-signin-hosted-ux`
-- Status: in progress
+- Status: done
 - Where: server/src/auth, shared/src/api, web/src/pages. Why: sign-in and its pages live there (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. `username` (and `name`) become optional on `POST /api/invites/google` and
   `POST /api/team-link/google`; older clients that send them still work.
@@ -40,7 +40,8 @@ Out: the hosting console's words, the sign-in broker for self-installed servers,
 
 ## Decisions
 
-docs/decisions/20261127-google-join-without-username.md: a join with Google takes its username from the Google address.
+docs/decisions/20261127-google-signin-hosted-ux.md: Google's own button words, Google first, and a join with Google
+takes its username from the Google address. It changes part of docs/decisions/20261122-google-signup.md.
 
 ## Risks
 
@@ -53,4 +54,8 @@ join (they never offered Google sign-up).
 
 ## Result
 
-(filled in at the end)
+Built as planned. The admin row test went into a-google-login-broker.test.ts (it has the hosting service stand-in).
+The setup page puts Google after the team part, not at the very top: Google needs the team name and setup token. The
+web mock picks the username from the Google address as the server does. docs/site/use/sign-in-with-google.md gained
+"Join or set up the team with Google". Google's guideline texts were checked on
+https://developers.google.com/identity/branding-guidelines on 2026-11-27.

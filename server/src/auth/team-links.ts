@@ -404,7 +404,7 @@ export async function joinTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.out
  * chat cannot be used to hammer the server or to try usernames; the caller gives it back once the join worked), a link
  * that lets people in now, a free username.
  */
-function linkAttempt(c: Context<AppEnv>, ctx: AppContext, token: string, username: string): { r: Row; hold: { release(): void } } {
+function linkAttempt(c: Context<AppEnv>, ctx: AppContext, token: string, username: string | undefined): { r: Row; hold: { release(): void } } {
   const a = authOf(ctx)
   const locale = c.get('locale')
   const info = c.get('info')
@@ -419,14 +419,14 @@ function linkAttempt(c: Context<AppEnv>, ctx: AppContext, token: string, usernam
   const before = problemOf(ctx.db, r, a.now())
   if (before === 'full') fail('plan_limit', say('full', locale), { params: { reason: 'seat_limit', limit: seatLimit() ?? 0 } })
   if (before) fail('gone', problemText(before, locale), { params: { reason: before } })
-  if (usernameTaken(ctx.db, username)) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
+  if (username !== undefined && usernameTaken(ctx.db, username)) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
   return { r, hold }
 }
 
 /** POST /api/team-link/google's checks before Google (auth/google-signup.ts): joinTeamLink's own. The start counts on
  * the link's limit like a join; Google's return gives it back once the account is made and keeps it for a refusal (the
  * hold, for a start that never reaches Google). Only the link's id goes on with the flow, never its token. */
-export function linkForGoogle(c: Context<AppEnv>, ctx: AppContext, token: string, username: string): { id: string; hold: { release(): void } } {
+export function linkForGoogle(c: Context<AppEnv>, ctx: AppContext, token: string, username: string | undefined): { id: string; hold: { release(): void } } {
   const { r, hold } = linkAttempt(c, ctx, token, username)
   return { id: r.id, hold }
 }

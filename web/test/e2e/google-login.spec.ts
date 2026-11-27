@@ -44,6 +44,11 @@ test('the sign-in page offers Sign in with Google only when the Google client re
   await page.reload()
   await expect(page.getByTestId('login-google')).toHaveText(t['auth.googleSignIn'])
   await expect(page.getByText(t['auth.or'], { exact: true })).toBeVisible()
+  // Google's colour "G", and Google on top: the button, "or", then the username field
+  await expect(page.getByTestId('login-google').getByTestId('google-mark')).toBeVisible()
+  const y = async (id: string) => (await page.getByTestId(id).boundingBox())!.y
+  expect(await y('login-google')).toBeLessThan(await y('auth-or'))
+  expect(await y('auth-or')).toBeLessThan(await y('login-username'))
   expect(realErrors(errors)).toEqual([])
 })
 
