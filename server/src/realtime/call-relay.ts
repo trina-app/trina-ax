@@ -30,7 +30,7 @@ interface Pending<C extends WindowCall, R> {
   goneSince: number | null
   settle(r: R): void
 }
-interface Poller { lastSeen: number; waiters: Set<() => void> }
+interface Poller { lastSeen: number; waiters: Set<() => void>; pane: number }
 export const MAX_POLLERS_PER_USER = 50
 
 export interface CallFrames<C extends WindowCall, R> {
@@ -74,6 +74,15 @@ export abstract class CallRelay<C extends WindowCall, R> {
     if (this.hub.isWindowOpen(userId, windowId)) return true
     const p = this.pollers.get(this.key(userId, windowId))
     return !!p && (p.waiters.size > 0 || Date.now() - p.lastSeen < this.o.pollStaleMs)
+  }
+
+  /** The in-app browser version this window's page said (WebSocket first, else its long-poll; 0: none, or an older
+   * page or desktop app): a tool the browser.call contract added later is offered only where the app runs it. */
+  paneVersion(userId: string, windowId: string | null | undefined): number {
+    if (!windowId) return 0
+    const ws = this.hub.paneOfWindow(userId, windowId)
+    if (ws !== undefined) return ws
+    return this.pollers.get(this.key(userId, windowId))?.pane ?? 0
   }
 
   /** A window that just opened (or reconnected after a server restart) gets a moment to show up. */
@@ -132,15 +141,17 @@ export abstract class CallRelay<C extends WindowCall, R> {
   }
 
   /** Long-poll fallback: open calls for this window (waits up to waitMs for one). */
-  async poll(userId: string, windowId: string, waitMs: number, signal?: AbortSignal): Promise<C[]> {
+  async poll(userId: string, windowId: string, waitMs: number, signal?: AbortSignal, pane?: number): Promise<C[]> {
     const k = this.key(userId, windowId)
     let p = this.pollers.get(k)
     if (!p) {
-      p = { lastSeen: Date.now(), waiters: new Set() }
+      p = { lastSeen: Date.now(), waiters: new Set(), pane: 0 }
       this.pollers.set(k, p)
       this.capPollers(userId)
     }
     p.lastSeen = Date.now()
+    // the newest poll says what the page runs in (an app updated meanwhile)
+    if (pane !== undefined) p.pane = pane
     const take = () => {
       const now = Date.now()
       const out: C[] = []

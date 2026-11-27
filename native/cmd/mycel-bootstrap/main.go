@@ -24,6 +24,10 @@
 // does not come up (QA TC-3523, 2026-11-16: a version folder left 0750/0640 answered health while every AI answer failed).
 // Normal crashes restart after 1 s; more than 5 crashes in 5 minutes back off 1, 2, 4 ... 60 s. launchd's KeepAlive
 // only restarts the bootstrap itself.
+// A server that runs but stops answering (a hung event loop) is the watchdog's (watchdog.go): once this start answered
+// health ok, every 30 s the same health check; 10 failures in a row is a hang. It is stopped and started again only
+// with server.json watchdog.kill true (log only otherwise), at most 3 times an hour, then state.json liveness.gaveUp
+// until the next healthy answer (docs/decisions/20261127-restart.md).
 package main
 
 import (
@@ -86,6 +90,9 @@ type appState struct {
 	Forward *string `json:"forward,omitempty"`
 	// Blocked: the bootstrap stopped starting the server (no version can run); cleared when app/current changes
 	Blocked *blockedState `json:"blocked,omitempty"`
+	// Liveness: the watchdog stopped restarting a server that keeps hanging (watchdog.go); cleared by its next healthy
+	// answer
+	Liveness *livenessState `json:"liveness,omitempty"`
 }
 
 type blockedState struct {
@@ -126,7 +133,9 @@ func writeState(st appState) error {
 		st.History = st.History[len(st.History)-50:]
 	}
 	b, _ := json.MarshalIndent(st, "", "  ")
-	tmp := statePath() + ".tmp"
+	// its own temp name: the server writes state.json through state.json.tmp (system/update.ts), and the watchdog writes
+	// at times nobody asked for, so the two never share (or interleave in) one temp file
+	tmp := statePath() + ".tmp-bootstrap"
 	if err := os.WriteFile(tmp, append(b, '\n'), 0o640); err != nil {
 		return err
 	}
@@ -230,8 +239,12 @@ const (
 )
 
 // checkHealth asks /api/health; progress is the migrating server's own report, for the log
+// healthClientTimeout: how long one health request may take (the update watch and the watchdog alike; tests make it
+// short)
+var healthClientTimeout = 3 * time.Second
+
 func checkHealth(url, version string) (healthState, string) {
-	cl := http.Client{Timeout: 3 * time.Second}
+	cl := http.Client{Timeout: healthClientTimeout}
 	r, err := cl.Get(url)
 	if err != nil {
 		return notHealthy, ""
@@ -534,6 +547,8 @@ func main() {
 func run() int {
 	url := healthURL()
 	var crashes []time.Time
+	// the watchdog's kills and give-up outlive one start of the server (a gave-up from before a reboot holds too)
+	wd := &watchdog{gaveUp: gaveUpBefore(readState())}
 	for {
 		st := readState()
 		v, err := currentVersion()
@@ -593,6 +608,12 @@ func run() int {
 		started := time.Now()
 		done := make(chan error, 1)
 		go func() { done <- cmd.Wait() }()
+		// the watchdog looks at a running version only: a pending or forwarded one has its own watch above
+		wd.started()
+		var liveCh <-chan time.Time
+		if !pending && !forwarded {
+			liveCh = time.After(watchEvery)
+		}
 
 		var healthyCh <-chan time.Time
 		if pending || forwarded {
@@ -636,6 +657,8 @@ func run() int {
 				}
 				keepHealthy(&st, v, false, note)
 				pending, healthyCh = false, nil
+				wd.answered()
+				liveCh = time.After(watchEvery)
 			case <-healthyCh:
 				hs, progress := checkHealth(url, v)
 				if hs == migrating {
@@ -658,6 +681,8 @@ func run() int {
 					st = readState()
 					keepHealthy(&st, v, forwarded, "")
 					pending, forwarded, healthyCh = false, false, nil
+					wd.answered()
+					liveCh = time.After(watchEvery)
 					continue
 				}
 				if pending && time.Now().After(deadline) {
@@ -675,6 +700,14 @@ func run() int {
 				}
 				// a forwarded version is left running: the older one cannot read the database
 				healthyCh = time.After(healthEvery)
+			case <-liveCh:
+				hs, _ := checkHealth(url, v)
+				if wd.look(v, hs, time.Now()) {
+					stopChild(cmd, done)
+					werr, exited = errWatchdog, true
+					break watch
+				}
+				liveCh = time.After(watchEvery)
 			}
 		}
 		if !exited {

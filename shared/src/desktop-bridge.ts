@@ -104,6 +104,10 @@ export type WorkPlaceKind = 'cloud' | 'folder' | 'messenger' | 'home' | 'drive'
 export const WORK_FILES_WIDE_VERSION = 1
 /** DesktopBridge.dictation: voice input transcribed on this Mac (0: not offered) */
 export const DICTATION_BRIDGE_VERSION = 1
+/** The in-app browser's own version (DesktopBridge.browser.version), for tools the browser.call contract adds after
+ * DESKTOP_BRIDGE_VERSION 1. The page sends it as `pane=` on /api/ws (and the long-poll), and the server offers a tool
+ * only to a window whose app runs it. 1: file_upload (docs/decisions/20261126-browser-file-upload.md). */
+export const BROWSER_BRIDGE_VERSION = 1
 /** DesktopBridge.googleSignIn: the app takes the one-time code of a Google sign-in done in the system browser
  * (docs/decisions/20261122-google-login-apps.md). 0 or absent: an older app, whose sign-in page offers the password
  * only. */
@@ -221,6 +225,8 @@ export interface DesktopBridge {
    * 'darwin' with store: web/src/lib/desktop.ts answersFileInputs). */
   store?: boolean
   browser: {
+    /** BROWSER_BRIDGE_VERSION of this app (file_upload since 1). Absent in apps before it: 0. */
+    version?: number
     /** Run one browser.call. Same callId twice returns the first result (never runs twice). */
     run(call: BrowserCall): Promise<BrowserResult>
     /** browser.cancel: the turn stopped */

@@ -95,11 +95,11 @@ describe('where it is offered', () => {
     expect(MY_FOLDERS_RULE).toContain('never say or guess that it exists')
   })
 
-  test('off in a shared chat, a chat others wrote in, a scheduled run, Slack, a restricted run', () => {
+  test('off in a scheduled run, Slack, a restricted run (a shared chat and one others wrote in: behind the read card)', () => {
     const base = { rt: { db: A.ctx.db }, spec: { userId: 'alice', chatId: A.chat('alice'), clientKind: 'web' }, shared: null, restricted: null, templateRun: null, otherAuthors: false } as never as Parameters<typeof myFoldersOff>[0]
     expect(myFoldersOff(base)).toBeNull()
-    expect(myFoldersOff({ ...base, shared: {} as never })).toBe('a shared chat')
-    expect(myFoldersOff({ ...base, otherAuthors: true })).toBe('a chat other people wrote in')
+    expect(myFoldersOff({ ...base, shared: {} as never })).toBeNull()
+    expect(myFoldersOff({ ...base, otherAuthors: true })).toBeNull()
     expect(myFoldersOff({ ...base, spec: { ...base.spec, clientKind: 'schedule' } } as never)).toBe('a scheduled run')
     expect(myFoldersOff({ ...base, spec: { ...base.spec, clientKind: 'slack' } } as never)).toBe('a question from Slack')
     expect(myFoldersOff({ ...base, restricted: {} as never })).toBe('a run limited to one task')

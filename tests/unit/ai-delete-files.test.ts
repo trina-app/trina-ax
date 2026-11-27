@@ -639,13 +639,13 @@ describe('refused up front, before any card', () => {
   const base = { spec: { userId: 'alice', chatId: 'no-such-chat', turnId: TURN, locale: 'en', clientKind: 'web' }, room: null, shared: null, restricted: false, templateRun: false, roomsSeen: false, otherAuthors: false, fromSlack: false }
   const mode = (o: Record<string, unknown>) => deleteFilesRefusal({ ...base, rt: h.rt(), ...o } as never)
 
-  test('only the person\'s own chat with the person there', async () => {
+  test('the person\'s own chat, a shared chat and one others wrote in (the card there: docs/decisions/20261126-shared-chat-everything.md)', async () => {
     expect(mode({})).toBeNull()
-    expect(mode({ shared: { project: {} } })).toBe('shared')
+    expect(mode({ shared: { project: {} } })).toBeNull()
     expect(mode({ spec: { ...base.spec, clientKind: 'schedule' } })).toBe('scheduled')
     expect(mode({ templateRun: true })).toBe('template')
     expect(mode({ restricted: true })).toBe('restricted')
-    expect(mode({ otherAuthors: true })).toBe('others')
+    expect(mode({ otherAuthors: true })).toBeNull()
     // a chat that read rooms asks on the card (below); only a scheduled run, which shows no card, is refused for it
     expect(mode({ roomsSeen: true })).toBeNull()
     expect(mode({ roomsSeen: true, spec: { ...base.spec, clientKind: 'schedule' } })).toBe('scheduled')

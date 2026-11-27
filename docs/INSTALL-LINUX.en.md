@@ -345,9 +345,11 @@ This removes services/app components while retaining data, and the `MYCEL_SAFE_O
 
 ## Troubleshooting and FAQ
 
-Use Admin → System → Diagnostics and `sudo mycel-ctl status`. Locally inspect `journalctl -u mycel-server -u mycel-launcher -n 100`; redact before sharing. If there is no systemd, use a suitable VM. Ubuntu sandbox/AppArmor problems should be repaired with the installer, not by disabling isolation. [Troubleshooting](TROUBLESHOOTING.md) · [FAQ](FAQ.md) · [Configuration](CONFIGURATION.md).
+Use Admin → System → Diagnostics and `sudo mycel-ctl status`. A server that runs but stops answering: the bootstrap asks `/api/health` every 30 seconds and counts 10 failures in a row (about 5 minutes) as a hang. For now it only logs it (`watchdog:` lines in `journalctl -u mycel-server`); `"watchdog": {"kill": true}` in `server.json` makes it restart the server (no restart needed to turn it on), at most 3 times an hour, after which `sudo mycel-ctl status` says `SERVER HANGS` until the server answers again; restart it yourself then with `sudo systemctl restart mycel-server` ([Configuration](CONFIGURATION.md)). Locally inspect `journalctl -u mycel-server -u mycel-launcher -n 100`; redact before sharing. If there is no systemd, use a suitable VM. Ubuntu sandbox/AppArmor problems should be repaired with the installer, not by disabling isolation. [Troubleshooting](TROUBLESHOOTING.md) · [FAQ](FAQ.md) · [Configuration](CONFIGURATION.md).
 
 Source-built unsigned kits are an advanced development path: derive a unique `-dev` version from the source version, review the bundle and explicitly accept its unsigned status on a disposable host. They are not the normal update path. [Developer guide](DEVELOPMENT.md).
+
+When answers hang or the screen freezes, Admin → System → Health → **Restart…** (owners and admins) restarts **The AI only** (the launcher) or **All of Trina AX**, when answers finish (at most 10 minutes) or, for the owner, right away; at most 5 times an hour, each in the Activity log. Over SSH: `sudo systemctl restart mycel-server`.
 
 ## Build a kit from source (developers)
 

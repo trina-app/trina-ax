@@ -1,9 +1,11 @@
 // A project's shared AI chat reads the project's own chat room (chat/room-tools.ts projectRoomTools;
 // docs/decisions/20261120-project-is-room.md D4), with the fake engine through the real launcher and gate: room_read and
-// room_file for that one room id, no rooms list and no save; another room answers as one that is not there; only what
+// room_file for that one room id with no card; another room of the asker's goes through the shared chat's read card when
+// someone there is not in it (docs/decisions/20261126-shared-chat-everything.md); only what
 // every one of the chat's audience sees (a member with a later start, an answer hidden from one of them, a project file
 // one of them cannot open), said when cut; reading marks nothing and asks nothing; post_to_room still asks; a chat of
-// another project gets nothing of it; the instructions name "this project's chat room".
+// another project reads it as any room of the asker's (no card when everyone there is in it); the instructions name
+// "this project's chat room".
 //
 // The fixture team: alice and erin in marketing, bob in finance, carol admin, dana owner.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test'
@@ -50,7 +52,7 @@ async function run(user: string, chatId: string, content: string) {
 const read = (room: string, extra: Record<string, unknown> = {}) => fake({ tool: 'room_read', args: { room, ...extra }, sayResult: true })
 const roomsSeen = (chatId: string) => (h.ctx.db.query('SELECT rooms_seen FROM chats WHERE id = ?').get(chatId) as { rooms_seen: number }).rooms_seen
 
-test('the shared chat reads its own room (no card, nothing marked); no rooms list, no save; another room answers as missing', async () => {
+test('the shared chat reads its own room (no card, nothing marked); another room some people here are not in asks on the read card', async () => {
   const { roomId, chatId } = await project()
   await send('erin', roomId, 'Booth confirmed for Friday')
   const r = await run('alice', chatId, `what did we decide in the chat room?\n${read(roomId)}`)
@@ -58,15 +60,13 @@ test('the shared chat reads its own room (no card, nothing marked); no rooms lis
   expect(r.text).not.toContain(AUDIENCE_CUT_EARLIER)
   expect(r.cards).toHaveLength(0)
   expect(roomsSeen(chatId)).toBe(0)
-  // the rooms list and the save are not tools here
-  const list = await run('alice', chatId, `list my rooms\n${fake({ tool: 'rooms', args: {}, sayResult: true }, { tool: 'save_room_file', args: { room: roomId, file: 'x' }, sayResult: true })}`)
-  expect(list.text).not.toContain('Booth confirmed')
-  expect(list.steps.filter((s: any) => s.tool === 'rooms' || s.tool === 'save_room_file').every((s: any) => s.status !== 'ok')).toBe(true)
-  // a room alice is in, by id or by name: as a room that is not there
+  // a room alice is in that bob is not: the read card first, only alice sees it (no answer here: nothing read)
   const dm = (await h.api('alice').call(API.createRoom, { body: { kind: 'dm', userId: 'erin' } })).id
   await send('erin', dm, 'private between us')
   const other = await run('alice', chatId, `read it\n${read(dm)}`)
-  expect(other.text).toContain('No room matching')
+  expect(other.cards).toHaveLength(1)
+  const turnOf = (x: unknown) => (x as { data: { turnId?: string } }).data.turnId
+  expect(ws.bob!.frames.filter((x) => x.type === 'turn.request' && turnOf(x) === turnOf(other.cards[0]))).toHaveLength(0)
   expect(other.text).not.toContain('private between us')
 })
 
@@ -121,29 +121,29 @@ test('room_file: a project file everyone here may open is read; one someone of t
   expect(r3.text).not.toContain('agenda.txt')
 })
 
-test('post_to_room still asks on its card; a chat of another project reads nothing of this room', async () => {
+test('post_to_room still asks on its card; a chat of another project reads this room as a room of the asker', async () => {
   const { roomId, chatId } = await project()
   await send('erin', roomId, 'Harbor secret plan')
   const p = await run('alice', chatId, `post it\n${fake({ tool: 'post_to_room', args: { room: roomId, text: 'Summary for the room' }, sayResult: true })}`)
   expect(p.cards.length).toBeGreaterThanOrEqual(1)
-  // another project of alice and erin, without a room of its own: no room tool at all
+  // another project of alice and erin: Harbor's room is a room alice is in, read as hers; everyone there (alice, erin)
+  // is in it, so no card
   const other = await h.api('alice').call(API.createProject, { body: { name: `Other ${++n}`, participants: [{ subjectType: 'user' as const, subjectId: 'erin' }], instructions: '' } })
   const otherChat = await h.api('alice').call(API.createChat, { body: { projectId: other.id } })
   const r = await run('alice', otherChat.id, `read Harbor's room\n${read(roomId)}`)
-  expect(r.text).not.toContain('Harbor secret plan')
-  // with a room of its own: still only that one
-  await h.api('alice').call(API.openProjectRoom, { params: { id: other.id } })
-  const r2 = await run('alice', otherChat.id, `read Harbor's room\n${read(roomId)}`)
-  expect(r2.text).not.toContain('Harbor secret plan')
-  expect(r2.text).toContain('No room matching')
+  expect(r.text).toContain('Harbor secret plan')
+  expect(r.cards).toHaveLength(0)
+  // erin's own turn there reads it as erin (she is in it too); bob, who is not in that chat, is never asked
+  expect(ws.bob!.frames.filter((x) => x.type === 'turn.request').length).toBe(0)
 })
 
-test('the instructions name this project\'s chat room and its id; without one, reading rooms stays unavailable', () => {
+test('the instructions name this project\'s chat room and its id; the asker\'s other rooms are read as in their own chat', () => {
   const id = uuidv7()
   const withRoom = sharedSection({ project: 'Harbor', audience: 3, asker: 'Alice', projectRoom: id }, 'en', true)
   expect(withRoom).toContain(`this project's chat room (room_id=${id})`)
-  expect(withRoom).toContain('reading other team chat rooms')
+  expect(withRoom).toContain('with no card')
+  expect(withRoom).not.toContain('It is the only room you can read here')
   const without = sharedSection({ project: 'Harbor', audience: 3, asker: 'Alice' }, 'en', true)
   expect(without).not.toContain("this project's chat room")
-  expect(without).toContain('reading team chat rooms')
+  expect(without).toContain("Alice's team chat rooms (rooms, room_read, room_file, save_room_file)")
 })

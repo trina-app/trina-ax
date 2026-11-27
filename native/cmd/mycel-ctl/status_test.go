@@ -68,3 +68,27 @@ func TestStatusSaysAnUpdateDidNotFinish(t *testing.T) {
 		t.Fatalf("no version folder, but:\n%s", out)
 	}
 }
+
+// The bootstrap's watchdog gave up restarting a hanging server (state.json liveness): status says so, the detail JSON
+// carries it, and the TenantStatus for the control plane keeps its shape (docs/decisions/20261127-restart.md).
+func TestStatusSaysTheWatchdogGaveUp(t *testing.T) {
+	tb := newTestBase(t, "0.4.0")
+	if _, out, _ := tb.ctl("", "status"); strings.Contains(out, "SERVER HANGS") {
+		t.Fatalf("no give-up, but:\n%s", out)
+	}
+	must(t, os.MkdirAll(filepath.Join(tb.base, "app"), 0o755))
+	must(t, os.WriteFile(filepath.Join(tb.base, "app/state.json"), []byte(`{"format":1,"current":"0.4.0","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[],"liveness":{"gaveUp":true,"since":"2026-11-27T01:00:00Z","detail":"server 0.4.0 did not answer health 10 times in a row"}}`), 0o640))
+	code, out, _ := tb.ctl("", "status")
+	if code != 0 || !strings.Contains(out, "SERVER HANGS: the watchdog stopped restarting it since 2026-11-27T01:00:00Z: server 0.4.0 did not answer health 10 times in a row") {
+		t.Fatalf("%d\n%s", code, out)
+	}
+	code, out, _ = tb.ctl("", "status", "--detail", "--json")
+	var st Status
+	var l struct{ GaveUp bool }
+	if code != 0 || json.Unmarshal([]byte(out), &st) != nil || json.Unmarshal(st.Liveness, &l) != nil || !l.GaveUp {
+		t.Fatalf("json: %d %s", code, out)
+	}
+	if _, out, _ := tb.ctl("", "status", "--json"); strings.Contains(out, "liveness") {
+		t.Fatalf("TenantStatus changed shape:\n%s", out)
+	}
+}

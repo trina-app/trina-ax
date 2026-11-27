@@ -506,7 +506,8 @@ describe('who may call it (M9)', () => {
   test('each other mode is refused before any card, saying why and what to do', () => {
     expect(r({ spec: { ...base.spec, clientKind: 'schedule' } })).toContain('scheduled run with nobody watching')
     expect(r({ spec: { ...base.spec, clientKind: 'schedule' } })).toContain('did not refuse anything')
-    expect(r({ shared: { project: {} } })).toContain('shared project chat')
+    // a shared chat: the card, as in the person's own chat (docs/decisions/20261126-shared-chat-everything.md)
+    expect(r({ shared: { project: {} } })).toBeNull()
     expect(r({ templateRun: true })).toContain('limited to its scheduled task')
     expect(r({ restricted: true })).toContain('draft')
     for (const t of [r({ templateRun: true })]) expect(t).toContain('Next step:')
@@ -517,9 +518,10 @@ describe('who may call it (M9)', () => {
   test('a Slack thread\'s chat is refused (its answer may go to a channel)', () => {
     expect(r({ spec: { ...base.spec, clientKind: 'slack' } })).toContain('answers in Slack')
   })
-  test('a confidential chat and a chat someone else wrote in are refused too', () => {
+  test('a confidential chat is refused; a chat someone else wrote in puts nothing into a skill folder (a move out asks on the card)', () => {
     e.db.query("INSERT INTO messages (id, chat_id, role, content, author_id, created_at) VALUES ('m1', 'c1', 'user', 'hi', 'bob', ?)").run(new Date().toISOString())
-    expect(r({})).toContain('other people wrote in this chat')
+    expect(r({})).toBeNull()
+    expect(r({}, { action: 'copy', path: 'users/alice/logo.png', to_folder: 'skills/ops' })).toContain('other people wrote in this chat')
     e.db.query("DELETE FROM messages WHERE id = 'm1'").run()
     e.db.query("INSERT INTO safe_ops_chats (chat_id, material) VALUES ('c1', 1)").run()
     expect(r({})).toContain('confidential chat')
@@ -529,8 +531,8 @@ describe('who may call it (M9)', () => {
     expect(r({ roomsSeen: true }, { action: 'copy', path: 'users/alice/logo.png', to_folder: 'skills/ops' })).toContain('read a team chat room')
     expect(r({ roomsSeen: true })).toBeNull()
   })
-  test('not offered in rooms or shared chats; the main AI\'s only', () => {
-    expect(SHARED_TOOLS.has('skill_files')).toBe(false)
+  test('offered in shared chats (behind its card), never in rooms; the main AI\'s only', () => {
+    expect(SHARED_TOOLS.has('skill_files')).toBe(true)
     expect(PARENT_ONLY_TOOLS.has('skill_files')).toBe(true)
   })
 })

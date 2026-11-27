@@ -99,7 +99,7 @@ test("root's wait (root/update-waiting.json): read until its own deadline; a lin
     const f = path.join(root, 'update-waiting.json')
     expect(updateWaiting({ rootDir: root, now })).toBeNull()
     fs.writeFileSync(f, JSON.stringify({ since: '2026-11-14T09:55:00Z', until: '2026-11-14T10:25:00Z' }))
-    expect(updateWaiting({ rootDir: root, now })).toEqual({ since: '2026-11-14T09:55:00Z', until: '2026-11-14T10:25:00Z', skippable: false })
+    expect(updateWaiting({ rootDir: root, now })).toEqual({ since: '2026-11-14T09:55:00Z', until: '2026-11-14T10:25:00Z', skippable: false, kind: 'update' })
     // past its until the run still switches and restarts (then removes it): it counts for a grace, not for ever
     expect(updateWaiting({ rootDir: root, now: new Date('2026-11-14T10:26:00Z') })).not.toBeNull()
     expect(updateWaiting({ rootDir: root, now: new Date(Date.parse('2026-11-14T10:25:00Z') + ROOT_WAIT_GRACE_MS) })).toBeNull()

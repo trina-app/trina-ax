@@ -618,8 +618,8 @@ describe('the read card', () => {
 
 // ---------------- tools and instructions ----------------
 describe('what a shared turn has', () => {
-  test('SHARED_TOOLS keeps out the person\'s own and the room tools; a turn offers nothing else', async () => {
-    for (const t of ['set_title', 'connect_service', 'room_read', 'rooms', 'room_file', 'save_room_file', 'drive_search']) expect(SHARED_TOOLS.has(t)).toBe(false)
+  test('SHARED_TOOLS holds a private chat\'s tools (docs/decisions/20261126-shared-chat-everything.md); a turn offers nothing else', async () => {
+    for (const t of ['set_title', 'connect_service', 'room_read', 'rooms', 'room_file', 'save_room_file', 'drive_search']) expect(SHARED_TOOLS.has(t)).toBe(true)
     // the asker's own memory, from the asker's own words (docs/decisions/20261125-auto-memory-shared-chats.md)
     for (const t of ['remember', 'forget']) expect(SHARED_TOOLS.has(t)).toBe(true)
     // in a shared chat everything is shared (docs/decisions/20261118-shared-schedules-any-frequency.md): schedules and
@@ -632,12 +632,13 @@ describe('what a shared turn has', () => {
     const offered = r.done.content.split(',').map((t) => t.replace(/^mcp__team__/, ''))
     for (const t of offered) expect({ t, ok: t in FILE_TOOLS || SHARED_TOOLS.has(t) }).toEqual({ t, ok: true })
     expect(offered).toContain('remember')
-    expect(offered).not.toContain('room_read')
+    expect(offered).toContain('room_read')
   })
 
   test('the instructions: only SHARED_PROMPT_SECTIONS, nothing about the person; the transcript says who wrote what', async () => {
     // (the browser is the asker's own, behind its notice: docs/decisions/20261126-shared-chat-own-tools.md)
-    expect(Object.entries(SHARED_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['sideRoom', 'situation'])
+    // (the situation block is the asker's own facts since docs/decisions/20261126-shared-chat-everything.md)
+    expect(Object.entries(SHARED_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['sideRoom'])
     const user = loadPrincipal(db(), 'alice')!
     const input: PromptInput = {
       // a private memory never reaches a shared chat, whoever passes it; one kept in this very chat does
@@ -1033,9 +1034,9 @@ describe('project skills in a shared chat', () => {
       // the skill tool for alice: hers too, after the card
       const four = await askWithCard('alice', chat.id, fake({ tool: 'skill', args: { name: 'brief' }, sayResult: true }), 'share')
       expect(four.done.content).toContain('MARKETING-BRIEF-STEPS')
-      // and move_skill is not offered in a shared chat (delete_files is, for the AI's own files only: QA TC-7332)
+      // and move_skill is offered in a shared chat, behind its card (docs/decisions/20261126-shared-chat-everything.md)
       const five = await ask('alice', chat.id, fake({ echo: 'tools' }))
-      expect(five.done.content.split(',')).not.toContain('move_skill')
+      expect(five.done.content.split(',')).toContain('move_skill')
     } finally {
       fs.rmSync(path.join(h.team, 'groups/marketing/skills'), { recursive: true, force: true })
       fs.rmSync(path.join(h.team, 'projects/falcon/skills'), { recursive: true, force: true })

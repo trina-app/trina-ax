@@ -480,7 +480,7 @@ describe('what counts as the Windows app (scripts/release/windows-inputs.ts)', (
   })
   test('bridge versions: what the pages check against the app (the Mac-only voice input is not a Windows one)', () => {
     const now = bridgeVersions(ROOT)
-    expect(Object.keys(now).sort()).toEqual(['DESKTOP_BRIDGE_VERSION', 'GOOGLE_SIGNIN_BRIDGE_VERSION', 'LOCAL_APPS_BRIDGE_VERSION', 'WORK_FILES_BRIDGE_VERSION', 'WORK_FILES_WIDE_VERSION'])
+    expect(Object.keys(now).sort()).toEqual(['BROWSER_BRIDGE_VERSION', 'DESKTOP_BRIDGE_VERSION', 'GOOGLE_SIGNIN_BRIDGE_VERSION', 'LOCAL_APPS_BRIDGE_VERSION', 'WORK_FILES_BRIDGE_VERSION', 'WORK_FILES_WIDE_VERSION'])
     expect(changedBridges(now, now)).toEqual([])
     expect(changedBridges({ ...now, LOCAL_APPS_BRIDGE_VERSION: 0 }, now)).toEqual([`LOCAL_APPS_BRIDGE_VERSION 0 → ${now.LOCAL_APPS_BRIDGE_VERSION}`])
     const { GOOGLE_SIGNIN_BRIDGE_VERSION: _, ...before } = now

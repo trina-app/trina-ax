@@ -64,6 +64,8 @@ export interface Mine { room: RoomRow; me: MemberRow }
 export interface Seen { roomId: string; fromSeq?: number }
 export interface ReadResult {
   text: string; seen: Seen[]; ok: boolean; title?: string; count?: number
+  /** a list of rooms (listRooms): the rooms it names, by id (a shared chat's read card weighs who is in each) */
+  listed?: string[]
   /** it gave messages an app posted (rooms/apps): outside content, like a web page (the chat marks itself: chats.room_outside) */
   outside?: boolean
 }
@@ -482,7 +484,7 @@ export function listRooms(db: Database, userId: string, tz: string, ref?: string
     ].filter(Boolean).join('\n'),
     // names, kinds and counts only: no message of a room joins the read scope from a list (every change in this chat
     // waits for a card anyway; a scope of a hundred rooms would make the wider-audience card name them all)
-    seen: [], ok: true, count: shown.length,
+    seen: [], ok: true, count: shown.length, listed: shown.map(({ room }) => room.id),
   }
 }
 
@@ -542,7 +544,7 @@ export function searchRooms(db: Database, userId: string, tz: string, o: SearchO
   if (o.room !== undefined) {
     const f = findRoom(db, userId, o.room)
     if (!f) return { text: NO_ROOM(o.room), seen: [], ok: true, count: 0 }
-    if ('many' in f) return { text: several(o.room, f.many, tz), seen: [], ok: true, count: 0 }
+    if ('many' in f) return { text: several(o.room, f.many, tz), seen: [], ok: true, count: 0, listed: f.many.map((r) => r.room.id) }
     rooms = [f.one]
   } else rooms = myRooms(db, userId)
   // with_person: only my rooms that one of the people of that name is in now (their members are what I see in each room
@@ -712,7 +714,7 @@ export function readRoom(db: Database, userId: string, tz: string, o: ReadOption
   if (since === null || until === null) return { text: 'Invalid since or until: give a date ("2026-11-01") or a date and time ("2026-11-01T09:00").', seen: [], ok: false }
   const f = findRoom(db, userId, o.room, o.only)
   if (!f) return { text: NO_ROOM(o.room), seen: [], ok: true, count: 0 }
-  if ('many' in f) return { text: several(o.room, f.many, tz), seen: [], ok: true, count: 0 }
+  if ('many' in f) return { text: several(o.room, f.many, tz), seen: [], ok: true, count: 0, listed: f.many.map((r) => r.room.id) }
   const { room, view } = f.one
   const title = titleOf(view)
   const aud = o.audience

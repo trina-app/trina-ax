@@ -144,35 +144,41 @@ describe('decisions 1 and 2: deletes, skill folders, project members and folder 
   }
   const places = [{ clientKind: 'schedule' }, { shared: true }, { otherAuthors: true }]
 
-  test('delete_files: refused in a scheduled run, a shared chat and a chat others wrote in; not under Always', () => {
-    for (const p of places) expect(deleteFilesRefusal(exec(p))).not.toBeNull()
+  // a shared chat and a chat others wrote in: the card as in the person's own chat since
+  // docs/decisions/20261126-shared-chat-everything.md; the scheduled run still needs Always
+  test('delete_files: refused in a scheduled run (not under Always); a shared chat and a chat others wrote in ask on the card', () => {
+    const [sched, ...rest] = places
+    expect(deleteFilesRefusal(exec(sched))).toBe('scheduled')
+    for (const p of rest) expect([p, deleteFilesRefusal(exec(p))]).toEqual([p, null])
     keepAlways(db(), 'alice', 'delete_files', null)
     for (const p of places) expect([p, deleteFilesRefusal(exec(p))]).toEqual([p, null])
     db().query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run()
-    expect(deleteFilesRefusal(exec({ shared: true }))).toBe('shared')
+    expect(deleteFilesRefusal(exec({ clientKind: 'schedule' }))).toBe('scheduled')
   })
 
-  test('project members and folder access: the same, and never another person\'s Always, never a guest', () => {
-    for (const p of places) {
-      expect(projectMembersRefusal(exec(p))).not.toBeNull()
-      expect(folderAccessOff(exec({ ...p, user: 'carol' }))).not.toBeNull()
+  test('project members and folder access: the scheduled run under Always (never another person\'s), the card elsewhere, never a guest', () => {
+    const [sched, ...rest] = places
+    expect(projectMembersRefusal(exec(sched))?.reason).toBe('scheduled run')
+    expect(folderAccessOff(exec({ ...sched, user: 'carol' }))?.reason).toBe('scheduled run')
+    for (const p of rest) {
+      expect([p, projectMembersRefusal(exec(p))]).toEqual([p, null])
+      expect([p, folderAccessOff(exec({ ...p, user: 'carol' }))]).toEqual([p, null])
     }
     keepAlways(db(), 'alice', 'project_members', null)
     keepAlways(db(), 'carol', 'folder_access', null)
     try {
-      for (const p of places) {
-        expect([p, projectMembersRefusal(exec(p))]).toEqual([p, null])
-        expect([p, folderAccessOff(exec({ ...p, user: 'carol' }))]).toEqual([p, null])
-        // bob's turn: alice's and carol's Always are theirs only
-        expect(projectMembersRefusal(exec({ ...p, user: 'bob' }))).not.toBeNull()
-        expect(folderAccessOff(exec({ ...p, user: 'bob' }))).not.toBeNull()
-      }
+      expect(projectMembersRefusal(exec(sched))).toBeNull()
+      expect(folderAccessOff(exec({ ...sched, user: 'carol' }))).toBeNull()
+      // bob's scheduled run: alice's and carol's Always are theirs only
+      expect(projectMembersRefusal(exec({ ...sched, user: 'bob' }))).not.toBeNull()
+      expect(folderAccessOff(exec({ ...sched, user: 'bob' }))).not.toBeNull()
       // a guest: refused whatever their own Always says
       db().query("UPDATE users SET guest = 1 WHERE id = 'bob'").run()
       keepAlways(db(), 'bob', 'project_members', null)
       keepAlways(db(), 'bob', 'folder_access', null)
       expect(projectMembersRefusal(exec({ user: 'bob' }))?.reason).toBe('guest')
       expect(folderAccessOff(exec({ user: 'bob' }))?.reason).toBe('guest')
+      expect(projectMembersRefusal(exec({ user: 'bob', shared: true }))?.reason).toBe('guest')
     } finally {
       db().query("UPDATE users SET guest = 0 WHERE id = 'bob'").run()
       db().query("DELETE FROM card_always_allow WHERE user_id IN ('alice', 'bob', 'carol')").run()
@@ -181,33 +187,26 @@ describe('decisions 1 and 2: deletes, skill folders, project members and folder 
     expect(folderAccessOff(exec({ clientKind: 'schedule', user: 'carol' }))?.reason).toBe('scheduled run')
   })
 
-  test('skill_files: the shared chat, the chat others wrote in and the scheduled run under Always', () => {
-    const e = (p: Record<string, unknown>) => {
-      const x = exec(p) as unknown as { files?: unknown; rt: unknown }
-      return x as never
-    }
-    // (a chat others wrote in is read from its messages: the real shared chat test below)
-    const two = places.slice(0, 2)
-    for (const p of two) expect([p, skillFilesRefusal(e(p), { action: 'rename', path: 'skills/a', new_name: 'b' })?.summary]).not.toEqual([p, undefined])
+  test('skill_files: the shared chat asks on the card; the scheduled run only under Always', () => {
+    const e = (p: Record<string, unknown>) => exec(p) as never
+    const rename = { action: 'rename', path: 'skills/a', new_name: 'b' }
+    expect(skillFilesRefusal(e({ shared: true }), rename)).toBeNull()
+    expect(skillFilesRefusal(e({ clientKind: 'schedule' }), rename)?.summary).toContain('scheduled run')
     keepAlways(db(), 'alice', 'skill_files', null)
     try {
-      for (const p of two) expect([p, skillFilesRefusal(e(p), { action: 'rename', path: 'skills/a', new_name: 'b' })]).toEqual([p, null])
+      expect(skillFilesRefusal(e({ clientKind: 'schedule' }), rename)).toBeNull()
     } finally { db().query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
   })
 
-  test('a real shared chat bob wrote in: the tools are offered under Always, and a delete goes with no card', async () => {
+  test('a real shared chat bob wrote in: the tools are offered, a delete asks on its card; under Always it goes with no card', async () => {
     const chat = await sharedChatBobWroteIn()
     const before = await turn('alice', chat, fake({ echo: 'tools' }))
-    for (const t of ['change_project_members', 'skill_files']) expect(before.content.split(',')).not.toContain(t)
-    const no = await turn('alice', chat, fake({ tool: 'delete_files', args: { paths: ['projects/falcon/old-5.txt'] }, sayResult: true }))
-    expect(no.content).toMatch(/shared chat/)
+    for (const t of ['change_project_members', 'skill_files', 'delete_files']) expect(before.content.split(',')).toContain(t)
+    const asked = await turn('alice', chat, fake({ tool: 'delete_files', args: { paths: ['projects/falcon/old-5.txt'] }, sayResult: true }))
+    expect(asked.cards.length).toBeGreaterThanOrEqual(1)
     expect(has('projects/falcon/old-5.txt')).toBe(true)
     for (const k of ['delete_files', 'project_members', 'skill_files'] as const) keepAlways(db(), 'alice', k, null)
     try {
-      const tools = await turn('alice', chat, fake({ echo: 'tools' }))
-      for (const t of ['change_project_members', 'skill_files']) expect(tools.content.split(',')).toContain(t)
-      const sys = await turn('alice', chat, fake({ echo: 'system' }))
-      expect(sys.content).toContain('chose "Always allow" for putting team files in the trash (delete_files)')
       // another project's members are never changed from here (its name and people would show to everyone here)
       await h.api('alice').call(API.createProject, { body: { name: 'Heron', scope: 'team', instructions: '', participants: [] } })
       const other = await turn('alice', chat, fake({ tool: 'change_project_members', args: { project: 'Heron', add: [{ name: 'Erin Yoo' }] }, sayResult: true }))
@@ -218,7 +217,7 @@ describe('decisions 1 and 2: deletes, skill folders, project members and folder 
       expect(has('projects/falcon/old-5.txt')).toBe(false)
     } finally { for (const k of ['delete_files', 'project_members', 'skill_files']) await removeInSettings(`card:${k}`) }
     const after = await turn('alice', chat, fake({ echo: 'tools' }))
-    expect(after.content.split(',')).not.toContain('change_project_members')
+    expect(after.content.split(',')).toContain('change_project_members')
   })
 
   test('project members in the scheduled run: changed under Always (with the project manager\'s own rights); refused after removing it', async () => {

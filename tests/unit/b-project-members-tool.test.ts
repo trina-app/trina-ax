@@ -221,8 +221,8 @@ describe('the red mark\'s test: the whole name in the person\'s own words (M5, r
 })
 
 describe('where it runs', () => {
-  test('never in a room, a shared chat, FILE_TOOLS or the remote connector; the main AI only; no room card after a room read', async () => {
-    expect(SHARED_TOOLS.has(PROJECT_MEMBERS_TOOL)).toBe(false)
+  test('never in a room, FILE_TOOLS or the remote connector (a shared chat has it behind its card: docs/decisions/20261126-shared-chat-everything.md); the main AI only; no room card after a room read', async () => {
+    expect(SHARED_TOOLS.has(PROJECT_MEMBERS_TOOL)).toBe(true)
     expect(PROJECT_MEMBERS_TOOL in FILE_TOOLS).toBe(false)
     expect(PARENT_ONLY_TOOLS.has(PROJECT_MEMBERS_TOOL)).toBe(true)
     expect(ROOMS_SEEN_READ_ONLY_TOOLS.has(PROJECT_MEMBERS_TOOL)).toBe(true)
@@ -236,7 +236,7 @@ describe('where it runs', () => {
     expect(sys.content).toContain(PROJECT_MEMBERS_RULE)
   })
 
-  test('refused up front everywhere but the person\'s own chat with them there (refusal(): what, why, next)', async () => {
+  test('refused up front in a scheduled run, Slack and limited runs (refusal(): what, why, next); a shared chat and one others wrote in ask on the card', async () => {
     const p = await project('alice', 'Gate')
     const chat = (await h.api('alice').call(API.createChat, { body: { projectId: p.id, private: true } })).id
     const exec = (o: Record<string, unknown> = {}, spec: Record<string, unknown> = {}) => ({
@@ -247,8 +247,6 @@ describe('where it runs', () => {
     }) as unknown as MembersExec
     const cases: [MembersExec, RegExp][] = [
       [exec({}, { clientKind: 'schedule' }), /nobody could be asked/],
-      [exec({ shared: { project: {} } }), /not available in a shared project chat/],
-      [exec({ otherAuthors: true }), /a chat other people wrote in/],
       [exec({ fromSlack: true }), /Slack/],
       [exec({ restricted: true }), /a run limited to one task/],
       [exec({ templateRun: true }), /a run limited to one task/],
@@ -263,6 +261,9 @@ describe('where it runs', () => {
       const r = await t.call({ add: [{ name: 'Bob Lee' }] }, e.files)
       expect((r.content[0] as { text: string }).text).toBe(no.text)
     }
+    // a shared chat and a chat others wrote in: no refusal up front (the card asks, as in the person's own chat)
+    expect(projectMembersRefusal(exec({ shared: { project: {} } }))).toBeNull()
+    expect(projectMembersRefusal(exec({ otherAuthors: true }))).toBeNull()
     // a sub-agent's own turn state
     const sub = await projectMembersTool(exec()).call({ add: [{ name: 'Bob Lee' }] }, new TurnFiles())
     expect((sub.content[0] as { text: string }).text).toMatch(/only the main assistant changes members/)

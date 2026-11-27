@@ -48,6 +48,9 @@ export interface RealtimeOptions {
   /** ws(s)://host — default: from location */
   baseUrl: string
   windowId: () => string
+  /** the desktop app's in-app browser version (DesktopBridge.browser.version; 0 or absent: none): sent as `pane=` so
+   * the server offers the tools this app runs (file_upload) */
+  pane?: () => number
   renewWindowId: () => string
   createSocket: (url: string, protocols: string[]) => WsLike
   /** replay: sent again after a reconnect (it happened while this window was away), not just now */
@@ -197,6 +200,8 @@ export class RealtimeClient {
 
   private url(): string {
     const q = new URLSearchParams({ windowId: this.o.windowId() })
+    const pane = this.o.pane?.() ?? 0
+    if (Number.isInteger(pane) && pane > 0) q.set('pane', String(pane))
     if (this.epoch) {
       q.set('epoch', this.epoch)
       q.set('after', String(this.lastSeq))

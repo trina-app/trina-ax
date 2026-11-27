@@ -17,6 +17,15 @@
 // From a prepare-stop until the launcher exits (or the two minutes pass) and while it stops, a new turn is refused
 // before anything of it starts: {"ev":"error","message":"launcher_stopping: <reason>"}. The server keeps such a turn
 // (it never ran) and waits until a status answer has no "stopping" (the next launcher). The status says "stopping".
+//
+// Restart (Admin › System › Health, "AI only"; docs/decisions/20261127-restart.md), as the server account:
+//
+//	{"op":"restart"} -> {"ev":"restarting","live":N}
+//
+// The launcher stops as for SIGTERM, with the reason "restart": new turns are refused, the live ones end with
+// "signal":"restart", then it exits 0 and its supervisor starts it again (systemd Restart=always, launchd KeepAlive,
+// `mycel-ctl supervise` in Docker). The answer comes first, before the turns end. The status lists "restart" in "ops",
+// so a server shows the button only to a launcher that knows the op.
 package main
 
 import (
@@ -210,6 +219,36 @@ func prepareStop(line []byte, o *out) {
 	turns.prepare(req.Reason, time.Now())
 	n, _ := turns.endAll(req.Reason, false)
 	o.send(map[string]any{"ev": "prepared", "ended": n})
+}
+
+// restartOps: the requests of this launcher a server may look for in the status ("ops")
+var restartOps = []string{"restart"}
+
+// exitAfterRestart ends the process after a restart request (tests replace it)
+var exitAfterRestart = killAllAndExit
+
+// restartOp answers {"op":"restart"}: from now on no turn starts, the answer goes out, then the live turns end with
+// the reason "restart" and the launcher exits (its supervisor starts it again).
+func restartOp(o *out) {
+	live := turns.close("restart")
+	o.send(map[string]any{"ev": "restarting", "live": live})
+	go func() {
+		if n, all := turns.endAll("restart", true); !all {
+			fmt.Fprintf(os.Stderr, "mycel-launcher: restart: not every one of %d turns reported its end in time; killing the rest\n", n)
+		}
+		fmt.Fprintln(os.Stderr, "mycel-launcher: restarting (asked by the server)")
+		exitAfterRestart()
+	}()
+}
+
+// close marks the launcher stopping for reason (new turns are refused) and returns how many turns run now
+func (t *turnSet) close(reason string) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.closing == "" {
+		t.closing = reason
+	}
+	return len(t.m)
 }
 
 // endOnSignal: SIGTERM / SIGINT end every turn with the stop's reason, then the launcher exits, killing at once what

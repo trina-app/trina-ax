@@ -426,6 +426,10 @@ export interface ToolCtx {
    * they refuse whenever the target is wider than the sources.
    */
   confirmWidening?: (target: string, sources: string[], binding?: string) => Promise<string | null>
+  /** a shared chat's turn (docs/decisions/20261126-shared-chat-everything.md): the asker's own Google Drive or Slack
+   * goes on only after their one notice per place (chat/turn.ts confirmSharedService), and what it returns joins the
+   * answer's read record. Absent: no shared chat's turn (a Drive or Slack call there is refused). null: go on. */
+  sharedService?: (what: 'drive' | 'slack', sources: import('../chat/read-scope').ReadSource[]) => Promise<string | null>
   /** checked right before a produced file is placed (tools/make-file.ts placeProduced): a scheduled run's save its task's
    * card covered is checked again there, after a long conversion (chat/schedule-cover.ts); throws to refuse */
   beforePlace?: () => void

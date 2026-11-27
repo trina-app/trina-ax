@@ -124,8 +124,11 @@ export const LauncherStatus = z.object({
   /** "bwrap" | "sandbox-exec" | "none" */
   sandbox: z.string(),
   liveTurns: z.number().int().nonnegative().optional(),
-  /** the launcher stops or is about to (an update's prepare-stop, SIGTERM): it refuses new turns; "update" | "shutdown" */
+  /** the launcher stops or is about to (an update's prepare-stop, SIGTERM, a restart): it refuses new turns; "update" | "update-root" | "shutdown" | "restart" */
   stopping: z.string().optional(),
+  /** requests this launcher knows besides turns that a server looks for: "restart" (Admin's "AI only" restart,
+   * docs/decisions/20261127-restart.md). Absent from older launchers. */
+  ops: z.array(z.string()).optional(),
   dedicated: z.boolean().optional(),
   bwrapVersion: z.string().nullable().optional(),
   /** Landlock ABI the kernel offers (0 = none) */

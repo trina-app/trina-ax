@@ -3,7 +3,8 @@
 // chat's tool list (rooms/ai-tools.ts SHARED_TOOLS), so the unit tests of the tool itself passed while a real turn never
 // had it. Here, through a real turn with the fake engine: the tool is offered in a shared project chat, the prompt does
 // not say the AI cannot delete, the AI's own file of this chat goes to the trash without a card, and a teammate's file
-// is refused (no card, nothing moved).
+// asks on the delete card as in a private chat (docs/decisions/20261126-shared-chat-everything.md; no answer: nothing
+// moved).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -51,7 +52,7 @@ describe('QA TC-7332: delete_files in a shared project chat', () => {
     expect(sys).toContain('files you made yourself in this chat for Alice Kim')
   })
 
-  test('the AI\'s own file of this chat goes to the trash with no card; a teammate\'s file is refused, no card, nothing moved', async () => {
+  test('the AI\'s own file of this chat goes to the trash with no card; a teammate\'s file asks on the delete card (no answer: nothing moved)', async () => {
     const mine = `${folder}/notes/hello-summary.md`
     await ask('alice', fake({ tool: 'write', args: { file_path: mine, content: '# hello\n' }, sayResult: true }))
     expect(fs.existsSync(abs(mine))).toBe(true)
@@ -60,23 +61,25 @@ describe('QA TC-7332: delete_files in a shared project chat', () => {
     expect(gone.content).toContain('files you made yourself in this chat')
     expect(fs.existsSync(abs(`${folder}/notes`))).toBe(false)
     expect(cards('alice')).toBe(before)
-    // bob's file in the same project (his own answer in this chat): alice's AI may not delete it here
+    // bob's file in the same project (his own answer in this chat): alice's AI asks on the delete card, as in her own chat
     const his = `${folder}/bob-plan.md`
     await ask('bob', fake({ tool: 'write', args: { file_path: his, content: '# plan\n' }, sayResult: true }))
     expect(fs.existsSync(abs(his))).toBe(true)
     const no = await ask('alice', `delete bob-plan.md\n${fake({ tool: 'delete_files', args: { paths: [his] }, sayResult: true })}`)
-    expect(no.content).toContain(DELETE_REFUSAL.shared)
+    expect(no.content).not.toContain(DELETE_REFUSAL.shared)
     expect(fs.existsSync(abs(his))).toBe(true)
-    expect(cards('alice')).toBe(before)
+    expect(cards('alice')).toBe(before + 1)
   })
 
-  test('a file alice\'s AI made that bob then changed in this chat is not hers alone any more: refused, nothing moved', async () => {
+  test('a file alice\'s AI made that bob then changed in this chat is not hers alone any more: the card (no answer: nothing moved)', async () => {
     const f = `${folder}/draft.md`
     await ask('alice', fake({ tool: 'write', args: { file_path: f, content: '# draft\n' }, sayResult: true }))
     await ask('bob', fake({ tool: 'read', args: { file_path: f } }, { tool: 'write', args: { file_path: f, content: '# draft v2\n' }, sayResult: true }))
     expect(fs.readFileSync(abs(f), 'utf8')).toContain('draft v2')
+    const before = cards('alice')
     const no = await ask('alice', `delete draft.md\n${fake({ tool: 'delete_files', args: { paths: [f] }, sayResult: true })}`)
-    expect(no.content).toContain(DELETE_REFUSAL.shared)
+    expect(no.content).not.toContain(DELETE_REFUSAL.shared)
     expect(fs.existsSync(abs(f))).toBe(true)
+    expect(cards('alice')).toBe(before + 1)
   })
 })

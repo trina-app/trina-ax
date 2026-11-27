@@ -391,6 +391,8 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
 |---|---|
 | 인터넷 주소: Cloudflare 오류 **530 / 1033** | 터널에 연결된 맥 미니가 없음: 맥 미니가 꺼졌거나, 로그아웃했거나, 인터넷이 끊김(또는 토큰이 다른 터널 것). 맥 미니에서 `teamax public-address status`(`cloudflared running`), `teamax logs`(끝에 `tunnel.log`) |
 | 인터넷 주소: Cloudflare 오류 **502** | 터널은 연결됐지만 맥 미니의 앱 포트가 아닌 곳을 가리킴(설치 때 `--app-port`를 바꾼 경우) 또는 Trina AX 서버가 멈춤. `teamax public-address status`가 알려 주는 대로: 설치 담당자 맥에서 `public-address.ts set <이름> --port <app port>`; 서버가 멈췄으면 `teamax restart` |
+| 답이 안 나오거나 화면이 멈춤 | 관리자 › 시스템 › 상태 점검의 **다시 시작…**: Trina AX 전체를 답변이 끝나면(최대 10분) 또는 지금 바로(소유자만) 다시 시작해요. 맥 미니에서는 `teamax restart` |
+| 서버가 돌지만 응답하지 않음 | 감시: 30초마다 `/api/health`를 묻고, 한 번 답한 뒤 10번 내리 답이 없으면(약 5분) 멈춘 것으로 봐요. 지금은 `teamax logs`에 `watchdog:` 줄로만 남겨요. `office.env`에 `TEAMAX_WATCHDOG_KILL=1`이면 서버를 다시 시작해요(재시작 필요 없음, 한 시간에 3번까지). 그 뒤에는 그대로 두고 상태 점검이 알려요. 서버가 다시 답하면 풀려요 |
 | 인터넷 주소: 403 "not open to your network" | 허용 목록(`TEAMAX_PUBLIC_ALLOW_FROM`·`TEAMAX_PUBLIC_COUNTRIES`, 9장)에 그 네트워크가 없음 |
 | 첫 설정 "인터넷 주소에서 할 수 없어요" | 정상. 맥 미니에서 `teamax setup-link`의 `http://localhost…` 링크로 |
 | 데스크: "연결이 비공개로 설정되어 있지 않습니다" | 인증서를 **신뢰할 수 있는 루트 인증 기관**에 넣었는지, Edge를 모두 닫았다 열었는지, 카드의 주소인지 |

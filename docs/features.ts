@@ -69,7 +69,7 @@ export const FEATURES: Feature[] = [
   { id: 'chat.decks', name: 'Intro decks (slides, PPTX, PDF)', area: 'AI chat', endpoints: ['*IntroDeck*', 'listDeckBuilds', 'deckBuildSlide'] },
   { id: 'chat.promo-video', name: 'Promo videos (MP4)', area: 'AI chat', endpoints: ['*PromoVideo'] },
   { id: 'chat.voice', name: 'Voice input and recordings to text', area: 'AI chat', endpoints: ['transcribe', 'transcribePiece', 'getJob', 'cancelJob'] },
-  { id: 'chat.browser', name: 'The AI uses the browser (desktop app)', area: 'AI chat', endpoints: ['pollCalls', 'postResult'], screens: ['/settings/browser'] },
+  { id: 'chat.browser', name: 'The AI uses the browser (desktop app)', area: 'AI chat', endpoints: ['pollCalls', 'postResult', 'browserUpload'], screens: ['/settings/browser'] },
   { id: 'chat.web-access', name: 'Allow all websites for the AI', area: 'AI chat', endpoints: ['setMyWebAccess'] },
   { id: 'chat.memory', name: 'What the AI remembers about me', area: 'AI chat', endpoints: ['*Memor*'], screens: ['/settings/memory'] },
   { id: 'chat.allowances', name: 'What I allowed the AI in advance', area: 'AI chat', endpoints: ['*AiAllowance*', 'getAutoMode', 'setAutoMode'], screens: ['/settings/allowances'] },
@@ -188,6 +188,7 @@ export const FEATURES: Feature[] = [
   // ---------------- System ----------------
   { id: 'system.storage', name: 'Storage use', area: 'System', endpoints: ['storage', 'askStorageCleanup'], screens: ['/admin/system', '/admin/system/storage'] },
   { id: 'system.updates', name: 'Server updates', area: 'System', endpoints: ['updateStatus', 'startUpdate', 'officeUpdateStatus', 'officeUpdateAction', 'officeClaudeMcpNotice'], screens: ['/admin/system/updates'] },
+  { id: 'system.restart', name: 'Restart the AI or the app', area: 'System', endpoints: ['restartStatus', 'startRestart', 'restartNow', 'cancelRestart'], screens: ['/admin/system/health'] },
   { id: 'system.health', name: 'Health and diagnostics', area: 'System', endpoints: ['diagnostics'], screens: ['/admin/system/health'] },
   { id: 'system.connection', name: 'Team address and office network', area: 'System', endpoints: ['connection', 'updateConnection', 'connectInfo', 'lanFailure'], screens: ['/admin/system/connection'] },
   { id: 'system.backups', name: 'Backups and restore', area: 'System', endpoints: ['listBackups', 'startBackup', 'startRestore'], screens: ['/admin/system/backups'] },

@@ -52,7 +52,7 @@ describe('the card under the answer', () => {
 })
 
 describe('where it is offered (review of #353: the tool set is built after othersWrote is known)', () => {
-  test('her own chat offers it; a chat someone else wrote in does not offer it (nor looking_at)', async () => {
+  test('her own chat offers it; a chat someone else wrote in too (docs/decisions/20261126-shared-chat-everything.md: only she sees that chat; a shared one asks on the read card)', async () => {
     const own = await turn('alice', fake({ echo: 'tools' }))
     expect(own.content.split(',')).toContain('my_folders')
     expect(own.content.split(',')).toContain('looking_at')
@@ -64,7 +64,7 @@ describe('where it is offered (review of #353: the tool set is built after other
     h.ctx.db.query('UPDATE chats SET active_leaf_id = ? WHERE id = ?').run(ans, chatId)
     const others = await turn('alice', fake({ echo: 'tools' }), chatId)
     expect(others.content).not.toBe('')
-    expect(others.content.split(',')).not.toContain('my_folders')
-    expect(others.content.split(',')).not.toContain('looking_at')
+    expect(others.content.split(',')).toContain('my_folders')
+    expect(others.content.split(',')).toContain('looking_at')
   })
 })
