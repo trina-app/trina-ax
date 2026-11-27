@@ -69,6 +69,8 @@ interface ChatsState {
   buildOpened: Record<string, string>
 
   loadChats: (reset?: boolean) => Promise<void>
+  /** the originals of my list's continuations that no page has brought yet, in one read (missingOriginals) */
+  readOriginals: () => Promise<void>
   upsertChat: (c: Chat) => void
   removeChat: (id: string) => void
   loadThread: (chatId: string) => Promise<void>
@@ -235,6 +237,24 @@ const quietChecks = new Map<string, { timer: ReturnType<typeof setTimeout> | nul
 /** requests closed lately: a listTurnRequests answer computed before the close must not bring the card back */
 const closedRequests = new Set<string>()
 let generation = 0
+/** originals asked for (GET /api/chats?ids=): one the server did not answer (deleted, hidden, no longer mine) is not
+ * asked again until the list is read from its start again (loadChats(true)) */
+const askedOriginals = new Set<string>()
+/** at most this many ids in one read (ListChatsQuery.ids) */
+const ORIGINALS_MAX = 50
+/** The chats my list's rows came from (Chat.forkParents) that no page has brought yet: a continuation sits right under
+ * its original in the history (lib/forkTree.ts), and the original may be far older than the pages read. Every parent of
+ * such a row, nearest first (when the nearest is hidden or deleted, the next one is the tree's top), never one asked
+ * before, at most ORIGINALS_MAX. A row with one of its parents in the list needs none. */
+export function missingOriginals(chats: readonly Chat[], asked: ReadonlySet<string> = askedOriginals): string[] {
+  const have = new Set(chats.map((c) => c.id))
+  const out = new Set<string>()
+  for (const c of chats) {
+    if (!c.forkParents?.length || c.forkParents.some((id) => have.has(id))) continue
+    for (const id of c.forkParents) if (!asked.has(id) && !have.has(id)) out.add(id)
+  }
+  return [...out].slice(0, ORIGINALS_MAX)
+}
 let queueEpoch: string | null = null
 const retiredEpochs = new Set<string>()
 type QueueUpdate = Omit<ChatQueueSnapshot, 'epoch' | 'revision'> & { epoch?: string; revision?: number }
@@ -676,6 +696,7 @@ export const useChats = create<ChatsState>((set, get) => {
 
     reset: () => {
       generation++
+      askedOriginals.clear()
       queueEpoch = null
       retiredEpochs.clear()
       queueVersions.clear()
@@ -702,6 +723,7 @@ export const useChats = create<ChatsState>((set, get) => {
       const session = generation
       const cursor = reset ? undefined : get().chatsCursor ?? undefined
       if (!reset && !cursor) return
+      if (reset) askedOriginals.clear()
       const edits = optimisticEdits(isChatEdit)
       const page = await api.call(API.listChats, { query: { limit: PAGE, cursor } })
       if (session !== generation) return
@@ -714,6 +736,10 @@ export const useChats = create<ChatsState>((set, get) => {
         const merged = reset ? (kept.length ? sortChats([...items, ...kept]) : items) : [...s.chats, ...items.filter((c) => !s.chats.some((x) => x.id === c.id))]
         return { chats: merged, chatsCursor: page.nextCursor, chatsLoaded: true }
       })
+      // the originals of continuations on these pages that no page has brought: one read, so each sits under its own
+      // (docs/decisions/20261127-fork-in-history.md). After this page is in place, so "더 보기" counts its own rows
+      // (lib/chatListLoad.ts loadMoreShown); an older server refuses the query and the rows stand alone
+      void get().readOriginals()
       // the shared chats with messages I have not read that are in no list of mine (a project's shared chat I never
       // wrote in): kept with `others`, so the Projects mark and the app icon count them after a reload too. Older
       // servers refuse the query: nothing changes
@@ -724,6 +750,19 @@ export const useChats = create<ChatsState>((set, get) => {
           return add.length ? { others: { ...s.others, ...Object.fromEntries(add.map((c) => [c.id, keepPending(s, c)])) } } : s
         })
       }, () => {})
+    },
+
+    async readOriginals() {
+      const session = generation
+      const ids = missingOriginals(get().chats)
+      if (!ids.length) return
+      for (const id of ids) askedOriginals.add(id)
+      const page = await api.call(API.listChats, { query: { ids: ids.join(',') } }).catch(() => null)
+      if (!page || session !== generation) return
+      set((s) => {
+        const add = page.items.filter((c) => !c.deletedAt && !s.chats.some((x) => x.id === c.id)).map((c) => keepPending(s, c))
+        return add.length ? { chats: sortChats([...s.chats, ...add]) } : s
+      })
     },
 
     upsertChat(next) {
