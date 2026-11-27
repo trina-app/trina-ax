@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-27 16:34
 - Branch: `fix/console-probe-omit-cookies`
-- Status: in progress
+- Status: done
 - Where: `desktop/src/main/console-signin.ts`, `tests/unit/`. Why: the console calls of the desktop app live there
   (docs/REPOSITORY-RULES.md)
 - Version impact: patch. A fix to an existing check; no new feature, setting or API.
@@ -43,4 +43,6 @@ Out:
 
 ## Result
 
-(filled in at the end)
+Done as planned. `credentials: 'omit'` on the probe and the token exchange; the new unit test fails on 2 of 3 cases
+without the change. typecheck, check:prepush, the desktop unit tests (465 pass) and desktop/e2e/create-team.spec.ts
+(11 pass) are green.
