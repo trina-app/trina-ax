@@ -27,7 +27,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
-import { app, clipboard, ClipboardItem, dialog, Menu, nativeImage, nativeTheme, net, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions, type WebContents } from 'electron'
+import { app, clipboard, ClipboardItem, dialog, Menu, nativeImage, nativeTheme, net, powerMonitor, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import { APP_DOWNLOADS } from '@mycel/shared/app-downloads'
 import { DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION } from '@mycel/shared/desktop-bridge'
 import { PRODUCT } from '@mycel/shared/product'
@@ -704,6 +704,19 @@ async function createWindow() {
       offerTimer.unref?.()
     })
   }
+  // the network came back (Wi-Fi joined, the computer woke) while the answer is still unknown: ask at once, not at the
+  // next wait (up to a minute). Electron's main process has no "online" event: net.online is read once a second, only
+  // while the answer is unknown, and a wake asks too
+  let wasOnline = net.online
+  const onlineWatch = setInterval(() => {
+    const online = net.online
+    if (online && !wasOnline && signin.knownOffer() === 'unknown' && !offerStopped) { offerTries = 0; askOffer(true) }
+    wasOnline = online
+    if (signin.knownOffer() !== null && signin.knownOffer() !== 'unknown') clearInterval(onlineWatch)
+  }, 1000)
+  onlineWatch.unref?.()
+  powerMonitor.on('resume', () => { if (signin.knownOffer() === 'unknown' && !offerStopped) { offerTries = 0; askOffer(true) } })
+  app.once('before-quit', () => clearInterval(onlineWatch))
   const offer = () => {
     if (!offerAsked) {
       offerAsked = true

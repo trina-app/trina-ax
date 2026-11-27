@@ -44,17 +44,25 @@ export function getUser(db: Database, id: string): UserRow | null {
 export function getUserByUsername(db: Database, username: string): UserRow | null {
   return db.query(`SELECT ${USER_COLS} FROM users WHERE lower(username) = lower(?) AND deleted_at IS NULL`).get(username) as UserRow | null
 }
-/** Who a sign-in names: the live user with that username (case-insensitive), else, for a name with an @, the live
- * user whose e-mail is exactly that address (case-insensitive) when only one has it; `shared` when several do (they
- * sign in with their username). The e-mail is never matched when a username is written that way. */
-export function signInUser(db: Database, name: string): { user: UserRow | null; shared: boolean } {
+/** how many accounts one sign-in name may stand for (accounts.ts login checks the password against each) */
+export const SIGN_IN_CANDIDATES_MAX = 3
+/** Who a sign-in may name: the live user with that username (case-insensitive) and, for a name with an @, the active
+ * users whose e-mail is exactly that address (case-insensitive; switched-off accounts are not counted), at most
+ * SIGN_IN_CANDIDATES_MAX, the username's first. A username never stands in for another person's e-mail: when both
+ * match, the password decides which account it is (accounts.ts login). */
+export function signInCandidates(db: Database, name: string): UserRow[] {
   const byName = getUserByUsername(db, name)
-  if (byName || !name.includes('@')) return { user: byName, shared: false }
-  const rows = db.query(`SELECT ${USER_COLS} FROM users WHERE email IS NOT NULL AND lower(email) = lower(?) AND deleted_at IS NULL LIMIT 2`).all(name.trim()) as UserRow[]
-  return rows.length === 1 ? { user: rows[0]!, shared: false } : { user: null, shared: rows.length > 1 }
+  const out: UserRow[] = byName ? [byName] : []
+  if (!name.includes('@')) return out
+  const rows = db.query(`SELECT ${USER_COLS} FROM users WHERE email IS NOT NULL AND lower(email) = lower(?) AND deleted_at IS NULL AND status = 'active' ORDER BY created_at, id LIMIT ?`)
+    .all(name.trim(), SIGN_IN_CANDIDATES_MAX + 1) as UserRow[]
+  for (const r of rows) if (out.length < SIGN_IN_CANDIDATES_MAX && !out.some((x) => x.id === r.id)) out.push(r)
+  return out
 }
+/** A username is taken when an account has it, or has it as its e-mail (case-insensitive): a username that is someone
+ * else's e-mail would take over that person's sign-in by e-mail. */
 export function usernameTaken(db: Database, username: string): boolean {
-  return !!db.query('SELECT 1 FROM users WHERE lower(username) = lower(?)').get(username)
+  return !!db.query('SELECT 1 FROM users WHERE lower(username) = lower(?) OR (email IS NOT NULL AND deleted_at IS NULL AND lower(email) = lower(?))').get(username, username)
 }
 
 /** A free username from an e-mail address's part before @ (the first owner made with Google, auth/google-signup.ts):
