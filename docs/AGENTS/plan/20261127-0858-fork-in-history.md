@@ -2,11 +2,11 @@
 
 - Date (UTC): 2026-11-27 08:58
 - Branch: `ui/fork-tree-visible`
-- Status: draft (plan only: the owner asked to decide how it looks before more building, "기획 하고 검수해")
+- Status: done (the owner picked "클로드랑 동일하게 해", 2026-11-27: option A with the tree at the original's place;
+  see "Owner's decision" below)
 - Where: web history lists (lib/forkTree.ts, nav/HistoryList.tsx DateGroups, nav/HistorySections.tsx, nav/ChatItem.tsx,
   pages/Projects.tsx, index.css). Why: how the web app lists chats (docs/REPOSITORY-RULES.md)
-- Version impact: patch (a change in how existing rows are placed and drawn; no API, no migration). It becomes minor
-  only if open decision 3 adds a server read of the originals.
+- Version impact: minor (a new optional query field, `ids` on GET /api/chats, for decision 3; no migration)
 
 ## Goal
 
@@ -22,6 +22,30 @@ This plan decides what people see on every surface, before any more code.
 
 Owner decisions that stand (not reopened): one level only, no folding, the label "새 채팅에서 이어 하기" (never "포크"),
 the title "<제목> (이어서)", "목록에서 따로 두기" makes a chat stand on its own.
+
+## Owner's decision (2026-11-27)
+
+"클로드랑 동일하게 해": as the Claude app. Option A, with one change against the recommendation below: **decision 4 is
+reversed to Claude's behaviour.** The original is not lifted into 오늘. Every continuation sits right under its original
+at the original's own place in the list, in the original's date group, whatever group it would be in on its own (the
+11-26 "nothing moves an older chat up" stays; the "same date group only" rule goes). Claude does this: its changelog
+says nested sessions "appear under the original session in the sidebar", and #100216 is a user complaining that a fork
+in use stays under an old parent. Decisions 1-3 as recommended (1: same section, outside when full, the fork never
+fails; 2: Group by Project flat; 3: one batched `ids` read through `historyWhere` and `visible()`, all of a row's
+forkParents). The look: one small "└", 28 px, nothing else. Where this plan says "the tree sits at its newest chat's
+place" below, read "at its original's place".
+
+So the mockup of A becomes:
+
+```
+오늘
+  회의록 정리
+어제
+  견적 비교
+이번 주
+  보고서 초안                    (3일 전, 제자리)
+  └ 보고서 초안 (이어서)         (오늘 썼어도 원래 채팅 밑)
+```
 
 ## 1. Reference: how others show it
 
@@ -246,4 +270,17 @@ says) that replaces its "Order: every chat keeps its own place" and "same date g
 
 ## Result
 
-Not built yet: waiting for the owner's pick among the options and the open decisions.
+Built on `ui/fork-tree-visible` as the owner's decision says:
+
+- `lib/forkTree.ts`: nesting across date groups; each row knows its tree's top row; DateGroups files a tree under its
+  top row's date. HistorySections unchanged (a section is its own list).
+- `index.css` `.tree-row`: 28 px (`margin-inline-start`), one "└" (`::before`, `--color-line-strong`), no divider before a
+  continuation in a list with dividers.
+- Project page: `forkRows` for the unpinned rows, `ProjectChatRow` takes `tree`.
+- `GET /api/chats?ids=` (shared ListChatsQuery, routes/chats.ts: inside the history branch, `historyWhere` + `visible()`,
+  pins not first, alone); store/chats.ts `readOriginals` after each page (`missingOriginals`: every parent of a row
+  none of whose parents is loaded, at most 50; one left out is not asked again until a read from the start).
+- fork.ts: a `nav_folder_items` row in my section of the original while it has room; `navFolders.changed` to my windows.
+- Mock: `ids`, the section on fork, `POST /__test/chat-at`.
+- Decision [20261127-fork-in-history](../../decisions/20261127-fork-in-history.md); `changes/fork-tree-visible.md`.
+- Screenshots before and after, 1440 and 390, light and dark (history and a project's page): the e2e with `SHOT_DIR`.
