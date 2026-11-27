@@ -1,7 +1,9 @@
-// The one Activity (docs/decisions/20261126-one-activity.md): 활동's list beside the rail (components/panels/
-// ActivityPanel.tsx) holds every notice, mentions and thread replies with the app's own; its chips are 전체 · DM · 멘션 ·
-// 스레드 · 트리나 (요청 for admins); a link's ?tab= picks a chip; "Mark all as read" reads the chip's tab on the server and
-// is not offered under the client's own chips; a conversation row stays selected once its room drops ?m=.
+// The one Activity (docs/decisions/20261126-one-activity.md, 20261127-activity-lean.md): 활동's list beside the rail
+// (components/panels/ActivityPanel.tsx) holds every notice, mentions and thread replies with the app's own, newest first;
+// its filter line is 전체 · 멘션 · 스레드 and "⋯" (DM · 트리나, 요청 for admins), a filter picked there shows as its own
+// chip; a link's ?tab= picks a filter; "Mark all as read" reads the filter's tab on the server and is not offered under
+// the client's own filters; the 안 읽음 switch hides read rows and is remembered; rows are "where · when" then "who:
+// line" (a 1:1 DM names its person once); a conversation row stays selected once its room drops ?m=.
 import { afterAll, afterEach, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { activityTabHas, InboxNotification, uuidv7, type ActivityTab, type Me } from '@mycel/shared/api'
@@ -9,6 +11,7 @@ import { useLocaleStore } from '../../src/i18n'
 import { useSession } from '../../src/store/session'
 import { ActivityPanel, noticePage, NOTICE_STATE_KEY, openNotice } from '../../src/components/panels/ActivityPanel'
 import { RAIL_STATE_KEY } from '../../src/lib/rail'
+import { UNREADS_ONLY_KEY, useUnreadsOnly } from '../../src/lib/unreadsOnly'
 import { installDom, mount, removeDom, type Mounted } from './dom-host'
 import { ME } from './rooms-fixtures'
 
@@ -54,6 +57,7 @@ beforeAll(() => {
 })
 afterEach(() => {
   useSession.setState({ status })
+  useUnreadsOnly.getState().set(false)
   sessionStorage.clear()
   asked.length = 0
   sent.length = 0
@@ -80,12 +84,19 @@ test('every notice in one list: the mention with who, the line and where, beside
   try {
     await m.until(() => rowsOf(m).length === 3, 'three rows')
     expect(asked.every((x) => x === null)).toBe(true)
-    expect(chipsOf(m)).toEqual(['all', 'dms', 'mentions', 'threads', 'trina'])
+    // one line: 전체 · 멘션 · 스레드 and "⋯"; no gear (Settings, and the empty main area)
+    expect(chipsOf(m)).toEqual(['all', 'mentions', 'threads', 'more'])
+    expect(m.find('activity-panel-settings')).toBeNull()
+    // newest first, read and unread together
+    expect(rowsOf(m).map((r) => r.getAttribute('data-chip'))).toEqual(['conversation', 'requests', 'trina'])
     const row = rowsOf(m).find((r) => r.getAttribute('data-chip') === 'conversation')!
     expect(row.getAttribute('href')).toBe(`/rooms/${ROOM}?m=${MSG}`)
     expect(row.querySelector('[data-testid="activity-panel-who"]')!.textContent).toBe('민준')
     expect(row.querySelector('[data-testid="activity-panel-line"]')!.textContent).toBe('견적서 확인해 주세요')
     expect(row.querySelector('[data-testid="activity-panel-where"]')!.textContent).toBe('#마케팅')
+    // two lines: where (and when) first, then "who: line"
+    expect(row.querySelector('[data-testid="activity-panel-text"]')!.textContent).toBe('#마케팅')
+    expect(row.querySelector('[data-testid="activity-panel-meta"]')!.textContent).toBe('민준: 견적서 확인해 주세요')
     // no line to 대화's 멘션·스레드 any more
     expect(m.find('activity-panel-to-chats')).toBeNull()
     expect(m.find('activity-panel-mark-all')).not.toBeNull()
@@ -132,11 +143,82 @@ test('트리나 is the client\'s own chip: its rows, and no Mark all as read (th
   } finally { await m.unmount() }
 })
 
-test('DM with nothing in it says where plain DMs are', async () => {
+test('DM is in "⋯" and still a link\'s ?tab=dms: picked, it shows as its own chip before "⋯"; with nothing in it, it says where plain DMs are', async () => {
   const m = await panel('/activity?tab=dms')
   try {
     await m.until(() => m.find('activity-panel-empty'), 'the empty line')
     expect(m.get('activity-panel-empty').textContent).toContain('대화')
+    expect(chipsOf(m)).toEqual(['all', 'mentions', 'threads', 'dms', 'more'])
+    expect(m.get('activity-chip-dms').getAttribute('aria-pressed')).toBe('true')
+  } finally { await m.unmount() }
+})
+
+test('"⋯" holds DM and 트리나 (a member), a pick from it becomes a chip and 전체 brings the list back', async () => {
+  const m = await panel('/activity')
+  try {
+    await m.until(() => rowsOf(m).length === 3, 'three rows')
+    await m.click('activity-chip-more')
+    await m.until(() => body(m).querySelector('[data-testid="activity-more-trina"]'), 'the menu')
+    const items = [...body(m).querySelectorAll('[role="menuitemradio"]')].map((x) => x.getAttribute('data-testid'))
+    expect(items).toEqual(['activity-more-dms', 'activity-more-trina'])
+    expect(body(m).querySelector('[data-testid="activity-more-trina"]')!.textContent).toContain('트리나가 한 일')
+    // something unread under 트리나: "⋯" and the item say so
+    expect(m.find('activity-chip-more-dot')).not.toBeNull()
+    expect(body(m).querySelector('[data-testid="activity-more-trina-dot"]')).not.toBeNull()
+    ;(body(m).querySelector('[data-testid="activity-more-trina"]') as unknown as HTMLElement).click()
+    await m.until(() => rowsOf(m).length === 1, 'the scheduled run alone')
+    expect(chipsOf(m)).toEqual(['all', 'mentions', 'threads', 'trina', 'more'])
+    expect(m.get('activity-chip-trina').getAttribute('aria-pressed')).toBe('true')
+    await m.click('activity-chip-all')
+    await m.until(() => rowsOf(m).length === 3, 'every row again')
+    expect(chipsOf(m)).toEqual(['all', 'mentions', 'threads', 'more'])
+  } finally { await m.unmount() }
+})
+
+test('안 읽음: off by default; on, only unread rows (a row read while open stays), remembered; nothing unread: "모두 읽었어요." and "모두 보기"', async () => {
+  inbox = [mention(), { ...reconnect(), readAt: minute(1) }, scheduled()]
+  useSession.setState({ status: { kind: 'signed-in', me } } as never)
+  const m = await mount(<MemoryRouter initialEntries={['/activity']}><ActivityPanel /></MemoryRouter>)
+  try {
+    await m.until(() => rowsOf(m).length === 3, 'every row, the read one too')
+    expect(m.get('activity-panel-unreads').getAttribute('aria-pressed')).toBe('false')
+    await m.click('activity-panel-unreads')
+    await m.until(() => rowsOf(m).length === 2, 'the unread ones')
+    expect(m.get('activity-panel-unreads').getAttribute('aria-pressed')).toBe('true')
+    expect(localStorage.getItem(UNREADS_ONLY_KEY)).toBe('yes')
+    expect(useUnreadsOnly.getState().on).toBe(true)
+    // the switch on under 요청, whose one row is read: all caught up, and a way back
+    inbox = [mention(), { ...reconnect(), readAt: minute(1) }]
+  } finally { await m.unmount() }
+  const admin = { ...me, user: { ...me.user, role: 'admin' } } as unknown as Me
+  useSession.setState({ status: { kind: 'signed-in', me: admin } } as never)
+  const n = await mount(<MemoryRouter initialEntries={['/activity?tab=requests']}><ActivityPanel /></MemoryRouter>)
+  try {
+    await n.until(() => n.find('activity-panel-empty'), 'the empty line')
+    expect(n.get('activity-panel-empty').textContent).toContain('모두 읽었어요.')
+    await n.click('activity-panel-show-all')
+    await n.until(() => rowsOf(n).length === 1, 'the read request again')
+    expect(useUnreadsOnly.getState().on).toBe(false)
+    expect(localStorage.getItem(UNREADS_ONLY_KEY)).toBeNull()
+  } finally { await n.unmount() }
+})
+
+test('a 1:1 DM names its person once, on the first line; a shared chat\'s notice keeps the chat\'s title', async () => {
+  const dm = InboxNotification.parse({
+    id: uuidv7(), eventType: 'room.mention', sourceId: uuidv7(), code: 'room.mention', createdAt: minute(1), readAt: null, chatId: null, link: 'room', outcome: null,
+    room: { id: uuidv7(), kind: 'dm', name: null, from: '서연', fromId: 'seoyeon', message: uuidv7(), preview: '파일 확인했어요', count: 1, people: 1, at: minute(1), reason: 'mention' },
+  })
+  const shared = InboxNotification.parse({ id: uuidv7(), eventType: 'chat.shared', sourceId: 's-3', code: 'chat.shared', createdAt: minute(5), readAt: minute(4), chatId: uuidv7(), link: 'chat', outcome: null, chatShared: { name: '수진', title: '3분기 예산안' } })
+  inbox = [dm, shared]
+  useSession.setState({ status: { kind: 'signed-in', me } } as never)
+  const m = await mount(<MemoryRouter initialEntries={['/activity']}><ActivityPanel /></MemoryRouter>)
+  try {
+    await m.until(() => rowsOf(m).length === 2, 'the two rows')
+    const [first, second] = rowsOf(m)
+    expect(first!.querySelector('[data-testid="activity-panel-text"]')!.textContent).toBe('서연')
+    expect(first!.querySelector('[data-testid="activity-panel-meta"]')!.textContent).toBe('파일 확인했어요')
+    expect(first!.textContent!.split('서연').length - 1).toBe(1)
+    expect(second!.querySelector('[data-testid="activity-panel-chat"]')!.textContent).toBe('3분기 예산안')
   } finally { await m.unmount() }
 })
 

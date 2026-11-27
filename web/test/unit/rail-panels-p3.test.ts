@@ -2,7 +2,7 @@
 // beside the rail. 활동's chips sort every notice, the one Activity (lib/activityKinds.ts), unread first; 대화
 // lists every room by kind (panels/RoomsByKind.tsx) and draws long lists in budgets.
 import { describe, expect, test } from 'bun:test'
-import { chipOf, chipOfParam, chipsFor, inChip, isServerChip, unreadFirst } from '../../src/lib/activityKinds'
+import { chipOf, chipOfParam, chipsFor, fitChips, inChip, isServerChip, MORE_CHIPS, newestFirst, VISIBLE_CHIPS } from '../../src/lib/activityKinds'
 import { ROOMS_BUDGET, roomsByKind, rowsToDraw } from '../../src/components/panels/RoomsByKind'
 import type { Room } from '@mycel/shared/api'
 
@@ -48,14 +48,24 @@ describe('활동: 전체 · DM · 멘션 · 스레드 · 트리나 · 요청', (
     expect(chipOfParam('nope')).toBeNull()
     expect(chipOfParam(null)).toBeNull()
   })
-  test('unread first, newest first in each part', () => {
+  test('newest first, read and unread together', () => {
     const n = (id: string, at: string, read: boolean) => ({ id, createdAt: at, readAt: read ? at : null })
-    const { unread, read } = unreadFirst([n('a', '2026-11-01', true), n('b', '2026-11-03', false), n('c', '2026-11-02', false), n('d', '2026-11-04', true)])
-    expect(unread.map((x) => x.id)).toEqual(['b', 'c'])
-    expect(read.map((x) => x.id)).toEqual(['d', 'a'])
-    // one read while the list is open stays on top
-    const kept = unreadFirst([n('a', '2026-11-01', true), n('b', '2026-11-03', true)], (x) => x.id === 'b' || !x.readAt)
-    expect(kept.unread.map((x) => x.id)).toEqual(['b'])
+    expect(newestFirst([n('a', '2026-11-01', true), n('b', '2026-11-03', false), n('c', '2026-11-02', false), n('d', '2026-11-04', true)]).map((x) => x.id)).toEqual(['d', 'b', 'c', 'a'])
+  })
+  test('one line: 전체 · 멘션 · 스레드 on it, DM · 트리나 · 요청 in "⋯"; a chip with no room moves in, 스레드 first; 전체 and the picked one never', () => {
+    expect(VISIBLE_CHIPS).toEqual(['all', 'mentions', 'threads'])
+    expect(MORE_CHIPS).toEqual(['dms', 'trina', 'requests'])
+    const w = (c: string) => ({ all: 40, mentions: 60, threads: 60, requests: 90 })[c] ?? 50
+    const line = ['all', 'mentions', 'threads'] as const
+    expect(fitChips(line, w as never, 168, 4, 'all')).toEqual(['all', 'mentions', 'threads'])
+    expect(fitChips(line, w as never, 167, 4, 'all')).toEqual(['all', 'mentions'])
+    expect(fitChips(line, w as never, 100, 4, 'all')).toEqual(['all'])
+    expect(fitChips(line, w as never, 10, 4, 'all')).toEqual(['all'])
+    // a picked menu filter is kept, the others make room for it
+    expect(fitChips([...line, 'requests'], w as never, 200, 4, 'requests')).toEqual(['all', 'mentions', 'requests'])
+    expect(fitChips([...line, 'requests'], w as never, 140, 4, 'requests')).toEqual(['all', 'requests'])
+    // the picked 스레드 stays; 멘션 goes
+    expect(fitChips(line, w as never, 110, 4, 'threads')).toEqual(['all', 'threads'])
   })
 })
 

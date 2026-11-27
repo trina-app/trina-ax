@@ -48,6 +48,8 @@ export interface MenuItem {
   describedBy?: string
   /** the keyboard shortcut that does the same (aria-keyshortcuts, e.g. "Meta+F") */
   keys?: string
+  /** a small mark after the label (something new under it: 활동's "⋯" filters), these words for a screen reader */
+  dot?: string
 }
 
 /** The items in a phone's sheet (below 768px): what cannot be undone (delete) last, whatever order the caller gave,
@@ -352,6 +354,7 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
               {it.icon}
               <span className="min-w-0 flex-1">
                 <span data-menu-label>{it.label}</span>
+                {it.dot && <span className="ml-1.5 inline-block size-1.5 rounded-full bg-accent align-middle" data-testid={it.testId ? `${it.testId}-dot` : undefined}><span className="sr-only">{it.dot}</span></span>}
                 {/* (an item that is off: why, on a line of its own) */}
                 {it.hint && <span className={it.disabled ? 'block text-xs text-muted' : 'ml-1.5 text-muted'}>{it.hint}</span>}
               </span>

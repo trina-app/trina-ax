@@ -1801,6 +1801,9 @@ export const en: Record<MessageKey, string> = {
   "feed.dmsEmpty": "Messages in DMs are in Chats. Mentions and thread replies in DMs show here.",
   // under an empty Activity while Chats has unread conversations (its tab's badge): where the new messages are
   'feed.newInChats': 'New messages are in Chats.',
+  "feed.moreFilters": "More filters",
+  "feed.caughtUp": "You're all caught up.",
+  "feed.showAll": "Show all",
   'feed.notInRecent': 'Nothing in the latest {n}.',
   'connectors.discover': "Discover",
   'connectors.connected': "Connected",
@@ -6595,7 +6598,7 @@ export const en: Record<MessageKey, string> = {
   "projects.askHereShort": "Ask {name}",
   "activity.chips": "Show",
   "activity.chip.requests": "Requests",
-  "activity.read": "Read",
+  "activity.chip.trinaDid": "Done by {name}",
   "activity.pick": "Pick a notification on the left to open it here.",
   "filesPanel.recent": "Recent files",
   "filesPanel.recentEmpty": "No files have changed lately.",
