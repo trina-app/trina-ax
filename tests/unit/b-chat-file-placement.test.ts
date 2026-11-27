@@ -79,7 +79,7 @@ describe('the rule in the instructions', () => {
     const t = templatesFolder(h.ctx.files, h.ctx.files.principal('alice'))
     expect(buildTurnPrompt(h.ctx.files, input('ko', { tools: [] }))).toContain(filePlacementRule(false, t ? ARCHIVE_FOLDER[t.locale] : null))
     // a team without a templates folder: the archive folder is named like the folders already there
-    expect(filePlacementRule(true, null)).toContain('into an archive subfolder of its own area (in shared/, a group\'s folder or a project\'s folder), named in the language of the folder names there ("보관" in Korean, "Archive" in English)')
+    expect(filePlacementRule(true, null)).toContain('into an archive subfolder of its own area (in shared/, a group\'s folder or a project\'s folder), named in the language of the folder names there ("보관" in Korean, "Archive" in English, "Arsip" in Indonesian, "アーカイブ" in Japanese, "Archivo" in Spanish, "归档" in Chinese)')
     expect(plain).toContain('belongs into a "보관" subfolder')
   })
 })

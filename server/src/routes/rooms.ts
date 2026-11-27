@@ -24,6 +24,7 @@ import { AUTO_MODE_CHANGED } from '../admin/settings'
 import { keptMediaCache } from '../auth/media-key'
 import { mapErrors } from '../team-files/errors'
 import { savedFiles, savePlan, saveToTeam } from '../rooms/save-to-team'
+import { routeMsg } from '../http/route-messages'
 import { assertRoomUpload } from '../rooms/project-room'
 import { roomFileMovesOf } from '../rooms/file-moves'
 import { requestRoomFile, roomFileAccess } from '../rooms/file-ask'
@@ -121,9 +122,9 @@ export const roomsRoutes: RouteModule = {
     // auto mode (chat/auto-mode.ts, docs/decisions/20261125-auto-mode.md): my own value, and the cards it approved for me
     const autoState = (userId: string) => ({ available: autoModeAvailable(ctx.db, userId), on: autoModeOn(ctx.db, userId), team: autoModeTeam(ctx.db), recent: recentAutoApprovals(ctx.db, userId) })
     kit.handle(API.getAutoMode, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return autoState(auth.user.id) })
-    kit.handle(API.setAutoMode, ({ auth, body }) => {
+    kit.handle(API.setAutoMode, ({ c, auth, body }) => {
       const before = autoModeOn(ctx.db, auth.user.id)
-      if (body.on && !autoModeAvailable(ctx.db, auth.user.id)) fail('conflict', 'Your team does not let you use auto mode.', { params: { reason: 'auto_mode_off' } })
+      if (body.on && !autoModeAvailable(ctx.db, auth.user.id)) fail('conflict', routeMsg('autoModeOff', c.get('locale')), { params: { reason: 'auto_mode_off' } })
       const on = setAutoMode(ctx.db, auth.user.id, body.on, body.via)
       // my other windows and devices: the pill follows (GET /api/me)
       if (on !== before) ctx.services.realtime.publish(auth.user.id, AUTO_MODE_CHANGED)
@@ -160,8 +161,8 @@ export const roomsRoutes: RouteModule = {
     // 20261117-room-file-save-btn.md): the files saved where I can open them, the sheet's plan, and the copy, each with
     // room_file's read checks and, for the copy, the AI's byte save (write access again, never an overwrite)
     kit.handle(API.roomSavedFiles, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return savedFiles(ctx, auth.user.id, params.id) })
-    kit.handle(API.roomSavePlan, ({ c, auth, params, body }) => mapErrors(c.get('locale'), () => savePlan(ctx, auth.user.id, params.id, body.fileIds, body.folder), 'body.folder'))
-    kit.handle(API.saveRoomFilesToTeam, ({ c, auth, params, body }) => mapErrors(c.get('locale'), () => saveToTeam(ctx, auth.user.id, params.id, body.fileIds, body.folder, { askWiden: body.askWiden, confirm: body.confirm }), 'body.folder'))
+    kit.handle(API.roomSavePlan, ({ c, auth, params, body }) => mapErrors(c.get('locale'), () => savePlan(ctx, auth.user.id, params.id, body.fileIds, body.folder, c.get('locale')), 'body.folder'))
+    kit.handle(API.saveRoomFilesToTeam, ({ c, auth, params, body }) => mapErrors(c.get('locale'), () => saveToTeam(ctx, auth.user.id, params.id, body.fileIds, body.folder, { askWiden: body.askWiden, confirm: body.confirm, locale: c.get('locale') }), 'body.folder'))
     kit.handle(API.roomFile, async ({ c, auth, params, query }) => {
       // a picture kept in the team folder (a project room's, a group channel's): its thumbnail is made from the team file
       // after the same read checks (rooms/files.ts openThumb, rooms/team-thumbs.ts)
