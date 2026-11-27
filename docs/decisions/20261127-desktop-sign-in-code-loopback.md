@@ -17,9 +17,11 @@
 - **Rule:** the desktop app keeps one return address on `127.0.0.1` (a port the system picks, open while the app runs;
   `desktop/src/common/code-return.ts`). Its team page sends the port with every API call (`x-mycel-app-return`); the
   server keeps it in memory for that DESKTOP session only. Every held page (Google Drive, the Google apps, app
-  connections, Slack) sends the browser to `http://127.0.0.1:<port>/sign-in-code?code=<code>` (meta refresh and
-  button) when the session said a port, else the app link as before. The app hands the code to the claim address with
-  its own session (the same claim as the app link) and brings its window forward for the account's confirm.
+  connections, Slack) sends the browser to `http://127.0.0.1:<port>/sign-in-code?code=<code>&team=<team address>`
+  (meta refresh and button) when the session said a port, with the app link beside it ("If the app does not open, press
+  here": an app that quit meanwhile starts from it); else the app link alone, as before. The app hands the code to the
+  claim address with its own session (the same claim as the app link) only while that team is on screen (never to
+  another team's server), and brings its window forward for the account's confirm.
 - **Why safe:** nothing about who may finish changes. The code is one-time, lives 5 minutes and is redeemed only by the
   session that started the sign-in. The port is the starter's own app's: a phished victim's browser goes to the victim's
   own computer, where the victim's app (another session) gets a refusal. A program on the computer that finds the port

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-27 11:02
 - Branch: `fix/google-connect-desktop-wait`
-- Status: in progress
+- Status: done
 - Where: server (held return pages), desktop (a return address on 127.0.0.1), web (tells the server that address),
   shared (the contract). Why: one sign-in hand-off, used by every connection the desktop app signs in to.
 - Version impact: patch: a fix to an existing sign-in; no new screen, no migration, no API shape change (one optional
@@ -67,4 +67,10 @@ sign-in hand-off, `tests/security`.
 
 ## Result
 
-(at the end)
+Built as planned, plus from the independent review: the 127.0.0.1 link carries the team's address and the app hands
+the code on only while that team is on screen (never to another team's server; a code for another team is not
+remembered, so a reload after switching back still works); the held page keeps the app link beside it ("If the app does
+not open, press here") for an app that quit meanwhile; the port map keeps the newest call last. Unit tests:
+`tests/unit/c-sign-in-code-loopback.test.ts` (REPRO fails on the old page), `c-connect-app-return.test.ts` (connections
+route). Live check: ego lite navigates from a team page to http://127.0.0.1 without a prompt (11-27). The end-to-end
+check on qa.trina.app needs this on dev (server) and a desktop build with `codeReturn`.

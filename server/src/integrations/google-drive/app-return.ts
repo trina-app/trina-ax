@@ -67,7 +67,7 @@ export function noteAppReturn(session: { id: string; client: string }, header: s
   if (session.client !== 'desktop' || header === undefined) return
   const port = appReturnPortOf(header)
   if (port === null) return
-  if (returnPorts.get(session.id) === port) return
+  // newest last on every call: an app in use is never the one dropped when the map is full
   returnPorts.delete(session.id)
   returnPorts.set(session.id, port)
   if (returnPorts.size > RETURN_PORTS_MAX) returnPorts.delete(returnPorts.keys().next().value!)
@@ -79,7 +79,8 @@ export function appReturnPort(sessionId: string): number | null {
 }
 
 /** Where a held page sends the browser with its one-time code: the app's return address on 127.0.0.1 when its session
- * said one, else the app link (the code in its fragment). */
+ * said one, with this team's address (the app hands the code on only while that team is on screen), else the app link
+ * (the code in its fragment). The page offers the app link too, for an app that quit meanwhile (callback-page.ts). */
 export function heldLink(origin: string, code: string, port?: number | null): string {
-  return port ? `http://127.0.0.1:${port}${APP_CODE_RETURN_PATH}?${new URLSearchParams({ code })}` : appLink(origin, code)
+  return port ? `http://127.0.0.1:${port}${APP_CODE_RETURN_PATH}?${new URLSearchParams({ code, team: origin })}` : appLink(origin, code)
 }

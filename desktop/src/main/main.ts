@@ -241,8 +241,8 @@ const signInReturn = new SignInReturn({ current: () => win?.team?.origin })
 /** a sign-in's one-time code back from the system browser over 127.0.0.1 (common/code-return.ts): redeemed for the team
  * on screen with its session, like the code of the app link; the window comes forward for the account's confirm */
 const codeReturn = new CodeReturn({
-  deliver: (code) => {
-    if (!win || win.win.isDestroyed() || !win.claimReturnedCode(code)) return false
+  deliver: (code, team) => {
+    if (!win || win.win.isDestroyed() || !win.claimReturnedCode(code, team)) return false
     if (win.win.isMinimized()) win.win.restore()
     win.win.show()
     win.win.focus()
@@ -789,7 +789,6 @@ if (primary) {
     // every program an app on this computer started ends with the app: asked to stop first (before-quit, and here),
     // killed on the last pass, after which no timer of the app runs to finish one that ignored it
     localApps?.apps.stopAll(undefined, flushed)
-    codeReturn.close()
     if (flushed) return
     e.preventDefault()
     const id = win?.team?.id ?? lastTeam

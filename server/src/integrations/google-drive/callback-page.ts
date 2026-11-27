@@ -33,7 +33,7 @@ export type CallbackOutcome = { ok: true; app?: AppClient | null; code?: string;
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): T => ({ ko, en, id, ja, es, zh })
 
-type Extra = 'title' | 'login' | 'okApp' | 'okCode' | 'heldWho' | 'heldGoogle' | 'heldOwnApp' | 'signedOutApp' | 'backToApp' | 'loginAgain' | 'hOk' | 'hOkApp' | 'hNot' | 'hSignedOut' | 'hBack'
+type Extra = 'title' | 'login' | 'okApp' | 'okCode' | 'heldWho' | 'heldGoogle' | 'heldOwnApp' | 'signedOutApp' | 'backToApp' | 'openApp' | 'loginAgain' | 'hOk' | 'hOkApp' | 'hNot' | 'hSignedOut' | 'hBack'
 const TEXT: Record<GoogleReturn | Extra, T> = {
   title: t('Google 로그인', 'Google sign-in', 'Login Google', 'Google ログイン', 'Inicio de sesión de Google', 'Google 登录'),
   hOk: t('거의 다 됐어요', 'Almost done', 'Hampir selesai', 'あと少しです', 'Casi listo', '快完成了'),
@@ -98,6 +98,8 @@ const TEXT: Record<GoogleReturn | Extra, T> = {
     'Esta ventana no pudo terminar la conexión. Vuelva a la aplicación {product} y pulse Reintentar.',
     '这个窗口无法完成连接。请回到 {product} 应用，按“重试”。'),
   backToApp: t('앱으로 돌아가기', 'Back to the app', 'Kembali ke aplikasi', 'アプリに戻る', 'Volver a la aplicación', '返回应用'),
+  // the app link beside the app's address on 127.0.0.1: opens (or starts) the app when that address does not answer
+  openApp: t('앱이 열리지 않으면 여기를 누르세요', 'If the app does not open, press here', 'Jika aplikasi tidak terbuka, tekan di sini', 'アプリが開かない場合はここを押してください', 'Si la aplicación no se abre, pulse aquí', '如果应用没有打开，请点这里'),
   loginAgain: t('로그인하고 여기서 연결하기', 'Sign in and connect here', 'Login dan hubungkan di sini', 'ログインしてここで接続', 'Iniciar sesión y conectar aquí', '登录并在这里连接'),
   ok: t(
     '거의 다 됐어요. {product} 앱으로 돌아가서 계정을 확인하면 연결이 끝나요.',
@@ -221,6 +223,7 @@ export function googleReturnPage(r: GoogleReturn, locale: Locale, o: ReturnPageO
     ].filter(Boolean)
     actions = (facts.length ? `<ul class="facts" data-testid="held-facts">${facts.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` : '')
       + `<a class="cta" href="${esc(link)}">${esc(say('backToApp', locale))}</a>`
+      + (o.returnPort ? `<a class="alt" href="${esc(appLink(origin, o.code))}" data-testid="held-app-link">${esc(say('openApp', locale))}</a>` : '')
       + `<p class="note" data-testid="held-own-app">${esc(say('heldOwnApp', locale))}</p>`
   } else if (r === 'handed') {
     // the result waits for the first page's code (app-return.ts): this one never gets a code

@@ -45,7 +45,8 @@ export function heldPage(L: Locale, origin: string, held: { code: string; who: {
     title: say('callbackHeldTitle', L, P), text: say('callbackHeld', L, { name: held.name }),
     extra: held.who.username ? `<ul class="facts" data-testid="held-who"><li>${esc(say('callbackHeldWho', L, { ...P, person: held.who.name, username: held.who.username }))}</li></ul>` : '',
     cta: { href: link, label: say('callbackBackToApp', L), testid: 'held-back' },
-    tail: `<p class="note" data-testid="held-own-app">${esc(say('callbackHeldOwnApp', L, P))}</p>`,
+    tail: (held.returnPort ? `<a class="alt" href="${esc(appLink(origin, held.code))}" data-testid="held-app-link">${esc(say('callbackOpenApp', L))}</a>` : '')
+      + `<p class="note" data-testid="held-own-app">${esc(say('callbackHeldOwnApp', L, P))}</p>`,
   })
 }
 

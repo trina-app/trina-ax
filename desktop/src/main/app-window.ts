@@ -457,10 +457,15 @@ export class AppWindow {
     }
   }
 
-  /** A sign-in's one-time code the browser brought to the app's return address (common/code-return.ts): redeemed like
-   * the code of the app link, for the team on screen with its own session. false: no team page to take it. */
-  claimReturnedCode(code: string): boolean {
+  /** A sign-in's one-time code the browser brought to the app's return address (common/code-return.ts) for `team`:
+   * redeemed like the code of the app link, only while that team is on screen, with its own session. false: no team
+   * page, or another team on screen (the code never goes to another team's server). */
+  claimReturnedCode(code: string, team: string): boolean {
     if (!this.app || this.app.webContents.isDestroyed() || !this.team?.origin) return false
+    if (this.team.origin !== team) {
+      handoffLog(`sign-in hand-off: code back over 127.0.0.1 not for the team on screen (${this.team.origin})`)
+      return false
+    }
     handoffLog(`sign-in hand-off: code back over 127.0.0.1 for the team on screen (${this.team.origin}, ${this.mode})`)
     void this.claimSignIn(code)
     return true

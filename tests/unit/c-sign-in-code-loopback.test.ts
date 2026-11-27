@@ -53,7 +53,8 @@ test('REPRO: a browser that opens no apps still finishes a desktop Drive sign-in
   const desk = await session('desktop')
   // the desktop app: its return address, which hands a code to this app's own session (main.ts → claimReturnedCode)
   const claims: Promise<{ status: number; body: any }>[] = []
-  const ret = new CodeReturn({ deliver: (code) => { claims.push(desk.try('POST', base + '/claim', { code })); return true }, page: () => 'Back in the app' })
+  // main.ts → AppWindow.claimReturnedCode: only for the team on screen (here the test server's address)
+  const ret = new CodeReturn({ deliver: (code, team) => { if (team !== 'http://team.localhost') return false; claims.push(desk.try('POST', base + '/claim', { code })); return true }, page: () => 'Back in the app' })
   try {
     const port = (await ret.port())!
     expect(port).toBeGreaterThan(1023)
@@ -68,8 +69,11 @@ test('REPRO: a browser that opens no apps still finishes a desktop Drive sign-in
     // by its button
     expect(next).toStartWith(`http://127.0.0.1:${port}${APP_CODE_RETURN_PATH}?code=`)
     expect(html).toContain(`class="cta" href="${next.replace(/&/g, '&#38;')}"`)
-    expect(html).not.toContain('trina-ax://open')
     const u = new URL(next)
+    expect(u.searchParams.get('team')).toBe('http://team.localhost')
+    // the app link stays beside it, for an app that quit meanwhile (it starts the app): the same code
+    expect(html).toContain('data-testid="held-app-link"')
+    expect(html).toContain(`trina-ax://open?url=http%3A%2F%2Fteam.localhost%2F#code=${u.searchParams.get('code')}`)
     // the flow waits for the app
     expect((await desk.call('GET', `${base}/flows/${f.flowId}`)).state).toBe('pending')
     // the browser follows it: the app hands the code to its session, which finishes it; the browser sees a short page
@@ -105,23 +109,23 @@ test('the port: only a desktop session, only a plain unprivileged port; the link
   noteAppReturn({ id: 's-desk', client: 'desktop' }, '50123'); expect(appReturnPort('s-desk')).toBe(50123)
   noteAppReturn({ id: 's-mob', client: 'mobile' }, '50123'); expect(appReturnPort('s-mob')).toBeNull()
   const code = 'C'.repeat(43)
-  expect(heldLink('https://acme.trina.app', code, 50123)).toBe(`http://127.0.0.1:50123/sign-in-code?code=${code}`)
+  expect(heldLink('https://acme.trina.app', code, 50123)).toBe(`http://127.0.0.1:50123/sign-in-code?code=${code}&team=https%3A%2F%2Facme.trina.app`)
   expect(heldLink('https://acme.trina.app', code, null)).toBe(`trina-ax://open?url=https%3A%2F%2Facme.trina.app%2F#code=${code}`)
   // the app connections' and Slack's held page too
   const page = heldPage('en', 'https://acme.trina.app', { code, who: { name: 'Olga', username: 'olga' }, name: 'Slack', returnPort: 50123 })
-  expect(refreshOf(page)).toBe(`http://127.0.0.1:50123/sign-in-code?code=${code}`)
-  expect(page).not.toContain('trina-ax://')
+  expect(refreshOf(page)).toBe(`http://127.0.0.1:50123/sign-in-code?code=${code}&team=https%3A%2F%2Facme.trina.app`)
+  expect(page).toContain('data-testid="held-app-link"')
 })
 
 test('the app\'s return address: only GET /sign-in-code?code=<token> from its own Host as a page load; once per code; nothing else hands on', async () => {
   const got: string[] = []
-  let team = true
-  const ret = new CodeReturn({ deliver: (c) => { if (!team) return false; got.push(c); return true }, page: () => 'ok <b>' })
+  let onScreen = 'https://acme.trina.app'
+  const ret = new CodeReturn({ deliver: (c, team) => { if (team !== onScreen) return false; got.push(c); return true }, page: () => 'ok <b>' })
   try {
     const port = (await ret.port())!
     expect(await ret.port()).toBe(port) // one address while the app runs
     const host = { host: `127.0.0.1:${port}` }
-    const code = 'A'.repeat(43), path = `${APP_CODE_RETURN_PATH}?code=${code}`
+    const code = 'A'.repeat(43), path = `${APP_CODE_RETURN_PATH}?code=${code}&team=${encodeURIComponent('https://acme.trina.app')}`
     // not a page load (a fetch, an image, a frame of another page), another Host, another path or shape: 404
     expect((await load(port, path, { ...host, 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' })).status).toBe(404)
     expect((await load(port, path, { ...host, 'sec-fetch-dest': 'image' })).status).toBe(404)
@@ -129,18 +133,20 @@ test('the app\'s return address: only GET /sign-in-code?code=<token> from its ow
     expect((await load(port, path, { host: `localhost:${port}` })).status).toBe(404)
     expect((await load(port, `/callback?code=${code}`, host)).status).toBe(404)
     expect((await load(port, `${path}&code=${code}`, host)).status).toBe(404)
+    expect((await load(port, `${APP_CODE_RETURN_PATH}?code=${code}`, host)).status).toBe(404) // no team
+    expect((await load(port, `${APP_CODE_RETURN_PATH}?code=${code}&team=${encodeURIComponent('https://acme.trina.app/x')}`, host)).status).toBe(404)
     expect((await load(port, `${path}&state=x`, host)).status).toBe(404)
     expect((await load(port, `${APP_CODE_RETURN_PATH}?code=short`, host)).status).toBe(404)
     expect(got).toEqual([])
-    // no team page to take it: nothing kept, 404
-    team = false
+    // another team on screen: never sent to that team's server, nothing kept (back on the team, a reload hands it on)
+    onScreen = 'https://other.trina.app'
     expect((await load(port, path, host)).status).toBe(404)
-    team = true
+    onScreen = 'https://acme.trina.app'
     const ok = await load(port, path, host)
     expect(ok.status).toBe(200); expect(ok.body).toContain('ok &lt;b&gt;'); expect(ok.body).not.toContain(code)
     expect(got).toEqual([code])
     expect((await load(port, path, host)).status).toBe(404)
     expect(got).toEqual([code])
-    expect(returnedCode(path)).toBe(code); expect(returnedCode('/sign-in-code')).toBeNull()
+    expect(returnedCode(path)).toEqual({ code, team: 'https://acme.trina.app' }); expect(returnedCode('/sign-in-code')).toBeNull()
   } finally { ret.close() }
 })
