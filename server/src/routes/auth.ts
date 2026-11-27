@@ -11,6 +11,7 @@ import { audit } from '../admin/audit'
 import { profileChangedFor } from '../auth/profiles'
 import { forgetUserName } from '../chat/runtime'
 import { fail } from '../http/errors'
+import { routeMsg } from '../http/route-messages'
 import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setPassword, setup, setupStatusFor } from '../auth/accounts'
 import { authOf, installAuth } from '../auth/service'
 import { mintAppSignIn, redeemAppSignIn, voidAppSignInCodes } from '../auth/app-signin'
@@ -125,14 +126,14 @@ export const authRoutes: RouteModule = {
     // my "Allow all websites" for the AI's web reads (tools/web-allow-all.ts, docs/DECISIONS.md "Allow all websites
     // covers the AI's web reads"): on only with the risk sentence the person was shown and while the team allows it;
     // off always. Not while a password change is pending (the contract leaves allowWhilePasswordChange out).
-    kit.handle(API.setMyWebAccess, ({ auth, body }) => {
+    kit.handle(API.setMyWebAccess, ({ c, auth, body }) => {
       const before = webAllowAll(ctx.db, auth.user.id)
       if (body.on) {
-        if (!teamAllowsWebAll(ctx.db)) fail('conflict', 'Your team does not let members allow all websites for the AI\'s web reads.', { params: { reason: 'web_allow_all_off' } })
-        if (body.acceptWarning !== WEB_ALLOW_ALL_WARNING_VERSION) fail('conflict', 'Accept the current warning first.', { params: { reason: 'web_allow_all_warning', warningVersion: WEB_ALLOW_ALL_WARNING_VERSION } })
+        if (!teamAllowsWebAll(ctx.db)) fail('conflict', routeMsg('webAllowAllOff', c.get('locale')), { params: { reason: 'web_allow_all_off' } })
+        if (body.acceptWarning !== WEB_ALLOW_ALL_WARNING_VERSION) fail('conflict', routeMsg('webAllowAllWarning', c.get('locale')), { params: { reason: 'web_allow_all_warning', warningVersion: WEB_ALLOW_ALL_WARNING_VERSION } })
       }
       const allowAll = setWebAllowAll(ctx.db, auth.user.id, body.on, { via: 'settings' })
-      if (body.on && !allowAll) fail('conflict', 'Your team does not let members allow all websites for the AI\'s web reads.', { params: { reason: 'web_allow_all_off' } })
+      if (body.on && !allowAll) fail('conflict', routeMsg('webAllowAllOff', c.get('locale')), { params: { reason: 'web_allow_all_off' } })
       if (allowAll !== before) ctx.services.realtime.publish(auth.user.id, WEB_ACCESS_CHANGED)
       return { allowAll }
     })

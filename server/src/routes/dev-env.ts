@@ -6,6 +6,7 @@ import { API, DEV_ENV_SRT_WARNING_VERSION, type DevEnvMySites, type DevEnvAvaila
 import type { AppContext } from '../context'
 import type { RouteModule } from './module'
 import { fail } from '../http/errors'
+import { routeMsg } from '../http/route-messages'
 import { audit } from '../admin/audit'
 import { canRead, canSeeProject } from '../chat/projects'
 import type { Principal } from '../policy/access'
@@ -118,13 +119,13 @@ export const devEnvRoutes: RouteModule = {
     kit.handle(API.previewMyDevEnvRun, async ({ c, params, body, auth }) => {
       await mine(auth.user.id)
       const row = previewAllowed(ctx, { rowId: params.runId, userId: auth.user.id })
-      if (!row) fail('not_found', 'The dev server is not running. Ask the AI to start it again.', { params: { reason: 'dev_env_preview_not_running' } })
+      if (!row) fail('not_found', routeMsg('devPreviewNotRunning', c.get('locale')), { params: { reason: 'dev_env_preview_not_running' } })
       const why = previewPortProblem(body.port)
-      if (why) fail('validation', `Port ${body.port}: ${why}.`, { params: { reason: 'dev_env_preview_port' } })
-      if (!previewSupported()) fail('conflict', 'Preview is not available on this server. Ask the AI to test the dev server with curl in one command.', { params: { reason: 'dev_env_preview_not_configured' } })
+      if (why) fail('validation', routeMsg('devPreviewPort', c.get('locale'), { port: body.port }), { params: { reason: 'dev_env_preview_port' } })
+      if (!previewSupported()) fail('conflict', routeMsg('devPreviewNotConfigured', c.get('locale')), { params: { reason: 'dev_env_preview_not_configured' } })
       const runId = runIdOfUnit(row!.unit)
       const r = issuePreview(ctx, { rowId: row!.id, runId, port: body.port, userId: auth.user.id, projectId: row!.project_id, appHost: c.req.header('host') ?? null })
-      if ('error' in r) fail('conflict', r.error === 'same_site' ? 'The preview origin must be on another domain than the app.' : 'Preview is not set up on this server (no preview origin). Ask the AI to test the dev server with curl in one command.', { params: { reason: `dev_env_preview_${r.error}` } })
+      if ('error' in r) fail('conflict', routeMsg(r.error === 'same_site' ? 'devPreviewSameSite' : 'devPreviewNotConfigured', c.get('locale')), { params: { reason: `dev_env_preview_${r.error}` } })
       return r as { url: string; expiresAt: string }
     })
 

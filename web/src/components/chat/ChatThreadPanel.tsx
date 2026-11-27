@@ -27,6 +27,7 @@ import { micState, voiceBlockedHere } from '../../lib/voice'
 import { useServerUpdating } from '../../lib/serverUpdating'
 import { groupRuns, localDayKey } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
+import { formatNumber } from '../../lib/format'
 import { holdPlace, ROOM_ROW, useStickToBottom } from '../../lib/stickToBottom'
 import { useLocale, useT } from '../../i18n'
 import { reloadAsked } from '../../store/live'
@@ -355,6 +356,7 @@ function PendingRow({ chatId, rootId, p, people, meId }: { chatId: string; rootI
  * (`thread:<chat id>:<answer id>`) until it is sent, also after closing the thread or a reload. */
 function ReplyBox({ chatId, rootId, people, meId, autoFocus, onSent }: { chatId: string; rootId: string; people: UserRef[]; meId: string; autoFocus: boolean; onSent: () => void }) {
   const t = useT()
+  const locale = useLocale()
   const me = useMe()
   const [text, setText] = useState('')
   const ta = useRef<HTMLTextAreaElement>(null)
@@ -417,7 +419,7 @@ function ReplyBox({ chatId, rootId, people, meId, autoFocus, onSent }: { chatId:
     void useChatThreads.getState().send(chatId, rootId, body, mentions)
   }
   const left = CHAT_THREAD_REPLY_MAX - text.length
-  const count = text.length >= COUNT_FROM ? <span role="status" className={clsx('px-1 text-xs tabular-nums', tooLong ? 'text-danger' : 'text-faint')} data-testid="chat-thread-count-left">{tooLong ? t('chat.thread.tooLong') : left.toLocaleString()}</span> : null
+  const count = text.length >= COUNT_FROM ? <span role="status" className={clsx('px-1 text-xs tabular-nums', tooLong ? 'text-danger' : 'text-faint')} data-testid="chat-thread-count-left">{tooLong ? t('chat.thread.tooLong') : formatNumber(left, locale)}</span> : null
   const hint = voice.transcribing ? voice.transcribingText : t('rooms.threadPlaceholder')
   return (
     <ComposerShell
