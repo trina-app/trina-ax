@@ -82,3 +82,4 @@ unit tests, all under Bun 1.3.12.
   language; the guard test no longer skips any `const id = {…}` object, replacement strings or 3-argument calls.
 - The guard covers web/src and the phone app string by string; server, desktop, relay and shared code keep their
   existing file guard (tests/unit/i18n-languages.test.ts).
+- PR: https://github.com/trina-app/trina-ax/pull/696
