@@ -44,6 +44,15 @@ export function getUser(db: Database, id: string): UserRow | null {
 export function getUserByUsername(db: Database, username: string): UserRow | null {
   return db.query(`SELECT ${USER_COLS} FROM users WHERE lower(username) = lower(?) AND deleted_at IS NULL`).get(username) as UserRow | null
 }
+/** Who a sign-in names: the live user with that username (case-insensitive), else, for a name with an @, the live
+ * user whose e-mail is exactly that address (case-insensitive) when only one has it; `shared` when several do (they
+ * sign in with their username). The e-mail is never matched when a username is written that way. */
+export function signInUser(db: Database, name: string): { user: UserRow | null; shared: boolean } {
+  const byName = getUserByUsername(db, name)
+  if (byName || !name.includes('@')) return { user: byName, shared: false }
+  const rows = db.query(`SELECT ${USER_COLS} FROM users WHERE email IS NOT NULL AND lower(email) = lower(?) AND deleted_at IS NULL LIMIT 2`).all(name.trim()) as UserRow[]
+  return rows.length === 1 ? { user: rows[0]!, shared: false } : { user: null, shared: rows.length > 1 }
+}
 export function usernameTaken(db: Database, username: string): boolean {
   return !!db.query('SELECT 1 FROM users WHERE lower(username) = lower(?)').get(username)
 }

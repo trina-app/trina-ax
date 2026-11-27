@@ -12,6 +12,8 @@ export const AUTH_MESSAGES = {
   // the same limit, told to the person joining as a guest: they can't remove guests or change the plan, so it says
   // what they can do (QA TC-2190)
   guestLimitJoin: { ko: "이 팀은 지금 게스트를 더 받을 수 없어요. 초대한 분께 말씀해 주세요.", en: "This team can't take more guests right now. Let the person who invited you know.", id: "Tim ini belum bisa menerima tamu lagi. Beri tahu orang yang mengundang Anda.", ja: "このチームは今、ゲストをこれ以上受け入れられません。招待した人にお知らせください。", es: "Este equipo no puede aceptar más invitados ahora. Avise a quien le invitó.", zh: "这个团队现在无法再接收访客。请告诉邀请你的人。" },
+  // the e-mail typed to sign in belongs to more than one account here (accounts.ts login): the username tells them apart
+  loginEmailShared: { ko: '이 이메일을 쓰는 계정이 여러 개예요. 아이디로 로그인해 주세요.', en: 'More than one account uses this email. Sign in with your username.', id: 'Lebih dari satu akun memakai email ini. Masuk dengan nama pengguna Anda.', ja: 'このメールアドレスを使うアカウントが複数あります。ユーザー名でログインしてください。', es: 'Más de una cuenta usa este correo. Inicie sesión con su nombre de usuario.', zh: '有多个账号使用这个邮箱。请用用户名登录。' },
   badLogin: { ko: '아이디 또는 비밀번호가 맞지 않아요.', en: 'Wrong username or password.', id: 'Nama pengguna atau kata sandi salah.', ja: "ユーザー名またはパスワードが正しくありません。", es: "Usuario o contraseña incorrectos.", zh: "用户名或密码错误。" },
   // a switched-off account signing in with its right password (auth/accounts.ts login): who can switch it back on
   accountOffGuest: { ko: '이 계정은 꺼져 있어요. 초대한 사람에게 물어봐 주세요.', en: 'This account was turned off. Ask the person who invited you.', id: 'Akun ini sudah dimatikan. Tanyakan kepada orang yang mengundang Anda.', ja: "このアカウントはオフになっています。招待した人に聞いてください。", es: "Esta cuenta se desactivó. Pregunte a la persona que le invitó.", zh: "此账号已被关闭。请询问邀请你的人。" },

@@ -300,7 +300,7 @@ test.describe('on a phone', () => {
 // password at the field, a failure with Try again (the preview asked again), an expired claim, and outside the app.
 test.describe('/app-setup (a team made from the desktop app)', () => {
   const CLAIM = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8'
-  const PREVIEW = { teamName: 'Acme Studio', name: 'Alex Kim', email: 'alex@example.com', google: false }
+  const PREVIEW = { teamName: 'Acme Studio', name: 'Alex Kim', email: 'alex@example.com', google: false, username: 'alex' }
   test('welcome, password at the field, Try again after a failure, expired, outside the app', async ({ page, browser }) => {
     await reset(page, { teamLocale: 'en', usersFollowTeam: true })
     const ctx = await browser.newContext({ userAgent: MAC_CHROME, locale: 'en-US' })
@@ -314,7 +314,8 @@ test.describe('/app-setup (a team made from the desktop app)', () => {
       if (previewAnswer === 'gone') return r.fulfill({ status: 410, json: { error: { code: 'gone', message: 'This link has expired. Go back to the app and try again.' } } })
       return r.fulfill({ status: 503, json: { error: { code: 'unavailable', message: "The hosting service can't be reached right now. Try again in a minute." } } })
     })
-    await p.route('**/api/setup/console', (r) => r.fulfill({ status: 400, json: { error: { code: 'validation', message: 'Please choose a stronger password. This password is too common.', fields: { 'body.password': 'this password is too common' } } } }))
+    const setups: unknown[] = []
+    await p.route('**/api/setup/console', (r) => { setups.push(r.request().postDataJSON()); return r.fulfill({ status: 400, json: { error: { code: 'validation', message: 'Please choose a stronger password. This password is too common.', fields: { 'body.password': 'this password is too common' } } } }) })
     await p.goto(`/app-setup#c=${CLAIM}`)
     await expect.poll(() => new URL(p.url()).hash).toBe('')
     // the hosting service was down: its own title and Try again, not "expired" or a password sign-in
@@ -324,10 +325,17 @@ test.describe('/app-setup (a team made from the desktop app)', () => {
     await p.getByTestId('app-setup-retry').click()
     await expect(p.getByRole('heading', { name: 'Welcome to Acme Studio, Alex Kim' })).toBeVisible()
     expect(previews).toEqual([CLAIM, CLAIM])
+    // the username the person never chose is said, with Copy; the name is asked, prefilled
+    await expect(p.getByTestId('app-setup-username')).toContainText('Your username is alex')
+    await expect(p.getByTestId('app-setup-username')).toContainText('You can also sign in with your email.')
+    await expect(p.getByTestId('app-setup-copy')).toHaveText('Copy')
+    await expect(p.getByTestId('app-setup-name')).toHaveValue('Alex Kim')
+    await p.getByTestId('app-setup-name').fill('Alex K.')
     await expect(p.getByTestId('app-setup-continue')).toBeDisabled()
     await p.getByTestId('app-setup-password').fill('password1')
     await p.getByTestId('app-setup-continue').click()
     await expect(p.getByText('Please choose a stronger password.', { exact: false })).toBeVisible()
+    expect(setups[0]).toMatchObject({ claim: CLAIM, password: 'password1', name: 'Alex K.' })
     // still on the welcome: the claim stays usable
     await expect(p.getByRole('heading', { name: 'Welcome to Acme Studio, Alex Kim' })).toBeVisible()
     await ctx.close()

@@ -631,7 +631,7 @@ export function Login() {
             {t(googleResult)}
           </p>
         )}
-        <Field label={t('auth.username')} error={errorOf('username')}>
+        <Field label={t('auth.usernameOrEmail')} error={errorOf('username')}>
           <input className={inputCls} name="username" autoComplete="username" autoCapitalize="none" value={username} onChange={(e) => setUsername(e.target.value)} required data-testid="login-username" />
         </Field>
         <Field label={t('auth.password')} error={errorOf('password')}>
