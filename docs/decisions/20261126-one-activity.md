@@ -1,7 +1,7 @@
 # Every notice is in one 활동; 대화 has no 멘션·스레드 row
 
 - Date: 2026-11-26
-- Status: accepted
+- Status: accepted (its chip list and order: superseded by [20261127-activity-lean.md](20261127-activity-lean.md))
 - Supersedes: [Phones: search and 멘션·스레드 on the 대화 tab; each unread counted once](../DECISIONS.md#phones-search-and-멘션스레드-on-the-대화-tab-each-unread-counted-once-featphone-chats-search-activity-2026-11-12-qa-tc-256),
   the 활동 and 대화 parts of [활동, 파일 and 대화 as lists beside the rail](../DECISIONS.md#활동-파일-and-대화-as-lists-beside-the-rail-featnav-rail-rest-2026-11-13-navigation-redesign-p3),
   and the `?in=chats` part of [Activity: the DMs tab is back](../DECISIONS.md#activity-the-dms-tab-is-back-featactivity-dms-tab-back-2026-11-13-the-owner)
