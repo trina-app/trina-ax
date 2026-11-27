@@ -1,0 +1,1 @@
+- A guest's project page has no name menu again (it had gained "Copy link" with the shared menus).
