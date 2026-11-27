@@ -521,8 +521,20 @@ export class SlackConnector {
   }
 
   private forgetWorkspace() {
-    for (const t of ['slack_links', 'slack_link_tokens', 'slack_signin_flows', 'slack_install_flows', 'slack_threads', 'slack_requests', 'slack_events']) this.db.query(`DELETE FROM ${t}`).run()
     // (the earlier design's user tokens: retireUserTokens revokes each at Slack and deletes it at the next refresh)
+    this.dropSlackData(['slack_install_flows'])
+  }
+
+  /** THE list of tables that hold Slack data of the connected workspace, deleted when it is removed (in Slack, or with
+   * Remove; docs/decisions/20261127-slack-marketplace-gaps.md). A feature that keeps more Slack-derived rows adds its
+   * tables HERE, so both removals delete them: e.g. the channel relay's `slack_relay_links`, `slack_relay_outbox` and
+   * its `slack_relay_messages` id map (the copied messages in a conversation are that conversation's, not listed). */
+  static readonly SLACK_DATA_TABLES = ['slack_links', 'slack_link_tokens', 'slack_signin_flows', 'slack_threads', 'slack_requests', 'slack_events'] as const
+
+  /** Delete the workspace's Slack data: SLACK_DATA_TABLES plus `extra`, and the Slack ids in the audit log's Slack rows.
+   * Run inside the caller's transaction where it has one. */
+  private dropSlackData(extra: readonly string[] = []) {
+    for (const t of [...SlackConnector.SLACK_DATA_TABLES, ...extra]) this.db.query(`DELETE FROM ${t}`).run()
     this.scrubAudit()
   }
 
@@ -1309,8 +1321,8 @@ export class SlackConnector {
     this.db.transaction(() => {
       this.db.query(`UPDATE slack_config SET secret_enc = NULL, key_version = NULL, install_id = NULL, last_error = 'removed', team_name = NULL, team_url = NULL,
         enterprise_id = NULL, bot_user_id = NULL, bot_name = NULL, bot_scopes = NULL, updated_at = ? WHERE id = 1 AND mode = 'official'`).run(iso(this.now()))
-      for (const t of ['slack_links', 'slack_link_tokens', 'slack_signin_flows', 'slack_threads', 'slack_requests', 'slack_events', 'slack_user_tokens']) this.db.query(`DELETE FROM ${t}`).run()
-      this.scrubAudit()
+      // the app is gone at Slack, so the earlier design's user tokens are dead too; an Add to Slack in progress goes on
+      this.dropSlackData(['slack_user_tokens'])
     })()
     this.forgetCaches()
     audit(this.db, { actor: null, action: 'slack.removed_in_slack', target: cfg.team_id, detail: { reason, dataDeleted: true } })

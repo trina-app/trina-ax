@@ -334,6 +334,28 @@ describe('removed, restored and removed by the owner', () => {
     expect(cfg()!.secret_enc).toBeTruthy()
   })
 
+  test('an answer without the install key is an error, not "removed": the token and the links stay, and it goes on once answers are whole again', async () => {
+    await waitFor(async () => (await admin()).state === 'connected')
+    h.ctx.db.query("INSERT OR IGNORE INTO slack_links (id, user_id, team_id, slack_user_id, slack_name, created_at) VALUES ('l-keep', 'erin', 'T0ACME', 'U0ERIN', 'erin.slack', '2026-11-27T00:00:00.000Z')").run()
+    const before = links()
+    expect(before).toBeGreaterThan(0)
+    const removals = () => (h.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action = 'slack.removed_in_slack'").get() as { n: number }).n
+    const removed = removals()
+    broker.omitInstall = true
+    try {
+      const polls = broker.of('poll').length
+      await waitFor(() => broker.of('poll').length >= polls + 3)
+      await slackOf(h.ctx).checkBroker()
+      expect(cfg()!.secret_enc).toBeTruthy()
+      expect(cfg()!.last_error).not.toBe('removed')
+      expect(links()).toBe(before)
+      expect(removals()).toBe(removed)
+    } finally { broker.omitInstall = false }
+    await waitFor(async () => (await admin()).state === 'connected', { timeoutMs: 8000 })
+    expect(links()).toBe(before)
+    h.ctx.db.query("DELETE FROM slack_links WHERE id = 'l-keep'").run()
+  })
+
   test('a token Slack refuses at a post is the same as Slack\'s own "removed"', async () => {
     fake.failNext['chat.postEphemeral'] = { error: 'token_revoked' }
     broker.push('events_api', envelope('U0FRANK'))

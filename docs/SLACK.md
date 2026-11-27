@@ -246,14 +246,19 @@ internal apps: search waits for phase 2, after listing (no code yet).
 | --- | --- | --- |
 | The thread's text given with a question from Slack | memory (`SlackConnector.asked`, taken by the next turn of that chat) and that turn's instructions (a file the launcher deletes after the turn) | at most 30 minutes in memory; never in the database. A resumed engine session is sent only where it was asked, not the thread (the message it is sent is kept in its session) |
 | What `slack_read_thread` / `slack_read_channel` returned | the AI engine's working session of that chat (its folder on this server, like any tool result) | until the chat's session starts over or the chat is deleted |
-| The answer, the question, step labels, tool summaries ("slack_read_thread -> 12 messages") | the chat (database) | as the chat |
+| The answer, the question as typed in Slack, step labels, tool summaries ("slack_read_thread -> 12 messages") | the chat (database) | as the chat (until the chat is deleted; removing the app does not delete it) |
 | Where Slack was read | the chat's read scope (conversation id, kind, channel name) | as the chat |
 | Slack people's names, the conversations a person shares with the bot | memory | 10 / 2 minutes |
 | The bot's scopes | `slack_config.bot_scopes` | while Slack is set up |
 | Each linked person's Slack user id and Slack name | `slack_links` | until they unlink, their account is disabled, or the app is removed (in Slack or with Remove): then deleted at once |
 | The chat a Slack thread continues, a question still to be delivered or posted | `slack_threads`, `slack_requests` (ids and timestamps, no text) | the request until delivered and 7 days; both deleted at once when the app is removed |
 
-Not kept: no Slack message in the database, no user token, no search index. The answer the AI writes may quote or sum
+**Removing the app** (in Slack, or Remove) deletes the rows of the last three lines (links, thread and request records)
+and the metadata at once; it does **not** delete chats: the question typed in Slack, the answer, and what the AI read
+to answer (its session, the read scope) stay in the asker's chat until that chat is deleted, as any chat.
+
+Not kept: no other Slack message in the database (only the question as the chat's message), no user token, no search
+index. The answer the AI writes may quote or sum
 up Slack messages (that is the answer the person asked for). Proposal (not built): a Slack chat's engine session could
 drop tool results older than its last turn; until then the table above is what is kept.
 
