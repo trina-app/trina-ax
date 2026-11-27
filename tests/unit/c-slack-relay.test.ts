@@ -141,6 +141,10 @@ test('in: threads, edits and deletes follow', async () => {
   const orphan = await waitFor(async () => (await appMessages(mia.client)).find((m) => m.body.endsWith('reply to an old thread')))
   expect(orphan.slackAuthor.threadElsewhere).toBe(true)
   expect(orphan.threadRootId).toBeUndefined()
+  // a message_changed that only counts the thread's replies (same text): not an edit
+  fake.event({ type: 'message', subtype: 'message_changed', channel: CH, channel_type: 'channel', ts: nextTs(), message: { type: 'message', user: 'U0EXT', text: 'root message', ts: root, reply_count: 1 } })
+  await Bun.sleep(200)
+  expect((await appMessages(mia.client)).find((m) => m.id === r.id)!.editedAt).toBeNull()
   // edited, then deleted in Slack
   fake.event({ type: 'message', subtype: 'message_changed', channel: CH, channel_type: 'channel', ts: nextTs(), message: { type: 'message', user: 'U0EXT', text: 'root message (edited)', ts: root, edited: { user: 'U0EXT', ts: nextTs() } } })
   await waitFor(async () => (await appMessages(mia.client)).find((m) => m.id === r.id && m.body.endsWith('(edited)') && m.editedAt))
@@ -160,8 +164,17 @@ test('out: a person\'s message goes as "Name (Trina)", with its thread, edit and
   const n = (await appMessages(mia.client)).length
   say('Hello <client> & co', { user: 'U0BOT', ts: row.ts, extra: { bot_id: 'B0BOT', username: 'MIA (Trina)' } })
   fake.event({ type: 'message', channel: CH, channel_type: 'channel', ts: row.ts, bot_id: 'B0XYZ', subtype: 'bot_message', username: 'MIA (Trina)', text: 'Hello' })
+  // the shape a post with \`username\` really comes back in (live check 2026-11-27): bot_message with our bot_id and
+  // app_id, no user, no bot_profile; even with a ts not recorded yet (the echo before the post's answer)
+  fake.event({ type: 'message', channel: CH, channel_type: 'channel', ts: nextTs(), bot_id: 'B0BOT', app_id: fake.appId, subtype: 'bot_message', username: 'MIA (Trina)', text: 'early echo' })
+  // another company's app in the channel is an outside app's message (with the official app, another Trina team's
+  // install has our app id but another bot id: relay.ts ownBot)
+  fake.event({ type: 'message', channel: CH, channel_type: 'channel', ts: nextTs(), bot_id: 'B0OTHER', app_id: 'A0OTHER', subtype: 'bot_message', username: 'Kim (Trina)', text: 'from the other team' })
+  await waitFor(async () => (await appMessages(mia.client)).find((m) => m.body.includes('from the other team')))
   await Bun.sleep(300)
-  expect((await appMessages(mia.client)).length).toBe(n)
+  expect((await appMessages(mia.client)).length).toBe(n + 1)
+  expect((await appMessages(mia.client)).find((m) => m.body.includes('from the other team'))!.slackAuthor).toMatchObject({ name: 'Kim (Trina)', bot: true })
+  expect(h.ctx.db.query("SELECT COUNT(*) n FROM room_messages WHERE body LIKE '%early echo%'").get()).toEqual({ n: 0 })
   // edit and delete follow
   await mia.client.call('PATCH', `/api/rooms/${team}/messages/${sent.id}`, { body: 'Hello again', mentions: [] })
   const upd = await waitFor(() => fake.of('chat.update').find((c) => c.args.ts === row.ts))

@@ -40,7 +40,7 @@ import { roomsOf } from '../../rooms/service'
 import { isOwnerOrAdmin, messageRow, roomAuditRef, threadable, type MessageRow, type RoomRow } from '../../rooms/store'
 import { isProjectRoom, systemLine } from '../../rooms/project-room'
 import { roomAppsOf, teamDay, type AppRow } from '../../rooms/apps/service'
-import { lines, safeLink } from '../../rooms/apps/card'
+import { lines, relayBodyOf, safeLink } from '../../rooms/apps/card'
 import { SlackApiError } from './api'
 import { linkOfApp, linkOfChannel, linkOfRoom, storedSlackOf, type RelayLinkRow, type StoredSlack } from './relay-store'
 import type { SlackConnector } from './service'
@@ -400,16 +400,33 @@ export class SlackRelay {
     return next
   }
 
+  /** Our own bot's post (never relayed back). Live check 2026-11-27 (test workspace): a post made with `username`
+   * comes back as subtype bot_message with `bot_id` and `app_id` and NO `user`, `bot_profile` or `team`; a plain post
+   * has `user` (the bot user) and `bot_profile`. So: the bot user, our bot id (auth.test's bot_id), or our app with a
+   * bot_profile of this workspace. The team's own app is ours alone: its app id is enough. Another Trina team's install
+   * of the official app has the same app id but another bot id, and is relayed as an outside app. */
   private ownBot(m: Msg, appId: string): boolean {
     const cfg = this.slack.config()
     if (!cfg) return true
     if (m.user && m.user === cfg.bot_user_id) return true
+    if (this.botId && m.bot_id === this.botId) return true
+    if (cfg.mode === 'own' && m.app_id === appId) return true
     const bp = plainObj(m.bot_profile)
-    return !!bp && bp.app_id === appId && (bp.team_id === cfg.team_id || bp.user_id === cfg.bot_user_id)
+    if (bp && bp.app_id === appId && (bp.team_id === cfg.team_id || bp.user_id === cfg.bot_user_id)) return true
+    // our app's post whose bot id is not known yet (auth.test did not answer): its ts decides (recorded at the post)
+    return !this.botId && m.app_id === appId && !!str(m.ts) && !!this.db.query("SELECT 1 FROM slack_relay_messages WHERE channel_id = ? AND ts = ? AND direction = 'out'").get(str(m.channel) ?? '', str(m.ts))
+  }
+  /** our bot's id (B…), from auth.test */
+  private botId: string | null = null
+  private async learnBotId() {
+    const bot = this.slack.botToken()
+    if (!bot || this.botId) return
+    try { const r = await this.slack.api.call('auth.test', bot); this.botId = str(r.bot_id, /^B[A-Z0-9]{2,40}$/) } catch { /* asked again at the next post */ }
   }
 
   private async handle(ev: Msg, appId: string): Promise<void> {
     const type = str(ev.type)!
+    await this.learnBotId()
     if (type !== 'message') return this.channelEvent(type, ev)
     const l = linkOfChannel(this.db, str(ev.channel)!)
     if (!this.active(l)) return
@@ -418,7 +435,8 @@ export class SlackRelay {
     if (sub === 'message_deleted') return this.deletedInSlack(l, str(ev.deleted_ts, TS))
     if (sub === 'message_changed') {
       const m = plainObj(ev.message)
-      if (!m || this.ownBot(m, appId)) return
+      const prev = plainObj(ev.previous_message)
+      if (!m || this.ownBot({ ...m, channel: ev.channel }, appId) || (prev && this.ownBot({ ...prev, channel: ev.channel }, appId))) return
       return this.changedInSlack(l, m)
     }
     if (this.ownBot(ev, appId)) return
@@ -584,6 +602,9 @@ export class SlackRelay {
     if (!d) return
     const prev = messageRow(this.db, l.room_id, r.room_message_id)
     const old = storedSlackOf(prev?.app_card)
+    // Slack also sends message_changed when only a thread's reply count changed, or a broadcast gained its root (live
+    // check 2026-11-27): the text is the same, nothing to change here
+    if (!prev || prev.deleted_at || prev.body === relayBodyOf(d.name, d.text)) return
     const apps = roomAppsOf(this.slack.ctx)
     if (!apps.editRelayed(r.room_message_id, { name: d.name, text: d.text, slack: { ...this.storedOf(d), ...(old?.threadElsewhere ? { threadElsewhere: true } : {}) } as unknown as Record<string, unknown>, link: this.permalink(l.channel_id, ts, d.threadTs), at: nowIso() })) return
     const row = messageRow(this.db, l.room_id, r.room_message_id)
@@ -637,7 +658,7 @@ export class SlackRelay {
           const appId = this.slack.config()?.app_id ?? ''
           for (const m of msgs) {
             const sub = str(m.subtype)
-            if ((sub && !KEPT_SUBTYPES.has(sub)) || sub === 'message_changed' || sub === 'message_deleted' || this.ownBot(m, appId)) continue
+            if ((sub && !KEPT_SUBTYPES.has(sub)) || sub === 'message_changed' || sub === 'message_deleted' || this.ownBot({ ...m, channel: l.channel_id }, appId)) continue
             await this.relayIn(fresh, m)
           }
           if (r.has_more === true) this.missing(fresh)
@@ -725,6 +746,7 @@ export class SlackRelay {
       ...(custom ? { username: `${name} (${PRODUCT.displayName})`.slice(0, 80) } : {}),
       ...(threadTs ? { thread_ts: threadTs, ...(row.also_in_room ? { reply_broadcast: true } : {}) } : {}),
     }
+    await this.learnBotId()
     await this.gap(l.channel_id)
     try {
       const r = await this.slack.api.call('chat.postMessage', bot, body, { noWait: true })

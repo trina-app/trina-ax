@@ -16,7 +16,7 @@ import { SlackApiError } from '../../server/src/integrations/slack/api'
 import { askedContext, messageLines, messageRaw, slackPlain, slackReadProvider } from '../../server/src/integrations/slack/read'
 import { postCheck } from '../../server/src/integrations/slack/post-check'
 import { BOT_SCOPES, READ_BOT_SCOPES, slackManifest } from '../../server/src/integrations/slack/manifest'
-import { SLACK_BROKER_BOT_SCOPES, SLACK_BROKER_PATHS, SLACK_BROKER_USER_SCOPES } from '@mycel/shared/cloud-protocol'
+import { SLACK_BROKER_BOT_SCOPES, SLACK_BROKER_PATHS, SLACK_BROKER_RELAY_BOT_SCOPES, SLACK_BROKER_USER_SCOPES } from '@mycel/shared/cloud-protocol'
 import { SecretBox } from '../../server/src/integrations/connections/store'
 import { resolveLayout } from '../../server/src/system/layout'
 import { isSlack } from '../../server/src/chat/connect-service'
@@ -109,12 +109,14 @@ afterAll(async () => { await h?.close(); fake?.close() })
 describe('Marketplace-safe scopes: bot only, no user scope, no search', () => {
   test('the manifest and the official app\'s contract: the two history bot scopes, no user scopes, no read sign-in', () => {
     const m = slackManifest('Trina AX', `${ORIGIN}/api/integrations/slack/oauth/callback`)
-    expect(m.oauth_config.scopes).toEqual({ bot: [...BOT_SCOPES] })
+    // the channel relay's chat:write.customize on top (requested, required by no check: docs/SLACK.md "Channel relay")
+    expect(m.oauth_config.scopes).toEqual({ bot: [...BOT_SCOPES, ...SLACK_BROKER_RELAY_BOT_SCOPES] })
     expect([...READ_BOT_SCOPES]).toEqual(['channels:history', 'groups:history'])
     for (const sc of READ_BOT_SCOPES) { expect(BOT_SCOPES as readonly string[]).toContain(sc); expect(SLACK_BROKER_BOT_SCOPES as readonly string[]).toContain(sc) }
     expect([...SLACK_BROKER_BOT_SCOPES].sort()).toEqual([...BOT_SCOPES].sort())
     expect([...SLACK_BROKER_USER_SCOPES]).toEqual([])
     expect(Object.keys(SLACK_BROKER_PATHS).some((k) => /read/i.test(k))).toBe(false)
+    for (const banned of ['search:read', 'mpim:history', 'im:read', 'mpim:read']) expect(SLACK_BROKER_RELAY_BOT_SCOPES as readonly string[]).not.toContain(banned)
     for (const banned of ['search:read', 'mpim:history', 'im:read', 'mpim:read']) expect(BOT_SCOPES as readonly string[]).not.toContain(banned)
   })
 

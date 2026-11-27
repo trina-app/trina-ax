@@ -133,9 +133,10 @@ export const SLACK_BROKER_READ_BOT_SCOPES = ['channels:history', 'groups:history
 export const SLACK_BROKER_RELAY_BOT_SCOPES = ['chat:write.customize'] as const
 /** The bot events the channel relay needs (the app's event subscriptions): the linked channels' messages and the
  * channel events that end or change a link. `message.channels` / `message.groups` deliver `message` events. A private
- * channel's own archive and rename events (group_archive, group_rename) are documented for RTM only, so they are not
- * subscribed to; the team server learns those from a refused post and from conversations.info. */
-export const SLACK_BROKER_RELAY_EVENTS = ['message.channels', 'message.groups', 'channel_left', 'group_left', 'channel_deleted', 'channel_archive', 'channel_rename', 'channel_shared', 'channel_unshared', 'channel_id_changed'] as const
+ * channel's own `group_archive` / `group_rename` are listed for RTM in Slack's docs but are taken as Events API
+ * subscriptions and do arrive (live check on the test workspace, 2026-11-27); a refused post and conversations.info
+ * still decide too. */
+export const SLACK_BROKER_RELAY_EVENTS = ['message.channels', 'message.groups', 'channel_left', 'group_left', 'channel_deleted', 'channel_archive', 'channel_rename', 'channel_shared', 'channel_unshared', 'channel_id_changed', 'group_archive', 'group_rename'] as const
 /** The event types (inner `event.type`) the control plane queues for an install that keeps the channel: `message` and
  * these. */
 export const SLACK_BROKER_RELAY_CHANNEL_EVENT_TYPES = ['channel_left', 'group_left', 'channel_deleted', 'channel_archive', 'channel_rename', 'channel_shared', 'channel_unshared', 'channel_id_changed', 'group_archive', 'group_rename', 'group_deleted'] as const

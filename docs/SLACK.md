@@ -260,13 +260,20 @@ work in Trina; the client stays in Slack and notices no change.
   answer, a message with only files (files never go; the text of a message with files does). A refused post: "Not sent
   to Slack" with **Retry** for its author; a rate limit retries by itself. Linking your own Slack account is not needed
   to write.
+- **Live check (test workspace, 2026-11-27):** adding the message events to an app that already had the history
+  scopes delivered them at once, with no reinstall (a new scope does need one). `message_changed` and
+  `message_deleted` arrive; Slack also sends `message_changed` when only a thread's reply count changes (same text:
+  ignored). A post with `username` shows the custom name **with the APP badge**, and comes back as `bot_message` with
+  `bot_id` and `app_id` but no `user` or `bot_profile` (loop prevention keys on our bot id). Slack Connect was not
+  checked live (it needs a second organization).
 - **Loops:** a message that came from Slack is never sent to Slack. Each relayed message keeps its Slack
   `(channel, ts)` (`slack_relay_messages`): a retry or a repeat is posted once, our own post's echo is dropped.
 - **States** (event lines in the conversation): the app removed from the channel (`channel_left` / `group_left`, or a
   post answered `not_in_channel` / `channel_not_found`) stops both ways until it is invited again; archived or deleted
   ends the link; shared with another organization (`channel_shared`) is said and the relay goes on; Slack removed from
-  the team is said. Private channels' own archive and rename events are RTM-only, so a refused post and
-  `conversations.info` (at start and every 6 hours) decide as much as an event.
+  the team is said. A private channel's `group_archive` / `group_rename` arrive too (live check 2026-11-27, though
+  Slack's docs list them for RTM); a refused post and `conversations.info` (at start and every 6 hours) decide as much
+  as an event.
 - **Catch-up:** after a gap (the server started, the connection came back, the hosting service's queue let go of
   envelopes: the poll's `dropped`) one `conversations.history` per link from the last relayed ts (15 messages for the
   official app while it is unlisted); more than that: "Some Slack messages may be missing" (at most once an hour).
@@ -281,7 +288,8 @@ work in Trina; the client stays in Slack and notices no change.
   The operator adds the scope and the events below to the official app's settings in Slack once.
 - **The team's own app:** the manifest has the scope and the events. An app made before: add the Bot Token Scope
   `chat:write.customize` and the bot events `message.channels`, `message.groups`, `channel_left`, `group_left`,
-  `channel_archive`, `channel_deleted`, `channel_rename`, `channel_shared`, `channel_unshared`, `channel_id_changed` in
+  `channel_archive`, `channel_deleted`, `channel_rename`, `channel_shared`, `channel_unshared`, `channel_id_changed`,
+  `group_archive`, `group_rename` in
   *Event Subscriptions*, reinstall, then **I updated them** (the same steps as "Update Slack permissions"). Events whose
   scope the app already has start at once; the new scope needs the reinstall.
 
