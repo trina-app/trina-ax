@@ -50,6 +50,7 @@ import { publishChanges } from '../team-files/changes'
 import { componentC } from '../team-files/component'
 import { FileError } from '../team-files/errors'
 import { sharedUploadPlace, type SharedUploadPlace } from '../uploads/shared-chat'
+import { ROOM_FILE_MAX } from '@mycel/shared/api'
 import { roomFileRefsOf } from './file-refs'
 import { takenInTeamPlace } from './files'
 import { activePeople, readersOf, systemLine } from './project-room'
@@ -284,6 +285,9 @@ export class RoomFileMoves {
       if (!st.isFile() || st.nlink !== 1) return false
       const size = row.room_file_id ? (this.db.query('SELECT size FROM room_files WHERE id = ?').get(row.room_file_id) as { size: number } | null)?.size ?? null : null
       if (size !== null && st.size !== size) return false
+      // a room file is at most ROOM_FILE_MAX: anything larger is not this move's bytes, and is never hashed here (a
+      // synchronous hash of a 20 GB file held the event loop for minutes)
+      if (st.size > ROOM_FILE_MAX) return false
       return sha256Regular(abs, st) === row.sha256
     } catch { return false }
   }

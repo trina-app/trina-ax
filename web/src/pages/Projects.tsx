@@ -884,7 +884,8 @@ function ProjectPage() {
   // Delete. The owner or an admin who is not a member: Copy link, Rename, Delete. In the trash: no name menu (its note
   // has 되돌리기 and 완전히 삭제)
   const appHref = pageOpenInAppHref({ scheme: PRODUCT.linkScheme, origin: globalThis.location?.origin ?? '', path: `/projects/${p.id}`, platform: platform(), client: clientKind(), phone })
-  const menu = p.inTrash
+  // a guest's project page is a quiet screen: no name menu (e2e guest-view.spec.ts)
+  const menu = p.inTrash || guestHere
     ? null
     : orderMenu([
         menuItem(t, 'copyLink', { onSelect: () => void copyMenuLink(p), testId: 'project-copy-link' }),

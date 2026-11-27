@@ -417,7 +417,7 @@ test('the quota line moves: the rooms folder shrinks, the team folder holds the 
 })
 
 // review of #221 (crash review probes A–D, P4): each turned into the behaviour it must have
-test('C1: an error inside installFile after its first rename keeps the only copy: back at staging, placed on the next pass', async () => {
+test('C1: an error inside placing (stageInstall) after its first rename keeps the only copy: back at staging, placed on the next pass', async () => {
   const { mia, nora, roomId } = await setup('b-room-file-moves-install-error')
   const f = await up(mia.id, roomId, 'deck.pdf', 'the only copy')
   await send(mia.client, roomId, [f.id])
@@ -425,7 +425,7 @@ test('C1: an error inside installFile after its first rename keeps the only copy
   const orig = fs.chmodSync
   let once = false
   ;(fs as any).chmodSync = (p: fs.PathLike, m: fs.Mode) => {
-    // team-files/place.ts installFile: the chmod of its temp name, after src was renamed there
+    // team-files/place.ts stageInstall: the chmod of its temp name, after src was renamed there
     if (!once && String(p).includes(PRODUCT.tmpPrefix)) { once = true; const e = new Error('EPERM') as NodeJS.ErrnoException; e.code = 'EPERM'; throw e }
     return orig(p, m)
   }
