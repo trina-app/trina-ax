@@ -4970,6 +4970,8 @@ export const es: Record<MessageKey, string> = {
   "rooms.section.newChannel": "Crear un canal",
   "marker.card": "Esperando su respuesta",
   "marker.error": "Se detuvo: un error",
+  "marker.restart": "Interrumpida por un reinicio",
+  "marker.update": "Interrumpida por una actualización",
   "marker.paused": "En pausa por un límite",
   "marker.running": "Respondiendo",
   "marker.queued": "Esperando turno",

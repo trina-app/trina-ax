@@ -1,6 +1,6 @@
 // Restart from Admin › System › Health (server/src/system/restart.ts, docs/decisions/20261127-restart.md) through the
 // real app: who may, what is offered where (a supervisor for the server, an installed launcher that knows the request
-// for the AI), every refusal, the limit (accepted requests in the audit log, every kind together), the wait for running
+// for the AI), every refusal, the limit (restarts that ran, in the audit log, every kind together), the wait for running
 // answers with its own mark, "now" and "don't restart", the audit rows, the server's restart mark at the next start.
 import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
@@ -42,7 +42,9 @@ const launcher = {
   ops: ['restart'] as string[] | undefined,
   answers: true,
   calls: 0,
-  status: async (_sock: string) => ({ ops: launcher.ops }),
+  /** how long the status read takes (a real launcher answers over its socket) */
+  slowMs: 0,
+  status: async (_sock: string) => { if (launcher.slowMs) await Bun.sleep(launcher.slowMs); return { ops: launcher.ops } },
   restart: async (_sock: string) => { launcher.calls++; return launcher.answers ? { live: 1 } : null },
 }
 let running = 0
@@ -76,7 +78,7 @@ beforeEach(async () => {
   await getRestarts(ctx)!.settled()
   ctx.db.query("DELETE FROM audit_log WHERE action LIKE 'system.restart%'").run()
   running = 0; restarts = 0
-  launcher.ops = ['restart']; launcher.answers = true; launcher.calls = 0
+  launcher.ops = ['restart']; launcher.answers = true; launcher.calls = 0; launcher.slowMs = 0
   env.MYCEL_SUPERVISOR_PID = '4242'
   _resetUpdateWait()
   fs.rmSync(path.join(ctx.config.dataDir, 'restore-pending.json'), { force: true })
@@ -93,7 +95,7 @@ const status = async (as: keyof typeof people = 'owner') => (await (await req('/
 const start = (body: Record<string, unknown>, as: keyof typeof people = 'owner') => req('/api/admin/restart', { method: 'POST', as, body: JSON.stringify({ password: 'pw', ...body }) })
 const errorOf = async (r: Response) => ((await r.json()) as { error: { code: string; message: string } }).error
 const auditRows = (action: string) => ctx.db.query('SELECT actor_id, detail FROM audit_log WHERE action = ? ORDER BY id').all(action) as { actor_id: string | null; detail: string | null }[]
-const pastRequest = (msAgo: number) => ctx.db.query("INSERT INTO audit_log (actor_id, action, detail, at) VALUES ('olga', 'system.restart_requested', '{}', ?)").run(new Date(Date.now() - msAgo).toISOString())
+const pastRestart = (msAgo: number) => ctx.db.query("INSERT INTO audit_log (actor_id, action, detail, at) VALUES ('olga', 'system.restarted', '{\"what\":\"ai\"}', ?)").run(new Date(Date.now() - msAgo).toISOString())
 
 describe('who may', () => {
   test('owners and admins read and ask; members and signed-out people do not; the password is checked', async () => {
@@ -190,23 +192,57 @@ describe('refusals', () => {
 })
 
 describe('the limit', () => {
-  test('accepted requests of every kind count together: 2 minutes apart, 5 an hour; refusals do not count', async () => {
+  test('restarts that ran, of every kind, count together: 2 minutes apart, 5 an hour; refusals do not count', async () => {
     expect((await start({ what: 'ai', when: 'now' })).status).toBe(202)
     await getRestarts(ctx)!.settled()
+    expect(auditRows('system.restarted')).toHaveLength(1)
     // the other kind right after: too soon
     const soon = await start({ what: 'server', when: 'now' })
     expect(soon.status).toBe(429)
     expect((await errorOf(soon)).message).toContain('just restarted')
     expect(auditRows('system.restart_requested')).toHaveLength(1)
     // five in the last hour (each 2+ minutes apart)
-    ctx.db.query("DELETE FROM audit_log WHERE action = 'system.restart_requested'").run()
-    for (let i = 0; i < 5; i++) pastRequest(RESTART_GAP_MS + 60_000 + i * 10 * 60_000)
+    ctx.db.query("DELETE FROM audit_log WHERE action LIKE 'system.restart%'").run()
+    for (let i = 0; i < 5; i++) pastRestart(RESTART_GAP_MS + 60_000 + i * 10 * 60_000)
     const many = await start({ what: 'ai', when: 'now' })
     expect(many.status).toBe(429)
     expect((await errorOf(many)).message).toContain('several times')
     // older than an hour: free again
-    ctx.db.query("UPDATE audit_log SET at = ? WHERE action = 'system.restart_requested'").run(new Date(Date.now() - 2 * 3600_000).toISOString())
+    ctx.db.query("UPDATE audit_log SET at = ? WHERE action = 'system.restarted'").run(new Date(Date.now() - 2 * 3600_000).toISOString())
     expect((await start({ what: 'ai', when: 'now' })).status).toBe(202)
+  })
+
+  test('a request called off restarted nothing: it does not count, and nothing says "just restarted"', async () => {
+    running = 1
+    for (let i = 0; i < 6; i++) {
+      expect((await start({ what: 'ai', when: 'idle' }, 'admin')).status).toBe(202)
+      const c = (await (await req('/api/admin/restart', { method: 'DELETE', as: 'admin' })).json()) as RestartStatus
+      await getRestarts(ctx)!.settled()
+      expect(c.blocked).toBeNull()
+      const s = await status('admin')
+      expect(s.blocked).toBeNull()
+      expect(s.last).toBeNull()
+    }
+    expect(auditRows('system.restart_requested')).toHaveLength(6)
+    expect(auditRows('system.restart_cancelled')).toHaveLength(6)
+    expect(launcher.calls).toBe(0)
+    // an update that came during the wait calls it off too: not counted either
+    const ops = getOps(ctx)!
+    const readState = ops.updates.readState.bind(ops.updates)
+    await start({ what: 'ai', when: 'idle' })
+    ops.updates.readState = () => ({ ...emptyAppState(), pending: ctx.version })
+    try { running = 0; await getRestarts(ctx)!.settled() } finally { ops.updates.readState = readState }
+    expect(launcher.calls).toBe(0)
+    expect((await status()).blocked).toBeNull()
+  })
+
+  test('"AI only" that got no answer from the launcher does not count as a restart', async () => {
+    launcher.answers = false
+    expect((await start({ what: 'ai', when: 'now' })).status).toBe(202)
+    await getRestarts(ctx)!.settled()
+    const s = await status()
+    expect(s.failed?.what).toBe('ai')
+    expect(s.blocked).toBeNull()
   })
 })
 
@@ -238,6 +274,20 @@ describe('the wait', () => {
     expect(after.last?.what).toBe('ai')
     expect(auditRows('system.restart_requested').map((x) => JSON.parse(x.detail!))).toEqual([{ what: 'ai', when: 'idle' }])
     expect(auditRows('system.restarted').map((x) => [x.actor_id, JSON.parse(x.detail!).what])).toEqual([['olga', 'ai']])
+  })
+
+  test('the answer to "AI only, now" shows the restart it made, not the one before (the launcher read first)', async () => {
+    pastRestart(3 * 3600_000)
+    const before = (await status()).last!.at
+    // the restart ends while the status reads the launcher's socket
+    launcher.slowMs = 40
+    const s = (await (await start({ what: 'ai', when: 'now' })).json()) as RestartStatus
+    await getRestarts(ctx)!.settled()
+    expect(launcher.calls).toBe(1)
+    // it ended during the read: no restart waits, and the last one is this one
+    expect(s.waiting).toBeNull()
+    expect(s.last?.what).toBe('ai')
+    expect(Date.parse(s.last!.at)).toBeGreaterThan(Date.parse(before))
   })
 
   test('"now" ends the wait; "don\'t restart" calls it off and frees the lock', async () => {

@@ -142,7 +142,7 @@ const pendingTell = new Map<string, { timer: ReturnType<typeof setTimeout>; noti
 export const tellTiming = { delayMs: NOTIFY_DELAY_MS }
 
 const REASON: Record<MarkerReason, MessageKey> = {
-  card: 'marker.card', someone: 'marker.someone', error: 'marker.error', paused: 'marker.paused', running: 'marker.running', queued: 'marker.queued', new: 'marker.new', message: 'marker.message',
+  card: 'marker.card', someone: 'marker.someone', error: 'marker.error', restart: 'marker.restart', update: 'marker.update', paused: 'marker.paused', running: 'marker.running', queued: 'marker.queued', new: 'marker.new', message: 'marker.message',
 }
 /** The AI's own open question in this chat as one line, when this window has the card (a server's safety check is
  * "waiting for you": its first line is a long explanation). */

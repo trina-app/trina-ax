@@ -4970,6 +4970,8 @@ export const ja: Record<MessageKey, string> = {
   "rooms.section.newChannel": "チャンネルを作成",
   "marker.card": "あなたの回答を待っています",
   "marker.error": "停止しました: エラー",
+  "marker.restart": "再起動で中断されました",
+  "marker.update": "更新で中断されました",
   "marker.paused": "上限で一時停止しました",
   "marker.running": "回答中",
   "marker.queued": "順番待ち",

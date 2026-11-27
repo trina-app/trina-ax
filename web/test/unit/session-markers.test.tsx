@@ -7,7 +7,7 @@
 // server's own notice mark and the room's "?", one per room. The desktop app's notification click opens the chat.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { uuidv7, type Chat, type Me, type ServerEvent, type TurnRequest } from '@mycel/shared/api'
-import { useLocaleStore } from '../../src/i18n'
+import { translate, useLocaleStore } from '../../src/i18n'
 import { roomLightsDot, roomWantsMe } from '../../src/lib/rooms'
 import { attentionCount, iconBadge, markedChats, markerOf, stillWorthTelling, waitingOrRunning } from '../../src/lib/sessionMarkers'
 import { sharedNote } from '../../src/lib/sharedNote'
@@ -16,7 +16,7 @@ import { useChatMentions } from '../../src/store/chatMentions'
 import { dispatch } from '../../src/store/live'
 import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
-import { currentCount, readToken, sideChatOnScreen, startSessionMarkers, stopSessionMarkers, tellTiming, useSessionMarkers } from '../../src/store/sessionMarkers'
+import { currentCount, readToken, reasonText, sideChatOnScreen, startSessionMarkers, stopSessionMarkers, tellTiming, useSessionMarkers } from '../../src/store/sessionMarkers'
 import { useUi } from '../../src/store/ui'
 import { SessionMarker } from '../../src/components/chat/ChatState'
 import { UnreadBadge } from '../../src/components/nav/RoomsList'
@@ -31,6 +31,22 @@ function chat(o: Partial<Chat> = {}): Chat {
 const ask = (o: Partial<Chat> = {}) => chat({ waiting: true, runState: 'running', ...o })
 
 describe('one marker per row', () => {
+  test('an answer a restart or an update cut off: "?" in its own words, never "an error" (QA, 11-27)', () => {
+    expect(markerOf(chat({ unseen: true, lastOutcome: 'error', lastStop: 'restart' }))).toEqual({ kind: 'ask', reason: 'restart' })
+    expect(markerOf(chat({ unseen: true, lastOutcome: 'error', lastStop: 'update' }))).toEqual({ kind: 'ask', reason: 'update' })
+    // seen: nothing, as for any failure; running again: the spinner
+    expect(markerOf(chat({ lastOutcome: 'error', lastStop: 'restart' }))).toBeNull()
+    expect(markerOf(chat({ unseen: true, lastOutcome: 'error', lastStop: 'restart', runState: 'running' }))).toEqual({ kind: 'running', reason: 'running' })
+    for (const l of ['en', 'ko'] as const) {
+      const tr = (k: Parameters<typeof translate>[1]) => translate(l, k)
+      expect(reasonText('restart', tr)).toBe(tr('marker.restart'))
+      expect(reasonText('update', tr)).toBe(tr('marker.update'))
+      expect(reasonText('restart', tr)).not.toBe(tr('marker.error'))
+    }
+    expect(translate('en', 'marker.restart')).toBe('Interrupted by a restart')
+    expect(translate('ko', 'marker.restart')).toBe('다시 시작되어 멈췄어요')
+  })
+
   test('priority: ? over the spinner over the dot; nothing on an idle seen chat', () => {
     expect(markerOf(ask())).toEqual({ kind: 'ask', reason: 'card' })
     expect(markerOf(chat({ unseen: true, lastOutcome: 'error' }))).toEqual({ kind: 'ask', reason: 'error' })
@@ -485,6 +501,13 @@ describe('this window: /seen, notifications and toasts', () => {
     await wait(80)
     expect(useUi.getState().toasts).toEqual([])
     expect(notified.map((n) => n.body)).toEqual(['멈췄어요: 오류', '한도에서 멈췄어요'])
+    // an answer a restart cut off, should it be told: in its own words
+    notified.length = 0
+    const c = chat({ runState: 'running' })
+    useChats.setState({ chats: [a, b, c] })
+    dispatch(updated({ ...c, runState: 'idle', unseen: true, lastOutcome: 'error', lastStop: 'restart' }, 'answer'))
+    await wait(80)
+    expect(notified.map((n) => n.body)).toEqual(['다시 시작되어 멈췄어요'])
   })
 
   test('not told: a replay, a chat seen elsewhere meanwhile, a card answered meanwhile, the chat opened here, the chat on screen, a change without notify', async () => {

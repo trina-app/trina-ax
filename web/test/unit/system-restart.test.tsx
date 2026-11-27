@@ -64,6 +64,8 @@ describe('the restart row', () => {
       expect(m.find('restart-what-server')).not.toBeNull()
       // a count only, never whose
       expect(m.get('restart-running').textContent).toBe(en('system.restart.running', { count: 2 }))
+      // answers run: how long it waits, and what right away does to them
+      expect(m.get('restart-wait-note').textContent).toBe(`${en('system.restart.idleNote')} ${en('system.restart.nowNote')}`)
       expect(m.find('restart-now-confirm')).not.toBeNull()
       // a browser checks the radio before the click's handlers run (React reads it there)
       Object.getOwnPropertyDescriptor(FakeElement.prototype, 'checked')!.set!.call(m.get('restart-what-server'), true)
@@ -80,6 +82,20 @@ describe('the restart row', () => {
       await m.until(() => sent.length === 2, 'the cancel')
       expect(sent[1]).toMatchObject({ method: 'DELETE', path: '/api/admin/restart' })
       await m.until(() => m.find('restart-open'), 'the button again')
+    } finally { await m.unmount() }
+  })
+
+  test('no answers running: the dialog says so and nothing about waiting for them', async () => {
+    useSession.setState({ status: { kind: 'signed-in', me: me('owner') } })
+    status = base({ running: 0 })
+    const m = await mount(<MemoryRouter><Restart /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('restart-open'), 'the row')
+      await m.click('restart-open')
+      await m.until(() => m.find('restart-dialog'), 'the dialog')
+      expect(m.get('restart-running').textContent).toBe(en('system.restart.runningNone'))
+      expect(m.find('restart-wait-note')).toBeNull()
+      expect(m.get('restart-dialog').textContent).not.toContain(en('system.restart.idleNote'))
     } finally { await m.unmount() }
   })
 

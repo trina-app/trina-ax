@@ -5016,6 +5016,8 @@ export const en: Record<MessageKey, string> = {
   "rooms.section.newChannel": "Create a channel",
   "marker.card": "Waiting for you",
   "marker.error": "Stopped: an error",
+  "marker.restart": "Interrupted by a restart",
+  "marker.update": "Interrupted by an update",
   "marker.paused": "Paused at a limit",
   "marker.running": "Answering",
   "marker.queued": "Waiting in line",

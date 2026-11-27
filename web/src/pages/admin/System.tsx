@@ -502,7 +502,8 @@ function RestartDialog({ s, onClose, onStarted }: { s: RestartStatus; onClose: (
             <p><span className="block font-medium text-ink">{label(what)}</span><span className="block text-xs text-muted">{desc(what)}</span></p>
           )}
           <p data-testid="restart-running">{s.running > 0 ? t('system.restart.running', { count: s.running }) : t('system.restart.runningNone')}</p>
-          <p className="text-xs">{t('system.restart.idleNote')}{s.now ? ` ${t('system.restart.nowNote')}` : ''}</p>
+          {/* the wait and what "right away" stops: only when some answer runs (nothing to wait for otherwise) */}
+          {s.running > 0 && <p className="text-xs" data-testid="restart-wait-note">{t('system.restart.idleNote')}{s.now ? ` ${t('system.restart.nowNote')}` : ''}</p>}
         </div>
       }
       confirm={t('system.restart.whenIdle')}

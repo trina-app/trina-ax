@@ -5014,6 +5014,8 @@ export const id: Record<MessageKey, string> = {
   "rooms.section.newChannel": "Buat saluran",
   "marker.card": "Menunggu jawaban Anda",
   "marker.error": "Berhenti: ada kesalahan",
+  "marker.restart": "Terhenti karena dimulai ulang",
+  "marker.update": "Terhenti karena pembaruan",
   "marker.paused": "Dijeda di batas",
   "marker.running": "Sedang menjawab",
   "marker.queued": "Menunggu giliran",

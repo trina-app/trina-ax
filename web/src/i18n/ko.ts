@@ -5014,6 +5014,8 @@ export const ko = {
   "rooms.section.newChannel": "채널 만들기",
   "marker.card": "답을 기다려요",
   "marker.error": "멈췄어요: 오류",
+  "marker.restart": "다시 시작되어 멈췄어요",
+  "marker.update": "업데이트로 멈췄어요",
   "marker.paused": "한도에서 멈췄어요",
   "marker.running": "답하는 중",
   "marker.queued": "차례를 기다리는 중",

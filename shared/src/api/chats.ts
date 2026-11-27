@@ -211,7 +211,7 @@ export const CHAT_GROUPS_FOLD_DAYS = 7
 export const CHAT_GROUPS_TOP = 3
 /** A chat of a group that shows a session marker now (docs/DECISIONS.md "Session markers"): what the marker is made of,
  * so a folded header or a group's "N more" shows the strongest mark of rows that are not in `top`. */
-export const ChatMark = Chat.pick({ id: true, runState: true, waiting: true, waitsFor: true, unseen: true, lastOutcome: true, unreadCount: true })
+export const ChatMark = Chat.pick({ id: true, runState: true, waiting: true, waitsFor: true, unseen: true, lastOutcome: true, lastStop: true, unreadCount: true })
 export type ChatMark = z.infer<typeof ChatMark>
 const GroupHead = {
   /** every chat of the group I can open now (never one I cannot), pinned ones left out (they are under `pinned`) */

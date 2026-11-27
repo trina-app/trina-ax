@@ -4956,6 +4956,8 @@ export const zh: Record<MessageKey, string> = {
   "rooms.section.newChannel": "创建频道",
   "marker.card": "正在等你",
   "marker.error": "已停止：出现错误",
+  "marker.restart": "因重启而中断",
+  "marker.update": "因更新而中断",
   "marker.paused": "达到上限，已暂停",
   "marker.running": "正在回答",
   "marker.queued": "排队等待中",
