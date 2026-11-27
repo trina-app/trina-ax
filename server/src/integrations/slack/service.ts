@@ -40,7 +40,7 @@ import type { ChatRow } from '../../chat/store'
 import { HttpError } from '../../http/errors'
 import { resolveLayout } from '../../system/layout'
 import { SecretBox } from '../connections/store'
-import { CLAIM_MS, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
+import { CLAIM_MS, appReturnPort, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
 import { redactorFor } from '../connections/redact'
 import { SlackApi, SlackApiError, type SlackDeps } from './api'
 import { AppHomeOpened, AppMention, BlockActions, EventCallback, ImMessage, type Envelope } from './envelope'
@@ -179,7 +179,7 @@ const HELD = 'held'
 interface Held { code?: string; handoff?: string; claim: string; until: number }
 /** the answer to a browser coming back: a result word (the page's ?slack=…) and where the flow started; `held`: the
  * one-time code for the desktop app's link (routes/slack.ts shows the shared held page) */
-export interface SlackReturn { result: string; client: string; held?: { code: string; who: { name: string; username: string }; name: string } }
+export interface SlackReturn { result: string; client: string; held?: { code: string; who: { name: string; username: string }; name: string; returnPort?: number | null } }
 /** a flow claimed by the desktop app, in the claim address's shape (routes/drive.ts) */
 export interface SlackClaimed { flowId: string; state: 'completed' | 'failed'; expiresAt: string; reason: string | null }
 
@@ -976,7 +976,7 @@ export class SlackConnector {
     try { sealed = this.box.seal(aad, { ...kept, held: { ...value, claim: tokenHash(code), until } satisfies Held }) } catch { return null }
     if (!this.db.query(`UPDATE ${table} SET verifier_enc = ?, ${keyCol} = ?, reason = ?, expires_at = ? WHERE id = ? AND state = 'pending' AND reason IS NULL`).run(sealed.enc, sealed.keyVersion, HELD, iso(until), f.id).changes) return { result: 'handed', client: f.client }
     const who = this.db.query('SELECT name, username FROM users WHERE id = ?').get(f.user_id) as { name: string; username: string } | null
-    return { result: 'held', client: f.client, held: { code, who: who ?? { name: '', username: '' }, name: 'Slack' } }
+    return { result: 'held', client: f.client, held: { code, who: who ?? { name: '', username: '' }, name: 'Slack', returnPort: appReturnPort(f.session_id) } }
   }
 
   /** the session that started a flow is still there, of an active person */

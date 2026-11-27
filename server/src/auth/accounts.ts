@@ -235,7 +235,7 @@ export async function setup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Se
   const id = await bootstrapOwner(ctx, { username: b.owner.username, name: b.owner.name, credential: { password: b.owner.password }, email: b.owner.email ?? null, teamName: b.teamName, locale: b.locale, timeZone: b.timeZone ?? null })
   // the owner's welcome steps start now, with the link's website: the desktop app resumes them too (/open-app)
   startWelcomeAtSetup(ctx, b.site)
-  return authOf(ctx).signIn(c, id, 'web', 'cookie')
+  return authOf(ctx).signIn(c, id, b.client, 'cookie')
 }
 
 // ---------------- sign-in ----------------

@@ -258,6 +258,9 @@ export const SetupBody = z.object({
    * step starts from it on any device, the desktop app too. Not an http(s) address, or too long: dropped, never an
    * error (a setup never fails over it) */
   site: z.string().max(300).optional().catch(undefined),
+  /** the app the setup page runs in: a team made in the desktop app gets a desktop session (Google connect's hand-off
+   * back to the app needs one: server google-drive/app-return.ts) */
+  client: ClientKind.default('web'),
 })
 
 /** One-time reset link (admin-issued, 24 h; or owner recovery from the server Mac). Web page: /reset-password/<token>. */

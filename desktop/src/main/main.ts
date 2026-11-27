@@ -57,6 +57,7 @@ import { TeamsStore } from './teams-store'
 import { DesktopUpdater } from './updater'
 import { onLaunch, takeResume } from './update-launch'
 import { SignInReturn } from '../common/sign-in-return'
+import { CodeReturn } from '../common/code-return'
 import { forwardLink, linkSocketPath, listenForLinks } from './link-forward'
 import { handoffLog, setHandoffLogDir } from './handoff-log'
 import { ConsoleSignIn } from './console-signin'
@@ -294,6 +295,18 @@ let createTeam: CreateTeam | undefined
 const storeScreens = process.mas === true || (dev && process.env.MYCEL_DESKTOP_TEST_STORE === '1')
 /** a connector sign-in's one-time return address on 127.0.0.1, for the team the window shows (common/sign-in-return.ts) */
 const signInReturn = new SignInReturn({ current: () => win?.team?.origin })
+/** a sign-in's one-time code back from the system browser over 127.0.0.1 (common/code-return.ts): redeemed for the team
+ * on screen with its session, like the code of the app link; the window comes forward for the account's confirm */
+const codeReturn = new CodeReturn({
+  deliver: (code, team) => {
+    if (!win || win.win.isDestroyed() || !win.claimReturnedCode(code, team)) return false
+    if (win.win.isMinimized()) win.win.restore()
+    win.win.show()
+    win.win.focus()
+    return true
+  },
+  page: () => t(locale(), 'signin.codeBack', { app: PRODUCT.displayName }),
+})
 /** apps on this computer as connectors (main/local-apps.ts): made when the app is ready (its user data folder) */
 let localApps: LocalAppsHost | undefined
 // voice input transcribed on this Mac (main/dictation.ts): the page that started the recording gets its words
@@ -616,6 +629,9 @@ function registerIpc() {
   // direct one), and it goes only there (common/sign-in-return.ts)
   ipcMain.handle('bridge:sign-in-return-open', (e) => (fromApp(e) && e.senderFrame && e.senderFrame.origin === win?.team?.origin ? signInReturn.open(e.senderFrame.origin) : null))
   ipcMain.on('bridge:sign-in-return-close', (e, port: unknown) => fromApp(e) && typeof port === 'number' && signInReturn.close(port))
+  // the return address for sign-in codes: its port for the team page's top frame at the team's own address, which tells
+  // its server (shared APP_RETURN_HEADER); the address hands codes only to that team's window (claimReturnedCode)
+  ipcMain.handle('bridge:code-return-port', (e) => (fromApp(e) && e.senderFrame && e.senderFrame.origin === win?.team?.origin ? codeReturn.port() : null))
   ipcMain.handle('bridge:browser-settings', (e) => (fromApp(e) ? (win!.browserSettings() ?? null) : null))
   ipcMain.handle('bridge:browser-access', async (e, v: unknown): Promise<AllowAllOutcome> => {
     if (!fromApp(e) || !win?.pane) return 'unavailable'
