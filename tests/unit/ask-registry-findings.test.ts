@@ -73,7 +73,10 @@ async function runTask(chatId: string, prompt: string, project: string | null = 
   db().query('UPDATE schedules SET next_run_at = ? WHERE id = ?').run(new Date(Date.now() - 1000).toISOString(), s.id)
   expect(h.rt().schedules.runDue(new Date())).toEqual([s.id])
   const t = db().query('SELECT id FROM turns WHERE schedule_id = ? ORDER BY started_at DESC LIMIT 1').get(s.id) as { id: string }
-  await waitFor(() => (db().query('SELECT status FROM turns WHERE id = ?').get(t.id) as { status: string }).status !== 'queued'
+  // the run is over: its turn ended (not queued, not running) and its answer is written. Before, "not queued" and "the
+  // answer is not streaming" were also true for a turn that was running with no answer row yet, and on a slow runner the
+  // test read the tool's result before the tool had run (CI 2026-11-27, 47 ms)
+  await waitFor(() => !['queued', 'running'].includes((db().query('SELECT status FROM turns WHERE id = ?').get(t.id) as { status: string }).status)
     && (db().query("SELECT status FROM messages WHERE turn_id = ? AND role = 'assistant'").get(t.id) as { status: string } | null)?.status !== 'streaming', { timeoutMs: 30_000 })
   h.rt().schedules.delete('alice', s.id)
   return t.id

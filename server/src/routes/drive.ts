@@ -1,4 +1,4 @@
-import { API, type Locale } from '@mycel/shared/api'
+import { API, type ClientKind, type Locale } from '@mycel/shared/api'
 import { msg } from '../auth/messages'
 import { refuseClientInUse } from '../auth/google-login-admin'
 import type { AppContext } from '../context'
@@ -19,6 +19,7 @@ import { googleAppsOf, GoogleAppError } from '../integrations/google-apps/servic
 import { slackOf } from '../integrations/slack/service'
 import { integrationsOf } from '../integrations/connections/service'
 import { finishGoogle, ownsGoogleState } from '../auth/google-login'
+import { googleSigninBrokerOf } from '../auth/google-login-broker'
 import type { Context } from 'hono'
 import type { AppEnv } from '../http/env'
 
@@ -31,11 +32,17 @@ async function safe<T>(fn: () => T | Promise<T>, locale?: Locale): Promise<T> {
     throw new HttpError('internal')
   }
 }
+/** Who starts a Google sign-in: the desktop app when its page says so (a session it signed in can be recorded as 'web'),
+ * else the session's kind. Saying 'desktop' only decides how a return without a session ends (held for the app's
+ * one-time code, which only this session redeems), never who may finish it. A phone app's session stays the phone's. */
+export const startedFrom = (session: ClientKind, said?: 'desktop'): ClientKind => (said === 'desktop' && session !== 'mobile' ? 'desktop' : session)
+
 export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.myDriveConnection, ({ auth }) => safe(() => googleDriveOf(ctx).status(auth.user.id)))
   // the session's kind: a sign-in from the desktop or phone app ends on a page that sends the person back to the app,
   // and the desktop app first opens a page that names whose Trina gets the Drive (google-drive/app-return.ts)
-  kit.handle(API.authorizeDrive, ({ auth }) => safe(() => googleDriveOf(ctx).begin(auth.user.id, auth.session.id, undefined, auth.session.client)))
+  // (`client`: the desktop app's page says it is one, for a session recorded as another kind; app-return.ts)
+  kit.handle(API.authorizeDrive, ({ auth, body }) => safe(() => googleDriveOf(ctx).begin(auth.user.id, auth.session.id, undefined, startedFrom(auth.session.client, body.client))))
   kit.handle(API.driveFlow, ({ auth, params }) => safe(() => googleDriveOf(ctx).flow(auth.user.id, auth.session.id, params.id)))
   kit.handle(API.completeDriveFlow, ({ auth, params, body }) => safe(() => googleDriveOf(ctx).complete(auth.user.id, auth.session.id, params.id)))
   // the desktop app's one-time code for a sign-in Google answered in a browser without a session: this session's flow
@@ -72,7 +79,7 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   // service checks the caller is an active admin again
   kit.handle(API.setDriveMembers, ({ auth, body }) => safe(() => { setMembersCanConnect(ctx, auth.user.id, body.on); afterServiceSetup(ctx, 'google-drive'); return driveAdminStatus(ctx) }))
   kit.handle(API.listDriveShares, ({ auth }) => safe(() => ({ items: listShares(ctx, auth.user.id) })))
-  kit.handle(API.authorizeDriveShare, ({ auth, body }) => safe(() => googleDriveOf(ctx).begin(auth.user.id, auth.session.id, { shareId: body.shareId }, auth.session.client)))
+  kit.handle(API.authorizeDriveShare, ({ auth, body }) => safe(() => googleDriveOf(ctx).begin(auth.user.id, auth.session.id, { shareId: body.shareId }, startedFrom(auth.session.client, body.client))))
   kit.handle(API.completeDriveShareFlow, ({ auth, params, body }) => safe(() => { const svc = googleDriveOf(ctx); return shareView(ctx.db, svc.completeShare(auth.user.id, auth.session.id, params.id, body.name), svc.key) }))
   kit.handle(API.driveShareFolders, ({ auth, params, query }) => safe(async () => ({ items: await shareFolders(ctx, auth.user.id, params.id, query.q) })))
   kit.handle(API.updateDriveShare, ({ auth, params, body }) => safe(() => updateShare(ctx, auth.user.id, params.id, body)))
@@ -92,13 +99,17 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
     return c.html(drivePreGooglePage(cc.get('locale'), go), 200)
   })
   // The hosting service's proof that this self-installed server's relay key belongs to this address (google-drive/
-  // broker.ts `register`): the PUBLIC key only, no session; 404 unless this server registers itself there
+  // broker.ts `register`): the PUBLIC key only, no session; 404 unless this server registers itself there, for Drive
+  // (google-drive/broker.ts) or for Sign in with Google (auth/google-login-broker.ts): one registration serves both,
+  // so sign-in works on a server whose Drive has a client of its own or is turned off
   kit.raw('GET', GOOGLE_BROKER_KEY_PATH, async c => {
     c.header('Cache-Control', 'no-store')
-    const broker = googleDriveOf(ctx).broker
-    if (!broker?.o.selfOrigin) return c.json({ error: { code: 'not_found' } }, 404)
+    const drive = googleDriveOf(ctx).broker
+    const signin = googleSigninBrokerOf(ctx)
+    const identity = drive?.o.selfOrigin ? drive.o.identity : signin?.registersItself() ? signin.identity : null
+    if (!identity) return c.json({ error: { code: 'not_found' } }, 404)
     let key: string
-    try { key = broker.o.identity().publicKey } catch { return c.json({ error: { code: 'unavailable' } }, 503) }
+    try { key = identity().publicKey } catch { return c.json({ error: { code: 'unavailable' } }, 503) }
     return c.json({ v: 1, key }, 200)
   })
   kit.raw('GET', CALLBACK_PATH, async c => {

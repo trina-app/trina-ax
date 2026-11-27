@@ -36,6 +36,11 @@ export function desktopOpenUrl(answer: { openPath?: string }, origin: string | u
 /** Where a sign-in (Google's, or another service's: IntegrationRow.tsx useSignIn) opens: the phone app hands the address to its browser (lib/mobile.ts openExternal), the
  * desktop app to the system browser, a browser opens a window of its own. */
 export type SignInPlace = 'phone' | 'desktop' | 'browser'
+
+/** What a Google sign-in's start says about who starts it: the desktop app says so, so that Google's return in the system
+ * browser (which has no session) is handed back to the app with its one-time code even when the server recorded this
+ * session as another kind (server google-drive/app-return.ts; QA 2026-11-27: "not signed in" and an endless wait). */
+export const googleStartBody = (desktopApp: boolean = isDesktop()): { client?: 'desktop' } => (desktopApp ? { client: 'desktop' } : {})
 export const signInPlace = (): SignInPlace => (mobileApp() ? 'phone' : isDesktop() ? 'desktop' : 'browser')
 type Open = (url: string, target: string) => Window | null
 const browserOpen: Open = (url, target) => window.open(url, target)

@@ -66,7 +66,9 @@ interface FlowRow {
 interface Account { subject: string; name: string | null; email: string | null }
 /** `claim`: a result Google answered in a browser without a session, for a desktop session's flow: kept sealed and still
  * "waiting" until the app on that computer brings this one-time code (google-drive/app-return.ts) */
-interface FlowSecret { verifier: string; tokens?: { accessToken: string; refreshToken: string; expiresAt: number | null }; account?: Account; scope?: string; claim?: { hash: string; until: number } }
+/** `desktop`: the desktop app's page started it (its session may be recorded as 'web'): a return without a session is
+ * held for the app's one-time code, as for a desktop session's */
+interface FlowSecret { verifier: string; tokens?: { accessToken: string; refreshToken: string; expiresAt: number | null }; account?: Account; scope?: string; claim?: { hash: string; until: number }; desktop?: true }
 
 const TTL = 10 * 60_000
 /** how long a return waits for another return of the same sign-in that is still talking to Google (a reload, a second
@@ -218,7 +220,7 @@ export class GoogleApps {
   }
 
   /** `scope` 'team': the sign-in of the account shared with the team (owners and admins only). */
-  async authorize(user: string, session: string, app: GoogleAppId, scope: Scope = 'personal'): Promise<{ flowId: string; authorizationUrl: string; connectUrl?: string; expiresAt: string }> {
+  async authorize(user: string, session: string, app: GoogleAppId, scope: Scope = 'personal', from?: 'desktop'): Promise<{ flowId: string; authorizationUrl: string; connectUrl?: string; expiresAt: string }> {
     this.session(user, session, scope)
     const setup = this.usable(app)
     this.sweep()
@@ -228,7 +230,7 @@ export class GoogleApps {
     if (n >= FLOWS_PER_HOUR) throw new GoogleAppError('signin_limit', 429)
     const id = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
     let sealed
-    try { sealed = this.box.seal(flowAad({ id, user_id: user }), { verifier } satisfies FlowSecret) } catch { throw new GoogleAppError('key_unsafe', 503) }
+    try { sealed = this.box.seal(flowAad({ id, user_id: user }), { verifier, ...(from === 'desktop' ? { desktop: true } as const : {}) } satisfies FlowSecret) } catch { throw new GoogleAppError('key_unsafe', 503) }
     const expiresAt = new Date(now + TTL).toISOString()
     // a waiting result of the flow this one replaces is never used: revoked at Google where that is safe (dropTokens)
     this.dropTokens(this.db.query("SELECT * FROM google_app_flows WHERE user_id=? AND app=? AND scope=? AND state IN ('exchanging','ready') AND secret_enc IS NOT NULL").all(user, app, scope) as FlowRow[])
@@ -297,10 +299,14 @@ export class GoogleApps {
     if (f.state !== 'exchanging' || !f.secret_enc) return false
     try { return !!this.box.open<FlowSecret>(flowAad(f), f.secret_enc, f.key_version).claim } catch { return false }
   }
-  /** The kind of app whose session started a flow, when it is an app (the return page sends the person back to it) */
-  private appOf(sessionId: string): AppClient | null {
-    const c = (this.db.query('SELECT client FROM sessions WHERE id=?').get(sessionId) as { client: string } | null)?.client
-    return c === 'desktop' || c === 'mobile' ? c : null
+  /** The kind of app that started a flow, when it is an app (the return page sends the person back to it): its session's
+   * kind, or 'desktop' when the desktop app's page said so at the start (FlowSecret.desktop; a desktop app's session can
+   * be recorded as 'web', and its return page said "not signed in" while the app waited forever: QA 2026-11-27) */
+  private appOf(f: FlowRow): AppClient | null {
+    const c = (this.db.query('SELECT client FROM sessions WHERE id=?').get(f.session_id) as { client: string } | null)?.client
+    if (c === 'desktop' || c === 'mobile') return c
+    if (!f.secret_enc) return null
+    try { return this.box.open<FlowSecret>(flowAad(f), f.secret_enc, f.key_version).desktop ? 'desktop' : null } catch { return null }
   }
   cancel(user: string, session: string, app: GoogleAppId, id: string, scope: Scope = 'personal') {
     const f = this.ownFlow(user, session, app, id, scope)
@@ -324,7 +330,7 @@ export class GoogleApps {
     if (!input.state || !/^[A-Za-z0-9_-]{43}$/.test(input.state)) return no('invalid_flow')
     const f = this.db.query('SELECT * FROM google_app_flows WHERE state_hash=?').get(hash(input.state)) as FlowRow | null
     if (!f) return no('invalid_flow')
-    const app = this.appOf(f.session_id)
+    const app = this.appOf(f)
     if (f.state !== 'pending') return this.answered(f, app, browser)
     // A leaked sign-in address must not attach someone else's Google consent: a browser signed in as someone else is
     // refused; one without a session gets only the desktop app's code (claim), which only the starter's session redeems.
@@ -358,7 +364,7 @@ export class GoogleApps {
       const account: Account = { subject: me.sub, name: clean(me.name, 200), email: clean(me.email, 320) }
       const cur = this.db.query('SELECT state, expires_at FROM google_app_flows WHERE id=?').get(f.id) as { state: string; expires_at: string } | null
       if (!cur || cur.state !== 'exchanging' || cur.expires_at <= new Date(this.now()).toISOString()) return failed('invalid_flow')
-      const result: FlowSecret = { verifier: '', tokens: { ...tokens, refreshToken: tokens.refreshToken! }, account, scope: granted.join(' ') }
+      const result: FlowSecret = { verifier: '', tokens: { ...tokens, refreshToken: tokens.refreshToken! }, account, scope: granted.join(' '), ...(s.desktop ? { desktop: true } as const : {}) }
       if (held) return this.hold(f, result, cur.expires_at)
       const sealed = this.box.seal(flowAad(f), result)
       this.db.query("UPDATE google_app_flows SET state='ready', secret_enc=?, key_version=?, account=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, JSON.stringify(account), f.id)

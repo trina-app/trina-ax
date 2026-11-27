@@ -44,8 +44,31 @@ export function getUser(db: Database, id: string): UserRow | null {
 export function getUserByUsername(db: Database, username: string): UserRow | null {
   return db.query(`SELECT ${USER_COLS} FROM users WHERE lower(username) = lower(?) AND deleted_at IS NULL`).get(username) as UserRow | null
 }
+/** Who a sign-in names: the live user with that username (case-insensitive, trimmed), else, for a name with an @,
+ * the one active account whose e-mail is exactly that address (case-insensitive). An address no active account or
+ * several use names nobody (a wrong-password answer, like an unknown username): those people sign in with their
+ * username. */
+export function signInUser(db: Database, name: string): UserRow | null {
+  const n = name.trim()
+  const byName = getUserByUsername(db, n)
+  if (byName || !n.includes('@')) return byName
+  const rows = db.query(`SELECT ${USER_COLS} FROM users WHERE email IS NOT NULL AND lower(email) = lower(?) AND deleted_at IS NULL AND status = 'active' LIMIT 2`).all(n) as UserRow[]
+  return rows.length === 1 ? rows[0]! : null
+}
+/** An e-mail another account here has (case-insensitive, trimmed; switched-off accounts too, so turning one back on
+ * never makes two active accounts with one address), or another account's username: one e-mail signs in one account
+ * only, so a new or changed e-mail may not be one of those (accounts that share one from before keep it and sign in
+ * with their username). Sign-in itself (signInUser) looks at active accounts only. */
+export function emailTakenByOther(db: Database, email: string, exceptId: string | null): boolean {
+  const e = email.normalize('NFC').trim().toLowerCase()
+  if (!e) return false
+  const rows = db.query('SELECT id, email, username FROM users WHERE deleted_at IS NULL AND (email IS NOT NULL OR lower(username) = ?)').all(e) as { id: string; email: string | null; username: string }[]
+  return rows.some((r) => r.id !== exceptId && ((r.email ?? '').normalize('NFC').trim().toLowerCase() === e || r.username.toLowerCase() === e))
+}
+/** A username is taken when an account has it, or has it as its e-mail (case-insensitive): a username that is someone
+ * else's e-mail would take over that person's sign-in by e-mail. */
 export function usernameTaken(db: Database, username: string): boolean {
-  return !!db.query('SELECT 1 FROM users WHERE lower(username) = lower(?)').get(username)
+  return !!db.query('SELECT 1 FROM users WHERE lower(username) = lower(?) OR (email IS NOT NULL AND deleted_at IS NULL AND lower(email) = lower(?))').get(username, username)
 }
 
 /** A free username from an e-mail address's part before @ (the first owner made with Google, auth/google-signup.ts):

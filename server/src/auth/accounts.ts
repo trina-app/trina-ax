@@ -37,7 +37,7 @@ import { isHosted } from '../system/deployment'
 import { HOSTED_BROKER_ORIGIN } from '../integrations/google-drive/broker'
 import { isManaged } from '../app-config'
 import { resolveLayout } from '../system/layout'
-import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameFromEmail, usernameTaken, userRef, type NewUser, type UserRow } from './users'
+import { deriveUserId, ensurePersonalFolder, existingGroups, emailTakenByOther, getUser, insertUser, signInUser, usernameFromEmail, usernameTaken, userRef, type NewUser, type UserRow } from './users'
 import { notifyResetLink, notifySignInChange, notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
 import { recordJoin } from '../onboarding/member-welcome'
@@ -235,7 +235,7 @@ export async function setup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Se
   const id = await bootstrapOwner(ctx, { username: b.owner.username, name: b.owner.name, credential: { password: b.owner.password }, email: b.owner.email ?? null, teamName: b.teamName, locale: b.locale, timeZone: b.timeZone ?? null })
   // the owner's welcome steps start now, with the link's website: the desktop app resumes them too (/open-app)
   startWelcomeAtSetup(ctx, b.site)
-  return authOf(ctx).signIn(c, id, 'web', 'cookie')
+  return authOf(ctx).signIn(c, id, b.client, 'cookie')
 }
 
 // ---------------- sign-in ----------------
@@ -246,7 +246,11 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
   const ip = info.ip
   // which counter of the account this attempt uses (rate-limit.ts AccountScope): failures from the internet must not
   // lock the person out at the Mac, on the office network, or on a network they signed in from before
-  const known = getUserByUsername(ctx.db, b.username)
+  // the username, or the e-mail of exactly one active account (users.ts signInUser): from here on it is that account,
+  // with its own counters, exactly as by username; an address no account or several accounts use is an unknown name.
+  // The name is trimmed before it keys a counter, so " kim" and "kim" are one counter
+  const known = signInUser(ctx.db, b.username)
+  const loginName = known?.username ?? b.username.trim()
   const net = ip ? limitIp(ip) : null
   const scope: AccountScope = net && ((!info.tunnel && isLoopback(ip)) || (known && a.limiter.knownNet(known.id, net)))
     ? { kind: 'net', net }
@@ -257,7 +261,7 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
   // sign-ins with any usernames locked the whole team out there for 15 minutes. Its attempts still count toward the
   // normal IP counter, and the per-account counter (10 per 15 minutes) still applies.
   // A loopback address reported by the relay is a client on the relay host, not this Mac: it keeps the normal limit.
-  const accountK = accountKey(b.username, scope)
+  const accountK = accountKey(loginName, scope)
   const shared = scope.kind === 'net' && !(info.via === 'relay' && isLoopback(ip))
   const keys = shared ? [accountK, ...netIpKeys(ip)] : [accountK, ...ipKeys(ip)]
   // counted before the (slow) password check, so parallel guesses cannot slip past the limit
@@ -265,12 +269,12 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
   if (hold.wait > 0) {
     // one audit row per client IP (or account, when the IP is unknown) and minute: a flood of refused attempts,
     // even with made-up usernames, cannot fill the disk
-    if (a.firstInMinute(ip ? `rl-ip:${ip}` : `rl-user:${b.username.toLowerCase()}`)) {
-      audit(ctx.db, { actor: null, action: 'auth.rate_limited', target: getUserByUsername(ctx.db, b.username)?.id ?? null, detail: { ip, via: viaOf(c.get('info')) } })
+    if (a.firstInMinute(ip ? `rl-ip:${ip}` : `rl-user:${loginName.toLowerCase()}`)) {
+      audit(ctx.db, { actor: null, action: 'auth.rate_limited', target: known?.id ?? null, detail: { ip, via: viaOf(c.get('info')) } })
     }
     fail('rate_limited', msg('tooManyAttempts', locale), { retryAfter: hold.wait })
   }
-  const u = getUserByUsername(ctx.db, b.username)
+  const u = signInUser(ctx.db, b.username)
   let ok = false
   try { ok = await verifyPassword(b.password, u?.password_hash) } catch (e) { hold.release(); throw e }
   // a wrong password, or no such account: the same 401 and words (nothing says which usernames exist), counted
@@ -294,7 +298,7 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
   }
   hold.release()
   // only this scope's failures: a correct password at the office must not hand an internet guesser ten more tries
-  a.limiter.clear(accountKey(b.username, scope))
+  a.limiter.clear(accountKey(loginName, scope))
   const temp = !!u!.must_change_password
   audit(ctx.db, { actor: u!.id, action: 'auth.login', target: u!.id, detail: { ip, via: viaOf(c.get('info')), client: b.client, ...(temp ? { temporaryPassword: true } : {}) } })
   return a.signIn(c, u!.id, b.client, b.tokenMode, { tempLogin: temp })
@@ -549,7 +553,10 @@ export type JoinEnd<Ok, Why extends string> = ({ ok: true; id: string; groups: s
 
 /** Inside the write that makes an account: its row and, made with Google, its connected Google account (no password). */
 export function insertAccount(db: Database, u: Omit<NewUser, 'passwordHash'>, cred: NewCredential, now: string): void {
-  insertUser(db, { ...u, passwordHash: 'passwordHash' in cred ? cred.passwordHash : null })
+  // one e-mail signs in one account (users.ts signInUser): an address Google gave that another account here has is not
+  // kept (the person adds one in Settings; nothing a person typed is dropped, those paths refuse it)
+  const email = u.email && emailTakenByOther(db, u.email, null) ? null : u.email
+  insertUser(db, { ...u, email, passwordHash: 'passwordHash' in cred ? cred.passwordHash : null })
   if ('google' in cred) addLoginIdentity(db, u.id, cred.google, now)
 }
 
@@ -615,7 +622,7 @@ export function afterInviteJoin(ctx: AppContext, invite: Pick<InviteRow, 'id' | 
  * password), a free username and a free seat. Google's return checks them all again in joinWithInvite. Only the
  * invite's id goes on with the flow, never its token.
  */
-export function inviteForGoogle(c: Context<AppEnv>, ctx: AppContext, token: string, username: string): { id: string } {
+export function inviteForGoogle(c: Context<AppEnv>, ctx: AppContext, token: string, username: string | undefined): { id: string } {
   const a = authOf(ctx)
   const locale = c.get('locale')
   const guard = tokenGuard(ctx, c.get('info').ip)
@@ -623,7 +630,7 @@ export function inviteForGoogle(c: Context<AppEnv>, ctx: AppContext, token: stri
   if (!r) { guard.fail(); return fail('not_found') }
   if (!inviteValid(ctx.db, r, a.now())) failDead(ctx.db, r, a.now(), locale)
   if (r.role === 'guest') fail('forbidden', msg('googleGuestJoin', locale), { params: { reason: 'guest_password_only' } })
-  if (usernameTaken(ctx.db, username)) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
+  if (username !== undefined && usernameTaken(ctx.db, username)) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
   if (seatsFull(ctx.db)) fail('plan_limit', msg('inviteTeamFull', locale), { params: { reason: 'seat_limit', limit: seatLimit() ?? 0 } })
   return { id: r.id }
 }

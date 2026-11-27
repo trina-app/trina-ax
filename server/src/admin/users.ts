@@ -17,7 +17,7 @@ import { requireReauth } from '../auth/reauth'
 import { hashPassword, passwordProblem, temporaryPassword } from '../auth/passwords'
 import { authOf } from '../auth/service'
 import { assertSeatFree } from '../system/limits'
-import { USER_COLS, deriveUserId, ensurePersonalFolder, existingGroups, getUser, insertUser, setUserLocale, toUser, usernameTaken, type UserRow } from '../auth/users'
+import { USER_COLS, deriveUserId, emailTakenByOther, ensurePersonalFolder, existingGroups, getUser, insertUser, setUserLocale, toUser, usernameTaken, type UserRow } from '../auth/users'
 import { audit } from './audit'
 import { cancelLoginsOf } from '../credentials/login'
 import { connectionsChanged, existingCredentialsOf } from '../credentials/store'
@@ -101,6 +101,7 @@ export async function createUser(c: Context<AppEnv>, ctx: AppContext, b: In<type
   const locale = c.get('locale')
   if (b.role === 'admin' && auth.user.role !== 'owner') fail('forbidden', msg('ownerOnlyAdmins', locale))
   if (usernameTaken(ctx.db, b.username)) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
+  if (b.email && emailTakenByOther(ctx.db, b.email, null)) fail('conflict', msg('emailTakenByOther', locale), { params: { reason: 'email_in_use' }, fields: { 'body.email': 'email_in_use' } })
   if (b.id && (ctx.db.query('SELECT 1 FROM users WHERE id = ?').get(b.id) || fs.existsSync(path.join(ctx.files.fx.root, 'users', b.id))))
     fail('conflict', undefined, { fields: { 'body.id': 'taken' } })
   const groups = checkGroups(ctx, b.groupIds, locale)
@@ -112,12 +113,15 @@ export async function createUser(c: Context<AppEnv>, ctx: AppContext, b: In<type
     // meanwhile) cannot take it between the check and the insert
     ctx.db.transaction(() => {
       if (usernameTaken(ctx.db, b.username)) throw new UniqueTaken('body.username')
+      // checked again inside the write: another create (or an e-mail change) during the password hash cannot slip in
+      if (b.email && emailTakenByOther(ctx.db, b.email, null)) throw new UniqueTaken('body.email')
       assertSeatFree(ctx.db, locale) // the plan's seats (system/limits.ts), inside the write
       id = b.id ?? deriveUserId(ctx.db, b.username, ctx.files.fx.root)
       insertUser(ctx.db, { id, username: b.username, name: b.name, email: b.email ?? null, passwordHash, role: b.role, locale: b.locale ?? null, mustChangePassword: true, tempPasswordExpiresAt: tempPasswordExpiry(authOf(ctx).now()), groupIds: groups })
       audit(ctx.db, { actor: auth.user.id, action: 'user.create', target: id, detail: { role: b.role, groupIds: groups } })
     }).immediate()
   } catch (e) {
+    if (e instanceof UniqueTaken && e.field === 'body.email') fail('conflict', msg('emailTakenByOther', locale), { params: { reason: 'email_in_use' }, fields: { 'body.email': 'email_in_use' } })
     if (e instanceof UniqueTaken) fail('conflict', e.field === 'body.username' ? msg('usernameTaken', locale) : undefined, { fields: { [e.field]: 'taken' } })
     if (isUniqueViolation(e)) fail('conflict', undefined, { fields: { [b.id ? 'body.id' : 'body.username']: 'taken' } })
     throw e
@@ -177,6 +181,8 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     // emailUsedByOther; docs/decisions/20261116-admin-guest-email-unique.md). Guest status is read from the database
     // here, inside the write; members may still share an address, as before
     if (b.email !== undefined && b.email !== null && isGuest(ctx.db, id) && emailUsedByOther(ctx.db, id, b.email)) fail('conflict', msg('emailInUse', locale), { params: { reason: 'email_in_use' }, fields: { 'body.email': 'email_in_use' } })
+    // one e-mail signs in one account (auth/users.ts signInUser): not an address another account has
+    if (b.email !== undefined && b.email !== null && b.email !== target.email && emailTakenByOther(ctx.db, b.email, id)) fail('conflict', msg('emailTakenByOther', locale), { params: { reason: 'email_in_use' }, fields: { 'body.email': 'email_in_use' } })
     if (b.email !== undefined) set('email', b.email, 'email')
     if (b.role !== undefined && b.role !== target.role) set('role', b.role, 'role')
     if (b.status !== undefined && b.status !== target.status) set('status', b.status, 'status')
