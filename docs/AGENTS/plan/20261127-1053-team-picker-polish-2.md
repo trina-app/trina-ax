@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-27 10:53
 - Branch: `ui/team-picker-polish-2` (off #693's head 48972e692)
-- Status: in progress
+- Status: done
 - Where: `desktop/src/ui/` (welcome.ts, ui.css). Why: the desktop app's own first screen lives there
   (docs/REPOSITORY-RULES.md)
 - Version impact: patch. A visual change to one existing screen; no new feature, setting or API.
@@ -51,3 +51,10 @@ Long titles in other languages (es, id) at a narrow window: titles wrap, the che
 
 `bun run typecheck`, `bun run check:prepush`, the desktop unit tests, desktop e2e `create-team.spec.ts`,
 `language.spec.ts`, `keyboard-focus.spec.ts`.
+
+## Result
+
+Built as planned. Create, Join and "Just look around first" are one list of 40px rows (bare icon, 14px title, faint
+chevron or arrow out); Create's "+" tile is the one accent; on the first run Create is outlined with its short line.
+Tests: the desktop unit tests, `bun run typecheck`, `bun run check:prepush`, desktop e2e create-team, language and
+keyboard-focus (19 passed).

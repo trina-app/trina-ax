@@ -79,7 +79,7 @@ describe('desktop welcome: quiet help actions and Back', () => {
 describe('desktop S0: create and join are quiet rows like the team rows', () => {
   const s0 = welcome.slice(welcome.indexOf('function actionRow('), welcome.indexOf('function outsideBox('))
   test('two action rows with an icon tile, no orange block and no outlined box', () => {
-    expect(s0).toContain("actionRow({ id: 'create-team', icon: 'plus', title: tr('start.create'), sub: tr('start.createSub')")
+    expect(s0).toContain("actionRow({ id: 'create-team', icon: 'plus', title: tr('start.create'), sub: first ? tr('start.createSub') : undefined, lead: first,")
     expect(s0).toContain("actionRow({ id: 'join-team', icon: 'link', title: tr('start.join')")
     expect(welcome).not.toContain("class: 'choice primary'")
     expect(css).not.toContain('button.choice')
@@ -87,6 +87,21 @@ describe('desktop S0: create and join are quiet rows like the team rows', () => 
     expect(row).toContain('border: none')
     expect(row).toContain('background: transparent')
     expect(row).not.toMatch(/accent/)
+  })
+  // the actions must not read as more teams (docs/AGENTS/plan/20261127-1053-team-picker-polish-2.md)
+  test('the actions have their own voice: a bare icon, a 14px title, a chevron; the demo is the third row', () => {
+    expect(s0).toContain("h('span', { class: 'go', 'aria-hidden': 'true' }, glyph(o.out ? 'external' : 'chevron'))")
+    expect(s0).toContain("actionRow({ id: 'demo', icon: 'compass', title: tr('start.demo'), quiet: true, out: true,")
+    expect(s0).not.toContain('demoLink()')
+    const tile = css.slice(css.indexOf('.action-row .tile {'), css.indexOf('}', css.indexOf('.action-row .tile {')))
+    expect(tile).not.toContain('background')
+    expect(css).toMatch(/\.action-row \.name \{[^}]*font-size: 14px;/)
+    expect(css).toMatch(/\.team-row \.name \{[^}]*font-size: 15px;/)
+  })
+  test('the first run\'s Create leads with a hairline, not a coloured block', () => {
+    const lead = css.slice(css.indexOf('button.action-row.lead {'), css.indexOf('}', css.indexOf('button.action-row.lead {')))
+    expect(lead).toContain('border: 1px solid var(--line)')
+    expect(lead).not.toMatch(/accent|background/)
   })
   test('the "+" tile is the one accent among the actions; Join keeps the plain tile', () => {
     const block = css.slice(css.indexOf('button.action-row {'), css.indexOf('.action-row .sub-line'))

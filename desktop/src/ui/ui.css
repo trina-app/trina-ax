@@ -283,7 +283,7 @@ h1 {
   border-radius: 6px;
   background: transparent;
   color: var(--faint);
-  opacity: 0.45;
+  opacity: 0.75;
 }
 .teams li:hover .more,
 .teams li:focus-within .more,
@@ -463,13 +463,16 @@ button.ghost:hover {
   margin: 14px 0 0;
 }
 
-/* S0's actions (welcome.ts start): two list rows with the team rows' geometry (12px inset reaching past the card's text
-   column, a 28px tile, 15px title, 13px faint line, the 8px --hover fill), under a hairline when teams are listed. The
-   "+" tile is the screen's one accent; Join's tile is the team initials' plain fill. No orange block, no outlined box. */
+/* S0's actions (welcome.ts start): one short list under the teams, in its own voice so it never reads as more teams
+   (docs/AGENTS/plan/20261127-1053-team-picker-polish-2.md): 40px rows, a bare line icon in the 28px tile's place (team
+   rows have a filled tile), a 14px title (team names are 15px), a faint chevron at the right (team rows have none).
+   The same 12px inset as the team rows, so icons and titles line up with the initials and names above. Create's "+"
+   tile is the screen's one accent; on the first run Create leads with a hairline outline and its short line. */
 .action-rows {
   display: flex;
   flex-direction: column;
-  margin: 10px -12px 4px;
+  gap: 2px;
+  margin: 12px -12px 0;
 }
 .action-rows.after-teams {
   margin-top: 8px;
@@ -481,7 +484,7 @@ button.action-row {
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 48px;
+  min-height: 40px;
   padding: 6px 12px;
   border: none;
   border-radius: 8px;
@@ -502,15 +505,12 @@ button.action-row:focus-visible {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--hover);
   color: var(--muted);
 }
 .action-row:hover .tile {
-  background: var(--panel);
   color: var(--text);
 }
-.action-row.icon-plus .tile,
-.action-row.icon-plus:hover .tile {
+.action-row.icon-plus .tile {
   background: var(--accent-soft);
   color: var(--accent-text);
 }
@@ -520,9 +520,41 @@ button.action-row:focus-visible {
 }
 .action-row .name {
   display: block;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 20px;
   font-weight: 500;
+}
+/* the demo: the least of the three, muted until pointed at */
+.action-row.quiet .name {
+  font-weight: 400;
+  color: var(--muted);
+}
+.action-row.quiet:hover .name {
+  color: var(--text);
+}
+/* the row goes somewhere: a faint chevron (the demo: an arrow out), darker on hover */
+.action-row .go {
+  flex: none;
+  display: flex;
+  color: var(--faint);
+}
+.action-row:hover .go {
+  color: var(--text);
+}
+/* the first run's Create: nothing above it to open, so it is the one thing to press; a hairline, not a coloured block */
+button.action-row.lead {
+  min-height: 60px;
+  padding: 9px 11px;
+  margin-bottom: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+button.action-row.lead:hover {
+  border-color: var(--field-border);
+}
+.action-row.lead .name {
+  font-size: 15px;
+  font-weight: 600;
 }
 /* the create row's short line: may wrap at a narrow window, never clipped */
 .action-row .sub-line {

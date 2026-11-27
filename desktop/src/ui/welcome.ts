@@ -258,35 +258,42 @@ function checking() {
   return h('section', { class: 'card', 'aria-busy': 'true', 'data-testid': 'welcome-checking' }, h('div', { class: 'brand' }, tr('app.name')))
 }
 
-/** one of S0's actions: a list row like the team rows (an icon tile, the title, a muted line under it) */
-function actionRow(o: { id: string; icon: 'plus' | 'link'; title: string; sub?: string; onclick: () => void }) {
+/**
+ * one of S0's actions: a list row with its own voice, so it never reads as one more team: a bare line icon (Create's
+ * "+" keeps the accent tile, the screen's one accent), a 14px title, a faint chevron at the right (the demo opens
+ * outside: an arrow). `lead`: the first run's Create, outlined (nothing above it to open). `quiet`: the demo, muted.
+ */
+function actionRow(o: { id: string; icon: 'plus' | 'link' | 'compass'; title: string; sub?: string; lead?: boolean; quiet?: boolean; out?: boolean; onclick: () => void }) {
   return h(
     'button',
-    { type: 'button', class: `action-row icon-${o.icon}`, id: o.id, 'data-testid': o.id, onclick: o.onclick },
+    { type: 'button', class: `action-row icon-${o.icon}${o.lead ? ' lead' : ''}${o.quiet ? ' quiet' : ''}`, id: o.id, 'data-testid': o.id, onclick: o.onclick },
     h('span', { class: 'tile', 'aria-hidden': 'true' }, glyph(o.icon)),
     h('span', { class: 'words' }, h('span', { class: 'name' }, o.title), o.sub ? h('span', { class: 'sub-line' }, o.sub) : null),
+    h('span', { class: 'go', 'aria-hidden': 'true' }, glyph(o.out ? 'external' : 'chevron')),
   )
 }
 
 /**
- * S0: the remembered teams first (opening one is the usual thing here), then two quiet rows in the team rows' style,
- * "Create a team for free" (its "+" tile is the screen's one accent) and "Join with an invite link" (S1, the box), the
- * small demo link, and the foot line (Back, the language). Team pickers in Slack, Notion, Linear, Figma and Discord
- * show create and join as rows like this, not as a coloured block (docs/AGENTS/plan/20261127-1028-team-picker-actions-redesign.md).
+ * S0: the remembered teams first (opening one is the usual thing here), then, under a hairline, the actions as one
+ * short list: "Create a team for free" (its "+" tile is the screen's one accent), "Join with an invite link" (S1, the
+ * box) and "Just look around first" (the demo, muted), then the foot line (Back, the language). On the first run Create
+ * leads (outlined, with its short line); with teams listed the short line is left out
+ * (docs/AGENTS/plan/20261127-1053-team-picker-polish-2.md, after docs/AGENTS/plan/20261127-1028-team-picker-actions-redesign.md).
  */
 function start() {
+  const first = !state.teams.length
   return h(
     'section',
-    { class: 'card', 'aria-labelledby': state.teams.length ? 'teams-title' : 'start-title', 'data-testid': 'start' },
+    { class: 'card', 'aria-labelledby': first ? 'start-title' : 'teams-title', 'data-testid': 'start' },
     h('div', { class: 'brand' }, tr('app.name')),
-    state.teams.length ? teamList() : h('h1', { id: 'start-title' }, tr('start.title')),
+    first ? h('h1', { id: 'start-title' }, tr('start.title')) : teamList(),
     h(
       'div',
-      { class: state.teams.length ? 'action-rows after-teams' : 'action-rows' },
-      actionRow({ id: 'create-team', icon: 'plus', title: tr('start.create'), sub: tr('start.createSub'), onclick: () => ui.create.start() }),
+      { class: first ? 'action-rows' : 'action-rows after-teams' },
+      actionRow({ id: 'create-team', icon: 'plus', title: tr('start.create'), sub: first ? tr('start.createSub') : undefined, lead: first, onclick: () => ui.create.start() }),
       actionRow({ id: 'join-team', icon: 'link', title: tr('start.join'), onclick: () => show('join') }),
+      actionRow({ id: 'demo', icon: 'compass', title: tr('start.demo'), quiet: true, out: true, onclick: () => ui.welcome.openLink('demo') }),
     ),
-    h('div', { class: 'help-links' }, demoLink()),
     footLine(),
   )
 }
@@ -408,13 +415,16 @@ function languagePicker() {
 const shortOrigin = (origin: string) => origin.replace(/^https?:\/\//, '')
 
 const SVG = 'http://www.w3.org/2000/svg'
-/** small line icons (lucide's check, ellipsis, plus, link, globe), drawn in the text colour */
-const GLYPHS: Record<'check' | 'more' | 'plus' | 'link' | 'globe', [string, Record<string, string>][]> = {
+/** small line icons (lucide's check, ellipsis, plus, link, globe, compass, chevron-right, arrow-up-right), drawn in the text colour */
+const GLYPHS: Record<'check' | 'more' | 'plus' | 'link' | 'globe' | 'compass' | 'chevron' | 'external', [string, Record<string, string>][]> = {
   check: [['path', { d: 'M20 6 9 17l-5-5' }]],
   more: [['circle', { cx: '5', cy: '12', r: '1' }], ['circle', { cx: '12', cy: '12', r: '1' }], ['circle', { cx: '19', cy: '12', r: '1' }]],
   plus: [['path', { d: 'M5 12h14' }], ['path', { d: 'M12 5v14' }]],
   link: [['path', { d: 'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71' }], ['path', { d: 'M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71' }]],
   globe: [['circle', { cx: '12', cy: '12', r: '10' }], ['path', { d: 'M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20' }], ['path', { d: 'M2 12h20' }]],
+  compass: [['circle', { cx: '12', cy: '12', r: '10' }], ['path', { d: 'm16.24 7.76-2.12 6.36-6.36 2.12 2.12-6.36z' }]],
+  chevron: [['path', { d: 'm9 18 6-6-6-6' }]],
+  external: [['path', { d: 'M7 7h10v10' }], ['path', { d: 'M7 17 17 7' }]],
 }
 function glyph(kind: keyof typeof GLYPHS, size = 16) {
   const svg = document.createElementNS(SVG, 'svg')
