@@ -6,5 +6,5 @@
   (Indonesian). The reply box's character count and the in-app browser's title follow the app's language.
 - New tests stop untranslated screen text, English refusals from the server and texts left in English in another
   language from coming back.
-- Admin › Plugins shows the HWP Preview plugin's name and description in Chinese (it was English). Indonesian "AI
-  defaults" reads "Bawaan AI", and a top folder's hover text on the Files screen is its name in the app's language.
+- Indonesian "AI defaults" reads "Bawaan AI", and a top folder's hover text on the Files screen is its name in the app's
+  language.

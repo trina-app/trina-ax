@@ -12,8 +12,7 @@
         "ko": { "name": "한글 문서 미리보기", "description": "한글(HWP/HWPX) 문서를 파일 화면에서 페이지별로 미리 보고, AI도 페이지를 볼 수 있어요. 원본 파일은 바꾸지 않아요." },
         "id": { "name": "Pratinjau HWP", "description": "Pratinjau dokumen Hangul (HWP/HWPX) per halaman di panel berkas, dan biarkan AI melihat satu halaman. Berkas asli tidak diubah." },
         "ja": { "name": "HWPプレビュー", "description": "ハングル文書（HWP/HWPX）をファイルパネルでページごとにプレビューし、AIがページを確認できるようにします。元のファイルは変更しません。" },
-        "es": { "name": "Vista previa de HWP", "description": "Vista previa página a página de documentos Hangul (HWP/HWPX) en el panel de archivos; la IA también puede ver una página. Los archivos originales no cambian." },
-        "zh": { "name": "HWP 预览", "description": "在文件面板中逐页预览韩文（HWP/HWPX）文档，并让 AI 查看某一页。原始文件不会被更改。" }
+        "es": { "name": "Vista previa de HWP", "description": "Vista previa página a página de documentos Hangul (HWP/HWPX) en el panel de archivos; la IA también puede ver una página. Los archivos originales no cambian." }
       },
       "permissions": {
         "required": ["files.read.selected", "preview.render", "runtime.native.isolated"],

@@ -141,8 +141,14 @@ describe('no text left in English in another language', () => {
   })
 
   test('the official plugin list names and describes each plugin in all six languages (the walk: Chinese saw English)', () => {
+    // A pinned entry's texts are inside its published package (plugins-pins.test.ts rebuilds it byte for byte), so a new
+    // language there waits for that plugin's next release (scripts/plugins/release-hwp.ts, a new version on the feed).
+    const WAITS_FOR_RELEASE: Record<string, string[]> = { 'app.trina.hwp-preview': ['zh'] }
     for (const e of catalog.entries as { id: string; i18n: Record<string, { name?: string; description?: string }> }[]) {
-      for (const l of ['en', ...LANGS]) expect({ id: e.id, l, name: !!e.i18n[l]?.name, description: !!e.i18n[l]?.description }).toEqual({ id: e.id, l, name: true, description: true })
+      for (const l of ['en', ...LANGS]) {
+        if (WAITS_FOR_RELEASE[e.id]?.includes(l)) { expect({ id: e.id, l, waiting: !e.i18n[l] }).toEqual({ id: e.id, l, waiting: true }); continue }
+        expect({ id: e.id, l, name: !!e.i18n[l]?.name, description: !!e.i18n[l]?.description }).toEqual({ id: e.id, l, name: true, description: true })
+      }
     }
   })
 })
