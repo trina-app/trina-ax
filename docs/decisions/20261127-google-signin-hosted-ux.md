@@ -14,8 +14,12 @@
     (`google-login-admin.ts googleClientKind`, read by `googleClientMode` too, so the row and the button never disagree).
   - Button texts are only the three Google's branding guidelines list
     (https://developers.google.com/identity/branding-guidelines, checked 2026-11-27): **Sign in with Google** (sign-in
-    page), **Sign up with Google** (setup), **Continue with Google** (invite and team link), translated into the page's
-    language as the guidelines allow. The button has Google's standard colour G and the guidelines' light (#FFFFFF fill,
+    page), **Sign up with Google** (setup), **Continue with Google** (invite and team link). Other languages use
+    Google's own wording, the labels Google Identity Services renders for that language (the `accounts.google.com/gsi/button`
+    frame with `hl=ko|ja|zh-CN|es|id`, read from its button script on 2026-11-27), never our own translation: ko
+    "Google 계정으로 로그인 / 가입하기 / 계속하기", ja "Google でログイン / で登録 / で続ける", zh "使用 Google 账号登录 /
+    使用 Google 账号注册 / 通过 Google 继续操作", es "Iniciar sesión / Registrarse / Continuar con Google", id
+    "Login / Daftar / Lanjutkan dengan Google". The button has Google's standard colour G and the guidelines' light (#FFFFFF fill,
     #747775 edge, #1F1F1F text) and dark (#131314 fill, #8E918F edge, #E3E3E3 text) colours
     (`web/src/components/GoogleButton.tsx`). The app's own font stands in for Google Sans, which it does not load.
   - On the sign-in, invite and team link pages the Google button comes first, then "or", then the password form. On the
