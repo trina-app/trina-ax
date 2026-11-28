@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 18:03
 - Branch: `fix/ai-self-limits-audit`
-- Status: in progress
+- Status: done
 - Where: server/src (the AI's instructions, tool descriptions and tool errors). Why: an audit after the Aside attach
   case (#754) found more texts that tell the AI something is impossible while another tool does it.
 - Version impact: patch. Only words the AI reads change; no tool, permission or route changes.
@@ -59,4 +59,8 @@ engine-pin unit tests, all under Bun 1.3.12.
 
 ## Result
 
-(filled in at the end)
+Built as planned, six text changes, in one PR into dev. Tests that pinned the old words (c-comment-docx, c-unzip,
+c-tar) now expect the new ones; the engine prompt pins were re-recorded. Full `tests/unit` under Bun 1.3.12: every
+failure but the three pinned-word tests also fails on a clean origin/dev checkout on this Mac (sandbox, office, HWP,
+native), or passes when its file runs alone on both (speech, first-run auth, hook sweep: order in one process).
+The items that need code are listed in the PR for the owner.

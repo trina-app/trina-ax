@@ -266,7 +266,7 @@ describe('unzip_file with tars', () => {
     await nothing('cut.tar', tar([{ name: 'big.bin', size: 300 * 1024 * 1024, data: 'x' }]), /damaged.*cut short/)
     await nothing('sum.tar', tar([{ name: 'a.txt', data: 'x', badChecksum: true }]), /is named \.tar but is not a \.tar file/)
     await nothing('fake.tgz', Buffer.from('not a gzip at all, only text'), /is named \.tgz but is not/)
-    await nothing('x.tar.xz', Buffer.from([0xfd, 0x37, 0x7a, 0x58, 0x5a, 0, 1, 2]), /\.xz archive; only \.zip, \.tar/)
+    await nothing('x.tar.xz', Buffer.from([0xfd, 0x37, 0x7a, 0x58, 0x5a, 0, 1, 2]), /\.xz archive; this tool unzips only \.zip, \.tar/)
     await nothing('x.7z', Buffer.from([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c, 0, 4]), /\.7z archive/)
   })
   test('links and devices inside are left out and named; a CLAUDE.md is saved under another name', async () => {
