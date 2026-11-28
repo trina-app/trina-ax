@@ -31,7 +31,8 @@ describe('Word and PowerPoint: the document skills do what edit_office and comme
   })
   test('the skills rule says how an existing file is changed and saved back as a new version', () => {
     expect(DOC_SKILLS_RULE).toContain('speaker notes, charts, a table in a deck, tracked changes')
-    expect(DOC_SKILLS_RULE).toContain('copy_files the result into the file\'s folder under the same name')
+    expect(DOC_SKILLS_RULE).toContain('read the file, change a copy of it in $TRINA_WORK')
+    expect(DOC_SKILLS_RULE).toContain('copy_files the result into the file\'s folder under the same name: over the file you read in this answer')
   })
 })
 
@@ -48,6 +49,18 @@ test('write and edit on a binary file name the tool that changes or makes it, ne
   expect(binaryWriteHint('zip')).toContain('make_zip')
   expect(binaryWriteHint('png')).toContain('resize_images')
   for (const e of ['docx', 'pptx', 'xlsx', 'hwp', 'hwpx', 'pdf', 'zip', 'png']) expect(binaryWriteHint(e)).not.toContain('.md')
+  // a guest's turn has no edit_office, and edit_office refuses the older and OpenDocument formats
+  expect(binaryWriteHint('docx')).toContain('edit_office when you have it')
+  for (const e of ['xls', 'odt', 'ods']) {
+    expect(binaryWriteHint(e)).not.toContain('edit_office')
+    expect(binaryWriteHint(e)).toContain('cannot be changed here; make a new .docx or .xlsx with make_file')
+  }
+  // the Trina AX MCP connector (no chat turn) has none of the chat's file tools
+  for (const e of ['docx', 'hwpx', 'pdf', 'zip', 'png']) {
+    const c = binaryWriteHint(e, true)
+    expect(c).toContain('upload_file')
+    for (const t of ['edit_office', 'edit_hwp', 'edit_pdf', 'make_file', 'make_zip', 'resize_images', 'box_shell']) expect(c).not.toContain(t)
+  }
 })
 
 test('"Where you run" leaves out what the turn\'s own tools reach on the person\'s computer', () => {
