@@ -143,7 +143,8 @@ async function cleanUp(r: CaseResult, actor?: string) {
   // this server, read "the quote was posted 3 times tonight" and answered from that (CHT-02, dev f394c9258,
   // 2026-11-17). A deleted message is left out of what the AI reads (server/src/rooms/reader.ts).
   // a post whose result the transcript did not keep cannot be found here: said, so a leftover is known
-  const unread = r.turns.flatMap((t) => t.tools).filter((x) => x.name === 'post_to_room' && x.ok && !x.result).length
+  // a flow's clean-up passes only the changed paths (runFlows): no turns
+  const unread = (r.turns ?? []).flatMap((t) => t.tools).filter((x) => x.name === 'post_to_room' && x.ok && !x.result).length
   if (unread) say(`clean-up ${r.id}: ${unread} room post(s) without a result in the transcript: not deleted, check the room`)
   if (actor) for (const p of roomPostsOf(r)) {
     try { await (await as(actor)).call(API.deleteRoomMessage, { params: { id: p.roomId, messageId: p.messageId } }) } catch (e) { say(`clean-up room post ${p.messageId}: ${e instanceof Error ? e.message : e}`) }
@@ -289,7 +290,7 @@ async function runFlows(): Promise<string> {
   // the mock services are needed by the mocked flows; their data starts fresh for each run
   const mocks = flows.some((f) => f.mocked || JSON.stringify(f.steps).includes('{{mock:')) ? await mocksUp({ home: HOME, base: BASE, log: say }) : readMocks(HOME)
   if (mocks) mocksReset(HOME)
-  const env = { base: BASE, dataDir: DATA, teamRoot: TEAM, fixture, runId: id, commit: commit(), log: say, mockState: mocks?.state, mockUrl: mocks?.url, cardMode: always ? 'always' as const : 'once' as const }
+  const env = { base: BASE, dataDir: DATA, teamRoot: TEAM, fixture, runId: id, commit: commit(), log: say, mockState: mocks?.state, mockUrl: mocks?.url, mockKey: mocks?.key, mockPort: mocks?.port, cardMode: always ? 'always' as const : 'once' as const }
   say(`flows ${id}: ${flows.length} flows (cards: ${env.cardMode}), results in ${dir}`)
   // The mock services keep ONE state file (a mailbox, Notion pages, ...), so the flows that use them run one after another
   // in a single lane, each starting from the mock data as made (FL-08's judge once saw a mail that FL-12 drafted in the

@@ -12,6 +12,7 @@
 // something at the service (writePolicy), wraps the answer as external data and adds where it came from to the chat's
 // read scope (so saving it somewhere more people can see asks first). Every result leaves through `hiding`, which hides
 // the stored secrets of the connections the call used, in case the service echoed them (hide.ts).
+import { WEB_ACTION_CHECK_RULE } from '../../chat/web-action-rule'
 import { quietRun } from '../../chat/explicit-send'
 import { LIVE_CLIENTS, teamAllowsAlways } from '../../chat/always-allow'
 import { steerableRun } from '../../chat/shared-run'
@@ -1994,10 +1995,12 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
         // in a scheduled run, which attaches nothing
         ...(index.size && !b.scheduled ? [ATTACH_HOW] : []),
       ].join('\n')
-      // the fallback rule goes with the instructions once, never in the context sent with every message (its budget)
+      // the fallback rule and the web read-back rule (an app that drives the person's browser, Aside and the like, is a
+      // connection) go with the instructions once, never in the context sent with every message (its budget; a resumed
+      // session keeps them from its first instructions)
       const guide = guideSection(guides)
       if (guides.length) tools.push(serviceGuideTool(ctx, guides.map((r) => r.id)))
-      const prompt = `${head}\n${FALLBACK_TO_CONNECTION}${index.size ? `\n${ACCOUNT_CHOICE}` : ''}${guide ? `\n\n${guide}` : ''}${lookup ? `\n\n${lookup.full}` : ''}`
+      const prompt = `${head}\n${WEB_ACTION_CHECK_RULE}\n${FALLBACK_TO_CONNECTION}${index.size ? `\n${ACCOUNT_CHOICE}` : ''}${guide ? `\n\n${guide}` : ''}${lookup ? `\n\n${lookup.full}` : ''}`
       // a resumed session keeps its first instructions: the account rule in short, and which services have a guide
       const guideNote = guides.length ? `\n${guides.map((r) => r.name).join(', ')} ${guides.length === 1 ? 'has its' : 'have their'} own guide for ${guides.length === 1 ? 'its' : 'their'} tools: read it with ${SERVICE_GUIDE} before you first use ${guides.length === 1 ? 'it' : 'one'} in this chat, unless your instructions from the start of this chat already show it.` : ''
       // the account rule in short only where a tool takes an account or profile (its budget: sent with every message)

@@ -1,5 +1,7 @@
 // Start the MOCK services (server.ts) behind a cloudflared quick tunnel, and connect them for the fixture's people as
-// their own MCP connections through the public API (kind mcp, a bearer key, "ask before changing"). Everything this
+// their own MCP connections through the public API (kind mcp, a bearer key, "ask before changing"). The browser app is
+// one team connection for everyone that runs without asking, as people set an app on their computer that they let
+// drive the browser ("Always allow"): a card on every click and key would measure the cards, not the work. Everything this
 // starts is recorded by pid in <home>/mocks.json and stopped by `down` (those pids only).
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -51,6 +53,7 @@ export async function mocksUp(o: { home: string; base: string; port?: number; lo
     const api = new ApiClient({ baseUrl: o.base, token: r.token! })
     const mine = (await api.call(API.listIntegrations)).items as unknown as { id: string; name: string }[]
     for (const [svc, def] of Object.entries(SERVICES)) {
+      if (svc === 'browser') continue
       const name = def.title.replace(' (mock)', '')
       for (const x of mine.filter((i) => i.name === name)) await api.call(API.deleteIntegration, { params: { id: x.id } }).catch(() => {})
       try {
@@ -59,6 +62,18 @@ export async function mocksUp(o: { home: string; base: string; port?: number; lo
         ;(m.connected[u] ??= []).push(svc)
       } catch (e) { o.log(`connect ${u}/${svc}: ${e instanceof ApiError ? `${e.status} ${e.message}` : e}`) }
     }
+  }
+  {
+    const r = await new ApiClient({ baseUrl: o.base }).call(API.login, { body: { username: 'jiwoo', password: PASSWORD, client: 'web', tokenMode: 'bearer' } })
+    const api = new ApiClient({ baseUrl: o.base, token: r.token! })
+    const name = SERVICES.browser!.title.replace(' (mock)', '')
+    const team = (await api.call(API.listTeamIntegrations)).items as unknown as { id: string; name: string }[]
+    for (const x of team.filter((i) => i.name === name)) await api.call(API.deleteIntegration, { params: { id: x.id } }).catch(() => {})
+    try {
+      const made = await api.call(API.createTeamIntegration, { body: { kind: 'mcp', name, url: `${url}/browser/mcp`, auth: 'bearer', secret: key, writePolicy: 'allow', access: { everyone: true, groups: [], users: [] }, notes: 'Test connection to a mock service (AI scenarios).' } })
+      await api.call(API.refreshIntegration, { params: { id: made.id }, body: {} }).catch((e) => o.log(`refresh team/browser: ${e instanceof Error ? e.message : e}`))
+      for (const u of MOCK_PEOPLE) (m.connected[u] ??= []).push('browser (team)')
+    } catch (e) { o.log(`connect team/browser: ${e instanceof ApiError ? `${e.status} ${e.message}` : e}`) }
   }
   fs.writeFileSync(file(o.home), JSON.stringify(m, null, 1))
   o.log(`connected: ${Object.entries(m.connected).map(([u, l]) => `${u} (${l.length})`).join(', ')}`)

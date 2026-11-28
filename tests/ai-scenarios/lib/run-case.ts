@@ -12,7 +12,7 @@ import { PASSWORD, TEAM_ZONE, type FixtureState } from '../fixture/seed'
 import { runChecks } from './checks'
 import type { Case, CaseResult, CardSeen, ToolCall, TurnRecord } from './types'
 
-export interface Env { base: string; dataDir: string; teamRoot: string; fixture: FixtureState; runId: string; commit: string; log: (s: string) => void; mockState?: string; mockUrl?: string }
+export interface Env { base: string; dataDir: string; teamRoot: string; fixture: FixtureState; runId: string; commit: string; log: (s: string) => void; mockState?: string; mockUrl?: string; mockKey?: string; mockPort?: number }
 
 /** Every file under the team folder (team path -> size:mtime); hidden folders (versions, trash) left out. */
 export function snapshot(root: string): Map<string, string> {
@@ -118,9 +118,12 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
   // a flow's heavy step has a cap (about 3 minutes): past it the turn is stopped and marked slow
   const capMs = (c as { capMs?: number }).capMs ?? 15 * 60_000
   const until = Date.now() + capMs
-  let m: Message | undefined
-  while (Date.now() < until) {
-    await Bun.sleep(2000)
+  // a flow step may say no on the server's cards (the person declines); so does a case that expects a refusal (a person
+  // who wants it done would say yes, but a refusal case checks what the AI does on its own, not what a yes unlocks)
+  const mode: CardMode = (c as { cardMode?: CardMode }).cardMode ?? ((c as { declineCards?: boolean }).declineCards === true || c.expect?.outcome === 'refuse' ? 'decline' : 'once')
+  /** answer every open card or question of this chat once, as the person would (the same way while the answer runs and
+   * in the answer that follows the person's reply to the AI's own question) */
+  const answerOpen = async () => {
     let open: OpenTurnRequest[] = []
     try { open = (await api.call(API.listTurnRequests, { params: { id: chatId } })).items } catch {}
     for (const r of open) {
@@ -129,10 +132,6 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
       answered.add(req.requestId)
       if (req.kind === 'ask_user') {
         const server = req.origin === 'server'
-        // a flow step may say no on the server's cards (the person declines); a case always goes ahead
-        // a flow step may say no on the server's cards; so does a case that expects a refusal (a person who wants it
-        // done would say yes, but a refusal case checks what the AI does on its own, not what a yes unlocks)
-        const mode = (c as { cardMode?: CardMode }).cardMode ?? ((c as { declineCards?: boolean }).declineCards === true || c.expect?.outcome === 'refuse' ? 'decline' : 'once')
         const decline = mode === 'decline'
         const opts = req.options ?? []
         const answer = server ? pickCard(opts, mode) : decline ? null : req.options?.length && !req.allowText ? req.options[0]!.value : (c.reply ?? GO_ON[c.lang])
@@ -148,6 +147,11 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
         await api.call(API.connectTurn, { params: { id: r.turnId }, body: { action: 'skip', requestId: req.requestId } }).catch(() => {})
       }
     }
+  }
+  let m: Message | undefined
+  while (Date.now() < until) {
+    await Bun.sleep(2000)
+    await answerOpen()
     const page = await api.call(API.listMessages, { params: { id: chatId }, query: { limit: 50 } })
     m = page.items.find((x) => x.id === answerId)
     if (m && m.status !== 'streaming') break
@@ -160,6 +164,22 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
       await Bun.sleep(1000)
       m = (await api.call(API.listMessages, { params: { id: chatId }, query: { limit: 50 } })).items.find((x) => x.id === answerId)
       if (m && m.status !== 'streaming') break
+    }
+  }
+  // an answer to the AI's own question comes back as the person's next message, which starts another answer in this chat
+  // after this one ended: wait for it and keep it with this turn (its words, tools and cards). Unwatched, it went on in a
+  // later flow's time and acted on the mock browser page that flow had open (2026-11-28, FL-41 into FL-42).
+  const later: Message[] = []
+  if (!slow && m && cards.some((k) => k.origin === 'ai')) {
+    const t0 = Date.now()
+    while (Date.now() - t0 < Math.min(capMs, 10 * 60_000)) {
+      await Bun.sleep(2000)
+      await answerOpen()
+      const items = (await api.call(API.listMessages, { params: { id: chatId }, query: { limit: 50 } })).items
+      // only answers that started after this one (never older ones when this answer fell out of the page)
+      const after = items.filter((x) => x.role === 'assistant' && x.id !== answerId && x.createdAt >= m!.createdAt)
+      if (after.length && after.every((x) => x.status !== 'streaming')) { later.splice(0, later.length, ...after); break }
+      if (!after.length && Date.now() - t0 > 30_000) break
     }
   }
   // the transcript can land a little after the answer ends: wait for this turn's lines (up to 20 s)
@@ -185,7 +205,7 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
     status: slow ? 'slow' : m?.status ?? 'timeout',
     error: slow ? `stopped after ${Math.round(capMs / 1000)} s (slow)` : m?.error ? `${m.error.code}: ${m.error.message}` : m ? null : 'no answer within 15 minutes',
     // an answer that ended in an error shows the app's message where the answer would be: that is what the person reads
-    answer: m?.content?.trim() ? m.content : m?.error ? `[app message] ${m.error.message}` : '',
+    answer: (m?.content?.trim() ? m.content : m?.error ? `[app message] ${m.error.message}` : '') + later.map((x) => `\n\n[after the person's answer to the question] ${x.content ?? ''}`).join(''),
     tools: t.tools,
     cards,
     saved: m?.files?.saved.map((f) => f.path) ?? [],
