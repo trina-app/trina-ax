@@ -370,6 +370,22 @@ export function ownerClaimSetupUrl(teamOrigin: string, claim: string): string {
   return `${new URL(teamOrigin).origin}${OWNER_CLAIM_SETUP_PATH}#c=${claim}`
 }
 
+/**
+ * A lost claim (S5 reloaded, closed or expired before Continue) comes back only through the app: the console and the
+ * team's own pages link `<scheme>://finish-setup`, which carries nothing (no claim, no address, no code). The app runs
+ * its own console sign-in and asks `POST /teams/:id/owner-claim` for the person's own team, so a link from outside
+ * still cannot hand anyone a claim. `scheme` is the app's link scheme (`trina-ax`).
+ */
+export const APP_FINISH_SETUP_HOST = 'finish-setup'
+export function appFinishSetupLink(scheme: string): string {
+  if (!/^[a-z][a-z0-9+.-]{1,30}$/.test(scheme)) throw new Error('not a link scheme')
+  return `${scheme}://${APP_FINISH_SETUP_HOST}`
+}
+/** `<scheme>://finish-setup`, with nothing after it but an optional `/` (a browser may add one) */
+export function isAppFinishSetupLink(raw: string, scheme: string): boolean {
+  return raw === `${scheme}://${APP_FINISH_SETUP_HOST}` || raw === `${scheme}://${APP_FINISH_SETUP_HOST}/`
+}
+
 /** the claim in a page's fragment (`#c=<claim>`, nothing else), or null */
 export function readOwnerClaimFragment(hash: string): string | null {
   const m = /^#c=([A-Za-z0-9_-]{43})$/.exec(hash)

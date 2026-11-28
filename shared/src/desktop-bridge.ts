@@ -403,6 +403,11 @@ export interface DesktopBridge {
     open(): Promise<number | null>
     close(port: number): void
   }
+  /** "Get a new link" for a team whose owner account is not made yet (docs/decisions/20261128-owner-claim-recovery.md):
+   * the app runs its own create flow (its console sign-in, then the owner claim of the person's own team) and loads the
+   * new setup page in its window. Carries nothing; only the top frame of the team on screen. Optional: apps before
+   * 2026-11-28 have none (the page then says the steps in words). */
+  finishTeamSetup?(): void
   /** The port of this app's return address for sign-in codes on 127.0.0.1 (APP_RETURN_HEADER), open while the app runs;
    * null when none could be opened. Optional: apps before 2026-11-27 do not have it (their sign-ins use the app link). */
   codeReturn?: {

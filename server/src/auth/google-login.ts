@@ -80,7 +80,10 @@ const GOOGLE_ISSUERS = new Set(['https://accounts.google.com', 'accounts.google.
 
 /** How a Google return ended, for the page it goes back to (?google=<result>): the sign-in page or Settings › Security
  * says it in words. A sign-in that worked opens `next` instead. */
-export type GoogleResult = 'connected' | 'not_connected' | 'account_off' | 'password_first' | 'in_use' | 'cancelled' | 'expired' | 'failed'
+export type GoogleResult = 'connected' | 'not_connected' | 'account_off'
+  // nobody has an account here yet: a team made from the desktop app whose owner setup did not finish (its setup page
+  // expired); the page points to the app (docs/decisions/20261128-owner-claim-recovery.md)
+  | 'no_owner' | 'password_first' | 'in_use' | 'cancelled' | 'expired' | 'failed'
   // sign-up (auth/google-signup.ts): the username was taken meanwhile, the invite, link or setup no longer works, every
   // seat is taken
   | 'username_taken' | 'gone' | 'full'
@@ -503,6 +506,11 @@ export function googleClaims(idToken: unknown, clientId: string, nonce: string, 
   return { sub: p.sub, email: clean(p.email, 320), hd: clean(p.hd, 255), ...(name ? { name } : {}), ...(iat !== undefined ? { iat } : {}), ...(authTime !== undefined ? { authTime } : {}) }
 }
 
+/** no account exists on this team yet (the setup report's setupNeeded: cloud-tenant.ts) */
+function noAccountYet(ctx: AppContext): boolean {
+  return !ctx.db.query('SELECT 1 FROM users WHERE guest = 0 LIMIT 1').get()
+}
+
 /** A sign-in Google answered: a browser's is signed in here; an app's gets a one-time code for the app's secret
  * (auth/google-login-apps.ts holdGoogleCode), redeemed in the app's own window. */
 export function signInWith(c: Context<AppEnv>, ctx: AppContext, row: FlowRow, g: GoogleClaims): Settled {
@@ -517,6 +525,9 @@ export function signInWith(c: Context<AppEnv>, ctx: AppContext, row: FlowRow, g:
   const no = googleSignInRefusal(u)
   if (no || !u) {
     audit(ctx.db, { actor: null, action: 'auth.login_failed', target: u?.id ?? null, detail: { ...detail, reason: no?.reason ?? 'google_not_connected' } })
+    // not connected on a team with no account at all: its owner was never made, say how to finish (no other team's
+    // state is told: only that this team has nobody yet, which its empty sign-in page shows anyway)
+    if ((no?.result ?? 'not_connected') === 'not_connected' && noAccountYet(ctx)) return { row, result: 'no_owner' }
     return { row, result: no?.result ?? 'not_connected' }
   }
   // the team switch is off: only an account without a password still signs in with Google (it has no other way)

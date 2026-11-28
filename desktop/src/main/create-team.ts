@@ -38,6 +38,9 @@ export class CreateTeam {
   private nameShownAt = 0
   /** a team whose setup failed over its address (slug_conflict): S3's button retries it with the new address */
   private slugRetry: AppTeam | null = null
+  /** "Get a new link" (finishSetup): the account's running team opens at once (a new owner claim), with no "You have a
+   * team" notice first */
+  private finishing = false
 
   constructor(private readonly o: CreateTeamOptions) {}
 
@@ -59,8 +62,20 @@ export class CreateTeam {
   /** "Create a team for free" (S0), and the app's start with a team being made */
   start() {
     const run = this.next()
+    this.finishing = false
     const p = this.pending()
     if (!this.o.signin.token()) return this.askSignIn(p?.name ?? null)
+    void this.fromMe(run)
+  }
+
+  /** "Get a new link" for a team whose owner account is not made yet (the setup page expired, or was closed before
+   * Continue; docs/decisions/20261128-owner-claim-recovery.md): this app's own console sign-in (S2 when its token is
+   * gone), then the owner claim of the account's own team, which revokes the older ones, opened in the app's window. Never
+   * a claim or an address from the caller. */
+  finishSetup() {
+    const run = this.next()
+    this.finishing = true
+    if (!this.o.signin.token()) return this.askSignIn(this.pending()?.name ?? null)
     void this.fromMe(run)
   }
 
@@ -117,6 +132,7 @@ export class CreateTeam {
   /** Back or Cancel: to the first-run screen (a team being made stays saved; reopening comes back to it) */
   cancel() {
     this.next()
+    this.finishing = false
     this.o.signin.cancel()
     this.slugRetry = null
     this.show({ screen: 'off' })
@@ -252,7 +268,7 @@ export class CreateTeam {
     }
     if (t) {
       if (t.state === 'provisioning') return this.starting(run, t)
-      if (t.state === 'active') return this.notice('hasTeam')
+      if (t.state === 'active') return this.finishing ? this.openOwned(run, t) : this.notice('hasTeam')
       return this.teamNotice(t)
     }
     if (me.waitlist) return this.notice('waitlist')
@@ -343,6 +359,7 @@ export class CreateTeam {
 
   private async open(origin: string, label: string, path: string) {
     this.clearPending()
+    this.finishing = false
     debug('create: opening the new team', origin)
     this.show({ screen: 'off' })
     await this.o.openTeam(origin, label, path)

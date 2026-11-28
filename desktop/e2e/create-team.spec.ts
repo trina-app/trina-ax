@@ -307,6 +307,36 @@ test('"Open it" on a live team that is not set up yet: the owner claim opens its
   }
 })
 
+test('a lost setup link: "Get a new link" on the team page and the console\'s finish-setup link ask the console again', async () => {
+  // docs/decisions/20261128-owner-claim-recovery.md: neither carries a claim; the app asks with its own sign-in
+  fake.sc.team = fake.newTeam('Acme Cafe', 'acme-cafe', 'active')
+  const { app, w } = await start()
+  try {
+    await w.getByTestId('create-team').click()
+    await w.getByTestId('signin-google').click()
+    await signInBrowser(app, 1)
+    await w.getByTestId('notice-action').click()
+    const page = await teamView(app, '/app-setup')
+    await expect(page.locator('#welcome')).toHaveText('Welcome to Acme Cafe, owner')
+    const claimsAsked = () => fake.log.filter((l) => l.method === 'POST' && l.path.endsWith('/owner-claim')).length
+    expect(claimsAsked()).toBe(1)
+    // the team page's bridge call (S5 expired, or the sign-in page's no_owner): a new claim, no "You have a team" notice
+    await page.evaluate(() => (window as unknown as { mycelDesktop: { finishTeamSetup(): void } }).mycelDesktop.finishTeamSetup())
+    await expect.poll(claimsAsked).toBe(2)
+    await expect((await teamView(app, '/app-setup')).locator('#welcome')).toHaveText('Welcome to Acme Cafe, owner')
+    await expect(w.getByRole('heading', { name: 'You already have a team, Acme Cafe.' })).toHaveCount(0)
+    // the console's "Open the Trina AX app" link: the same, with nothing in it
+    await app.evaluate(({ app: a }, link) => { a.emit('open-url', { preventDefault() {} }, link) }, `${PRODUCT.linkScheme}://finish-setup`)
+    await expect.poll(claimsAsked).toBe(3)
+    // a link that tries to carry a claim is not this one: it goes to the usual "connect?" screen and asks nothing
+    await app.evaluate(({ app: a }, link) => { a.emit('open-url', { preventDefault() {} }, link) }, `${PRODUCT.linkScheme}://finish-setup#c=${'A'.repeat(43)}`)
+    await new Promise((r) => setTimeout(r, 500))
+    expect(claimsAsked()).toBe(3)
+  } finally {
+    await close(app)
+  }
+})
+
 test('closed while the team is made: reopening comes back to the wait, then the team opens; an expired token asks to sign in again', async () => {
   fake.sc.provisionPolls = 100_000
   const userData = newUserData('en')
