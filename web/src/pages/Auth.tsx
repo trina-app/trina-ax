@@ -392,7 +392,7 @@ function ForgotLine({ url }: { url?: string }) {
 
 /** Why a Google return came back to the sign-in page (?google=<reason>, server/src/auth/google-login.ts) */
 const GOOGLE_RESULT: Record<string, MessageKey> = {
-  not_connected: 'auth.google.not_connected', account_off: 'auth.google.account_off', password_first: 'auth.google.password_first',
+  not_connected: 'auth.google.not_connected', no_owner: 'auth.google.no_owner', account_off: 'auth.google.account_off', password_first: 'auth.google.password_first',
   cancelled: 'auth.google.cancelled', expired: 'auth.google.expired', failed: 'auth.google.failed',
   // a sign-up's return (server/src/auth/google-signup.ts): the setup, invite and team link pages
   username_taken: 'auth.google.username_taken', gone: 'auth.google.gone', full: 'auth.google.full',
@@ -636,6 +636,13 @@ export function Login() {
           <p role="alert" className="text-sm text-danger" data-testid="login-google-result">
             {t(googleResult)}
           </p>
+        )}
+        {/* a team with no owner account yet (a desktop-made team whose setup page expired): inside an app that can, the
+            app gets a new setup link with its own sign-in (docs/decisions/20261128-owner-claim-recovery.md) */}
+        {googleResult === 'auth.google.no_owner' && !error && typeof desktop()?.finishTeamSetup === 'function' && (
+          <Button type="button" variant="primary" className="w-full" onClick={() => desktop()!.finishTeamSetup!()} data-testid="login-new-setup-link">
+            {t('appSetup.newLink')}
+          </Button>
         )}
         {googleWay && <GoogleSignIn next={safeNext(location.search)} way={googleWay} onResult={setAppGoogleResult} />}
         <Field label={t('auth.usernameOrEmail')} error={errorOf('username')}>

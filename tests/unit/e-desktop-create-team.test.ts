@@ -5,15 +5,15 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { CreateTeam } from '../../desktop/src/main/create-team'
-import { emailSignInError, type CreateView } from '../../desktop/src/common/create-team'
+import { CreateTeam, FINISH_LINK_GAP_MS, FINISH_PAGE_GAP_MS } from '../../desktop/src/main/create-team'
+import { emailSignInError, noticeAction, type CreateView } from '../../desktop/src/common/create-team'
 import { isAppEmail } from '@mycel/shared/cloud-protocol/owner-claim'
 import type { ConsoleSignIn, EmailResult } from '../../desktop/src/main/console-signin'
 
 const me = { accountId: 'a', email: 'owner@example.com', team: null, freeLeft: true, waitlist: false, store: false, freePlan: { maxActiveMembers: 3, maxConcurrency: 1, diskGB: 5, termsUrl: 'https://t.example.test/t', privacyUrl: 'https://t.example.test/p', termsVersion: 'v1' } }
 
-function setup(o: { store?: boolean; verify?: EmailResult[]; start?: EmailResult[] } = {}) {
-  let token = false
+function setup(o: { store?: boolean; verify?: EmailResult[]; start?: EmailResult[]; token?: boolean; team?: Record<string, unknown> | null; claim?: { status: number; body: unknown } } = {}) {
+  let token = o.token === true
   const calls: string[] = []
   const signin = {
     token: () => (token ? { token: 'x'.repeat(43), expiresAt: new Date(Date.now() + 3600_000).toISOString(), store: false } : null),
@@ -26,14 +26,20 @@ function setup(o: { store?: boolean; verify?: EmailResult[]; start?: EmailResult
       if (r.ok) token = true
       return r
     },
-    api: async (method: string, path: string) => { calls.push(`${method} ${path}`); return path.endsWith('/me') ? { status: 200, body: { ...me, store: o.store === true } } : { status: 404, body: null } },
+    api: async (method: string, path: string) => {
+      calls.push(`${method} ${path}`)
+      if (path.endsWith('/me')) return { status: 200, body: { ...me, team: o.team ?? null, store: o.store === true } }
+      if (path.endsWith('/owner-claim')) return o.claim ?? { status: 404, body: null }
+      return { status: 404, body: null }
+    },
   }
   const views: CreateView[] = []
+  const opened: string[] = []
   const flow = new CreateTeam({
     signin: signin as unknown as ConsoleSignIn, store: o.store === true, userData: mkdtempSync(join(tmpdir(), 'create-team-')), locale: () => 'en', timeZone: () => 'UTC',
-    changed: () => views.push(flow.view()), openTeam: async () => {}, pollMs: 10,
+    changed: () => views.push(flow.view()), openTeam: async (origin, _label, path) => { opened.push(origin + path) }, pollMs: 10,
   })
-  return { flow, calls, views }
+  return { flow, calls, views, opened }
 }
 const settle = () => new Promise((r) => setTimeout(r, 5))
 
@@ -102,5 +108,103 @@ describe('S2: the two ways to sign in', () => {
     expect(emailSignInError(500, null)).toBe('failed')
     for (const ok of ['owner@example.com', 'a.b+c@sub.example.co']) expect(isAppEmail(ok)).toBe(true)
     for (const bad of ['owner@example', 'owner example.com', '@example.com', 'a@b@c.com', `${'a'.repeat(65)}@example.com`, '']) expect(isAppEmail(bad)).toBe(false)
+  })
+})
+
+describe('Get a new link: a lost owner claim (finishSetup)', () => {
+  const team = { id: 't1', name: 'Acme', slug: 'acme', url: 'https://acme.example.test', state: 'active', setUp: false, planId: 'free', comeback: false, provisioning: null }
+  const claim = 'A'.repeat(43)
+  test('signed in: straight to a new claim of the account\'s own team, opened in the app (no "You have a team" notice)', async () => {
+    const { flow, calls, opened, views } = setup({ token: true, team, claim: { status: 200, body: { url: `https://acme.example.test/app-setup#c=${claim}` } } })
+    flow.finishSetup('page')
+    await settle()
+    expect(calls).toEqual(['GET /api/app/v1/me', 'POST /api/app/v1/teams/t1/owner-claim'])
+    expect(opened).toEqual([`https://acme.example.test/app-setup#c=${claim}`])
+    expect(views.some((v) => v.screen === 'notice')).toBe(false)
+  })
+  test('a claim page of another address is never opened', async () => {
+    const { flow, opened } = setup({ token: true, team, claim: { status: 200, body: { url: `https://evil.example.test/app-setup#c=${claim}` } } })
+    flow.finishSetup('page')
+    await settle()
+    expect(opened).toEqual([])
+    expect(flow.view()).toMatchObject({ screen: 'notice', notice: 'failed' })
+  })
+  test('no token: the console sign-in first, then the claim', async () => {
+    const { flow, calls, opened } = setup({ team, claim: { status: 200, body: { url: `https://acme.example.test/app-setup#c=${claim}` } } })
+    flow.finishSetup('page')
+    expect(flow.view()).toMatchObject({ screen: 'signin', step: 'choose' })
+    await flow.sendCode('owner@example.com')
+    await flow.verifyCode('111111')
+    await settle()
+    expect(calls.slice(-2)).toEqual(['GET /api/app/v1/me', 'POST /api/app/v1/teams/t1/owner-claim'])
+    expect(opened).toEqual([`https://acme.example.test/app-setup#c=${claim}`])
+  })
+  test('a set-up team opens at its start; "Create a team for free" still shows the notice', async () => {
+    const a = setup({ token: true, team: { ...team, setUp: true } })
+    a.flow.finishSetup('page')
+    await settle()
+    expect(a.opened).toEqual(['https://acme.example.test/'])
+    const b = setup({ token: true, team })
+    b.flow.start()
+    await settle()
+    expect(b.flow.view()).toMatchObject({ screen: 'notice', notice: 'hasTeam' })
+    expect(b.calls).toEqual(['GET /api/app/v1/me'])
+  })
+  test('a link from outside the app stops at "You already have a team · Open it": no claim until the person presses it', async () => {
+    const { flow, calls, opened } = setup({ token: true, team, claim: { status: 200, body: { url: `https://acme.example.test/app-setup#c=${claim}` } } })
+    expect(flow.finishSetup('link')).toBeNull()
+    await settle()
+    expect(flow.view()).toMatchObject({ screen: 'notice', notice: 'hasTeam', action: 'open' })
+    expect(calls).toEqual(['GET /api/app/v1/me'])
+    await flow.act('open')
+    expect(calls).toEqual(['GET /api/app/v1/me', 'POST /api/app/v1/teams/t1/owner-claim'])
+    expect(opened).toEqual([`https://acme.example.test/app-setup#c=${claim}`])
+  })
+  test('right after a claim, more finish-setups are ignored (they would revoke the claim on screen); a link waits longer', async () => {
+    const { flow, calls } = setup({ token: true, team, claim: { status: 200, body: { url: `https://acme.example.test/app-setup#c=${claim}` } } })
+    flow.finishSetup('page')
+    await settle()
+    expect(calls.filter((c) => c.endsWith('/owner-claim'))).toHaveLength(1)
+    for (let i = 0; i < 5; i++) {
+      expect(flow.finishSetup('link')).toBe('recent')
+      expect(flow.finishSetup('page')).toBe('recent')
+    }
+    await settle()
+    expect(calls.filter((c) => c.endsWith('/owner-claim'))).toHaveLength(1)
+    // the page's own button again after its gap, a link only after the longer one
+    const real = Date.now
+    try {
+      Date.now = () => real() + FINISH_PAGE_GAP_MS + 1
+      expect(flow.finishSetup('link')).toBe('recent')
+      Date.now = () => real() + FINISH_LINK_GAP_MS + 1
+      expect(flow.finishSetup('link')).toBeNull()
+    } finally {
+      Date.now = real
+    }
+  })
+  test('one claim request at a time: presses while it is under way ask nothing more', async () => {
+    let release = () => {}
+    const { flow, calls } = setup({ token: true, team, claim: { status: 200, body: { url: `https://acme.example.test/app-setup#c=${claim}` } } })
+    const sl = (flow as unknown as { o: { signin: { api: (m: string, p: string) => Promise<unknown> } } }).o.signin
+    const api = sl.api
+    sl.api = async (m: string, p: string) => {
+      if (p.endsWith('/owner-claim')) { calls.push(`${m} ${p}`); await new Promise<void>((r) => { release = r }); return { status: 200, body: { url: `https://acme.example.test/app-setup#c=${claim}` } } }
+      return api(m, p)
+    }
+    flow.finishSetup('page')
+    await settle()
+    expect(flow.finishSetup('page')).toBe('busy')
+    expect(flow.finishSetup('link')).toBe('busy')
+    release()
+    await settle()
+    expect(calls.filter((c) => c.endsWith('/owner-claim'))).toHaveLength(1)
+  })
+  test('the console\'s claim limit (rate_limited) has its own words and no button that asks again', async () => {
+    const { flow, opened } = setup({ token: true, team, claim: { status: 429, body: { error: { code: 'rate_limited', message: 'x' } } } })
+    flow.finishSetup('page')
+    await settle()
+    expect(flow.view()).toMatchObject({ screen: 'notice', notice: 'claimLimit', action: null })
+    expect(opened).toEqual([])
+    expect(noticeAction('claimLimit', false)).toBeNull()
   })
 })
