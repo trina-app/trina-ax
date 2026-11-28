@@ -18,6 +18,8 @@ import { SLACK } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { nextTs, startFakeSlack, type FakeSlack } from '../lib/fake-slack'
 import { waitFor } from '../lib/wait'
+import { CodeReturn } from '../../desktop/src/common/code-return'
+import { APP_RETURN_KEY_HEADER, APP_RETURN_PROOF_HEADER } from '../../shared/src/desktop-bridge'
 
 setDefaultTimeout(60_000)
 let h: Harness
@@ -506,6 +508,27 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
     expect(h.ctx.db.query('SELECT state, reason, verifier_enc FROM slack_signin_flows WHERE id = ?').get(heldId)).toEqual({ state: 'failed', reason: 'superseded', verifier_enc: null })
     expect((await h.req('erin', '/api/slack/signin/flow', { method: 'DELETE', client: 'desktop' })).status).toBe(204)
     expect(h.ctx.db.query("SELECT 1 FROM slack_links WHERE user_id = 'erin'").get()).toBeNull()
+  })
+
+  test('held with the desktop app\'s key: the code alone, or with a wrong proof, is refused; the app\'s proof finishes it (docs/decisions/20261128-held-sign-in-app-key.md)', async () => {
+    const ret = new CodeReturn({ deliver: () => false, page: () => '' }), team = new URL(h.url).origin
+    // carol (erin's sign-ins this hour are counted by the tests after this one), linked by an earlier test: not yet here;
+    // she ends linked to the same Slack account again
+    expect((await call('carol', 'DELETE', '/api/slack/me')).status).toBe(200)
+    const key = { [APP_RETURN_KEY_HEADER]: ret.key(team)! }
+    const p = params((await h.req('carol', '/api/slack/signin', { method: 'POST', headers: { 'content-type': 'application/json', ...key }, body: '{}', client: 'desktop' }).then((r) => r.json()) as { authorizationUrl: string }).authorizationUrl)
+    fake.codes['code-carol-key'] = { user: 'U0CAROL', nonce: p.nonce! }
+    const html = await (await h.req(null, `/api/integrations/slack/oauth/callback?${new URLSearchParams({ state: p.state!, code: 'code-carol-key' })}`, { redirect: 'manual' })).text()
+    const code = /href="trina-ax:\/\/open\?url=[^"#]+#code=([A-Za-z0-9_-]{43})"/.exec(html)?.[1]!
+    expect(code).toBeTruthy()
+    const claim = (proof?: string) => h.req('carol', '/api/integrations/google-drive/claim', { ...json('POST', { code }), headers: { 'content-type': 'application/json', ...(proof ? { [APP_RETURN_PROOF_HEADER]: proof } : {}) }, client: 'desktop' })
+    // the page's own script (the session, no proof) and another app's proof: refused, nothing linked, the code still good
+    expect((await claim()).status).toBe(400)
+    expect((await claim(new CodeReturn({ deliver: () => false, page: () => '' }).proof(team)!)).status).toBe(400)
+    expect(h.ctx.db.query("SELECT 1 FROM slack_links WHERE user_id = 'carol'").get()).toBeNull()
+    const ok = await claim(ret.proof(team)!)
+    expect(ok.status).toBe(200)
+    expect(h.ctx.db.query("SELECT slack_user_id FROM slack_links WHERE user_id = 'carol'").get()).toEqual({ slack_user_id: 'U0CAROL' })
   })
 
   test('signed in as somebody else, or too late after signing in: refused; a code that is not one goes nowhere', async () => {

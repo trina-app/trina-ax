@@ -980,6 +980,8 @@ export const en: Record<MessageKey, string> = {
   "connect.wait.limit": "This stops by itself after {n, plural, one {# minute} other {# minutes}}.",
   "connect.wait.google": "If Google says you can't use this app (for example, it is only for your company's accounts), close Google's window, press Try again and choose your work account. This stops by itself after {n, plural, one {# minute} other {# minutes}}.",
   "connect.wait.googleDesktop": "When Google is done, press “Back to the app” in the browser to finish here. If Google says you can't use this app, close its window, press Try again and choose your work account. This stops by itself after {n, plural, one {# minute} other {# minutes}}.",
+  'connect.copyLink': "Copy link",
+  'connect.copiedLink': "Copied. Paste it into another browser.",
   'connect.noKey': "No key needed. It connects to {host}.",
   'connect.kindMcp': "MCP server",
   'connect.kindHttp': "HTTP API",

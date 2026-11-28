@@ -960,6 +960,8 @@ export const zh: Record<MessageKey, string> = {
   "connect.wait.limit": "{n, plural, one {# 分钟} other {# 分钟}}后会自动停止等待。",
   "connect.wait.google": "如果 Google 提示你不能使用这个应用（例如只限公司账号），请关闭 Google 的窗口，点“重试”，再选择你的工作账号。{n, plural, one {# 分钟} other {# 分钟}}后会自动停止等待。",
   "connect.wait.googleDesktop": "在 Google 完成后，请在浏览器里按“返回应用”，在这里完成连接。如果 Google 提示你不能使用这个应用，请关闭那个窗口，点“重试”，再选择你的工作账号。{n, plural, one {# 分钟} other {# 分钟}}后会自动停止等待。",
+  'connect.copyLink': "复制链接",
+  'connect.copiedLink': "已复制。请粘贴到另一个浏览器。",
   "connect.noKey": "无需密钥。它会连接到{host}。",
   "connect.kindMcp": "MCP 服务器",
   "connect.kindHttp": "HTTP API",

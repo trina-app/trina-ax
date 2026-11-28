@@ -35,6 +35,35 @@ Out:
 - Requiring the key for sessions recorded as desktop (desktop apps before this change send none): later, once every
   app sends it.
 
+## UX spec (reviewed before building; owner 2026-11-28 "UX 검수하고 만들어줘")
+
+References looked at: Claude Code (its own sign-in: "Opening browser to sign in…", then "Browser didn't open? Use the URL
+below to sign in" with the address to copy), VS Code (the "open the external website?" dialog: Open / Copy; GitHub
+sign-in "Having trouble logging in? … try a different way?"), GitHub CLI (copy a one-time code, open any browser). Slack,
+Notion, Linear and GitHub Desktop show no copy option in their docs or source (unverified beyond that); Figma users ask
+for one because its login opens only the default browser. Common pattern: the address is offered as a fallback beside
+the wait, not as a second button; after Copy the app keeps waiting by itself.
+
+Our wait today (screenshots 1440/390, light/dark, ko/en): spinner + "Google을 기다리는 중…" + a three-sentence hint, and
+다시 시도 / 취소 on the right. In a browser the wait looks the same without the app's sentence.
+
+- **Where:** desktop app only, on every wait that opened the system browser. One quiet text link at the end of the
+  wait's small grey words (the hint), in the accent text style of the wait's existing links; on a phone a 44 px tall
+  target. Not among 다시 시도 / 취소, no new line, no card, no icon-only control.
+- **Words:** ko `링크 복사` / en `Copy link`. After a copy it reads, until the wait ends: ko
+  `복사했어요. 다른 브라우저에 붙여 넣으세요.` / en `Copied. Paste it into another browser.` A copy the browser refuses
+  changes nothing (the page's copy already falls back to the old copy command).
+- **What it copies:** exactly the address Connect opened (Drive: this team's page that names whose Drive it is, then
+  Google; the others: the service's sign-in page). Connect still opens the default browser. 다시 시도 makes a new link
+  and the link reads `링크 복사` again; 취소 and the 5-minute limit end the wait (a link pasted later ends on the
+  existing "expired or already used / cancelled … press Connect again" page, nothing new).
+- **Web:** none (see Out).
+
+UX review (fresh reviewer, cuts first), applied: no failure toast; no 2-second flash, one copied state that stays; no
+second line of instructions, the copied label says what to do; the link sits inline at the end of the hint instead of
+its own line; the security and "nothing new" paragraphs moved out of the spec. Not applied: rewriting the existing
+Google hint (its 5-minute and work-account sentences came from QA TC-2132 / TC-1417; out of scope here).
+
 ## Steps
 
 1. shared: header names (`x-mycel-app-return-key` hash on page calls, `x-mycel-app-return-proof` secret on the claim).

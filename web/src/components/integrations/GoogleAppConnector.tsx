@@ -118,7 +118,7 @@ export function SignInSteps({ d, testId, failed, inDialog, question }: { d: Goog
     <>
       {flow && flow.state !== 'ready' && (
         <BrowserWait google framed text={t('drive.waitingShort')} testId={`${testId}-waiting`} retryTestId={`${testId}-retry-wait`} cancelTestId={`${testId}-cancel`} busy={d.busy}
-          onRetry={() => void d.start()} onCancel={inDialog ? undefined : () => void d.cancel()} link={googleLink(d, t('drive.openGoogle'))} />
+          onRetry={() => void d.start()} onCancel={inDialog ? undefined : () => void d.cancel()} link={googleLink(d, t('drive.openGoogle'))} copyLink={d.openedUrl} />
       )}
       {flow?.state === 'ready' && (
         <div className="space-y-2" data-testid={`${testId}-confirm-step`}>

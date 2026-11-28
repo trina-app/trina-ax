@@ -1,4 +1,5 @@
 import { API, type ClientKind, type Locale } from '@mycel/shared/api'
+import { APP_RETURN_PROOF_HEADER } from '@mycel/shared/desktop-bridge'
 import { msg } from '../auth/messages'
 import { refuseClientInUse } from '../auth/google-login-admin'
 import type { AppContext } from '../context'
@@ -51,18 +52,21 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   // An app connection's sign-in (MCP, GitHub, an own app: integrations/connections/service.ts claim) is tried last, so
   // every desktop app since the claim address existed finishes those too, with no update of its own. Its answer has the
   // claim's shape (no account: a connection is not confirmed).
+  // The app's proof (APP_RETURN_PROOF_HEADER, its main process only): a result held with the app's key is redeemed only
+  // with it (google-drive/app-return.ts heldProofOk); a wrong or missing one is the same refusal as an unknown code.
   kit.handle(API.claimDriveFlow, ({ c, auth, body }) => safe(async () => {
-    try { return googleDriveOf(ctx).claim(auth.user.id, auth.session.id, body.code) } catch (e) {
+    const proof = c.req.header(APP_RETURN_PROOF_HEADER) ?? null
+    try { return googleDriveOf(ctx).claim(auth.user.id, auth.session.id, body.code, proof) } catch (e) {
       if (!(e instanceof DriveError) || e.reason !== 'invalid_code') throw e
-      try { return googleAppsOf(ctx).claim(auth.user.id, auth.session.id, body.code) } catch (g) {
+      try { return googleAppsOf(ctx).claim(auth.user.id, auth.session.id, body.code, proof) } catch (g) {
         // a Google app's refusal (no longer an owner or admin for a team sign-in, the person or session gone): the same
         // shape as the Google apps routes' (routes/google-apps.ts), never a 500
         if (g instanceof GoogleAppError) throw new HttpError(g.status === 401 ? 'unauthorized' : g.status === 403 ? 'forbidden' : g.status === 404 ? 'not_found' : g.status === 409 ? 'conflict' : g.status >= 500 ? 'unavailable' : 'bad_request', g.message, { status: g.status, params: { reason: g.reason } })
         if (!(g instanceof DriveError) || g.reason !== 'invalid_code') throw g
-        const f = await integrationsOf(ctx).claim(auth.user.id, auth.session.id, body.code)
+        const f = await integrationsOf(ctx).claim(auth.user.id, auth.session.id, body.code, proof)
         if (f) return { ...f, account: null }
         // then Slack's sign-ins and "Add to Slack" (integrations/slack/service.ts claim)
-        const sl = await slackOf(ctx).claim(auth.user.id, auth.session.id, body.code)
+        const sl = await slackOf(ctx).claim(auth.user.id, auth.session.id, body.code, proof)
         if (!sl) throw g
         return { ...sl, account: null }
       }

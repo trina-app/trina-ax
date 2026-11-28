@@ -1,6 +1,6 @@
 // App-wide middleware, in order: request context -> security headers -> session -> CSRF -> (routes) -> access log.
 import type { Context, MiddlewareHandler } from 'hono'
-import { APP_RETURN_HEADER, isInAppBrowserUserAgent } from '@mycel/shared'
+import { APP_RETURN_HEADER, APP_RETURN_KEY_HEADER, isInAppBrowserUserAgent } from '@mycel/shared'
 import { CSRF_HEADER, DEFAULT_LOCALE, LOCALE_HEADER, asLocale, uuidv7, type Locale } from '@mycel/shared/api'
 import { teamDefaultLocale } from '../admin/settings'
 import type { AppEnv } from './env'
@@ -250,7 +250,7 @@ export function session(ctx: AppContext): MiddlewareHandler<AppEnv> {
         // app left open is not), so it never keeps a trial team's server awake
         if (auth) { c.set('locale', auth.user.locale); if (c.req.path !== COMPUTER_REPORT_API) touchActivity() }
         // the desktop app's return address for sign-in codes (google-drive/app-return.ts heldLink): its session only
-        if (auth) noteAppReturn(auth.session, c.req.header(APP_RETURN_HEADER))
+        if (auth) noteAppReturn(auth.session, c.req.header(APP_RETURN_HEADER), c.req.header(APP_RETURN_KEY_HEADER))
       } catch (e) {
         c.get('log').error('session lookup failed', { err: e })
         c.set('auth', null)

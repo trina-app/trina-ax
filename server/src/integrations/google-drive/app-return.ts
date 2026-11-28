@@ -34,7 +34,7 @@
 // Before Google, the desktop app opens GO_PATH: a page of this server that names the Trina person the Drive will
 // belong to, then links on to the sign-in page. Its key is random, its hash sealed in the flow; it grants nothing.
 import crypto from 'node:crypto'
-import { APP_CODE_RETURN_PATH, PRODUCT, appReturnPortOf } from '@mycel/shared'
+import { APP_CODE_RETURN_PATH, PRODUCT, appReturnKeyOf, appReturnPortOf } from '@mycel/shared'
 
 /** the page the desktop app opens first in the system browser: whose Trina gets the Drive (routes/drive.ts) */
 export const GO_PATH = '/api/integrations/google-drive/go'
@@ -63,22 +63,38 @@ export function appLink(origin: string, code?: string): string {
  * then says `client: 'desktop'` (routes/drive.ts startedFrom). The port is used only for a result held for the desktop
  * app's one-time code, which only the starting session redeems; a phone app's session never keeps one. */
 const RETURN_PORTS_MAX = 5000
-const returnPorts = new Map<string, number>()
+const returnPorts = new Map<string, { port: number | null; key: string | null }>()
 
-/** A session's request named its app's return port (a phone app's, or no valid port: nothing kept). */
-export function noteAppReturn(session: { id: string; client: string }, header: string | undefined) {
-  if (session.client === 'mobile' || header === undefined) return
-  const port = appReturnPortOf(header)
-  if (port === null) return
+/** A session's request named its app's return port (APP_RETURN_HEADER) and its key (APP_RETURN_KEY_HEADER: the sha256
+ * of a secret only the desktop app's main process holds; docs/decisions/20261128-held-sign-in-app-key.md). A phone app's
+ * session, or neither valid: nothing kept. */
+export function noteAppReturn(session: { id: string; client: string }, header: string | undefined, keyHeader?: string | undefined) {
+  if (session.client === 'mobile' || (header === undefined && keyHeader === undefined)) return
+  const port = header === undefined ? null : appReturnPortOf(header), key = keyHeader === undefined ? null : appReturnKeyOf(keyHeader)
+  if (port === null && key === null) return
   // newest last on every call: an app in use is never the one dropped when the map is full
   returnPorts.delete(session.id)
-  returnPorts.set(session.id, port)
+  returnPorts.set(session.id, { port, key })
   if (returnPorts.size > RETURN_PORTS_MAX) returnPorts.delete(returnPorts.keys().next().value!)
 }
 
 /** The port the app of this session said, or null (an app from before, or none said since the server started). */
 export function appReturnPort(sessionId: string): number | null {
-  return returnPorts.get(sessionId) ?? null
+  return returnPorts.get(sessionId)?.port ?? null
+}
+
+/** The key the app of this session said (sha256 hex of its proof), or null (an app from before 2026-11-28, a browser,
+ * or none said since the server started). A result held for the app's code seals it (heldKey); its claim must then
+ * carry the proof (heldProofOk). */
+export function appReturnKey(sessionId: string): string | null {
+  return returnPorts.get(sessionId)?.key ?? null
+}
+
+/** A held result's claim brings the app's proof when the result was held with a key (APP_RETURN_PROOF_HEADER, sent by
+ * the desktop app's main process only): never the page's script, never whoever got the code or the sign-in link. A
+ * result held without one (an app from before) needs none, as before. */
+export function heldProofOk(key: string | null | undefined, proof: string | null | undefined): boolean {
+  return !key || tokenMatches(proof, key)
 }
 
 /** Where a held page sends the browser with its one-time code: the app's return address on 127.0.0.1 when its session

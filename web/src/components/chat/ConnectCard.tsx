@@ -42,6 +42,7 @@ import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
 import { reserveSignInWindow, useSignIn } from '../integrations/IntegrationRow'
 import { DriveFlowPanel, useDriveFlow } from '../settings/DriveConnection'
+import { CopySignInLink } from '../integrations/CopySignInLink'
 import { GoogleTeamDialog, googleTeamOn, useGoogleTeam } from '../integrations/GoogleTeam'
 import { Badge, Button, ErrorNote, LinkButton, inputCls } from '../ui'
 
@@ -392,7 +393,7 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
           <div className="space-y-2 rounded-xl border border-line bg-subtle p-3" data-testid="connect-signin">
             {['starting', 'pending', 'exchanging'].includes(flow.state) ? (
               <>
-                <p role="status">{t('integrations.signIn.waiting')}</p>
+                <p role="status">{t('integrations.signIn.waiting')}{flow.state !== 'starting' && <CopySignInLink url={flow.url} testId="connect-signin-copy-link" />}</p>
                 {service && adminAllowsDomains(service.url) && <p className="text-xs break-words text-faint" data-testid="connect-signin-domains">{t('integrations.signIn.domainBlocked', { name, host: signInReturnHost(flow.url) })}</p>}
               </>
             ) : (
