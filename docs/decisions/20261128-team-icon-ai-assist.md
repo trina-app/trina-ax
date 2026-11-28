@@ -2,7 +2,7 @@
 
 - Date: 2026-11-28
 - Status: accepted
-- Supersedes: none (extends [20261128-team-icon-from-site.md](20261128-team-icon-from-site.md))
+- Supersedes: the toast wording of [20261128-team-icon-from-site.md](20261128-team-icon-from-site.md) (the rest of it stands)
 - Branch: feat/team-icon-ai-assist, stacked on feat/team-icon-from-site (PR #711); plan
   docs/AGENTS/plan/20261128-0153-team-icon-ai-assist.md
 
@@ -49,6 +49,12 @@
   pressing window reads `GET /api/admin/team-icon/from-site` (its own last run, kept 10 minutes: running, set with the
   version, none with the words, idle) every 2 s for up to 2 minutes and shows the same toast (onboarding: with
   되돌리기) or the same "done" toast; Admin shows one line while it runs ("AI가 홈페이지 로고를 확인하고 있어요…").
+- **Rule, where the logo may come from (the owner, 2026-11-28, "ㄱㄱ"):** the AI's find may take a logo from outside
+  the homepage (an app store page, Wikimedia Commons, a trademark register, the company's other domains); QA found the
+  right mark there for 8 of 9 sites the rules could not do. So the toast no longer says "homepage": it is **"찾은 로고를
+  팀 로고로 썼어요 · 되돌리기"** (onboarding) and **"찾은 로고로 팀 로고를 바꿨어요."** (Admin) in all six languages, for
+  the rules' pick too (one wording, no branch on where it came from: the simpler one). Token use per task stays as
+  measured (about 20k input tokens for a check, 50k–170k for a find on Codex). Shared-platform pages stay skipped.
 - **Why the guard is enough against prompt injection:** website text and search results can make the AI ask for any
   address, but `logo_look` is the only way out and it refuses private, loopback, link-local, metadata and this server's
   own addresses on every hop; the AI has no other tool to send anything anywhere, and the only thing it controls is
