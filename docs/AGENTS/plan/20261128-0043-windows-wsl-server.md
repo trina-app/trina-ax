@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 00:43
 - Branch: `feat/windows-wsl-server`
-- Status: in progress
+- Status: done
 - Where: `scripts/windows/`, `scripts/install-linux.sh`, `scripts/system/packages.sh`, `docs/`. Why: the owner asked
   for a Windows server install after a QA run on a Windows 11 PC (see docs/REPOSITORY-RULES.md)
 - Version impact: minor, a new supported install path (Windows via WSL2) and its installer script
@@ -64,4 +64,4 @@ checking the kit needs, as docker/Dockerfile's download stage.
 
 ## Result
 
-Filled in at the end.
+Built as planned in PR #716. Added after an owner addendum: a "What works differently on Windows" section from a code check (sign-in returns, desktop app, LAN direct connection as a known limit, updates, video memory, backups, free space), and 127.0.0.1 instead of localhost. Item 5 was a real bug (the diagnostics and Admin used different "limited" rules); fixed with one shared rule. The script was not run on Windows here: owner QA next.
