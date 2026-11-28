@@ -806,10 +806,10 @@ export const profilesRule = (i: Pick<PromptInput, 'browserProfiles' | 'browserAp
  * answered with Gmail and Aside, docs/decisions/20261128-browser-profiles-every-turn.md) */
 export const CHROME_ASKED_RULE = `- When the user asks for their own browser, Chrome (Edge, Brave), one of their profiles or "${PRODUCT.displayName} in Chrome" (any short form of that name), use these browser tools in their profile. That request wins over a memory, an instruction or an earlier habit that says to browse with another tool (another browser app, a mail connection, web search). If the profile they mean is not open now, say so plainly and how to connect it: open that browser on their computer (the ${PRODUCT.displayName} extension there connects by itself and its icon shows it is online), or check Settings › Browser; do not quietly use another tool instead.`
 const browserRules = (i: PromptInput) => i.browserVia === 'chrome'
-  ? `${CHROME_BROWSER_RULES}\n${profilesRule(i)}\n${CHROME_ASKED_RULE}\n${i.browserApp ? `${APP_IN_PROFILES_RULE}\n` : ''}${BROWSER_UPLOAD_RULE}`
+  ? `${CHROME_BROWSER_RULES}\n${profilesRule(i)}\n${CHROME_ASKED_RULE}\n${i.browserApp ? `${APP_IN_PROFILES_RULE}\n` : ''}${i.browserUpload ? BROWSER_UPLOAD_RULE : BROWSER_NO_UPLOAD_RULE}`
   : `${BROWSER_RULES}\n${i.browserUpload ? BROWSER_UPLOAD_RULE : BROWSER_NO_UPLOAD_RULE}`
 /** the desktop app's own browser among the profiles: what differs there */
-const APP_IN_PROFILES_RULE = '- In the app\'s own browser ("app") office-network addresses need the user\'s permission first; if a call there says the desktop app is too old to attach files, use one of the user\'s profiles or say so.'
+const APP_IN_PROFILES_RULE = '- The app\'s own browser ("app") runs on the user\'s computer next to the chat; preview_start opens a page there. Office-network addresses need the user\'s permission first there; if a call there says the desktop app is too old to attach files, use one of the user\'s profiles or say so.'
 /** The person linked browser profiles but none is open, and this turn has no browser of its own (the web): the AI says
  * plainly how to connect instead of "no Chrome is connected" or another tool */
 export const profilesOfflineRule = (i: Pick<PromptInput, 'browserProfiles'>) => {

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 18:54
 - Branch: `fix/chrome-profiles-every-turn`
-- Status: in progress
+- Status: done
 - Where: server/src/chat, server/src/chrome, web/src/components/settings. Why: a desktop-app turn never saw the person's
   linked Chrome unless a hidden switch was on (see docs/REPOSITORY-RULES.md)
 - Version impact: patch — a fix to how existing browser choices reach the AI; one settings switch removed, no new feature
@@ -55,4 +55,8 @@ browser there). No migration. Five app languages + id. Desktop and web settings 
 
 ## Result
 
-(filled in at the end)
+Built as planned. Independent review: no blocker; fixed an address pinned to a closed profile (the AI now hears it may
+use "app" once the user says so), a linked profile named "app" (asks which), the upload rule for an old desktop app,
+the app's own lines (preview_start), and no "how to connect" rule in a scheduled run. Left as is: one shared-chat
+browser notice covers both browsers (as on the web before). Extension 0.3.2 (its fingerprint includes
+shared/src/api/chrome.ts). Unit (chrome-link 30+), the extension e2e in throwaway Chromium profiles (4/4).

@@ -592,6 +592,12 @@ describe('every turn gets the linked profiles; in the desktop app its own browse
     expect(pick([p('work', true), app], { url: 'https://example.org/', profile: 'app' })).toMatchObject({ profile: { linkId: APP_PROFILE_ID } })
     expect(pick([p('work', false)])).toMatchObject({ why: 'none open' })
     expect(pick([p('work', false), app], { url: 'https://example.org/', profile: 'work' })).toMatchObject({ why: 'offline' })
+    // a linked profile the person named "app": which one is meant, never the app's browser by itself (review)
+    expect(pick([p('l-app', true), app].map((x) => x.linkId === 'l-app' ? { ...x, label: 'App' } : x), { url: 'https://example.org/', profile: 'app' })).toMatchObject({ why: 'same name' })
+    // an address pinned to a closed profile in the desktop app: refused, and the AI hears the app's browser is there if the user wants it
+    const pinned = pick([{ ...p('work', false), sites: ['example.org'] }, app])
+    expect(pinned).toMatchObject({ why: 'pinned offline' })
+    expect((pinned as { refused: string }).refused).toContain('profile "app" once they say so')
     // the MCP apps' path (no app profile) is as before
     expect(pick([p('work', true)])).toMatchObject({ profile: { linkId: 'work' } })
   })
