@@ -2,6 +2,15 @@
 
 [한국어](INSTALL-WINDOWS.ko.md) · [Linux server](INSTALL-LINUX.en.md) · [IT checklist](for-admins.md)
 
+> **Not technical?** The short version is the docs page [Host it on a Windows PC](site/operate/windows-pc.md): what you
+> need, four steps and what to keep in mind. This page has every detail behind it.
+
+How hard is it?
+
+- **Only on this PC: easy.** Paste a few commands, restart the PC once, and it is done in about 10 minutes.
+- **For the whole team:** you need your own domain and a Cloudflare account. As with other open-source software, it
+  takes someone who knows a little IT.
+
 Your team server can run on a Windows PC that stays on. Windows runs a small Debian Linux inside it (WSL2, the
 Windows Subsystem for Linux), and the normal [Linux server](INSTALL-LINUX.en.md) runs in that Linux. One script sets
 it all up. It is the same server as on a Linux machine, with the same updates, backups and AI sandbox. The script
@@ -19,7 +28,8 @@ a team that has one.
 2. Sign in to Windows with the account that will keep the server, an administrator account.
 3. [Run the setup script](#run-the-setup-script). The first time, Windows restarts once and the script goes on by itself.
 4. Open the setup page on this PC, create the owner and the team ([First run](#first-run)).
-5. Give the server an https address so the team can reach it ([Reach it from other computers](#reach-it-from-other-computers-and-phones)).
+5. Only this PC uses it? You are done. For colleagues' computers and phones, give the server an https address on a
+   domain of your own, for example with a Cloudflare Tunnel ([Reach it from other computers](#reach-it-from-other-computers-and-phones)).
 
 ## Requirements
 
@@ -53,7 +63,8 @@ Windows 10 no longer gets regular updates from Microsoft, so prefer Windows 11.
    it would make and changes nothing:
    `powershell -ExecutionPolicy Bypass -File .\install-wsl-server.ps1 -WhatIf`
 
-3. Answer its questions. It takes 15 to 40 minutes on a new PC, most of it the server's packages. Leave the window open.
+3. Answer its questions (Enter means yes). It takes about 6 minutes, up to 40 on a slow PC or connection (most of it
+   the server's packages), plus the restart. Leave the window open.
 
 What the script does, in order. Run it again at any time: finished steps are skipped.
 
@@ -99,22 +110,33 @@ programs on the PC can read.) To see the code yourself (keep it private):
 wsl -d TrinaAX --cd / -u root -- cat /var/lib/mycel/setup/code
 ```
 
-Create the owner, the team name and the language; check the team's time zone. Then follow the Linux guide's
-[First run](INSTALL-LINUX.en.md#first-run) list: permissions, AI connection, invite the team, first skill, first backup.
+The installer's last lines speak of `ssh -L` and `sudo cat`: they are written for a Linux server without a screen.
+On Windows, open `http://127.0.0.1:47820/setup` on this PC instead.
+
+Create the owner, the team name and the language; check the team's time zone. Then, in this order: folder
+permissions, the AI connection, invite the team, a first skill, a first backup.
 
 ## Reach it from other computers and phones
 
-The server answers only on this PC (`127.0.0.1`). Colleagues and the phone apps need an **https address**, as with
-any self-hosted server: a tunnel or reverse proxy that reaches `127.0.0.1:47820` and a certificate the phones trust.
-Set it up as in the Linux guide's [First run](INSTALL-LINUX.en.md#first-run) (step 3), from inside Linux:
+The server answers only on this PC (`127.0.0.1`). Colleagues and the phone apps need an **https address** (a web
+address that starts with `https://`, with a certificate phones trust) on a domain of your own, as with any
+self-hosted software. Using it only on this PC needs none of this.
+
+The simplest way is a free Cloudflare Tunnel: step by step, in plain words, in
+[Connect your own domain with Cloudflare Tunnel](site/operate/windows-pc.md#connect-your-own-domain-with-cloudflare-tunnel).
+Run the tunnel program (cloudflared) inside Linux, as that page does: there it reaches the server at
+`127.0.0.1:47820` exactly as on a Linux server. Then register the host name from inside Linux:
 
 ```powershell
 wsl -d TrinaAX --cd / -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh repair --public-host team.example.com"
 ```
 
-A tunnel program can run inside Linux (`wsl -d TrinaAX --cd / -u root`) or on Windows (it reaches the server at
-`127.0.0.1:47820`). Opening the PC's port to the office network (WSL's mirrored networking, `netsh portproxy`) is not
-needed and not covered here: it gives no https.
+This runs the installer again (`repair`) and restarts the server: for about 35 seconds nobody can use it. It ends
+with a line `installed mycel <version> (...)`. The hints printed after it (`ssh -L`, `sudo ...`) are written for a
+Linux server: on this PC, skip them.
+
+Opening the PC's port to the office network (WSL's mirrored networking, `netsh portproxy`) is not needed and not
+covered here.
 
 ## What the script changes in Linux
 
@@ -141,7 +163,7 @@ first.
 |---|---|
 | Browser on this PC | `http://127.0.0.1:47820`: Windows forwards it to the server inside WSL |
 | Desktop app on this PC | Paste `http://127.0.0.1:47820` on the app's first screen (it takes `http://` for this PC's own address only). An invite link or **Open in the app** does not carry a `127.0.0.1` address: paste it |
-| Colleagues' computers, phone apps | Need the https address ([above](#reach-it-from-other-computers-and-phones)): the official relay (outbound only, works from WSL) or a tunnel to `127.0.0.1:47820`. The phone apps need https with a public certificate |
+| Colleagues' computers, phone apps | Need the https address ([above](#reach-it-from-other-computers-and-phones)): your own domain through a tunnel to `127.0.0.1:47820`. The phone apps need https with a public certificate |
 | Sign-in to Canva, Intercom, Square (and Microsoft from the desktop app) | On this PC at `http://127.0.0.1:47820` the browser signs in by itself: the return to `127.0.0.1` reaches the server (Windows QA 2026-11-28). On the https address, from any computer, the web says to use the desktop app, as on Linux: the app catches the return on `127.0.0.1` of the PC where the browser is |
 | Other MCP connectors' sign-in | The browser returns to the server's own address; on this PC through `127.0.0.1`, for others through the https address. Connectors that want client metadata (CIMD) need the https address |
 | Google Drive, Sign in with Google, Slack | Need the https address (Google and Slack accept only `https://` return addresses), as on Linux |
@@ -165,7 +187,7 @@ first.
 - **Sleep**: the server cannot answer while the PC sleeps. The script can set "never sleep while plugged in" (the
   screen still turns off). On a laptop, also set what closing the lid does (Control Panel › Power Options › Choose
   what closing the lid does › Do nothing, when plugged in).
-- **While it is stopped** nothing of the server runs: scheduled tasks, phone notifications and the relay wait, and the
+- **While it is stopped** nothing of the server runs: scheduled tasks and phone notifications wait, and the
   daily backup catches up when Linux runs again.
 - **Check**: `wsl -l -v` lists `TrinaAX` as `Running`; `wsl -d TrinaAX --cd / -u root -- mycel-ctl status` shows the server.
 - **Stop it for a while**: disable the task in Task Scheduler (folder TrinaAX), then `wsl --terminate TrinaAX`.
@@ -250,6 +272,8 @@ if (Test-Path $f) {
 Unregister-ScheduledTask -TaskPath '\TrinaAX\' -TaskName 'Keep the Trina AX server running' -Confirm:$false
 wsl --unregister TrinaAX            # deletes the Linux disk with all of the team's data
 Remove-Item -Recurse "$env:ProgramData\TrinaAX"
+# only if the script created .wslconfig (you had none before; no .wslconfig.trina-backup-<date> next to it)
+Remove-Item $env:USERPROFILE\.wslconfig
 ```
 
 Then, if you want them back as they were:

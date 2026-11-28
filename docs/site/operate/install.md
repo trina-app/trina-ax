@@ -1,17 +1,17 @@
 ---
 title: Install
-description: Choose between Trina hosting, a Linux server, an office Mac and the local demo, and get each one running.
+description: Choose between Trina hosting, a Linux server, a Windows PC, an office Mac and the local demo, and get each one running.
 ---
 
-There are four ways to run Trina AX. Pick the one that fits who will look after it. One installation is one team.
+There are five ways to run Trina AX. Pick the one that fits who will look after it. One installation is one team.
 
-| | Trina hosting | Linux server | Office Mac | Local demo |
-|---|---|---|---|---|
-| **Best for** | Teams without IT | Teams with an IT owner | A small office with a dedicated Mac | Looking around |
-| **Who runs it** | Trina, in AWS Seoul, Virginia or Singapore | Your IT | Your office operator | You |
-| **AI** | Your authorized Claude or OpenAI connection | Same | Claude (no Codex) | Off |
-| **OS isolation** | Yes | Yes | Runs as the signed-in user | No |
-| **Reach from outside the office** | Yes | Your network setup | Optional: a Tailscale address (devices on your tailnet, no certificate to install) or a Cloudflare Tunnel address | No |
+| | Trina hosting | Linux server | Windows PC | Office Mac | Local demo |
+|---|---|---|---|---|---|
+| **Best for** | Teams without IT | Teams with an IT owner | A small office with a PC that stays on | A small office with a dedicated Mac | Looking around |
+| **Who runs it** | Trina, in AWS Seoul, Virginia or Singapore | Your IT | The person whose Windows account keeps it | Your office operator | You |
+| **AI** | Your authorized Claude or OpenAI connection | Same | Same | Claude (no Codex) | Off |
+| **OS isolation** | Yes | Yes | Yes, in Linux inside Windows (WSL2); runs while that account is signed in | Runs as the signed-in user | No |
+| **Reach from outside the office** | Yes | Your network setup | Your own domain with a tunnel ([steps](windows-pc.md#connect-your-own-domain-with-cloudflare-tunnel)) | Optional: a Tailscale address (devices on your tailnet, no certificate to install) or a Cloudflare Tunnel address | No |
 
 ## Get started
 
@@ -61,6 +61,17 @@ Do not use `--allow-unsigned` for published releases. It is only for kits you bu
 :::tip
 An AI coding agent (Claude Code, Codex) can do these steps for you. Copy the prompt in [Install with your AI agent](../../INSTALL-LINUX.en.md#install-with-your-ai-agent).
 :::
+
+@tab Windows PC
+A Windows 11 PC (or Windows 10 22H2) that stays on runs the Linux server inside Windows (WSL2). One script sets it up; it runs while the account that installed it is signed in.
+
+| Item | Requirement |
+|---|---|
+| Windows | Windows 11 recommended, or Windows 10 version 22H2; 64-bit with virtualization on |
+| Memory and disk | 16 GB RAM recommended, 8 GB minimum; 20 GB free on drive C: plus your files |
+| Account | A Windows administrator account that stays signed in (a locked screen is fine) |
+
+[Host it on a Windows PC](windows-pc.md) has the four steps. Full guide: [Self-host on a Windows PC](../../INSTALL-WINDOWS.md).
 
 @tab Office Mac
 An office Mac runs Trina AX as a dedicated, signed-in macOS user. It stops when that user logs out.

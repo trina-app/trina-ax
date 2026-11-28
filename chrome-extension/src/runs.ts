@@ -8,7 +8,7 @@
 import { PRODUCT } from '../../shared/src/product'
 import { ToolError } from '../../desktop/src/common/input'
 import { aiTabId, parseAiTabId } from './ids'
-import { tabState } from './tabs'
+import { detach, tabState } from './tabs'
 
 export interface Run {
   id: string
@@ -186,6 +186,22 @@ export async function closeRun(r: Run): Promise<void> {
     closingByUs.add(w)
     await chrome.windows.remove(w).catch(() => closingByUs.delete(w))
   }
+}
+
+/** A run the person stopped (or a link that ended): its tabs let go first (a scripted page goes to about:blank, the
+ * debugger detaches, so Chrome's "debugging" bar goes once no other task holds a tab), then its window closes. */
+export async function endRun(runId: string): Promise<void> {
+  await load()
+  const r = runs.get(runId)
+  if (!r) return
+  for (const t of await runTabs(r)) if (t.id !== undefined) await detach(t.id)
+  await closeRun(r)
+}
+
+/** Every run's window (Disconnect, the link revoked). */
+export async function closeAllRuns(): Promise<void> {
+  await load()
+  for (const r of [...runs.values()]) await endRun(r.id)
 }
 
 /** Close the windows of runs without a call for RUN_IDLE_MS (alarm, every minute). `busy`: runs with a call running. */

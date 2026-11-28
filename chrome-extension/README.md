@@ -56,7 +56,12 @@ Use a test profile and test data only (QA team on qa.trina.app). Never a custome
   refused. The extension runs a fixed list of DevTools Protocol methods (`src/cdp-methods.ts`, checked by a test):
   never cookies or site storage.
 - **Stop.** The popup lists the tasks working now, each with Stop. Closing Chrome's "started debugging this browser"
-  bar stops all of them. The chat's Stop cancels the call from the server.
+  bar stops all of them. A stopped task's window closes (its tabs' debugger goes with it, so the bar goes once no other
+  task holds a tab), and the server is told (`run.stopped`, for a chat's run only when its hello said `runStops`): that
+  chat's answer does nothing more and the AI asks what to do next. Only the stopped answer's calls are held, so the next
+  message works at once. Disconnect closes every task's window. The chat's Stop cancels the call from the server.
+- **Language.** The popup and the pair page speak the person's language the server sends in hello (their own, else the
+  team's), else the browser's (`src/i18n.ts`; the tables are `src/messages.ts`).
 
 Files: `worker.ts` (entry), `link.ts` (connection), `pairing.ts`, `calls.ts` (dedupe, deadline, stop), `runs.ts`
 (windows and groups per task), `tabs.ts` (debugger, events), `tools.ts` (the tools, ported from the desktop pane),

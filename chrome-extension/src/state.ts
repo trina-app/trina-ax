@@ -13,6 +13,10 @@ export interface LinkInfo {
   label?: string
   /** every host name of the team: never opened or sent to from a driven tab */
   teamHosts: string[]
+  /** the person's language as the team told it (hello): the popup speaks it */
+  locale?: string
+  /** the team handles run.stopped for every run, a chat's too (hello) */
+  runStops?: boolean
 }
 
 const KEY = 'link'

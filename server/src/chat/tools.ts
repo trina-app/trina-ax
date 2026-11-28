@@ -504,6 +504,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
    * names) */
   const callTool = async (name: string, args: unknown, caller: Parameters<ChatToolSet['call']>[2]): ReturnType<ChatToolSet['call']> => {
     const files = caller?.files ?? exec.files
+    // the person pressed Stop in their Chrome: this answer does nothing more (the popup promised the AI asks what next)
+    if (exec.chromeStopped) return { ...text(CHROME_STOPPED, true), summary: `${name} -> refused: stopped in the user's browser` }
     // a profile draft: the same site and at most 4 pages per answer, counted before the call starts
     if (exec.skillDraft) return { ...text(SKILL_DRAFT_FILE_REFUSAL, true), summary: `${name} -> refused: team skill draft (no tools)` }
     if (exec.shareJudge) return { ...text(SHARE_JUDGE_REFUSAL, true), summary: `${name} -> refused: skill share judgement (no tools)` }
@@ -647,6 +649,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     list: () => [...tools.values()].map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     has: (n) => tools.has(n),
     callStarted: () => exec.ownCallStarted(),
+    stopped: () => (exec.chromeStopped ? CHROME_STOPPED : null),
     // the person's stored connection keys in what a tool saves (a file, an artifact, a name): hidden before every
     // other check, card and write (integrations/connections/hide-args.ts; QA TC-3041). write keeps a form the file it
     // overwrites already holds
@@ -1950,6 +1953,9 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
         args = picked.args
         win = chromeWindowOf(profile.linkId)
         exec.chromeCurrent = profile.linkId
+        // the step says which profile it ran in (two profiles of one person look the same otherwise)
+        const said = exec.redact(tr('chromeStepProfile', spec.locale, { profile: profile.label }))
+        exec.patchToolStep(name, (s) => ({ label: s.label.endsWith(said) ? s.label : `${s.label} · ${said}` }))
         // a scheduled run: no script of the AI's own in the person's signed-in pages (nobody watches it)
         if (spec.clientKind === 'schedule' && (name === 'javascript_tool' || (name === 'browser_batch' && Array.isArray(args.actions) && args.actions.some((a) => (a as { name?: unknown })?.name === 'javascript_tool')))) {
           return { ...text('Not run: scripts (javascript_tool) are not used in the user\'s own browser during a scheduled run. Use read_page, find, computer and form_input.', true), summary: `${name} -> refused (scheduled run: no script in Chrome)` }
@@ -1987,7 +1993,7 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       const gate = async (href: string): Promise<string | null> => {
         try {
           const hadSite = profile ? new Set(personSites(rt.db, spec.chatId, spec.userId, person)) : null
-          const how = await gateUrl(rt.db, spec.chatId, href, person, { turnId: spec.turnId, userId: spec.userId })
+          const how = await gateUrl(rt.db, spec.chatId, href, person, { turnId: spec.turnId, userId: spec.userId, ...(profile ? { profile: { label: profile.label, keepsSites: !profile.onlyListed } } : {}) })
           // "Always allow this site" pressed on the address card now, for a call in a profile: kept for that profile too
           // (one answer, not a second card for the same site there; a profile limited to its list changes only in Settings)
           if (profile && !profile.onlyListed && hadSite && how === 'confirmed') {
@@ -2073,7 +2079,11 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       const call: BrowserCall = async (tool, a) => {
         // a site the person's Chrome needs and nobody allowed: their card here, then the call again (a few sites at most)
         for (let asked = 0; ; asked++) {
+          // stopped meanwhile (run.stopped between two relay calls of one tool call: its key check, a site card): no more
+          if (profile && exec.chromeStopped) return { callId: '', ok: false, content: [], error: CHROME_STOPPED, stopped: true }
           const r = await rt.relay.call({ userId: spec.userId, windowId: win, turnId: spec.turnId, chatId: spec.chatId, tool, args: a, signal: exec.abort.signal, sites: [...sites], office: [...officeHosts], ...(run ? { run } : {}), ...(tool === 'file_upload' && prepare ? { prepare } : {}) })
+          // the person stopped it in their Chrome: the rest of this answer uses no tool, and the AI asks what next
+          if (profile && r.stopped) { exec.chromeStopped = true; return { ...r, ok: false, error: CHROME_STOPPED } }
           // what a Chrome says it was allowed is never kept (its Always is the server's card, per profile)
           if (!profile) keepDeviceAlways(exec, person, r.always)
           if (!profile || !r.needSite || asked >= CHROME_SITE_ASKS) return tool === 'file_upload' ? oldAppResult(r) : r
@@ -2105,12 +2115,17 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       for (const n of g.notes) content.push({ type: 'text', text: n })
       // the files are in the page: the step says how many and where ("파일 2개 첨부함: mail.daum.net · …")
       const attached = files ? attachedStepLabel(r, files, spec.locale) : null
-      exec.patchToolStep(name, (s) => ({ ...(shared.length ? { images: [...(s.images ?? []), ...shared] } : {}), ...(attached ? { label: exec.redact(attached) } : {}) }))
+      const inProfile = profile && attached ? ` · ${tr('chromeStepProfile', spec.locale, { profile: profile.label })}` : ''
+      exec.patchToolStep(name, (s) => ({ ...(shared.length ? { images: [...(s.images ?? []), ...shared] } : {}), ...(attached ? { label: exec.redact(attached + inProfile) } : {}) }))
       if (!content.length) content.push({ type: 'text', text: r.ok ? 'OK' : 'Error' })
       return { content, isError: !r.ok, summary: `${name} -> ${r.ok ? 'ok' : 'error: ' + (r.error ?? '').slice(0, 200)}${guardSummary(g)}${allSites ? ' (all websites allowed)' : ''}${files ? ` (${files.length} file${files.length === 1 ? '' : 's'} ${r.ok ? 'attached' : 'offered'}: ${uploadSummary(files)})` : ''}` }
     },
   }
 }
+
+/** What every tool call of an answer the person stopped in their Chrome gets (the popup says "The AI will ask you what
+ * to do next"): no retry, no other tool, one short question. */
+export const CHROME_STOPPED = 'The user pressed Stop in their browser, so this answer stops here: nothing more is done, in the browser or with any other tool. Do not call any tool again in this answer. Tell the user in one short sentence what was done so far, and ask what they want to do next.'
 
 /** a call asks the person about at most this many sites in a row in their Chrome (a page that keeps sending it on to new
  * sites stops here) */
