@@ -113,7 +113,7 @@ export const chromeRoutes: RouteModule = {
       if (got.replaced) rt.chrome.drop(got.replaced)
       const u = ctx.db.query('SELECT name, username FROM users WHERE id = ?').get(got.link.user_id) as { name: string; username: string }
       audit(ctx.db, { actor: got.link.user_id, action: 'chrome.link', target: got.link.id, detail: { ip: info.ip, label: got.link.label, version: got.link.version, ...(got.link.browser ? { browser: got.link.browser } : {}), ...(got.replaced ? { replaced: got.replaced } : {}) } })
-      return { token: got.token, linkId: got.link.id, user: { name: u.name, username: u.username }, team: { name: getTeamSettings(ctx.db).teamName }, teamHosts: teamHosts(ctx, [new URL(c.req.url).hostname]) }
+      return { token: got.token, linkId: got.link.id, label: got.link.label, user: { name: u.name, username: u.username }, team: { name: getTeamSettings(ctx.db).teamName }, teamHosts: teamHosts(ctx, [new URL(c.req.url).hostname]) }
     })
 
     // file_upload's files for the person's linked Chrome: its link token, the person's own ticket, once; every failure is

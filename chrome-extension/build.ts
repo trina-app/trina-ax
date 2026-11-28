@@ -10,7 +10,7 @@ import { chromeMessages, LOCALES } from './src/messages'
 /** The extension's own version (semver; the Web Store wants plain numbers). Never edit it by hand: `bun run chrome:bump
  * patch|minor|major` sets it and records chrome-extension/shipped.json (the store never gets one version twice;
  * docs/RELEASE-CI.md "Chrome extension releases"). */
-export const EXTENSION_VERSION = '0.3.1'
+export const EXTENSION_VERSION = '0.3.2'
 
 const HERE = import.meta.dir
 const ROOT = join(HERE, '..')
@@ -48,7 +48,10 @@ export function manifest(version: string, o: { dev?: boolean } = {}) {
     icons: { 16: 'icons/icon-16.png', 32: 'icons/icon-32.png', 48: 'icons/icon-48.png', 128: 'icons/icon-128.png' },
     // nativeMessaging: only to pair through the desktop app on this computer (chrome-native.ts); Chrome shows
     // "Communicate with cooperating native applications" at install
-    permissions: ['debugger', 'tabGroups', 'storage', 'alarms', 'activeTab', 'nativeMessaging'],
+    // identity: no install warning; identity.email (optional, "Know your email address") is asked only at Connect, so
+    // the profile is named after its Google account (chrome.identity.getProfileUserInfo)
+    permissions: ['debugger', 'tabGroups', 'storage', 'alarms', 'activeTab', 'nativeMessaging', 'identity'],
+    optional_permissions: ['identity.email'],
     optional_host_permissions: ['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*'],
     content_security_policy: { extension_pages: "script-src 'self'; object-src 'self'" },
   }
