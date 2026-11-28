@@ -52,7 +52,10 @@ func (e *Enroller) dataDisk(reattach, standalone bool) error {
 	}
 	var start time.Time
 	for i := 0; ; i++ {
-		done, dev, err := e.findDataDisk(reattach, standalone, i < polls)
+		// the count bounds the wait in tests (a Sleep that returns at once); the clock bounds it on a real machine,
+		// where each round is a poll plus `udevadm settle`
+		more := i < polls && (i == 0 || e.Now().Sub(start) < dataDiskWait)
+		done, dev, err := e.findDataDisk(reattach, standalone, more)
 		if err == nil && (done || dev != "") && i > 0 {
 			fmt.Fprintf(e.Out, "mycel-enroll: the data disk is here after %s\n", e.Now().Sub(start).Round(time.Second))
 		}
