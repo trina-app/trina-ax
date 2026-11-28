@@ -67,7 +67,7 @@ func TestCheckTable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.rules != 10 || f.version != "1.1.3" {
+	if f.rules != 17 || f.version != "1.1.3" {
 		t.Fatalf("%+v", f)
 	}
 	other := *c
@@ -87,5 +87,56 @@ func TestCheckTable(t *testing.T) {
 	}
 	if _, err := checkTable([]byte(`{"nftables":[]}`), c); err == nil {
 		t.Fatal("empty table passed")
+	}
+}
+
+// A hosted server takes no inbound connection (Lightsail plan L11): the input chain is there with policy drop, and no
+// rule in it opens a port. A self-install has no input chain.
+func TestInputChain(t *testing.T) {
+	self := &FirewallConf{Format: 1, ID: "mycel", EngineUID: 990, ServerUID: 989, ProxyPort: 47821, ServerPort: 47820, Deployment: "self"}
+	if strings.Contains(rulesText(self, nil), "hook input") {
+		t.Fatal("a self-install got an input chain")
+	}
+	hosted := *self
+	hosted.Deployment = "hosted"
+	txt := rulesText(&hosted, nil)
+	for _, want := range []string{"type filter hook input priority filter; policy drop;", `iifname "lo" accept`, "ct state established,related accept", "nd-neighbor-solicit", "packet-too-big", "udp sport 67 udp dport 68 accept", "udp sport 547 udp dport 546 accept"} {
+		if !strings.Contains(txt, want) {
+			t.Errorf("hosted rules miss %q", want)
+		}
+	}
+	in := txt[strings.Index(txt, "chain input"):]
+	if strings.Contains(in, "echo-request") || strings.Contains(in, "tcp dport") || !strings.HasSuffix(in, "counter drop\n  }\n}\n") {
+		t.Errorf("the input chain accepts more than it should:\n%s", in)
+	}
+
+	js, err := os.ReadFile("testdata/nft-list-hosted.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the self check of the hosted table also passes for a self configuration (the input chain is extra there)
+	if _, err := checkTable(js, self); err != nil {
+		t.Fatalf("self conf on the hosted table: %v", err)
+	}
+	// policy accept
+	bad := strings.Replace(string(js), `"hook": "input", "prio": 0, "policy": "drop"`, `"hook": "input", "prio": 0, "policy": "accept"`, 1)
+	if bad == string(js) {
+		t.Fatal("fixture has no input chain with policy drop")
+	}
+	if _, err := checkTable([]byte(bad), &hosted); err == nil || !strings.Contains(err.Error(), "input") {
+		t.Fatalf("input policy accept passed: %v", err)
+	}
+	// the input chain gone (a table loaded by an older mycel-ctl)
+	noInput := strings.Replace(string(js), `"name": "input"`, `"name": "inbound"`, 1)
+	if _, err := checkTable([]byte(noInput), &hosted); err == nil {
+		t.Fatal("hosted table without an input chain passed")
+	}
+	// a rule that opens a port: the DHCP rule's dport 68 made into tcp 22
+	open := strings.Replace(string(js), `"protocol": "udp", "field": "dport"}}, "right": 68}`, `"protocol": "tcp", "field": "dport"}}, "right": 22}`, 1)
+	if open == string(js) {
+		t.Fatal("fixture has no udp dport 68 rule")
+	}
+	if _, err := checkTable([]byte(open), &hosted); err == nil || !strings.Contains(err.Error(), "port 22") {
+		t.Fatalf("input rule accepting tcp 22 passed: %v", err)
 	}
 }

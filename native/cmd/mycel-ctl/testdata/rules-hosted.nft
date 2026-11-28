@@ -18,4 +18,14 @@ table inet mycel {
     ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10 } counter reject with icmpx type admin-prohibited
     ip6 daddr { fc00::/7, fe80::/10 } counter reject with icmpx type admin-prohibited
   }
+  chain input {
+    type filter hook input priority filter; policy drop;
+    iifname "lo" accept
+    ct state established,related accept
+    icmp type { destination-unreachable, time-exceeded, parameter-problem } accept
+    icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+    udp sport 67 udp dport 68 accept
+    ip6 saddr fe80::/10 udp sport 547 udp dport 546 accept
+    counter drop
+  }
 }

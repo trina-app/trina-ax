@@ -99,8 +99,9 @@ func privateResolvers(resolvConf string) []netip.Addr {
 	return out
 }
 
-// rulesText is the whole nft transaction (spec 3.4.1). Every rule starts with `meta skuid X jump`: packets without a
-// socket (kernel RST/ICMP/NDP) never match skuid, so they and every other account fall through to policy accept.
+// rulesText is the whole nft transaction (spec 3.4.1). Every output rule starts with `meta skuid X jump`: packets
+// without a socket (kernel RST/ICMP/NDP) never match skuid, so they and every other account fall through to the
+// output chain's policy accept. A hosted server also gets the input chain (inputChain).
 // The leading `table … {}` + `delete table …` makes the replace atomic even when the table does not exist yet.
 func rulesText(c *FirewallConf, resolvers []netip.Addr) string {
 	var b strings.Builder
@@ -135,9 +136,31 @@ func rulesText(c *FirewallConf, resolvers []netip.Addr) string {
 		fmt.Fprintf(&b, "    ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10 } counter reject with icmpx type admin-prohibited\n")
 		fmt.Fprintf(&b, "    ip6 daddr { fc00::/7, fe80::/10 } counter reject with icmpx type admin-prohibited\n")
 	}
-	fmt.Fprintf(&b, "  }\n}\n")
+	fmt.Fprintf(&b, "  }\n")
+	if c.Deployment == "hosted" {
+		b.WriteString(inputChain)
+	}
+	fmt.Fprintf(&b, "}\n")
 	return b.String()
 }
+
+// inputChain: a hosted team server takes no inbound connection (Lightsail plan L11, section 6.3). It dials out to the
+// relay, the control plane and hostd (ax-link); the server listens on 127.0.0.1 only. On Lightsail the private network
+// 172.26/16 of all instances in the account is not filtered, so this chain is the only control between team servers.
+// It accepts loopback, replies to our own connections, the ICMP errors that path MTU discovery needs, IPv6 neighbour
+// discovery and router advertisements (IPv6 and the Amazon time server fd00:ec2::123 need them), and DHCPv4/v6
+// replies. All else is dropped (IPv4 and IPv6). A self-install gets no input chain: its owner runs the host firewall.
+const inputChain = `  chain input {
+    type filter hook input priority filter; policy drop;
+    iifname "lo" accept
+    ct state established,related accept
+    icmp type { destination-unreachable, time-exceeded, parameter-problem } accept
+    icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+    udp sport 67 udp dport 68 accept
+    ip6 saddr fe80::/10 udp sport 547 udp dport 546 accept
+    counter drop
+  }
+`
 
 func cmdFirewall(e *env, args []string) (int, error) {
 	pos, rest := positional(args)
@@ -318,7 +341,8 @@ type tableFacts struct {
 var nftVersionRe = regexp.MustCompile(`^[0-9][0-9.]*`)
 
 // checkTable reads `nft -j list table inet <id>`: the output chain is a filter hook with policy accept, jumps the
-// engine uid to engine_out, and engine_out accepts exactly the proxy port and ends in reject.
+// engine uid to engine_out, and engine_out accepts exactly the proxy port and ends in reject. A hosted table also has
+// the input chain: a filter hook with policy drop, and no rule in it accepts a tcp/udp port other than DHCP's.
 func checkTable(js []byte, c *FirewallConf) (tableFacts, error) {
 	var doc struct {
 		Nftables []map[string]json.RawMessage `json:"nftables"`
@@ -334,6 +358,7 @@ func checkTable(js []byte, c *FirewallConf) (tableFacts, error) {
 		Expr  []expr `json:"expr"`
 	}
 	var outputHook, outputAccept bool
+	var inputHook, inputDrop bool
 	var jumpEngine, acceptProxy, engineReject bool
 	engineRules := 0
 	for _, item := range doc.Nftables {
@@ -357,6 +382,10 @@ func checkTable(js []byte, c *FirewallConf) (tableFacts, error) {
 				outputHook = cc.Type == "filter" && cc.Hook == "output"
 				outputAccept = cc.Policy == "accept"
 			}
+			if cc.Table == c.ID && cc.Name == "input" {
+				inputHook = cc.Type == "filter" && cc.Hook == "input"
+				inputDrop = cc.Policy == "drop"
+			}
 		}
 		r, ok := item["rule"]
 		if !ok {
@@ -372,6 +401,14 @@ func checkTable(js []byte, c *FirewallConf) (tableFacts, error) {
 		case "output":
 			if matchSkuid(rr.Expr, c.EngineUID) && strings.Contains(s, `"jump"`) && strings.Contains(s, `"engine_out"`) {
 				jumpEngine = true
+			}
+		case "input":
+			// only the shapes of inputChain may accept: a rule that opens a port (tcp/udp dport other than the
+			// DHCP client ports) fails the check
+			if strings.Contains(s, `"accept"`) {
+				if dport, ok := matchAnyDport(rr.Expr); ok && dport != 68 && dport != 546 {
+					return f, fmt.Errorf("input chain accepts inbound port %d", dport)
+				}
 			}
 		case "engine_out":
 			engineRules++
@@ -396,6 +433,8 @@ func checkTable(js []byte, c *FirewallConf) (tableFacts, error) {
 		return f, fmt.Errorf("engine_out does not allow 127.0.0.1:%d", c.ProxyPort)
 	case !engineReject || engineRules < 3:
 		return f, fmt.Errorf("engine_out does not end in reject")
+	case c.Deployment == "hosted" && (!inputHook || !inputDrop):
+		return f, fmt.Errorf("table inet %s has no input filter chain with policy drop (a hosted server takes no inbound connection)", c.ID)
 	}
 	return f, nil
 }
@@ -428,6 +467,18 @@ func matchSkuid(ex []map[string]json.RawMessage, uid int) bool {
 
 // matchDport: the tcp dport of a `tcp dport N` match.
 func matchDport(ex []map[string]json.RawMessage) (int, bool) {
+	return matchDportOf(ex, "tcp")
+}
+
+// matchAnyDport: the dport of a `tcp dport N` or `udp dport N` match (a set or range counts as -1: never allowed).
+func matchAnyDport(ex []map[string]json.RawMessage) (int, bool) {
+	if n, ok := matchDportOf(ex, "tcp"); ok {
+		return n, true
+	}
+	return matchDportOf(ex, "udp")
+}
+
+func matchDportOf(ex []map[string]json.RawMessage, proto string) (int, bool) {
 	for _, x := range ex {
 		m, ok := x["match"]
 		if !ok {
@@ -442,13 +493,14 @@ func matchDport(ex []map[string]json.RawMessage) (int, bool) {
 			} `json:"left"`
 			Right json.RawMessage `json:"right"`
 		}
-		if json.Unmarshal(m, &mm) != nil || mm.Left.Payload.Field != "dport" || mm.Left.Payload.Protocol != "tcp" {
+		if json.Unmarshal(m, &mm) != nil || mm.Left.Payload.Field != "dport" || mm.Left.Payload.Protocol != proto {
 			continue
 		}
 		var n int
 		if json.Unmarshal(mm.Right, &n) == nil {
 			return n, true
 		}
+		return -1, true
 	}
 	return 0, false
 }
