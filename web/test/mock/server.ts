@@ -99,7 +99,7 @@ import zlib from 'node:zlib'
 import * as XLSX from 'xlsx'
 import { CCITT_SCAN, JPX_SCAN, makeCidPdf, makeImagePdf, makePagedPdf, makePdf } from '../../../tests/lib/pdf'
 import { serveWeb } from '../../../server/src/routes/web-static'
-import { TEXT as TEAM_ICON_TEXT } from '../../../server/src/admin/team-icon'
+import { SITE_ICON_TEXT, TEXT as TEAM_ICON_TEXT } from '../../../server/src/admin/team-icon'
 import { msg as serverMsg } from '../../../server/src/auth/messages'
 import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../../server/src/admin/folder-keep'
 import { checkTeamIcon, CHAT_FILES_FOLDER, FROM_COMPUTER_DIR, offersFolderShare, stepLabel, stepText, TEAM_ICON_MAX_BYTES, WEB_ALLOW_ALL_WARNING_VERSION, type TeamIconFile } from '@mycel/shared'
@@ -681,6 +681,8 @@ export class MockServer {
    * {ai: 'none' | 'failed' | 'timeout', delayMs} answers otherwise until the next reset; GET /__test/file-rank lists
    * the entries each pick was sent (names and metadata only) */
   fileRank: { ai: 'done' | 'none' | 'failed' | 'timeout'; delayMs: number } = { ai: 'done', delayMs: 0 }
+  /** the website's square icon the reading staged (server/src/onboarding/site-icon.ts), set by /__test/site-icon */
+  siteIcon: Uint8Array<ArrayBuffer> | null = null
   fileRankCalls: { entries: unknown[]; own?: boolean }[] = []
   /** the setup's folder plan (server/src/onboarding/files-organize.ts, short): `ai` as the AI would answer (done: the
    * name rules plus a project of the files whose names match `project.match`), each status call reads one more file */
@@ -706,6 +708,7 @@ export class MockServer {
     this.statusClock = null
     this.uploadDelayMs = 0
     this.fileRank = { ai: 'done', delayMs: 0 }
+    this.siteIcon = null
     this.fileRankCalls = []
     this.moveRecent = new Map()
     this.moveDismissed = new Set()
@@ -4680,7 +4683,18 @@ export class MockServer {
         if (!this.files.has(intro)) this.putFile(intro, `# 회사 소개\n\n${this.settings.teamName}${p.site ? ` · ${p.site}` : ''}\n`)
       }
       p.updatedAt = at
-      return { progress: p, brandFolder: g.brandFolder!, imagesFolder, images: [], intro }
+      // the website's icon as the team logo when the team has none (welcome-result.ts applySiteIcon): used once
+      let teamIcon: { version: string } | null = null
+      if (this.siteIcon && !this.teamIcon) {
+        const r = checkTeamIcon(this.siteIcon, 'image/png')
+        if (r.ok) {
+          this.teamIcon = { bytes: this.siteIcon, type: r.type, width: r.width, height: r.height, version: sha256Hex(this.siteIcon).slice(0, 16) }
+          teamIcon = { version: this.teamIcon.version }
+          this.publish(TEAM_ICON_CHANGED)
+        }
+      }
+      this.siteIcon = null
+      return { progress: p, brandFolder: g.brandFolder!, imagesFolder, images: [], intro, teamIcon }
     },
     // 팀 파일's AI picks (server/src/onboarding/file-rank.ts, short): a file whose name says what it is, best first;
     // owners and admins only
@@ -5087,10 +5101,22 @@ export class MockServer {
       this.publish(TEAM_ICON_CHANGED)
       return { version: this.teamIcon.version, type: r.type, width: r.width, height: r.height, size: bytes.byteLength }
     },
-    deleteTeamIcon: () => {
+    deleteTeamIcon: (c) => {
+      // with a version (the undo of a logo from the website): never a newer one
+      const version = (c.query as { version?: string }).version
+      if (version && this.teamIcon && this.teamIcon.version !== version) fail('conflict', 409, undefined, undefined, { reason: 'stale' })
       if (this.teamIcon) this.publish(TEAM_ICON_CHANGED)
       this.teamIcon = null
       return undefined
+    },
+    // like server/src/admin/team-icon-site.ts: the saved profile's website, the staged test icon or "not found"
+    teamIconFromSite: () => {
+      if (!this.companyProfile?.website?.trim()) fail('conflict', 409, SITE_ICON_TEXT.noWebsite.ko, undefined, { reason: 'no_website' })
+      const r = this.siteIcon ? checkTeamIcon(this.siteIcon, 'image/png') : null
+      if (!this.siteIcon || !r?.ok) return fail('not_found', 404, SITE_ICON_TEXT.notFound.ko, undefined, { reason: 'not_found' })
+      this.teamIcon = { bytes: this.siteIcon, type: r.type, width: r.width, height: r.height, version: sha256Hex(this.siteIcon).slice(0, 16) }
+      this.publish(TEAM_ICON_CHANGED)
+      return { version: this.teamIcon.version, type: r.type, width: r.width, height: r.height, size: this.siteIcon.byteLength }
     },
     // like server/src/admin/budgets.ts usage: made-up rows per Group by; with series=1 the same rows spread over the
     // last three days of the range (tokens per day by key, adding up to the rows), with facets=1 the filter choices.
@@ -6531,6 +6557,7 @@ export class MockServer {
     else if (p === '/__test/file-rank' && req.method === 'GET') return Response.json(this.fileRankCalls)
     else if (p === '/__test/organize' && req.method === 'GET') return Response.json({ calls: this.organizeCalls, organized: this.filesOrganized, formSkills: this.formSkillCalls })
     else if (p === '/__test/organize') this.organize = { ai: (body.ai as typeof this.organize.ai | undefined) ?? 'done', project: (body.project as typeof this.organize.project | undefined) ?? null }
+    else if (p === '/__test/site-icon') this.siteIcon = typeof body.png === 'string' ? new Uint8Array(Buffer.from(body.png, 'base64')) : null
     else if (p === '/__test/file-rank') this.fileRank = { ai: (body.ai as typeof this.fileRank.ai | undefined) ?? 'done', delayMs: Number(body.delayMs ?? 0) }
     else if (p === '/__test/deck-pace') {
       this.deckPaceMs = Number(body.ms ?? 40)

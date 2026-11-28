@@ -223,6 +223,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/onboarding/form-skill.ts': { why: 'a form skill: the fixed procedure and rules written into its SKILL.md in the team\'s language, and the examples the model gets (ko next to en/id/ja/es; multi-line ko blocks)', also: /./ },
   'shared/src/api/onboarding-skill.ts': { why: 'a form\'s name: the Korean date, version and form words left out of it (not screen text)', also: /^const (DATE_WORDS|VERSION_WORDS|FORM_WORDS) = / },
   'server/src/onboarding/specifics.ts': { why: 'the Korean job titles, words that are no one\'s name, day and money words looked for in a run so they do not stay in a team skill (not screen text)', also: /./ },
+  'server/src/onboarding/site-icon.ts': { why: 'the Korean word for logo (로고) looked for in a header picture\'s class, id or file name (not screen text)', also: /^const LOGO_MARK = / },
   'server/src/onboarding/brand-assets.ts': { why: 'the Korean word for logo (로고) looked for in a page\'s picture names and labels (not screen text)', also: /^const LOGO_WORD = / },
   'server/src/onboarding/files-organize.ts': { why: 'the setup folder plan\'s chat title and request (ko next to en/id/ja/es)' },
   'shared/src/api/files-organize.ts': { why: 'the folder plan\'s name rules (Korean words that tell a document\'s kind from its file name, not screen text) and its folder names (ko next to en/id/ja/es)', also: /^\s*\['(form|minutes|proposal|report|intro|policy|training|brand)', \// },
