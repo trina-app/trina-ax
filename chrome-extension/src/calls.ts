@@ -9,7 +9,7 @@ import { errorResult, resultBytes, toBrowserResult } from '../../desktop/src/com
 import { ToolError } from '../../desktop/src/common/input'
 import { live, refreshBadge } from './state'
 import { runFor } from './runs'
-import { notices } from './tabs'
+import { takeNotices } from './tabs'
 import { runTool, type CallCtx, type ToolOut } from './tools'
 
 export const STOPPED = 'The user stopped the AI in Chrome. Do not retry; ask the user what to do.'
@@ -125,7 +125,7 @@ async function runOnce(call: BrowserCall): Promise<BrowserResult> {
     )
     const out = await Promise.race([runTool(ctx, parsed.call), aborted])
     // what happened between calls (a page the guard stopped, a file picker it closed) goes to the AI now
-    const said = [...ctx.notes, ...notices.splice(0)]
+    const said = [...ctx.notes, ...takeNotices(ctx.tabs)]
     return toResult(call.callId, said.length ? { ...out, content: [{ type: 'text', text: said.join('\n') }, ...out.content] } : out)
   } catch (e) {
     return errorResult(call.callId, `Error: ${String((e as Error)?.message ?? e).split('\n')[0]}`)

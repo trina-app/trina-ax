@@ -992,7 +992,9 @@ export class TurnExec {
     // restricted run, and only the person's own link (another member's turn never reaches it)
     // ...and the person's own scheduled runs (a profile's own Always answers are what they may use there unattended)
     const chromeWanted = !this.restricted && !isGuestUser(rt.db, spec.userId)
-      && (spec.clientKind === 'schedule' || (!!spec.windowId && (spec.clientKind === 'web' || (spec.clientKind === 'desktop' && browserTarget(rt.db, spec.userId) === 'chrome'))))
+      && (spec.clientKind === 'schedule' || (!!spec.windowId && (spec.clientKind === 'web' || (spec.clientKind === 'desktop' && browserTarget(rt.db, spec.userId) === 'chrome'))
+        // a live window of the person's own (an app's or a script's token posting a message has none): security review
+        && rt.hub.isWindowOpen(spec.userId, spec.windowId)))
     const online = chromeWanted ? rt.chrome.onlineLinks(spec.userId) : []
     if (online.length) {
       const up = new Set(online.map((o) => o.linkId))

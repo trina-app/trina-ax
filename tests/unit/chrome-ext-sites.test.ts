@@ -83,6 +83,17 @@ describe('hard blocks', () => {
     ]) expect(blocked(u)).toContain('account-security or password page')
     for (const u of ['https://github.com/trina-app/trina-ax', 'https://www.google.com/search?q=x', 'https://naver.com/']) expect(blocked(u)).toBeNull()
   })
+  test('repository and organization settings, app installs, OAuth consent screens', () => {
+    for (const u of [
+      'https://github.com/trina-app/trina-ax/settings', 'https://github.com/trina-app/trina-ax/settings/keys', 'https://github.com/organizations/trina-app/settings/members',
+      'https://github.com/apps/some-app/installations/new', 'https://github.com/settings/connections/applications/x', 'https://github.com/login/device',
+      'https://id.atlassian.com/login', 'https://auth.atlassian.com/authorize?x=1', 'https://slack.com/oauth/v2/authorize', 'https://acme.slack.com/oauth/x',
+      'https://login.salesforce.com/', 'https://acme.okta.com/oauth2/default/v1/authorize', 'https://acme.okta.com/oauth2/v1/authorize', 'https://acme.auth0.com/authorize?client_id=x',
+      'https://appleid.apple.com/auth/authorize', 'https://discord.com/oauth2/authorize', 'https://www.facebook.com/dialog/oauth?x', 'https://www.facebook.com/v19.0/dialog/oauth',
+      'https://twitter.com/i/oauth2/authorize', 'https://x.com/i/oauth2/authorize', 'https://kauth.kakao.com/oauth/authorize',
+    ]) expect({ u, b: blocked(u) }).toEqual({ u, b: expect.stringContaining('account-security or password page') })
+    for (const u of ['https://github.com/trina-app/trina-ax/issues', 'https://acme.slack.com/messages', 'https://www.facebook.com/somepage', 'https://x.com/home', 'https://discord.com/channels/1']) expect(blocked(u)).toBeNull()
+  })
 })
 
 describe('checkUrl', () => {

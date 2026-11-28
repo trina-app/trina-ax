@@ -42,6 +42,8 @@ export const CDP_METHODS: ReadonlySet<string> = new Set([
   'Fetch.disable',
   'Fetch.failRequest',
   'Fetch.continueRequest',
-  // out-of-process frames and workers of a driven tab (their file pickers and requests are guarded too)
+  // out-of-process frames and workers of a driven tab (their file pickers and requests are guarded too), and closing
+  // a window a scripted document opened (it cannot be guarded)
   'Target.setAutoAttach',
+  'Target.closeTarget',
 ])

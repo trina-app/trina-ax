@@ -137,6 +137,8 @@ export abstract class CallRelay<C extends WindowCall, R> {
 
   /** A call to a linked Chrome is answered only by that Chrome's own connection (`from`), never by a window of the page. */
   private fromItsWindow(p: Pending<C, R>, from: string | undefined): boolean {
+    // ...and a Chrome's connection answers only its own calls (never a desktop window's)
+    if (from !== undefined && isChromeWindow(from)) return from === p.windowId
     return !isChromeWindow(p.windowId) || from === p.windowId
   }
 

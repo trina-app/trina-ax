@@ -81,17 +81,26 @@ export function unlink(db: Database, userId: string, linkId: string): boolean {
   return db.query('DELETE FROM chrome_links WHERE id = ? AND user_id = ?').run(linkId, userId).changes > 0
 }
 
+/** Told when links end outside a route (the runtime closes their live connections at once: chrome/links.ts). */
+const ended: ((ids: string[]) => void)[] = []
+export function onLinksEnded(l: (ids: string[]) => void): () => void { ended.push(l); return () => { const i = ended.indexOf(l); if (i >= 0) ended.splice(i, 1) } }
+const tellEnded = (ids: string[]) => { if (ids.length) for (const l of ended) try { l(ids) } catch { /* the next ping closes it */ } }
+
 /** End every link and code of a person (their sessions all ended: sign out everywhere, password, disabled, deleted). */
 export function unlinkAll(db: Database, userId: string): string[] {
   db.query('DELETE FROM chrome_pair_codes WHERE user_id = ?').run(userId)
-  return (db.query('DELETE FROM chrome_links WHERE user_id = ? RETURNING id').all(userId) as { id: string }[]).map((r) => r.id)
+  const ids = (db.query('DELETE FROM chrome_links WHERE user_id = ? RETURNING id').all(userId) as { id: string }[]).map((r) => r.id)
+  tellEnded(ids)
+  return ids
 }
 
 /** Spent and expired codes, links unused for CHROME_LINK_IDLE_DAYS. */
 export function sweepChrome(db: Database, now = Date.now()): string[] {
   db.query('DELETE FROM chrome_pair_codes WHERE expires_at <= ?').run(iso(now))
   const cut = iso(now - CHROME_LINK_IDLE_DAYS * 86_400_000)
-  return (db.query('DELETE FROM chrome_links WHERE COALESCE(last_seen_at, created_at) < ? RETURNING id').all(cut) as { id: string }[]).map((r) => r.id)
+  const ids = (db.query('DELETE FROM chrome_links WHERE COALESCE(last_seen_at, created_at) < ? RETURNING id').all(cut) as { id: string }[]).map((r) => r.id)
+  tellEnded(ids)
+  return ids
 }
 
 export function browserTarget(db: Database, userId: string): BrowserTarget {

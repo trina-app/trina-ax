@@ -104,7 +104,6 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
             <p className="truncate text-xs text-faint" title={r.url}>
               {r.url}
             </p>
-            {r.reason && <p className="text-xs text-muted">{r.reason}</p>}
             {choices}
           </div>
         </div>

@@ -37,6 +37,8 @@ export interface TabState {
   chooser?: (p: { backendNodeId: number; mode: string; frameId: string; child: boolean }) => void
   /** calls using this tab now */
   busy: number
+  /** what the guards said since the last call on this tab: told to the AI that uses this tab next */
+  notices: string[]
   /** a page load the guard stopped during this call because nobody allowed its site (guard.ts) */
   blockedNav?: { host: string; office?: true }
   idle?: ReturnType<typeof setTimeout>
@@ -50,7 +52,6 @@ export const CHOOSER_SUPPRESSED = 'A file picker opened and was closed: to attac
 
 const states = new Map<number, TabState>()
 /** what went wrong between calls (a page stopped by the guard): told to the AI with its next result */
-export const notices: string[] = []
 let onUserStop: ((tabId: number) => void) | null = null
 
 export const tabState = (tabId: number) => states.get(tabId)
@@ -66,10 +67,30 @@ export function pushConsole(st: TabState, e: ConsoleEntry) {
   if (st.console.length > MAX_LOG) st.console.splice(0, st.console.length - MAX_LOG)
 }
 
-export function addNotice(text: string) {
-  if (!notices.includes(text)) notices.push(text)
-  if (notices.length > 10) notices.shift()
+/** Tell the AI with the next result of a call on this tab (only the run that uses the tab hears it). */
+export function addNotice(st: TabState, text: string) {
+  if (!st.notices.includes(text)) st.notices.push(text)
+  if (st.notices.length > 10) st.notices.shift()
 }
+
+/** What the guards said on these tabs since the last call, taken out. */
+export function takeNotices(tabIds: Iterable<number>): string[] {
+  const out: string[] = []
+  for (const id of tabIds) {
+    const st = states.get(id)
+    if (st) out.push(...st.notices.splice(0))
+  }
+  return out
+}
+
+/** What a tab's children are attached for: frames and dedicated workers always; while the AI's script lives in the
+ * document also windows it opens and its service and shared workers (each waits until its guard is on). */
+export function autoAttachParams(scripted: boolean) {
+  const types = scripted ? ['iframe', 'worker', 'page', 'service_worker', 'shared_worker'] : ['iframe', 'worker']
+  return { autoAttach: true, waitForDebuggerOnStart: true, flatten: true, filter: [...types.map((type) => ({ type })), { exclude: true }] }
+}
+
+export const POPUP_CLOSED = 'The page opened a new window after the AI ran a script in it; that window was closed, because the AI cannot guard it. Open the page with navigate instead.'
 
 /** Address and title of a tab, from the debugger's target list (no "tabs" permission needed). */
 export async function tabInfo(tabId: number): Promise<{ url: string; title: string }> {
@@ -96,7 +117,7 @@ export async function attach(tabId: number, rules: SiteRules): Promise<TabState>
   }
   st = {
     tabId, target: { tabId }, attached: false, mainFrameId: '', host: '', scripted: false, rules, loading: false, forceLeave: false,
-    console: [], network: new Map(), children: new Map(), intercepting: false, busy: 0, waiters: new Set(),
+    console: [], network: new Map(), children: new Map(), intercepting: false, busy: 0, waiters: new Set(), notices: [],
   }
   states.set(tabId, st)
   try {
@@ -108,7 +129,14 @@ export async function attach(tabId: number, rules: SiteRules): Promise<TabState>
     throw new ToolError(`The AI cannot use this tab (${msg.split('\n')[0]}). Open the page in a new tab with navigate.`)
   }
   st.attached = true
-  await cdp(st.target, 'Page.enable')
+  // a background tab that was never shown may have no page process yet: its first command waits for one. Shown in its
+  // own task window (never the person's window), it gets one.
+  const first = cdp(st.target, 'Page.enable')
+  const late = await Promise.race([first.then(() => false), new Promise<boolean>((r) => setTimeout(() => r(true), 3000))])
+  if (late) {
+    await chrome.tabs.update(tabId, { active: true }).catch(() => {})
+    await Promise.race([first, new Promise((_, j) => setTimeout(() => j(new ToolError('The tab did not answer. Close it with tabs_close and open the page in a new tab.')), 10_000))])
+  }
   await cdp(st.target, 'Runtime.enable')
   // bodies stay readable for read_network_requests, within bounds
   await cdp(st.target, 'Network.enable', { maxTotalBufferSize: 32 * 1024 * 1024, maxResourceBufferSize: 4 * 1024 * 1024 })
@@ -122,7 +150,7 @@ export async function attach(tabId: number, rules: SiteRules): Promise<TabState>
   await applyFetch(st)
   // other sites' frames and the page's workers: their requests are guarded and their file pickers taken over too.
   // They wait for the debugger until their guard is on (attachedToTarget below).
-  await cdp(st.target, 'Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true, filter: [{ type: 'iframe' }, { type: 'worker' }, { exclude: true }] }).catch(() => {})
+  await cdp(st.target, 'Target.setAutoAttach', autoAttachParams(false)).catch(() => {})
   return st
 }
 
@@ -158,6 +186,8 @@ export async function detach(tabId: number) {
   const st = states.get(tabId)
   states.delete(tabId)
   if (st) clearTimeout(st.idle)
+  // a document the AI ran script in never keeps running without its guard: it goes first
+  if (st?.attached && st.scripted) await cdp(st.target, 'Page.navigate', { url: 'about:blank' }).catch(() => {})
   if (st?.attached) await chrome.debugger.detach({ tabId }).catch(() => {})
 }
 
@@ -207,14 +237,22 @@ function onEvent(source: chrome.debugger.DebuggerSession, method: string, params
     case 'Target.attachedToTarget': {
       const sid = String(params.sessionId)
       const type = String(params.targetInfo?.type ?? '')
-      st.children.set(sid, type)
       const child = { tabId: st.tabId, sessionId: sid }
+      // a window a scripted document opened: its script could reach it, and it is no tab the AI guards
+      if (type === 'page') {
+        if (st.scripted) {
+          addNotice(st, POPUP_CLOSED)
+          void cdp(st.target, 'Target.closeTarget', { targetId: String(params.targetInfo?.targetId ?? '') }).catch(() => {})
+        } else void cdp(child, 'Runtime.runIfWaitingForDebugger').catch(() => {})
+        break
+      }
+      st.children.set(sid, type)
       void (async () => {
         await applyFetch(st, child).catch(() => {})
         if (type === 'iframe') {
           await cdp(child, 'Page.enable').catch(() => {})
           if (st.intercepting) await cdp(child, 'Page.setInterceptFileChooserDialog', { enabled: true }).catch(() => {})
-          await cdp(child, 'Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true, filter: [{ type: 'iframe' }, { type: 'worker' }, { exclude: true }] }).catch(() => {})
+          await cdp(child, 'Target.setAutoAttach', autoAttachParams(st.scripted)).catch(() => {})
         }
         await cdp(child, 'Runtime.runIfWaitingForDebugger').catch(() => {})
       })()
@@ -231,6 +269,7 @@ function onEvent(source: chrome.debugger.DebuggerSession, method: string, params
         if (st.scripted) {
           st.scripted = false
           void applyFetch(st)
+          void cdp(st.target, 'Target.setAutoAttach', autoAttachParams(false)).catch(() => {})
         }
         let host = ''
         try {
@@ -288,7 +327,7 @@ function onEvent(source: chrome.debugger.DebuggerSession, method: string, params
       break
     case 'Page.fileChooserOpened':
       if (st.chooser) st.chooser({ backendNodeId: params.backendNodeId, mode: String(params.mode ?? ''), frameId: String(params.frameId ?? ''), child: false })
-      else addNotice(CHOOSER_SUPPRESSED)
+      else addNotice(st, CHOOSER_SUPPRESSED)
       break
     case 'Page.javascriptDialogOpening':
       // while the AI acts a dialog would block every command: alerts are closed, other questions dismissed (a "Leave
@@ -310,13 +349,21 @@ function onChildEvent(st: TabState, sessionId: string, method: string, params: a
       break
     case 'Page.fileChooserOpened':
       if (st.chooser) st.chooser({ backendNodeId: params.backendNodeId, mode: String(params.mode ?? ''), frameId: String(params.frameId ?? ''), child: true })
-      else addNotice(CHOOSER_SUPPRESSED)
+      else addNotice(st, CHOOSER_SUPPRESSED)
       break
     case 'Target.attachedToTarget': {
-      // a frame inside a frame: guarded the same way
+      // a frame inside a frame: guarded the same way; a window it opened after the AI's script: closed
       const sid = String(params.sessionId)
-      st.children.set(sid, String(params.targetInfo?.type ?? ''))
+      const type = String(params.targetInfo?.type ?? '')
       const grand = { tabId: st.tabId, sessionId: sid }
+      if (type === 'page') {
+        if (st.scripted) {
+          addNotice(st, POPUP_CLOSED)
+          void cdp(st.target, 'Target.closeTarget', { targetId: String(params.targetInfo?.targetId ?? '') }).catch(() => {})
+        } else void cdp(grand, 'Runtime.runIfWaitingForDebugger').catch(() => {})
+        break
+      }
+      st.children.set(sid, type)
       void applyFetch(st, grand).catch(() => {}).then(() => cdp(grand, 'Runtime.runIfWaitingForDebugger').catch(() => {}))
       break
     }
@@ -334,6 +381,8 @@ function onDetach(source: chrome.debugger.Debuggee, reason: string) {
     st.attached = false
     clearTimeout(st.idle)
     for (const w of [...st.waiters]) w()
+    // Chrome took the debugger away (its bar closed, DevTools): a scripted document must not run on unguarded
+    if (st.scripted && reason !== 'target_closed') void chrome.tabs.update(source.tabId, { url: 'about:blank' }).catch(() => {})
   }
   // the person closed Chrome's "started debugging" bar (or pressed its Cancel): the AI stops
   if (reason === 'canceled_by_user') onUserStop?.(source.tabId)
@@ -343,6 +392,15 @@ function onDetach(source: chrome.debugger.Debuggee, reason: string) {
 export function installTabListeners() {
   chrome.debugger.onEvent.addListener(onEvent)
   chrome.debugger.onDetach.addListener(onDetach)
+  // a tab or window a scripted document opened (a link to a new tab, window.open): its script could reach it and no
+  // guard runs in it, so it is closed at once and the AI hears why (README "Limits": its first request may already be on
+  // its way)
+  chrome.tabs.onCreated.addListener((tab) => {
+    const opener = tab.openerTabId !== undefined ? states.get(tab.openerTabId) : undefined
+    if (!opener?.scripted || tab.id === undefined) return
+    addNotice(opener, POPUP_CLOSED)
+    void chrome.tabs.remove(tab.id).catch(() => {})
+  })
   chrome.tabs.onRemoved.addListener((tabId) => {
     const st = states.get(tabId)
     if (st) clearTimeout(st.idle)
@@ -352,7 +410,7 @@ export function installTabListeners() {
   chrome.tabs.onUpdated.addListener((tabId, change) => {
     if (change.groupId === undefined || !states.has(tabId)) return
     void runOfTab(tabId).then((r) => {
-      if (!r) void detach(tabId)
+      if (!r) void detach(tabId) // navigates a scripted tab to about:blank first
     })
   })
 }

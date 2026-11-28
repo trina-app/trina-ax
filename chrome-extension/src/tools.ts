@@ -229,12 +229,14 @@ async function single(ctx: CallCtx, call: ParsedBrowserCall): Promise<ToolOut> {
         const raw = call.input.url
         if (raw === 'back' || raw === 'forward') {
           const id = (await resolveRunTab(ctx.run, ctx.turnId, call.input.tabId, true))!
+          await front(id)
           st = await use(ctx, id)
           return await history(ctx, st, raw)
         }
         const url = normalizeUrl(raw)
         permit(url, ctx.rules, call.tool)
         const id = (await resolveRunTab(ctx.run, ctx.turnId, call.input.tabId, false)) ?? (await createRunTab(ctx.run, ctx.turnId, true))
+        await front(id)
         st = await use(ctx, id)
         st.forceLeave = Boolean(call.input.force)
         try {
@@ -252,6 +254,9 @@ async function single(ctx: CallCtx, call: ParsedBrowserCall): Promise<ToolOut> {
     const id = (await resolveRunTab(ctx.run, ctx.turnId, (call.input as { tabId?: string }).tabId, true))!
     const before = (await tabInfo(id)).url
     permit(before, ctx.rules, call.tool)
+    // Chrome slows background tabs down to seconds per command: the tab the AI acts on is the active tab of its own
+    // task window (never the person's window, and the window is not raised)
+    await front(id)
     st = await use(ctx, id)
     const kind = BROWSER_TOOLS[call.tool].kind
     if (kind === 'mutates-tab') await intercept(st)
@@ -426,7 +431,7 @@ async function exec(ctx: CallCtx, st: TabState, call: ParsedBrowserCall, pageUrl
       // from now on this document's requests to sites the person has not allowed fail (guard.ts)
       await markScripted(st)
       // replMode = DevTools console semantics: top-level await, last expression value; in the page's own world
-      const r = await cdp<any>(st.target, 'Runtime.evaluate', { expression: call.input.text, replMode: true, awaitPromise: true, returnByValue: true, userGesture: true, timeout: 30_000 })
+      const r = await cdp<any>(st.target, 'Runtime.evaluate', { expression: call.input.text, replMode: true, awaitPromise: true, returnByValue: true, userGesture: false, timeout: 30_000 })
       if (r.exceptionDetails) return err(`Uncaught ${r.exceptionDetails.exception?.description ?? r.exceptionDetails.text}`)
       const v = r.result ?? { type: 'undefined' }
       const out = v.type === 'undefined' ? 'undefined' : v.value !== undefined ? (typeof v.value === 'string' ? v.value : JSON.stringify(v.value, null, 2)) : (v.description ?? v.type)
@@ -469,7 +474,7 @@ async function exec(ctx: CallCtx, st: TabState, call: ParsedBrowserCall, pageUrl
   }
 }
 
-/** A screenshot needs the tab on screen: make it the active tab of its window. */
+/** The tab on screen in its own task window (screenshots need it; background tabs are throttled). */
 async function front(tabId: number) {
   const t = await chrome.tabs.get(tabId)
   if (!t.active) {

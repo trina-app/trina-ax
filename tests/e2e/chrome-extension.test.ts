@@ -25,9 +25,10 @@ function lanIp(): string {
   for (const l of Object.values(os.networkInterfaces())) for (const a of l ?? []) if (a.family === 'IPv4' && !a.internal) return a.address
   throw new Error('no LAN address')
 }
+let PORT_OF_SITE = 0
 const PAGE = (who: string) => `<!doctype html><title>Shop ${who}</title><h1>Hello ${who}</h1>
 <label>Name <input id=name></label><button id=go onclick="document.getElementById('out').textContent='ordered by '+document.getElementById('name').value">Order</button>
-<p id=out>not yet</p>`
+<p id=out>not yet</p><a id=away href="http://news.example:${PORT_OF_SITE}/news">News</a>`
 
 let h: Harness
 let win: TestSocket
@@ -78,11 +79,12 @@ beforeAll(async () => {
   if (!fs.existsSync(path.join(DIST, 'manifest.json'))) throw new Error('build the extension first: bun chrome-extension/build.ts')
   h = await startHarness({ name: 'chrome-e2e', askUserTimeoutMs: 20_000 })
   site = Bun.serve({ port: 0, hostname: '0.0.0.0', fetch: (req) => new Response(PAGE(new URL(req.url).pathname.slice(1) || 'home'), { headers: { 'content-type': 'text/html' } }) })
+  PORT_OF_SITE = site.port!
   const ip = lanIp()
   win = await h.ws('alice', { windowId: 'win-web-e2e01' })
   await win.next('hello')
-  await openProfile('Work mail', ip, site.port)
-  await openProfile('Personal', ip, site.port)
+  await openProfile('Work mail', ip, site.port!)
+  await openProfile('Personal', ip, site.port!)
   await online(2)
   // the test page's name points at a LAN address: allowed as an office address for alice, and as a site in both profiles
   h.rt().grantSite('alice', SITE)
@@ -123,16 +125,18 @@ test('one answer works in two profiles back to back: each gets its own window, t
   for (const p of profiles) expect(p.ctx.pages().filter((x) => x.url().includes(SITE)).length).toBe(1)
 })
 
-test('a site the profile does not allow yet: the card in the chat names the profile; Always keeps it for that profile only', async () => {
+test('a site the profile does not allow yet (a link the AI followed): the card names the profile; Always keeps it there only', async () => {
   const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
-  const target = `http://news.example:${site.port}/news`
-  const r = await h.api('alice', { window: 'win-web-e2e01', client: 'web' }).call(API.sendMessage, { params: { id: chat }, body: { content: `${target}\n${lines({ tool: 'navigate', args: { url: target, profile: 'Work mail' } }, { tool: 'get_page_text', args: {} })}`, clientMessageId: cm(), attachmentIds: [] } })
+  const start = `http://${SITE}:${site.port}/start`
+  const r = await h.api('alice', { window: 'win-web-e2e01', client: 'web' }).call(API.sendMessage, { params: { id: chat }, body: { content: `${start}\n${lines({ tool: 'navigate', args: { url: start, profile: 'Work mail' } }, { tool: 'find', args: { query: 'News' } }, { tool: 'computer', args: { action: 'left_click', ref: 'ref_1' } }, { tool: 'get_page_text', args: {} })}`, clientMessageId: cm(), attachmentIds: [] } })
   const card = await win.next('turn.request', (f) => f.data.turnId === r.turnId && (f.data.request as { kind: string }).kind === 'browser_site', 60_000)
   const req = card.data.request as { requestId: string; chrome?: boolean; profile?: string }
   expect(req).toMatchObject({ chrome: true, profile: 'Work mail' })
   await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'browser_site', requestId: req.requestId, decision: 'always' } })
   const done = await win.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 60_000)
-  expect(done.data.message.content).toContain('Hello news')
+  // the click itself was held back (a page the AI drives may not take it to a site nobody allowed); the read after
+  // the card is of that tab
+  expect(done.data.message.content).toContain('which the user has not allowed for the AI; it was not loaded')
   const l = await h.api('alice').call(API.chromeLinks, {})
   expect(l.links.find((x) => x.id === profiles[0]!.linkId)!.sites).toContain('news.example')
   expect(l.links.find((x) => x.id === profiles[1]!.linkId)!.sites).not.toContain('news.example')

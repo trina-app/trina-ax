@@ -55,15 +55,29 @@ const ACCOUNT_HOSTS = [
   'accounts.google.com', 'myaccount.google.com', 'passwords.google.com',
   'login.microsoftonline.com', 'login.live.com', 'account.live.com', 'account.microsoft.com', 'mysignins.microsoft.com',
   'appleid.apple.com', 'account.apple.com', 'iforgot.apple.com',
-  'nid.naver.com', 'accounts.kakao.com',
+  'nid.naver.com', 'accounts.kakao.com', 'kauth.kakao.com',
+  // sign-in and OAuth consent hosts: one press there gives an app access to the person's account
+  'id.atlassian.com', 'auth.atlassian.com', 'login.salesforce.com',
   '.1password.com', '1password.com', 'vault.bitwarden.com', 'lastpass.com', '.lastpass.com', '.dashlane.com', 'dashlane.com',
   'keepersecurity.com', '.keepersecurity.com',
 ]
-/** host + path prefix */
-const ACCOUNT_PATHS: [string, string][] = [
-  ['github.com', '/settings'],
-  ['github.com', '/login/oauth'],
-  ['github.com', '/sessions'],
+/** host (a leading dot: that host and its subdomains) + path: settings, app installs and OAuth consent screens */
+const ACCOUNT_PATHS: [string, RegExp][] = [
+  ['github.com', /^\/settings/],
+  ['github.com', /^\/login\/oauth/],
+  ['github.com', /^\/login\/device/],
+  ['github.com', /^\/sessions/],
+  ['github.com', /^\/[^/]+\/[^/]+\/settings/],
+  ['github.com', /^\/organizations\/[^/]+\/settings/],
+  ['github.com', /^\/apps\/[^/]+\/installations/],
+  ['.slack.com', /^\/oauth/],
+  ['.okta.com', /^\/oauth2\/[^/]+\/v1\/authorize|^\/oauth2\/[^/]+\/authorize|^\/oauth2\/v1\/authorize/],
+  ['.auth0.com', /^\/authorize/],
+  ['appleid.apple.com', /^\/auth/],
+  ['discord.com', /^\/oauth2/],
+  ['facebook.com', /^\/(v[\d.]+\/)?dialog\/oauth/],
+  ['twitter.com', /^\/i\/oauth2/],
+  ['x.com', /^\/i\/oauth2/],
 ]
 const STORE_HOSTS = ['chromewebstore.google.com', 'microsoftedge.microsoft.com']
 const STORE_PATHS: [string, string][] = [['chrome.google.com', '/webstore']]
@@ -71,6 +85,8 @@ const STORE_PATHS: [string, string][] = [['chrome.google.com', '/webstore']]
 const hostIs = (name: string, list: readonly string[]) => list.some((e) => (e.startsWith('.') ? name.endsWith(e) : name === e))
 const pathUnder = (name: string, path: string, list: readonly [string, string][]) =>
   list.some(([h, p]) => name === h && path.startsWith(p))
+const pathMatches = (name: string, path: string, list: readonly [string, RegExp][]) =>
+  list.some(([h, re]) => (h.startsWith('.') ? name === h.slice(1) || name.endsWith(h) : name === h) && re.test(path))
 
 export const BLOCK = {
   scheme: 'The AI can only open web pages (http or https) in Chrome. Ask the user to open that page themselves.',
@@ -102,7 +118,7 @@ export function hardBlock(url: URL, teamHosts: readonly string[]): string | null
   if (isLoopbackName(name)) return BLOCK.loopback(url.host)
   const path = url.pathname.toLowerCase()
   if (hostIs(bare, STORE_HOSTS) || hostIs(name, STORE_HOSTS) || pathUnder(bare, path, STORE_PATHS)) return BLOCK.store
-  if (hostIs(name, ACCOUNT_HOSTS) || hostIs(bare, ACCOUNT_HOSTS) || pathUnder(bare, path, ACCOUNT_PATHS)) return BLOCK.account(bare)
+  if (hostIs(name, ACCOUNT_HOSTS) || hostIs(bare, ACCOUNT_HOSTS) || pathMatches(bare, path, ACCOUNT_PATHS)) return BLOCK.account(bare)
   return null
 }
 

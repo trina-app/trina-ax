@@ -37,7 +37,7 @@ describe('CDP allowlist', () => {
     for (const m of CDP_METHODS) {
       expect(m).not.toMatch(/cookie/i)
       expect(m).not.toMatch(/^(Storage|IndexedDB|CacheStorage|DOMStorage|Browser|SystemInfo|Tethering|ServiceWorker|Security)\./)
-      expect(m).not.toMatch(/^Target\.(?!setAutoAttach$)/)
+      expect(m).not.toMatch(/^Target\.(?!(setAutoAttach|closeTarget)$)/)
       expect(m).not.toMatch(/Network\.(getAllCookies|getCookies|setCookie|getRequestPostData|setExtraHTTPHeaders)|Fetch\.(fulfillRequest|getResponseBody)|Page\.(setDownloadBehavior|addScriptToEvaluateOnNewDocument)/)
     }
   })

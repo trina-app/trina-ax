@@ -6,6 +6,7 @@ import type { ServerWebSocket } from 'bun'
 import { API, BrowserUploadTicket, CHROME_WS_PATH, CHROME_WS_PROTOCOL, type ChromeLink } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { fail } from '../http/errors'
+import type { AppContextC } from '../http/env'
 import { getChatRuntime } from '../chat/runtime'
 import { audit } from '../admin/audit'
 import { authOf } from '../auth/service'
@@ -16,7 +17,7 @@ import { bunConn, type ConnHooks } from './ws'
 import { chromeWindowOf } from '../chrome/links'
 import { addLinkSite, browserTarget, linkByToken, linkOf, linkSites, linksOf, mintCode, redeemCode, removeLinkSite, setBrowserTarget, unlink, updateLink, type LinkRow } from '../chrome/store'
 import { siteToKeep } from '@mycel/shared/web-site'
-import { teamHosts } from '../chrome/team-hosts'
+import { coversTeam, teamHosts } from '../chrome/team-hosts'
 
 interface WsData {
   events: {
@@ -44,9 +45,16 @@ export const chromeRoutes: RouteModule = {
     kit.handle(API.chromeLinks, ({ auth }) => ({ links: linksOf(ctx.db, auth.user.id).map(view), target: browserTarget(ctx.db, auth.user.id) }))
 
     // a profile's name and site rules: only the person's own profile; every change is audited
-    kit.handle(API.chromeUpdateLink, ({ auth, params, body }) => {
-      if (!updateLink(ctx.db, auth.user.id, params.id, { label: body.label, onlyListed: body.onlyListed })) fail('not_found')
-      if (body.addSite) { const site = siteToKeep(body.addSite) ?? body.addSite; addLinkSite(ctx.db, params.id, site) }
+    kit.handle(API.chromeUpdateLink, ({ c, auth, params, body }) => {
+      if (!linkOf(ctx.db, auth.user.id, params.id)) fail('not_found')
+      // a site as the site card keeps one (a registrable domain), never a public suffix or the team's own address
+      let site: string | null = null
+      if (body.addSite) {
+        site = siteToKeep(body.addSite)
+        if (!site || coversTeam(ctx, site, [new URL(c.req.url).hostname])) fail('validation', undefined, { fields: { addSite: 'not a site that can be allowed' } })
+      }
+      updateLink(ctx.db, auth.user.id, params.id, { label: body.label, onlyListed: body.onlyListed })
+      if (site) addLinkSite(ctx.db, params.id, site)
       if (body.removeSite) removeLinkSite(ctx.db, params.id, body.removeSite)
       audit(ctx.db, { actor: auth.user.id, action: 'chrome.link_update', target: params.id, detail: { ...(body.label !== undefined ? { label: true } : {}), ...(body.onlyListed !== undefined ? { onlyListed: body.onlyListed } : {}), ...(body.addSite ? { addSite: body.addSite } : {}), ...(body.removeSite ? { removeSite: body.removeSite } : {}) } })
       return view(linkOf(ctx.db, auth.user.id, params.id)!)
@@ -111,12 +119,15 @@ export const chromeRoutes: RouteModule = {
       if (!/^(chrome|moz)-extension:\/\/[a-z0-9-]{1,64}$/.test(origin)) fail('forbidden')
       const offered = (c.req.header('sec-websocket-protocol') ?? '').split(',').map((s) => s.trim())
       if (!offered.includes(CHROME_WS_PROTOCOL)) fail('bad_request', 'protocol expected')
+      const ip = (c as unknown as AppContextC).get('info').ip ?? 'unknown'
+      // sockets waiting for their first frame per address (one script cannot hold the server's sockets open)
+      if (!rt.chrome.mayOpen(ip)) fail('rate_limited', undefined, { retryAfter: 10 })
       const hooks: ConnHooks = { message: [], close: [], closed: false }
       const data: WsData = {
         url: new URL(c.req.url),
         protocol: CHROME_WS_PROTOCOL,
         events: {
-          onOpen(_e, ws) { rt.chrome.attach(bunConn(ws.raw as never, hooks)) },
+          onOpen(_e, ws) { rt.chrome.attach(bunConn(ws.raw as never, hooks), Date.now, ip) },
           onMessage(e) {
             const d = typeof e.data === 'string' ? e.data : new TextDecoder().decode(e.data as ArrayBuffer)
             for (const f of hooks.message) f(d)

@@ -61,6 +61,30 @@ Files: `worker.ts` (entry), `link.ts` (connection), `pairing.ts`, `calls.ts` (de
 (windows and groups per task), `tabs.ts` (debugger, events), `tools.ts` (the tools, ported from the desktop pane),
 `guard.ts`, `sites.ts`, `popup.*`, `messages.ts` (six languages).
 
+## Limits
+
+What the guards cannot cover from an extension (`chrome.debugger` sees one tab's own targets, not the whole browser):
+
+- After the AI runs `javascript_tool` in a page, that page's requests to sites nobody allowed fail (CDP Fetch on the
+  tab, its frames, dedicated workers and, best effort, its service and shared workers), WebSockets are blocked
+  (`Network.setBlockedURLs`), `RTCPeerConnection` is removed from the page and its frames, and a window it opens is
+  closed. Still open, best effort only:
+  - DNS lookups: a script can make the browser resolve a name built from what it read (`<link rel=dns-prefetch>`,
+    `preconnect`, or a request that is then failed after its name was resolved). The lookup itself can carry data to
+    that name's DNS server.
+  - WebRTC from a frame created after the script ran, or reached in a way the removal missed; WebTransport.
+  - A service worker the page registered earlier, outside the tab's own targets, if Chrome does not attach it to the
+    tab.
+  - Navigation-time beacons sent while the page unloads may leave before the next guard check.
+  - A tab or window the scripted page opens is closed as soon as Chrome reports it (`tabs.onCreated`); its first
+    request can already be on its way by then.
+- A page's own popup window (window.open with features) cannot join a tab group: it stays the person's window and the
+  AI cannot use it. While the AI's script lives in the opener, such windows are closed at once.
+- When Chrome takes the debugger away (the person closes the "debugging" bar, or opens DevTools on the tab), a scripted
+  page is sent to about:blank so it never keeps running unguarded.
+- The office-network check after a page loads skips a response whose server port differs from the address's (a proxy);
+  a proxy listening on exactly 80 or 443 would see its pages stopped.
+
 ## Publishing to the Chrome Web Store (not done)
 
 Needs a Chrome Web Store developer account (one-time USD 5 fee): the owner's decision and account.

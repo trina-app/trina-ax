@@ -11,7 +11,7 @@ import { sameSite } from '../../desktop/src/common/site-permissions'
 import { cdp, type Target } from './cdp'
 import { allowed, checkUrl, hostKey, isTeamHost, isThisComputer, keyMatches, office, splitHost } from './sites'
 import { live } from './state'
-import { addNotice, pushConsole, type TabState } from './tabs'
+import { addNotice, autoAttachParams, pushConsole, type TabState } from './tabs'
 
 const teamHosts = () => live.link?.teamHosts ?? []
 
@@ -37,12 +37,26 @@ export async function applyFetch(st: TabState, target: Target = st.target): Prom
   await cdp(target, 'Network.setBlockedURLs', { urls: st.scripted ? ['ws://*', 'wss://*'] : [] }).catch(() => {})
 }
 
+/** Removed from a scripted document's main world before the AI's script runs: peer connections reach any address
+ * without a request Fetch could see (best effort: README "Limits"). */
+const UNGUARDED_APIS = `(() => {
+  const gone = ['RTCPeerConnection', 'webkitRTCPeerConnection', 'RTCDataChannel', 'RTCIceTransport'];
+  const strip = (w) => { try { for (const n of gone) { try { Object.defineProperty(w, n, { value: undefined, writable: false, configurable: false }); } catch (e) {} } } catch (e) {} };
+  strip(window);
+  try { for (let i = 0; i < window.frames.length; i++) { try { strip(window.frames[i]); } catch (e) {} } } catch (e) {}
+  return true;
+})()`
+
 /** The AI is about to run its script in this document. */
 export async function markScripted(st: TabState): Promise<void> {
-  if (st.scripted) return
-  st.scripted = true
-  await applyFetch(st)
-  for (const sid of st.children.keys()) await applyFetch(st, { tabId: st.tabId, sessionId: sid }).catch(() => {})
+  if (!st.scripted) {
+    st.scripted = true
+    await applyFetch(st)
+    for (const sid of st.children.keys()) await applyFetch(st, { tabId: st.tabId, sessionId: sid }).catch(() => {})
+    // windows it opens and its service and shared workers are attached (and guarded, or closed) from now on
+    await cdp(st.target, 'Target.setAutoAttach', autoAttachParams(true)).catch(() => {})
+  }
+  await cdp(st.target, 'Runtime.evaluate', { expression: UNGUARDED_APIS, returnByValue: true }).catch(() => {})
 }
 
 /** Let a paused request go on, or fail it (as if an ad blocker had stopped it). */
@@ -98,7 +112,7 @@ export async function checkDocumentSource(st: TabState, response: { url?: string
   if (!bad) return
   const text = `[blocked] ${redactUrl(response.url).slice(0, 300)} answered from ${bad === 'loopback' ? 'this computer' : 'an office-network address'} (${ip}); the page was stopped. Do not open it again; tell the user.`
   pushConsole(st, { level: 'error', text, host: st.host })
-  addNotice(text)
+  addNotice(st, text)
   await cdp(st.target, 'Page.stopLoading').catch(() => {})
   await cdp(st.target, 'Page.navigate', { url: 'about:blank' }).catch(() => {})
 }

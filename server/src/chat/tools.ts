@@ -57,6 +57,7 @@ import type { StoredStep } from './store'
 import { siteToKeep } from '@mycel/shared/web-site'
 import { chromeWindowOf } from '../chrome/links'
 import { addLinkSite, siteCovers } from '../chrome/store'
+import { coversTeam } from '../chrome/team-hosts'
 import { cardEndShort, endOfText, KEEP_READ_LINE, leftGroupNote, lostAccessNote, regrantLine, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
 import { chatVersionPlace, mayReplace, placeArg, placeWriteRefusal, type TurnFiles } from '../files/service'
 import { allowSiteFromDevice, extractUrls, gateUrl, namedByPerson, personSites, siteOf, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
@@ -1989,7 +1990,14 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
           if (how === 'all') allSites = true
           if (!profile && (how === 'site' || how === 'all')) { const site = siteOf(href); if (site) sites.add(site) }
           // a profile: only an address the person confirmed on the card now or named themselves
-          if (how === 'confirmed' || (!profile && (how === 'site' || how === 'all')) || namedByPerson(rt.db, spec.chatId, href, person, spec.userId)) { const k = paneSiteKey(href); if (k) sites.add(k) }
+          if (how === 'confirmed' || (!profile && (how === 'site' || how === 'all')) || namedByPerson(rt.db, spec.chatId, href, person, spec.userId)) {
+            const k = paneSiteKey(href)
+            if (k) {
+              sites.add(k)
+              // ...and in a profile for the rest of this answer there (reading the page it opened asks nothing more)
+              if (profile) { const once = exec.chromeOnce.get(profile.linkId) ?? new Set<string>(); once.add(k); exec.chromeOnce.set(profile.linkId, once) }
+            }
+          }
           return null
         } catch (e) {
           if (e instanceof ToolError) return e.message
@@ -2058,7 +2066,8 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
         // a site the person's Chrome needs and nobody allowed: their card here, then the call again (a few sites at most)
         for (let asked = 0; ; asked++) {
           const r = await rt.relay.call({ userId: spec.userId, windowId: win, turnId: spec.turnId, chatId: spec.chatId, tool, args: a, signal: exec.abort.signal, sites: [...sites], office: [...officeHosts], ...(run ? { run } : {}), ...(tool === 'file_upload' && prepare ? { prepare } : {}) })
-          keepDeviceAlways(exec, person, r.always)
+          // what a Chrome says it was allowed is never kept (its Always is the server's card, per profile)
+          if (!profile) keepDeviceAlways(exec, person, r.always)
           if (!profile || !r.needSite || asked >= CHROME_SITE_ASKS) return tool === 'file_upload' ? oldAppResult(r) : r
           const no = await askChromeSite(exec, person, profile, r.needSite, sites, officeHosts)
           if (no) return { ...r, error: no }
@@ -2125,7 +2134,10 @@ async function askChromeSite(exec: TurnExec, person: TurnPerson, profile: TurnEx
     office.add(host); sites.add(host)
     return null
   }
-  const site = keep ? siteToKeep(host) : null
+  // the team's own address or the hosting service: never (the extension blocks them too)
+  if (coversTeam(rt.ctx, host)) return `Not opened: ${host} is this team's own address or the hosting service's, which the AI never uses in the user's browser. Use the team's own tools instead.`
+  const kept = keep ? siteToKeep(host) : null
+  const site = kept && !coversTeam(rt.ctx, kept) ? kept : null
   const d = await exec.waitForPerson({ kind: 'browser_site', requestId: uuidv7(), url, host, chrome: true, profile: profile.label, reason: tr('chromeSite', spec.locale, { host, profile: profile.label }), ...(site ? { site } : { noAlways: true as const }) }, { window: spec.windowId, timeoutMs: rt.askUserTimeoutMs() })
   if (d !== 'once' && d !== 'always') return `The user did not allow ${host} in ${where}. Do not try that site there again; tell the user what you could not do.`
   // an Always is kept for this profile and site only (Rule A: it holds in every chat and the person's scheduled runs)

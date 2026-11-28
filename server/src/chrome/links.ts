@@ -24,8 +24,16 @@ interface LinkSocket { conn: RealtimeConn; userId: string; linkId: string; windo
 
 type FrameListener = (userId: string, windowId: string, f: { type: 'browser.ack'; callId: string } | { type: 'browser.result'; result: BrowserResult }) => void
 
+/** the first frame at most this long; sockets waiting for it per address at most */
+const PREAUTH_MAX_CHARS = 2048
+const PREAUTH_PER_IP = 20
+
 export class ChromeLinks implements WindowTransport {
   private byLink = new Map<string, LinkSocket>()
+  private waiting = new Map<string, number>()
+
+  /** May another socket from this address wait for its first frame? */
+  mayOpen(ip: string): boolean { return (this.waiting.get(ip) ?? 0) < PREAUTH_PER_IP }
   private windowListeners: ((userId: string, windowId: string, state: 'open' | 'closed') => void)[] = []
   private frameListeners: FrameListener[] = []
 
@@ -93,18 +101,24 @@ export class ChromeLinks implements WindowTransport {
 
   // ---------------- the extension's side ----------------
   /** A new WebSocket from an extension: nothing is sent or taken until its first frame names a live link. */
-  attach(conn: RealtimeConn, now: () => number = Date.now): void {
+  attach(conn: RealtimeConn, now: () => number = Date.now, ip = 'unknown'): void {
     let s: LinkSocket | null = null
     let ended = false
+    this.waiting.set(ip, (this.waiting.get(ip) ?? 0) + 1)
+    let counted = true
+    const uncount = () => { if (!counted) return; counted = false; const n = (this.waiting.get(ip) ?? 1) - 1; if (n > 0) this.waiting.set(ip, n); else this.waiting.delete(ip) }
     const timer = setTimeout(() => { if (!s) { ended = true; conn.close(ChromeWsClose.revoked, 'auth expected') } }, CHROME_AUTH_WAIT_MS)
     ;(timer as { unref?: () => void }).unref?.()
     conn.onClose(() => {
       ended = true
       clearTimeout(timer)
+      uncount()
       if (s) this.gone(s)
     })
     conn.onMessage((raw) => {
       if (ended) return
+      // the first frame is a token and a version: anything larger is not read
+      if (!s && raw.length > PREAUTH_MAX_CHARS) { ended = true; conn.close(ChromeWsClose.badRequest, 'bad frame'); return }
       let parsed: ChromeClientFrame
       try {
         const r = ChromeClientFrame.safeParse(JSON.parse(raw))
@@ -119,6 +133,7 @@ export class ChromeLinks implements WindowTransport {
       if (!s) {
         if (parsed.type !== 'auth') { ended = true; conn.close(ChromeWsClose.revoked, 'auth expected'); return }
         clearTimeout(timer)
+        uncount()
         const link = linkByToken(this.ctx.db, parsed.token, now())
         if (!link) { ended = true; conn.close(ChromeWsClose.revoked, 'unknown link'); return }
         const prev = this.byLink.get(link.id)

@@ -228,7 +228,7 @@ describe('the site card for Chrome', () => {
   const tr = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => translate(useLocaleStore.getState().locale, k, p)
   test('its own title, "Always allow this site (naver.com)" naming the site it keeps', () => {
     const html = card(site())
-    expect(html).toContain(tr('ask.chromeSiteTitle', { host: 'www.naver.com' }).replace(/'/g, '&#x27;'))
+    expect(html).toContain(tr('ask.chromeSiteTitle', { host: 'www.naver.com', profile: 'Chrome' }).replace(/'/g, '&#x27;').replace(/"/g, '&quot;'))
     expect(html).toContain('data-testid="site-card-always"')
     expect(html).toContain(tr('ask.chromeAlways', { site: 'naver.com' }))
   })

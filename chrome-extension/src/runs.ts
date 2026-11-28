@@ -8,6 +8,7 @@
 import { PRODUCT } from '../../shared/src/product'
 import { ToolError } from '../../desktop/src/common/input'
 import { aiTabId, parseAiTabId } from './ids'
+import { tabState } from './tabs'
 
 export interface Run {
   id: string
@@ -208,6 +209,7 @@ export function installRunListeners() {
   chrome.tabs.onCreated.addListener((tab) => {
     if (tab.openerTabId === undefined || tab.id === undefined) return
     void (async () => {
+      if (tabState(tab.openerTabId!)?.scripted) return // closed instead (tabs.ts)
       const opener = await chrome.tabs.get(tab.openerTabId!).catch(() => null)
       if (!opener || opener.groupId < 0 || tab.groupId === opener.groupId || tab.windowId !== opener.windowId) return
       await load()

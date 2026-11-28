@@ -246,6 +246,59 @@ describe('turns', () => {
   })
 })
 
+describe('security review fixes', () => {
+  test('the hosting service\'s domain is always a team host; such a site, a public suffix or junk is never kept', async () => {
+    unlinkAllOf('alice')
+    const { token, linkId } = await link('alice')
+    const e = await ext(token)
+    const hello = await e.until(() => e.frames.find((f) => f.type === 'hello')) as { teamHosts: string[] }
+    expect(hello.teamHosts).toContain('trina.app')
+    for (const bad of ['trina.app', 'b.trina.app', 'com', '127.0.0.1']) {
+      const r = await h.req('alice', `/api/chrome/links/${linkId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ addSite: bad }) })
+      expect(r.status).toBe(400)
+    }
+    const ok = await h.api('alice').call(API.chromeUpdateLink, { params: { id: linkId }, body: { addSite: 'news.example.org' } })
+    expect(ok.sites).toEqual(['example.org'])
+    e.ws.close()
+  })
+
+  test('a message posted without a live window of the person (a script\'s token) never reaches their Chrome', async () => {
+    unlinkAllOf('alice')
+    const { token } = await link('alice')
+    const e = await ext(token)
+    await e.until(() => e.frames.find((f) => f.type === 'hello'))
+    const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const r = await h.api('alice', { window: 'win-not-open-1', client: 'web' }).call(API.sendMessage, { params: { id: chat }, body: { content: step('tabs_context', {}), clientMessageId: cm(), attachmentIds: [] } })
+    for (let i = 0; i < 100; i++) { const row = h.ctx.db.query('SELECT status FROM messages WHERE id = ?').get(r.assistantMessage.id) as { status: string }; if (row.status !== 'streaming' && row.status !== 'pending') break; await Bun.sleep(100) }
+    expect(e.calls().some((c) => c.turnId === r.turnId)).toBe(false)
+    e.ws.close()
+  })
+
+  test('a Chrome\'s connection cannot answer another window\'s call', async () => {
+    unlinkAllOf('alice')
+    const { token, linkId } = await link('alice')
+    const e = await ext(token)
+    await e.until(() => e.frames.find((f) => f.type === 'hello'))
+    const desk = await h.ws('alice', { windowId: 'win-desk-cccc1', client: 'desktop' })
+    await desk.next('hello')
+    const relay = h.rt().relay
+    const done = relay.call({ userId: 'alice', windowId: 'win-desk-cccc1', turnId: crypto.randomUUID(), chatId: crypto.randomUUID(), tool: 'tabs_context', args: {} })
+    const f = await desk.next('browser.call')
+    const callId = (f.data as { call: { callId: string } }).call.callId
+    expect(relay.result('alice', { callId, ok: true, content: [] }, `${CHROME_WINDOW_PREFIX}${linkId}`)).toBe(false)
+    desk.send({ type: 'browser.result', result: { callId, ok: true, content: [{ type: 'text', text: 'desk' }] } })
+    expect((await done).content[0]).toEqual({ type: 'text', text: 'desk' })
+    desk.close(); e.ws.close()
+  })
+
+  test('a first frame that is too long ends the socket before it is read', async () => {
+    const e = await ext(null)
+    e.send({ type: 'auth', token: 'x'.repeat(5000) })
+    await e.until(() => e.closed)
+    expect(e.closed!.code).toBe(4400)
+  })
+})
+
 describe('upload tickets', () => {
   test('a Chrome ticket is taken only by that Chrome; a desktop ticket only through the page session', () => {
     const u = new BrowserUploads()
