@@ -8,7 +8,7 @@
 
 현재 버전은 [최신 릴리스](https://github.com/trina-app/trina-ax/releases/latest)에서 확인하세요. GitHub Releases와 트리나 업데이트 피드(`https://updates.trina.app`, 2026-10-29부터 운영)에서 배포합니다. 설치된 서버는 피드의 `server/stable.json`(서명됨)에서 업데이트를 받습니다(8장).
 
-[English](INSTALL-LINUX.en.md) · 전용 서버나 VM에서 설치하세요. **systemd가 PID 1이고 cgroup v2가 필요합니다. 일반 Docker 컨테이너는 운영 설치 대상이 아닙니다.**
+[English](INSTALL-LINUX.en.md) · [윈도우 PC(WSL2)](INSTALL-WINDOWS.ko.md) · 전용 서버나 VM에서 설치하세요. **systemd가 PID 1이고 cgroup v2가 필요합니다. 일반 Docker 컨테이너는 운영 설치 대상이 아닙니다.**
 
 ## 한눈에 보는 순서
 

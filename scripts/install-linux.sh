@@ -771,7 +771,12 @@ if [ "$LIST_OK" = 1 ]; then
   fi
   SYNC_RESULT=ok SYNC_DETAIL=""
   if [ "$SKIP_APT" = 0 ]; then
+    # apt prints nothing here: on a new server this step takes several minutes (LibreOffice, fonts, the browser's
+    # libraries) and looked hung (QA on WSL2, 2026-11-27); a line every minute says it still runs
+    # shellcheck disable=SC2034 # packages.sh reads it (pk__heartbeat)
+    PK_APT_HEARTBEAT=60
     say "installing packages: ${PKGS[*]}"
+    say "(on a new server the packages take several minutes; a line every minute shows that it is still working)"
     pk_apt_install -- "${PKGS[@]}" || die "apt-get install failed (see above)"
     for batch in browser rest; do
       if [ "$batch" = browser ]; then B=(${BPKGS[@]+"${BPKGS[@]}"}); else B=(${EXTRA[@]+"${EXTRA[@]}"}); fi
@@ -1470,9 +1475,23 @@ fi
 
 # ---- 13) systemd units: rendered by mycel-ctl from root/systemd/*.in and root/install.json (one renderer for the
 # installer, `mycel-ctl update` and `supervise`, so they never disagree on the launcher's sandbox flags) ----
-if [ "$HOSTED" = 0 ] && ! grep -qw landlock /sys/kernel/security/lsm 2>/dev/null; then
-  warn "this kernel has no Landlock in its LSM list: the launcher (--landlock required) will refuse every turn; use a Debian 13 / Ubuntu 24.04 kernel (or add lsm=...,landlock)"
-fi
+# Landlock as the launcher sees it: the sandbox helper's own probe (landlock_create_ruleset), not the LSM list in
+# /sys/kernel/security/lsm, which WSL2 and some containers and VMs do not mount while Landlock works there (QA on a
+# Windows 11 PC, WSL2 Debian 13, 2026-11-27: ABI 7, and the old check warned that every turn would be refused)
+# BEGIN landlock check
+landlock_abi() {  # SANDBOX-HELPER: the Landlock ABI version the kernel offers (0: none, or the probe did not answer)
+  local out
+  out=$("$1" probe 2>/dev/null) || { echo 0; return 0; }
+  if [[ "$out" =~ \"landlockAbi\":[[:space:]]*([0-9]+) ]]; then echo "${BASH_REMATCH[1]}"; else echo 0; fi
+}
+landlock_check() {  # SANDBOX-HELPER: a warning when the kernel offers no Landlock
+  local abi
+  abi=$(landlock_abi "$1")
+  [ "$abi" -ge 1 ] 2>/dev/null && return 0
+  warn "this kernel offers no Landlock (mycel-sandbox probe: landlockAbi $abi): the launcher (--landlock required) will refuse every turn; use a Debian 13 / Ubuntu 24.04 kernel (or add lsm=...,landlock)"
+}
+# END landlock check
+if [ "$HOSTED" = 0 ]; then landlock_check "$BASE/root/mycel-sandbox"; fi
 mkdir -m 700 "$ITMP/units"
 RU=$("$BASE/root/mycel-ctl" render-units --base "$BASE" --out "$ITMP/units" 2>&1) || die "rendering the units failed: $(printf '%s' "$RU" | tail -n 3 | tr '\n' ' ')"
 for u in "${UNITS[@]}"; do

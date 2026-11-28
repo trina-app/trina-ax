@@ -23,6 +23,7 @@ Linux 서버에서는 AI가 영상·오디오 파일(1GB까지)을 Claude Code �
 | 방식 | 안내 | 운영 경계 |
 |---|---|---|
 | Linux 서버·VM | [설치](INSTALL-LINUX.md) | systemd·cgroup v2, 전용 계정·OS 격리. 일반 Docker 컨테이너는 운영 설치 대상이 아님 |
+| 윈도우 PC (WSL2) | [설치](INSTALL-WINDOWS.ko.md) | WSL2 데비안 안의 리눅스 서버, 스크립트 하나로 설정. 윈도우 계정이 로그인한 동안 실행. 새 방식, 시험 적음 |
 | 사무실 Mac | [설치](OFFICE.md) | 로그인 사용자로 실행, 로그아웃하면 중단. Claude 전용 경로, Codex 없음 |
 | 역할 계정 Mac | [영문 상세](INSTALL.md) | 별도 계정·LaunchDaemon. 운영자가 소스 번들 관리; 배포 DMG 경로 아님 |
 | 가상 로컬 체험 | [빠른 체험](QUICKSTART.ko.md) | AI 비활성화, loopback, 운영 격리 검증 아님 |

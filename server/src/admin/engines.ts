@@ -13,8 +13,8 @@ import type { AppContext } from '../context'
 import { allowedCredentialKinds, anthropicGateway, gatewayModelIds, REPO_ROOT, type AppConfig } from '../app-config'
 import { findCodexBin } from '../config'
 import { openRouterKey } from '../credentials/validate'
-import { teamCredentialSummary } from '../credentials/resolve'
-import { credentialsOf } from '../credentials/store'
+import { onlyWaitingForLimit, teamCredentialSummary } from '../credentials/resolve'
+import { credentialsOf, type Unusable } from '../credentials/store'
 import { resolveLayout } from '../system/layout'
 import { codexCatalogFor, CODEX_COMPATIBLE_VERSIONS } from '../engine/codex'
 import { codexLoginState, type CodexLoginState } from '../native'
@@ -198,7 +198,7 @@ export interface EngineEnv {
    * launcher did not answer. Absent (dev): `codex login status` of the owner's own login. */
   codexLogin?: () => Promise<CodexLoginState | null>
   /** managed: the team's AI connections of a family (usable now / all) */
-  credentials?: (family: 'anthropic' | 'openai') => { total: number; usable: number; reasons?: string[]; limitedUntil?: string | null }
+  credentials?: (family: 'anthropic' | 'openai') => { total: number; usable: number; reasons?: Unusable[]; limitedUntil?: string | null }
   /** the server's database */
   db?: import('bun:sqlite').Database
   /** which machine the status lines talk about (deployment.ts hostKind; absent = the Mac wording) and the install base */
@@ -299,8 +299,7 @@ export async function checkEngine(id: EngineId, env: EngineEnv, enabled: boolean
       // connections that only wait for a limit to end (rate or usage limit) are set up, not signed out; one that was
       // refused, expired or needs a new sign-in still is a problem
       const why = c.reasons ?? []
-      const waiting = why.some((w) => w === 'limited' || w === 'over_limit') && !why.some((w) => w === 'invalid' || w === 'needs_reconnect' || w === 'expired')
-      if (waiting) return { ...out('limited', t('managedLimited', locale)), limitedUntil: c.limitedUntil ?? null }
+      if (onlyWaitingForLimit(why)) return { ...out('limited', t('managedLimited', locale)), limitedUntil: c.limitedUntil ?? null }
       // every account switched off by hand: say so, not the refused / expired / limit reasons
       const allOff = c.total > 0 && why.length === c.total && why.every((w) => w === 'disabled')
       return out('not_logged_in', t(!c.total ? 'managedNone' : allOff ? 'managedAllOff' : 'managedNoneDetail', locale))
