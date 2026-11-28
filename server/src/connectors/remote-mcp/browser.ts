@@ -57,7 +57,9 @@ export const CALLS_PER_MINUTE = 120
 export const SESSION_QUEUE = 2
 /** runs (MCP sessions) one connection may have in one profile at once: the extension keeps 4, one stays free */
 export const RUNS_PER_CONNECTION = 3
-const RUN_IDLE_MS = 10 * 60_000
+/** a run counts against RUNS_PER_CONNECTION while it had a call this recently (the extension gives an idle run's window
+ * up after as long: chrome-extension/src/runs.ts RUN_YIELD_MS) */
+const RUN_ACTIVE_MS = 2 * 60_000
 /** a call asks about at most this many sites in a row */
 const SITE_ASKS = 3
 /** how long a call waits for the person: with URL elicitation (the app shows the link) and without */
@@ -275,7 +277,7 @@ export class RemoteBrowser {
     const runId = 'mcp:' + hash(`mcp-run\0${grant.id}\0${o.scope.key}`).slice(0, 20)
     const rk = `${grant.id}\0${profile.linkId}`
     const used = this.runs.get(rk) ?? new Map<string, number>()
-    for (const [id, at] of used) if (at < this.now() - RUN_IDLE_MS) used.delete(id)
+    for (const [id, at] of used) if (at < this.now() - RUN_ACTIVE_MS) used.delete(id)
     if (!used.has(runId) && used.size >= RUNS_PER_CONNECTION) return done(text(`The browser profile "${profile.label}" is already running ${RUNS_PER_CONNECTION} tasks for this app. Wait, or ask the user to stop one in the browser extension.`, true), false, { reason: 'runs' })
     used.set(runId, this.now())
     this.runs.set(rk, used)
@@ -319,6 +321,9 @@ export class RemoteBrowser {
         const no = await ask('address', u.host, u.href)
         if (no) return done(text(no, true), false, { reason: 'address', host: u.host })
       }
+      // an office grant the person has for this host goes with the call whatever this server's own lookup says (a name
+      // the computer's network reads as an office address while this server does not), as in-app
+      if (keep && rt.siteGranted(userId, u.host)) { office.add(u.host); sites.add(u.host) }
       const priv = staticPrivateHost(u.host)
       if (priv === true || (priv === null && await isPrivateHost(u.host))) {
         if ((keep && rt.siteGranted(userId, u.host)) || this.asks.allowedOnce(grant.id, onceKey(profile.linkId, 'office', u.host, u.href))) { office.add(u.host); sites.add(u.host) }
@@ -349,6 +354,8 @@ export class RemoteBrowser {
         const host = r.needSite.host.toLowerCase().replace(/^www\./, '')
         if (coversTeam(this.ctx, host)) return { ...r, error: `Not opened: ${host} is this team's own address or the hosting service's, which is never used in the user's browser.` }
         if (profile.onlyListed && !r.needSite.office) return { ...r, error: `Not opened: the user's browser profile "${profile.label}" is limited to its own sites, and ${host} is not one of them. Use another profile, or tell the user they can add the site to that profile in ${APP}, Settings › Browser.` }
+        // an office address the person already allowed for good (their office grant, as the in-app card keeps it)
+        if (r.needSite.office && ((keep && rt.siteGranted(userId, host)) || this.asks.allowedOnce(grant.id, onceKey(profile.linkId, 'office', host, '')))) { office.add(host); sites.add(host); continue }
         const no = await ask(r.needSite.office ? 'office' : 'site', host, `https://${host}/`)
         if (no) return { ...r, error: no }
         if (tool === 'browser_batch') return { ...r, error: `The user allowed ${host}. The batch stopped before the step that needed it; run the remaining steps again.` }

@@ -22,6 +22,12 @@ export interface Run {
 
 export const MAX_RUNS = 4
 export const RUN_IDLE_MS = 10 * 60_000
+/** a run without a call for this long gives its window up when a new run needs one and all MAX_RUNS are taken (a
+ * finished Claude Code session, or a chat that ended, must not hold the profile for 10 minutes) */
+export const RUN_YIELD_MS = 2 * 60_000
+/** the runs with a call running now (calls.ts; set by the worker, so runs.ts imports nothing from calls.ts) */
+let busyRuns: () => ReadonlySet<string> = () => new Set()
+export function setBusyRuns(f: () => ReadonlySet<string>) { busyRuns = f }
 /** tabs in one run's window at most */
 export const MAX_TABS = 20
 
@@ -105,7 +111,13 @@ async function ensureGroup(r: Run, tabId: number): Promise<void> {
 /** A new tab for the run: in its window (a new background window for the run's first tab). */
 export async function createRunTab(r: Run, turnId: string, active: boolean): Promise<number> {
   if (!(await windowAlive(r))) {
-    if (openCount() >= MAX_RUNS) throw new ToolError(PROFILE_BUSY)
+    if (openCount() >= MAX_RUNS) {
+      // the run idle longest gives its window up (never one with a call running, never this one)
+      const busy = busyRuns(), now = Date.now()
+      const idle = [...runs.values()].filter((x) => x !== r && x.windowId !== null && !busy.has(x.id) && now - x.lastCall >= RUN_YIELD_MS).sort((a, b) => a.lastCall - b.lastCall)[0]
+      if (!idle) throw new ToolError(PROFILE_BUSY)
+      await closeRun(idle)
+    }
     const w = await chrome.windows.create({ focused: false, state: 'normal', url: 'about:blank' })
     r.windowId = w.id!
     const first = w.tabs?.[0]?.id ?? (await chrome.tabs.query({ windowId: r.windowId }))[0]?.id

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 09:20
 - Branch: `feat/mcp-browser-tools` (cut from `dev` after the app-led profile linking PR is merged)
-- Status: draft (review rounds 1 and 2 applied; approved with changes, all applied)
+- Status: done
 - Where: `server/src/connectors/remote-mcp/` (the MCP side), `server/src/chrome/` (one browser driver shared with the
   in-app AI), `web/src/pages/` (consent box, one ask page), `docs/`. Why: the MCP connector is area A, the Chrome link
   area B (docs/WORKPLAN.md); the shared driver keeps one set of browser rules for both.
@@ -366,4 +366,25 @@ A = automated (unit, security or e2e test in the repo), M = manual live run (scr
 
 ## Result
 
-Filled in at the end.
+Built as planned on top of #727 (app-led linking: profiles now carry the account email, which `profile` also takes).
+
+- Differences from the plan:
+  - The profile pick moved to `server/src/chrome/profiles.ts` and both callers use it. The site loop stays separate:
+    the in-app AI asks on its chat card, MCP on the Trina page.
+  - The notice is the existing realtime `notice` with a link, not an inbox notification type (no migration for it).
+  - The independent security review of the diff found six medium and three low issues. All are fixed:
+    - a fragment or a long path is not plain;
+    - the address check runs before any DNS lookup;
+    - sessions are bounded per connection;
+    - the extension reports `run.stopped` for MCP runs;
+    - office and site once-answers are kept apart;
+    - Disconnect drops the app's asks;
+    - a Stop is kept before the token re-check;
+    - two profiles with one name need the id.
+  - An office address the person already allowed goes with every call, as in-app; the live run found this.
+- Tests:
+  - `tests/unit/remote-mcp-browser.test.ts` (21) and `tests/security/remote-mcp-browser.test.ts` (3).
+  - Web: browser-ask, consent box, AI apps and prompt tests.
+  - Live opt-in `tests/e2e/mcp-browser-live.test.ts`: the real Claude Code and Codex CLIs, and the extension in two
+    throwaway Chromium profiles.
+- QA sheet rows TC-9301 to TC-9358 (B-01 to B-68).
