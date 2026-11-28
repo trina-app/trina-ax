@@ -1,0 +1,223 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LightsailOnlySeoul",
+      "Effect": "Deny",
+      "Action": "lightsail:*",
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:RequestedRegion": "ap-northeast-2"
+        }
+      }
+    },
+    {
+      "Sid": "LightsailRead",
+      "Effect": "Allow",
+      "Resource": "*",
+      "Action": [
+        "lightsail:GetBlueprints",
+        "lightsail:GetBundles",
+        "lightsail:GetRegions",
+        "lightsail:GetInstance",
+        "lightsail:GetInstances",
+        "lightsail:GetInstanceState",
+        "lightsail:GetInstanceSnapshot",
+        "lightsail:GetInstanceSnapshots",
+        "lightsail:GetOperation",
+        "lightsail:GetOperations"
+      ]
+    },
+    {
+      "Sid": "LightsailBuilderCreate",
+      "Effect": "Allow",
+      "Action": "lightsail:CreateInstances",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/ax:managed": "image-build"
+        }
+      }
+    },
+    {
+      "Sid": "LightsailBuilderTagOnCreate",
+      "Effect": "Allow",
+      "Action": "lightsail:TagResource",
+      "Resource": "arn:aws:lightsail:ap-northeast-2:<ACCOUNT_ID>:Instance/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/ax:managed": "image-build"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "ax:managed",
+            "ax:template"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "LightsailBuilderUseAndRemove",
+      "Effect": "Allow",
+      "Resource": "*",
+      "Action": [
+        "lightsail:PutInstancePublicPorts",
+        "lightsail:UpdateInstanceMetadataOptions",
+        "lightsail:DeleteInstance"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/ax:managed": "image-build"
+        }
+      }
+    },
+    {
+      "Sid": "LightsailImageCreate",
+      "Effect": "Allow",
+      "Action": "lightsail:CreateInstanceSnapshot",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/ax:managed": "image",
+          "aws:RequestTag/ax:built-by": "release-ci"
+        }
+      }
+    },
+    {
+      "Sid": "LightsailImageTagOnCreate",
+      "Effect": "Allow",
+      "Action": "lightsail:TagResource",
+      "Resource": "arn:aws:lightsail:ap-northeast-2:<ACCOUNT_ID>:InstanceSnapshot/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/ax:managed": "image",
+          "aws:RequestTag/ax:built-by": "release-ci"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "ax:managed",
+            "ax:template",
+            "ax:built-by",
+            "ax:blueprint-version"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "LightsailPruneOnlyCiImages",
+      "Effect": "Allow",
+      "Action": "lightsail:DeleteInstanceSnapshot",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/ax:managed": "image",
+          "aws:ResourceTag/ax:built-by": "release-ci"
+        }
+      }
+    },
+    {
+      "Sid": "LightsailNeverTeamServers",
+      "Effect": "Deny",
+      "Resource": "*",
+      "Action": [
+        "lightsail:DeleteInstance",
+        "lightsail:StopInstance",
+        "lightsail:StartInstance",
+        "lightsail:RebootInstance",
+        "lightsail:CreateInstanceSnapshot",
+        "lightsail:DeleteInstanceSnapshot",
+        "lightsail:TagResource",
+        "lightsail:UntagResource",
+        "lightsail:PutInstancePublicPorts",
+        "lightsail:OpenInstancePublicPorts",
+        "lightsail:CloseInstancePublicPorts",
+        "lightsail:UpdateInstanceMetadataOptions",
+        "lightsail:AttachDisk",
+        "lightsail:DetachDisk",
+        "lightsail:DeleteDisk",
+        "lightsail:DeleteDiskSnapshot",
+        "lightsail:GetInstanceAccessDetails"
+      ],
+      "Condition": {
+        "Null": {
+          "aws:ResourceTag/ax:tenant": "false"
+        }
+      }
+    },
+    {
+      "Sid": "LightsailNeverRetagOthers",
+      "Effect": "Deny",
+      "Resource": "*",
+      "Action": [
+        "lightsail:TagResource",
+        "lightsail:DeleteInstance",
+        "lightsail:CreateInstanceSnapshot"
+      ],
+      "Condition": {
+        "Null": {
+          "aws:ResourceTag/ax:managed": "false"
+        },
+        "StringNotEquals": {
+          "aws:ResourceTag/ax:managed": [
+            "image-build",
+            "image"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "LightsailNeverTheForeignInstances",
+      "Effect": "Deny",
+      "Action": [
+        "lightsail:DeleteInstance",
+        "lightsail:StopInstance",
+        "lightsail:StartInstance",
+        "lightsail:RebootInstance",
+        "lightsail:CreateInstanceSnapshot",
+        "lightsail:DeleteInstanceSnapshot",
+        "lightsail:TagResource",
+        "lightsail:UntagResource",
+        "lightsail:PutInstancePublicPorts",
+        "lightsail:OpenInstancePublicPorts",
+        "lightsail:CloseInstancePublicPorts",
+        "lightsail:UpdateInstanceMetadataOptions",
+        "lightsail:AttachDisk",
+        "lightsail:DetachDisk",
+        "lightsail:DeleteDisk",
+        "lightsail:DeleteDiskSnapshot",
+        "lightsail:GetInstanceAccessDetails"
+      ],
+      "Resource": [
+        "<ARN of trina-ax-test-1>",
+        "<ARN of trina-ax-jdr-1>",
+        "<ARN of trina-ax-qa-dev>"
+      ]
+    },
+    {
+      "Sid": "LightsailNeverThese",
+      "Effect": "Deny",
+      "Resource": "*",
+      "Action": [
+        "lightsail:UntagResource",
+        "lightsail:GetInstanceAccessDetails",
+        "lightsail:DownloadDefaultKeyPair",
+        "lightsail:CreateKeyPair",
+        "lightsail:ImportKeyPair",
+        "lightsail:CopySnapshot",
+        "lightsail:ExportSnapshot",
+        "lightsail:CreateInstancesFromSnapshot",
+        "lightsail:PeerVpc",
+        "lightsail:CreateDisk",
+        "lightsail:CreateDiskFromSnapshot",
+        "lightsail:CreateDiskSnapshot",
+        "lightsail:AttachDisk",
+        "lightsail:DetachDisk",
+        "lightsail:DeleteDisk",
+        "lightsail:DeleteDiskSnapshot",
+        "lightsail:AllocateStaticIp",
+        "lightsail:AttachStaticIp"
+      ]
+    }
+  ]
+}

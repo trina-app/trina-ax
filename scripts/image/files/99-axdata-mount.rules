@@ -1,0 +1,7 @@
+# Team AX: mount the data disk when it arrives after boot (trina-cloud docs/research/lightsail-paid-teams.md §6.3, P4).
+# On Lightsail hostd attaches the data disk after the instance runs (a new instance, a plan change, a revive), and a
+# disk attached after the boot's device wait is never mounted. This pulls in var-lib-mycel.mount when a filesystem
+# labelled axdata appears, at any time. The mount unit stays not enabled: a blank disk (first boot) has no label, so
+# nothing waits for it. mycel-enroll takes an /var/lib/mycel that is already a mount point as it is (disk.go rule 1).
+# On EC2 and Proxmox the disk is there at boot: the same rule mounts it a little earlier, before mycel-enroll.
+ACTION=="add", SUBSYSTEM=="block", ENV{ID_FS_LABEL}=="axdata", ENV{ID_FS_TYPE}=="ext4", ENV{SYSTEMD_WANTS}+="var-lib-mycel.mount"
