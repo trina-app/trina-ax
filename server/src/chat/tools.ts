@@ -1988,8 +1988,8 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
           const hadSite = profile ? new Set(personSites(rt.db, spec.chatId, spec.userId, person)) : null
           const how = await gateUrl(rt.db, spec.chatId, href, person, { turnId: spec.turnId, userId: spec.userId })
           // "Always allow this site" pressed on the address card now, for a call in a profile: kept for that profile too
-          // (one answer, not a second card for the same site there)
-          if (profile && hadSite && how === 'confirmed') {
+          // (one answer, not a second card for the same site there; a profile limited to its list changes only in Settings)
+          if (profile && !profile.onlyListed && hadSite && how === 'confirmed') {
             const site = siteOf(href)
             if (site && !hadSite.has(site) && personSites(rt.db, spec.chatId, spec.userId, person).includes(site) && !coversTeam(rt.ctx, site) && addLinkSite(rt.db, profile.linkId, site)) profile.sites.push(site)
           }
