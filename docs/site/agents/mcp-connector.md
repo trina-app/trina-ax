@@ -79,7 +79,7 @@ Set up:
 | App | Steps |
 |---|---|
 | Claude Code | `claude mcp add --transport http --scope user trina <address>`, then `/mcp` to sign in. Tick **Use my browser profiles** on the Trina page. |
-| Codex | `codex mcp add trina --url <address>`, then `codex mcp login trina` if the sign-in does not open. Tick the box. |
+| Codex | `codex mcp add trina --url <address>`, then `codex mcp login trina` if the sign-in does not open. Tick the box. Codex asks before each browser step; in `codex exec` (no one to ask) it refuses them unless you add `default_tools_approval_mode = "approve"` under `[mcp_servers.trina]` in `~/.codex/config.toml`. New sites still ask you on the Trina page. |
 | Claude (desktop and web) | Claude's Settings › Connectors › Add custom connector with the address. Tick the box. |
 
 `<address>` is the connection address in **Settings › Trina AX MCP** (it ends in `/mcp`). A connection made before
