@@ -26,7 +26,7 @@ import { AppDetail } from './AppDetail'
 import { AskAdminAction, type AskState } from './AskAdmin'
 import { GoogleUnverifiedNote } from './GoogleUnverifiedNote'
 import { GoogleAccountBlock } from './GoogleAccount'
-import { googleStartBody } from '../../lib/driveSignIn'
+import { googleStartBody, openGoogleConnections } from '../../lib/driveSignIn'
 
 const opsFor = (app: GoogleAppId, current: () => Promise<GoogleAppView>): SignInOps<GoogleAppView> => ({
   authorize: () => api.call(API.authorizeGoogleApp, { params: { app }, body: googleStartBody() }),
@@ -98,7 +98,9 @@ export function useGoogleApps() {
     try {
       const r = await api.call(API.disconnectGoogleApp, { params: { app } })
       setApps((a) => a?.map((x) => (x.id === app ? { ...x, status: 'disconnected', account: null, serviceDown: false } : x)) ?? a)
-      toast({ level: 'success', text: r.revocation === 'unavailable' ? t('gapps.disconnectedNoRevoke', { name }) : t('gapps.disconnected', { name }) })
+      // the hosting service's shared app keeps the grant for the person's other Trina servers: Google's own page removes it
+      if (r.revocation === 'kept') toast({ level: 'success', text: t('gapps.disconnectedKept', { name }), ms: 9000, action: { label: t('drive.removeAtGoogle'), run: openGoogleConnections } })
+      else toast({ level: 'success', text: r.revocation === 'unavailable' ? t('gapps.disconnectedNoRevoke', { name }) : t('gapps.disconnected', { name }) })
       void load()
     } catch { toast({ level: 'error', text: t('gapps.saveFailed') }) }
     finally { setBusy(null) }

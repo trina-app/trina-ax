@@ -115,6 +115,8 @@ export function googleBrokerKey(dataDir: string, tunnelHost: string | null | und
 }
 
 /** The configuration fingerprint of broker mode: connections made through one control plane origin belong together. */
+/** A refresh token the hosting service sealed (its `ev1.` envelope): this server cannot open it, and never revokes it. */
+export const isBrokerToken = (token: string) => token.startsWith('ev1.')
 export const brokerKey = (origin: string) => 'broker:' + crypto.createHash('sha256').update(origin).digest('hex')
 
 /** A Google app request the hosting service refused as a request (`invalid_request`: an older control plane that does
@@ -220,7 +222,7 @@ export class DriveBroker {
   redeem(handoff: string, codeVerifier: string, signal?: AbortSignal) { return this.call('redeem', { v: 1, handoff, codeVerifier }, signal) }
   /** `app`: the Google app the token was made for (google-apps/), left out for Drive */
   refresh(sealedRefreshToken: string, signal?: AbortSignal, app?: GoogleBrokerApp) { return this.call('refresh', { v: 1, refreshToken: sealedRefreshToken, ...(app ? { app } : {}) }, signal) }
-  async revoke(sealedRefreshToken: string): Promise<'revoked' | 'unavailable'> {
-    try { return (await this.call('revoke', { v: 1, refreshToken: sealedRefreshToken })).revocation === 'revoked' ? 'revoked' : 'unavailable' } catch { return 'unavailable' }
-  }
+  // No revoke: Google ends the person's whole grant of the hosting service's one Google app (every hosted team and
+  // registered server signs in with it), so a team server never asks for it; it only forgets the token
+  // (docs/decisions/20261128-google-broker-grant-kept.md). The contract's revoke address stays for older servers.
 }

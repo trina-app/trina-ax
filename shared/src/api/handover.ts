@@ -52,7 +52,7 @@ export const EndedConnection = z.object({
   id: z.string(),
   label: z.string(),
   result: z.enum(['ended', 'gone', 'failed']),
-  revoke: z.enum(['revoked', 'unavailable', 'not_needed']).optional(),
+  revoke: z.enum(['revoked', 'unavailable', 'not_needed', 'kept']).optional(),
 })
 export type EndedConnection = z.infer<typeof EndedConnection>
 

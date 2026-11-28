@@ -8,11 +8,11 @@ import { DRIVE_SCOPE, OWN_APP_SETTING, configKey, hash, readDriveConfig, type Dr
 import { GoogleTransport, GOOGLE_AUTH, GOOGLE_TOKEN, GOOGLE_REVOKE, DRIVE_API, checkAbort, responseError, waitFor, backoff, type DriveFetch } from './client'
 import { DriveStore, DriveError, type Account, type Tokens, type FlowSecret, type FlowRow, type ConnectionRow } from './store'
 import { googleAccountInUse, googleEmailOf, signsTeamGoogleApp } from '../connections/store'
-import type { DriveConnection, DriveFlow } from '@mycel/shared/api'
+import type { DriveConnection, DriveFlow, Revocation } from '@mycel/shared/api'
 import { notifyConnectionReconnect, notifyDriveShareReconnect } from '../../notifications/service'
 import { onShareOwnerCheck, ownerOk, SHARE_CONTEXT, shareByName, shareRow, shareRows, shareWorks, teamSharesFor, type ShareRow } from './shares'
 import { getSetting, setSetting } from '../../admin/settings'
-import { brokerKey, driveBrokerFor, DriveBroker, type BrokerOptions } from './broker'
+import { brokerKey, driveBrokerFor, DriveBroker, isBrokerToken, type BrokerOptions } from './broker'
 import type { CallbackOutcome } from './callback-page'
 import { CLAIM_MS, GO_PATH, appReturnKey, appReturnPort, heldProofOk, newToken, tokenHash, tokenMatches } from './app-return'
 import type { ClientKind } from '@mycel/shared/api'
@@ -321,8 +321,10 @@ export class GoogleDrive {
   }
   /** The return page's answer (routes/drive.ts, callback-page.ts): ok, or why not (the reason the flow recorded, or the
    * refusal before it started: an expired or used link, a browser not signed in as the same person). `app`: the app
-   * whose session started the flow; `code`: the one-time completion code for that app (app-return.ts). */
-  async callbackOutcome(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<CallbackOutcome> {
+   * whose session started the flow; `code`: the one-time completion code for that app (app-return.ts). `finish` (the
+   * return page, routes/drive.ts): a personal sign-in whose browser holds the very session that started it is connected
+   * at once (finish()), done 'connected'. */
+  async callbackOutcome(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }, o: { finish?: boolean } = {}): Promise<CallbackOutcome> {
     const valid = !!input.state && /^[A-Za-z0-9_-]{43}$/.test(input.state)
     const row = valid ? this.ctx.db.query('SELECT * FROM drive_oauth_flows WHERE state_hash=?').get(hash(input.state!)) as FlowRow | null : null
     const client = row ? this.clientOf(row) : null
@@ -333,6 +335,7 @@ export class GoogleDrive {
     if (before) return before
     try {
       const done = await this.callback(input, browser)
+      if (done === true && o.finish && !app.app && row && this.finish(row, browser)) return { ok: true, done: 'connected', ...app }
       if (done) return { ok: true, ...app, ...(typeof done === 'object' ? done : {}) }
     } catch (e) {
       // lost the race to a return of the same sign-in that began a moment ago: say how that one ends
@@ -456,6 +459,16 @@ export class GoogleDrive {
     }
     throw new DriveError('invalid_code', 400)
   }
+  /** A browser sign-in finishes in the tab Google came back to (docs/decisions/20261128-google-broker-grant-kept.md):
+   * the person's own Drive, when that browser holds the very session that started the flow (state, PKCE and that
+   * session bind the result; the confirm added no protection, docs/decisions/20261120-drive-connect-return-to-app.md).
+   * The first tab cannot close the sign-in window (Google's pages cut its link), so the confirm there was a second trip.
+   * Only a browser's own sign-in (callbackOutcome): one the desktop or phone app started is confirmed in the app, as
+   * before. A Drive share keeps its confirm (the admin names it). Any refusal leaves the flow ready, confirmed as before. */
+  private finish(r: FlowRow, browser?: { userId: string; sessionId: string }): boolean {
+    if (r.purpose !== 'personal' || !browser || browser.userId !== r.user_id || browser.sessionId !== r.session_id) return false
+    try { this.complete(r.user_id, r.session_id, r.id); return true } catch { return false }
+  }
   /** An active owner or admin (docs/DECISIONS.md "W6", re-check N1): may start their own sign-in while members may not
    * connect theirs, and turn that switch on at the confirm. */
   private manages(user: string): boolean {
@@ -528,11 +541,12 @@ export class GoogleDrive {
   }
   /** Abort the requests under way for one person or share ("share:<id>"). */
   abort(key: string) { for (const c of this.operations.get(key) ?? []) c.abort() }
-  /** Revoke a refresh token at Google (best effort). */
-  async revoke(token: string | null): Promise<'revoked' | 'unavailable' | 'not_needed'> {
+  /** Revoke a refresh token at Google (best effort). A token the hosting service sealed (broker.ts) is never revoked:
+   * Google ends the person's whole grant of that one shared Google app, which their other Trina servers and teams use
+   * too ('kept'; docs/decisions/20261128-google-broker-grant-kept.md). Only this server forgets it. */
+  async revoke(token: string | null): Promise<Revocation> {
     if (!token) return 'not_needed'
-    // a token sealed by the hosting service (broker.ts) is revoked there: this server cannot open it
-    if (token.startsWith('ev1.')) return this.broker ? this.broker.revoke(token) : 'unavailable'
+    if (isBrokerToken(token)) return 'kept'
     try {
       const r = await this.transport.request(GOOGLE_REVOKE, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token }) }, 16_384)
       return r.status === 200 ? 'revoked' : 'unavailable'
@@ -696,8 +710,9 @@ export class GoogleDrive {
       || signsTeamGoogleApp(this.ctx.db, user)
       // anyone's sign-in here with the same Google account (their own app, a shared one, a Drive share)
       || googleAccountInUse(this.ctx.db, googleEmailOf(row?.account), { driveUser: user })
-    let revocation: 'revoked' | 'unavailable' | 'not_needed'
-    try { revocation = others ? 'not_needed' : await this.revoke(token) } finally { this.revoking.delete(user) }
+    let revocation: Revocation
+    // the hosting service's shared app: kept at Google whatever this server holds (revoke says so first)
+    try { revocation = token && isBrokerToken(token) ? 'kept' : others ? 'not_needed' : await this.revoke(token) } finally { this.revoking.delete(user) }
     return { disconnected: true as const, revocation }
   }
 }

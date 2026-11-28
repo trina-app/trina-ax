@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 16:08
 - Branch: `fix/google-broker-disconnect-no-revoke`
-- Status: in progress
+- Status: done
 - Where: `server/src/integrations/google-drive/`, `server/src/integrations/google-apps/`, `shared/src/api/`,
   `web/src/components/`. Why: the Google connectors' service code and pages live there (docs/REPOSITORY-RULES.md).
   trina-cloud gets a companion PR (`src/drive-broker/broker.ts`: the hosting service stops revoking for old servers).
@@ -68,4 +68,7 @@ unit tests, web unit tests for the connectors.
 
 ## Result
 
-(filled in at the end)
+Built as planned. Differences: the return page finishes a sign-in only when the route asks (`callbackOutcome(…, {
+finish: true })`, routes/drive.ts and google-apps.ts), so the service's `callback` keeps its old meaning for tests and
+other callers; a flow the desktop or phone app started is never finished in the browser (its app confirms, as before).
+The team server's broker client lost its `revoke` call. trina-cloud companion: `fix/broker-no-grant-revoke`.

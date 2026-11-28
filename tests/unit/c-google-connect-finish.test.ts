@@ -76,21 +76,33 @@ async function setUpGmail() {
 const EXPIRED = '시간이 지났거나 이미 사용됐어요'
 const CONNECTED = '이미 연결됐어요'
 
-test('Drive: the return page loaded again after it worked says so, then "Connected" after the confirm; never "expired or already used"', async () => {
+test('Drive: the browser of the session that started it connects at once; a reload says Connected; never "expired or already used"', async () => {
   const f = await owner.call('POST', drive + '/authorize', {})
   const url = cb(drive, fake.authorize(f.authorizationUrl))
   const first = await owner.raw('GET', url)
-  expect(first.status).toBe(200); expect(await first.text()).toContain('거의 다 됐어요')
-  // a reload (or the browser opening the address again): the same answer, and nothing is exchanged again
+  const firstHtml = await first.text()
+  // Windows QA 2026-11-28: no "go back to the app and confirm" in a browser; the first tab's poll sees it completed
+  expect(first.status).toBe(200); expect(firstHtml).toContain('연결됐어요'); expect(firstHtml).toContain('원래 탭'); expect(firstHtml).not.toContain('앱')
+  expect((await owner.call('GET', `${drive}/flows/${f.flowId}`)).state).toBe('completed')
+  expect((await owner.call('GET', drive)).status).toBe('connected')
+  // a reload (or the browser opening the address again): Connected, and nothing is exchanged again
   const n = exchanges()
   const again = await owner.raw('GET', url)
   const html = await again.text()
-  expect(again.status).toBe(200); expect(html).toContain('거의 다 됐어요'); expect(html).not.toContain(EXPIRED)
+  expect(again.status).toBe(200); expect(html).toContain(CONNECTED); expect(html).not.toContain(EXPIRED)
   expect(exchanges()).toBe(n)
+})
+
+test('Drive: another session of the same person brings Google back: the account waits for the confirm in the first tab', async () => {
+  const f = await owner.call('POST', drive + '/authorize', {})
+  const url = cb(drive, fake.authorize(f.authorizationUrl))
+  const second = await login('olga', OWNER_PW, 'web')
+  const p = await second.raw('GET', url)
+  const html = await p.text()
+  expect(p.status).toBe(200); expect(html).toContain('거의 다 됐어요'); expect(html).toContain('원래 탭으로 돌아가 ‘이 계정 연결’을 누르세요')
   expect((await owner.call('GET', `${drive}/flows/${f.flowId}`)).state).toBe('ready')
   expect((await owner.call('POST', `${drive}/flows/${f.flowId}/complete`, {})).status).toBe('connected')
-  // after the confirm: Connected, close this window
-  const done = await owner.raw('GET', url)
+  const done = await second.raw('GET', url)
   expect(done.status).toBe(200); expect(await done.text()).toContain(CONNECTED)
 })
 
@@ -107,7 +119,7 @@ test('Drive: two returns of one sign-in at the same time: Google is asked once, 
   const pages = await Promise.all([a, b].map(async (p) => { const r = await p; return { status: r.status, html: await r.text() } }))
   for (const p of pages) { expect(p.status).toBe(200); expect(p.html).not.toContain(EXPIRED) }
   expect(exchanges()).toBe(1)
-  expect((await owner.call('GET', `${drive}/flows/${f.flowId}`)).state).toBe('ready')
+  expect((await owner.call('GET', `${drive}/flows/${f.flowId}`)).state).toBe('completed')
 })
 
 test('Drive: a window of an earlier try that comes back after a later try connected says Connected; one that did not, expired', async () => {
@@ -122,7 +134,7 @@ test('Drive: a window of an earlier try that comes back after a later try connec
   old = cb(drive, fake.authorize(f1.authorizationUrl))
   f2 = await owner.call('POST', drive + '/authorize', {})
   await owner.raw('GET', cb(drive, fake.authorize(f2.authorizationUrl)))
-  expect((await owner.call('POST', `${drive}/flows/${f2.flowId}/complete`, {})).status).toBe('connected')
+  expect((await owner.call('GET', `${drive}/flows/${f2.flowId}`)).state).toBe('completed')
   p = await owner.raw('GET', old)
   expect(p.status).toBe(200); expect(await p.text()).toContain(CONNECTED)
   // and it did not reopen the replaced flow
@@ -260,11 +272,12 @@ test('REPRO (QA 2026-11-27): the desktop app with a session recorded as "web": i
     const again = await (await bare(ret(auth(f.authorizationUrl)))).text()
     expect(codeOf(again)).toBeNull()
   }
-  // a browser signed in as the same person still finishes at once, with no code, when the page says desktop
+  // a browser signed in as the same person still finishes at once, with no code, when the page says desktop (the word
+  // without the app's key is a browser's: connected right there)
   const f = await owner.call('POST', gmail + '/authorize', { client: 'desktop' })
   const direct = await owner.raw('GET', gmailReturn(google.authorize(f.authorizationUrl, 'olga')))
   expect(direct.status).toBe(200); expect(codeOf(await direct.text())).toBeNull()
-  expect((await owner.call('GET', `${gmail}/flows/${f.flowId}`)).state).toBe('ready')
+  expect((await owner.call('GET', `${gmail}/flows/${f.flowId}`)).state).toBe('completed')
   // the team sign-in's start takes it too (a strict body)
   expect((await owner.try('POST', '/api/admin/google-apps/gmail/team/authorize', { client: 'desktop' })).status).toBe(200)
   expect((await owner.try('POST', '/api/admin/google-apps/gmail/team/authorize', { client: 'mobile' })).status).toBe(400)
@@ -302,7 +315,7 @@ test('Gmail: two returns of one sign-in at the same time and a reload: one excha
   open()
   for (const p of await Promise.all([a, b])) { expect(p.status).toBe(200); expect(await p.text()).not.toContain(EXPIRED) }
   expect(google.tokenCalls.filter((c) => c.get('grant_type') === 'authorization_code')).toHaveLength(1)
-  expect((await owner.call('GET', `${gmail}/flows/${f.flowId}`)).state).toBe('ready')
+  expect((await owner.call('GET', `${gmail}/flows/${f.flowId}`)).state).toBe('completed')
   // a web sign-in that is cancelled stays "expired or already used" on a reload (no new meaning for a failed one)
   const g = await owner.call('POST', gmail + '/authorize', {})
   const q = google.authorize(g.authorizationUrl, 'olga')
@@ -361,7 +374,7 @@ test('one waiter per sign-in: a third return while another waits gets the "almos
   expect(third.status).toBe(200); expect(await third.text()).not.toContain(EXPIRED)
   open()
   for (const p of await Promise.all([first, waiter])) expect(p.status).toBe(200)
-  expect((await owner.call('GET', `${gmail}/flows/${f.flowId}`)).state).toBe('ready')
+  expect((await owner.call('GET', `${gmail}/flows/${f.flowId}`)).state).toBe('completed')
 })
 
 test('results that will never be used are revoked at Google (cancelled, replaced, run out), unless that would end a live sign-in', async () => {

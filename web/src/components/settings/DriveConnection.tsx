@@ -179,7 +179,9 @@ export function useDriveConnection(onConnected?: (c: Connection) => void) {
   // as this window last read it (store/listCache.ts): Connectors shows it at once on a visit after the first
   const [connection, setConnection] = useState<Connection | null>(() => peekCached<Connection>(DRIVE_KEY) ?? null)
   useEffect(() => { if (connection) rememberCached(DRIVE_KEY, connection) }, [connection])
-  const [revokeWarning, setRevokeWarning] = useState(false)
+  // after a disconnect: Google could not be told ('unavailable'), or the hosting service's shared app keeps the grant for
+  // the person's other Trina servers ('kept': the line offers Google's own page to remove it everywhere)
+  const [revokeWarning, setRevokeWarning] = useState<'unavailable' | 'kept' | null>(null)
   // The first load of the status failed: this is not a failed connection, so it has its own message and a Retry.
   const [loadFailed, setLoadFailed] = useState(false)
   const connected = useRef(onConnected)
@@ -195,7 +197,7 @@ export function useDriveConnection(onConnected?: (c: Connection) => void) {
     load()
     return () => { generation.current++ }
   }, [])
-  const start = () => { setRevokeWarning(false); void d.start() }
+  const start = () => { setRevokeWarning(null); void d.start() }
   const disconnect = async () => {
     const intent = generation.current
     if (!await confirmDialog({ title: t('drive.disconnect'), body: t('drive.disconnectHint'), confirm: t('drive.disconnect'), danger: true })) return
@@ -206,7 +208,7 @@ export function useDriveConnection(onConnected?: (c: Connection) => void) {
       const r = await api.call(API.disconnectDrive)
       if (g !== generation.current) return
       setConnection({ configured: true, status: 'disconnected', account: null, scopes: [], expiresAt: null })
-      setRevokeWarning(r.revocation === 'unavailable')
+      setRevokeWarning(r.revocation === 'unavailable' || r.revocation === 'kept' ? r.revocation : null)
     } catch { if (g === generation.current) setError(true) }
     finally { if (g === generation.current) setBusy(false) }
   }

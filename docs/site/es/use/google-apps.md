@@ -40,8 +40,9 @@ redactar y enviar correos". Algunas líneas tienen una casilla. Deje **todas** l
 a conectar y deje todas las casillas marcadas."
 
 #### Confirme la cuenta
-De vuelta en Trina AX, compruebe la cuenta que aparece ("¿Conectar esta cuenta?") y elija **Conectar esta cuenta**. La
-página indica ahora **Conectado** arriba a la derecha y **Conectado como** y su dirección debajo del nombre.
+En un navegador, la pestaña que abrió Google dice **Conectado**: ciérrela y vuelva a la primera pestaña. En la
+aplicación de escritorio, compruebe la cuenta que aparece ("¿Conectar esta cuenta?") y elija **Conectar esta cuenta**.
+La página indica ahora **Conectado** arriba a la derecha y **Conectado como** y su dirección debajo del nombre.
 
 ![La página de Gmail después de conectar: Conectado arriba a la derecha con un menú ⋯, y Conectado como bob@acme.example.com debajo del nombre](../../images/connect/google-member-connected.webp "Gmail, conectado")
 :::

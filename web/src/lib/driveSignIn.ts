@@ -63,3 +63,8 @@ export function openSignInWindow(place: SignInPlace, reserved: Window | null, ur
   if (place === 'desktop') open(url, '_blank')
   else if (place === 'browser' && reserved && !reserved.closed) reserved.location.replace(url)
 }
+
+/** Google's own page of the apps that can use the person's Google account: where "Trina AX" is removed for every Trina
+ * server at once. A disconnect here never does that (docs/decisions/20261128-google-broker-grant-kept.md). */
+export const GOOGLE_CONNECTIONS_URL = 'https://myaccount.google.com/connections'
+export const openGoogleConnections = () => { window.open(GOOGLE_CONNECTIONS_URL, '_blank', 'noopener,noreferrer') }
