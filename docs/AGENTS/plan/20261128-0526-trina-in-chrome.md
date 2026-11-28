@@ -35,36 +35,38 @@ In:
    and it reuses the pane's page script (`desktop/src/main/pane/page-script.js`: tree, find, text, refs, set value,
    password checks) and key parsing (`desktop/src/common/input.ts`) as they are.
 2. **Pairing and connection** (no native host, so hosted teams work):
-   - The person opens the popup on a page of their team (or types the team address). The extension asks Chrome for
-     access to that one origin only (`optional_host_permissions`), then opens `<team>/connect-chrome?state=<32 random
-     bytes>` in a tab. The team page (signed in in that Chrome, else it signs in first) says "Let <app>'s AI use this
-     Chrome as @name?" with Connect / Cancel. Connect makes a one-time code (`POST /api/chrome/pair`, 32 bytes, 5
-     minutes, only its sha256 kept, bound to the state) and moves the tab to `<team>/connect-chrome/done#code=…&state=…`
-     (fragment: never sent to a server). The extension's worker reads that tab's address, checks the state, closes the
-     tab and redeems the code.
-   - Or a code from Settings › Browser › "Use a code" (8 characters from an unambiguous alphabet, 10 minutes, one use,
-     at most 5 tries per code and the usual rate limit per address). The popup then shows whose account and team it
-     joins and asks once more ("Only continue if this is your own account"), because a code someone else sent would
-     hand them this Chrome.
-   - Redeem: `POST /api/chrome/redeem {code, state?, label, version}` (no session; the code is the credential) answers
-     a link token (32 random bytes, base64url; only its sha256 in `chrome_links`), the link id, the person's name and the
-     team's name. The extension keeps it in `chrome.storage.local` (never `sync`), with the team origin.
-   - Live connection: a WebSocket `wss://<team>/api/chrome/ws` with subprotocols `mycel.chrome.v1` and
-     `mycel.chrome.t.<token>`; never a cookie, so the Origin (`chrome-extension://…`) is not needed for it. It carries
+   - The person opens their team in Chrome and clicks the extension's icon; the popup offers "Connect to <origin>" for
+     the page in front (or a field for the address). The extension asks Chrome for access to that one origin only
+     (`optional_host_permissions`), makes a secret verifier (32 random bytes) and opens
+     `<team>/connect-chrome?challenge=<sha256(verifier)>` in a tab. The team page (signed in in that Chrome, else it signs in
+     first) shows the team's address and the account in large type: "Let <app>'s AI use this Chrome as @name?" Connect /
+     Cancel. Connect makes a one-time code (`POST /api/chrome/pair`, 32 bytes, 5 minutes, only its sha256 kept, bound to
+     the challenge) and moves the tab to `<team>/connect-chrome/done#code=…` (fragment: never sent to a server). The
+     extension reads that tab's address (it has access to the team origin), closes the tab and redeems the code **with
+     the verifier** (PKCE): a copied address or code is useless anywhere else.
+   - No typed code (review: phishable both ways). One team per extension, one Chrome per person: a new link replaces the
+     person's earlier one.
+   - Redeem: `POST /api/chrome/redeem {code, verifier, label, version}` (no session) answers a link token (32 random
+     bytes; only its sha256 in `chrome_links`), the person's name, the team's name and every address of the team (its
+     public address, office and relay names). The extension keeps them in `chrome.storage.local` (never `sync`).
+   - Live connection: a WebSocket `wss://<team>/api/chrome/ws` (subprotocol `mycel.chrome.v1`); the token goes in the
+     first frame (`{type:'auth', token}`, closed after 5 s without it), never in a header or the address. It carries
      only `browser.call` / `browser.cancel` to the extension and `browser.ack` / `browser.result` / `ping` back. It is
-     not a window of the realtime hub: it gets no chat, file or presence event, does not make the person "online", and
-     does not count as an open window for notifications.
-   - Revocation: Disconnect in Settings (any device of the person), Disconnect in the popup, the person signing out
-     everywhere / changing the password / being disabled or deleted (the hub's user-ended event), a link unused for 30
-     days. A revoked link's socket closes at once (close code `4401`) and the extension forgets its token.
+     not a window of the realtime hub: no chat, file or presence event, the person does not look online, it does not
+     hold back notifications. A result is taken only from the connection the call went to.
+   - "Online" means the extension's connection is open (Chrome running and the worker awake: it pings every 20 s, and
+     an alarm reconnects it within a minute after Chrome put it to sleep).
+   - Revocation: Disconnect in Settings or in the popup, a new link, the person's sessions all ending (sign out
+     everywhere, password change, disabled, deleted), and 30 days unused. A revoked link's socket closes at once (close
+     code `4401`) and the extension forgets its token.
 3. **Server**: migration `464_b_chrome_links.sql` (`chrome_links`, `chrome_pair_codes`, `user_browser_target`),
    `server/src/chrome/` (store, routes, socket registry), the browser relay sending a call to a Chrome link instead of a
    desktop window (`CallRelay` gets a small transport interface; the hub stays as it is), routing in the turn, the site
    card for Chrome, prompt words, i18n.
-4. **Which Chrome a turn may drive**: only a Chrome linked by the person whose turn it is, never another member's. A
+4. **Which Chrome a turn may drive**: only the Chrome linked by the person whose turn it is, never another member's. A
    turn from the web or the desktop app (not a phone, not a scheduled run, not a guest, not a restricted chat) uses the
-   person's Chrome when one is online and (in the desktop app) they picked "My Chrome". With several online, the one
-   connected most recently. In a shared chat the browser's notice once per place (`confirmSharedBrowser`) and the change
+   person's Chrome when it is online and (in the desktop app) they turned on "Use my Chrome" (one switch, Settings ›
+   Browser; the owner asked for the choice). Each step's label says "in your Chrome". In a shared chat the browser's notice once per place (`confirmSharedBrowser`) and the change
    card (`confirmSharedBrowserChange`) apply exactly as for the desktop browser: another person's message never drives
    my Chrome without my card.
 5. **Tab model**: the AI works in a tab group "<app>" in the Chrome window the person used last. It reads and acts only
@@ -78,7 +80,8 @@ In:
    - file_upload: the same server side (tickets, checks, `prepareBrowserUpload`); the extension fetches each ticket from
      `GET /api/chrome/uploads/:ticket` with its link token (the person's own ticket, once; same 404 on any failure) and
      puts the files into the page's file field (`DataTransfer` in the page through CDP; a drop when there is no field).
-     At most 20 files and 25 MB in one call in Chrome (the bytes cross into the page as base64).
+     At most 20 files and 25 MB in one call in Chrome (the bytes cross into the page as base64). preview_start opens a
+     new tab in the group and navigates it.
 7. **Sites (Rule A: Always allow is final)**: one Always per person, as decided in
    [20261125-one-site-always-desktop-browser](../../decisions/20261125-one-site-always-desktop-browser.md). The server sends
    with every call what the person already allowed (`sites`, `office`, and `anySite` for "Allow all websites"). The
@@ -86,10 +89,15 @@ In:
    `site_needed: <host>`; the server raises the existing `browser_site` card in the chat with Chrome's words, keeps an
    Always as the person's site for good (`user_allowed_sites`), and sends the call again (once per call). Navigate and
    preview_start ask before the page is opened. The address gate (`tools/url-gate.ts`) applies as for the desktop.
-   - Hard blocks in the extension whatever anyone allowed: the team's own address (the AI must never press its own
-     cards in the person's signed-in team page), `chrome://`, extension and Web Store pages, `file:`, `data:`,
-     `javascript:`, this computer (`localhost`, loopback), and office addresses (private IPs, `.local`, one-word names)
-     unless the server's office card allowed them.
+   - Hard blocks in the extension that no value from the server can lift (this browser holds the person's real
+     cookies): every address of the team (the AI must never press its own cards in the person's signed-in team page;
+     requests from a driven tab to them are cancelled too, CDP `Fetch`), account-security and password pages
+     (Google, Microsoft, Apple, GitHub settings and sign-in consent screens, password managers), `chrome://`, extension
+     and Web Store pages, non-web schemes, this computer (`localhost`, loopback), and office addresses (private IPs,
+     `.local`, one-word names, or a page whose server answered from a private address: CDP `remoteIPAddress`) unless
+     the server's office card allowed them. Each gives the AI a plain hand-over line.
+   - The extension runs a fixed list of CDP methods (a unit test fails on any other); it never reads cookies or
+     storage, and network reads carry no headers (addresses with auth values redacted), as the desktop's.
 8. **Safety, as the desktop browser** (the same prompt rules, the same server guards): never type passwords or payment
    details (the page script's password and card-field checks refuse them), ask before buying, sending or deleting
    (prompt; the AI's `ask_user`), the key guard (`chat/browser-keys.ts`: a key screen gets no read, screenshot or script,
@@ -100,10 +108,10 @@ In:
    group's title says "<app> · working"; Chrome's debugging bar shows on the tabs it drives. Stop in the popup ends the
    running call and every call of that turn (`Stopped by the user in Chrome. Do not retry; ask the user.`); closing
    Chrome's debugging bar does the same; the chat's Stop sends `browser.cancel`.
-10. **Web**: Settings › Browser "Your Chrome" section (the list, Connect, Use a code, Disconnect, and the desktop's
-    choice); the page `/connect-chrome` and `/connect-chrome/done`; i18n in the six languages (`en.ts` source).
+10. **Web**: Settings › Browser "Your Chrome" section (the linked Chrome with online state, how to connect, Disconnect,
+    and in the desktop app the "Use my Chrome" switch); the page `/connect-chrome` and `/connect-chrome/done`; i18n in the six languages (`en.ts` source).
 11. **Docs**: decision `docs/decisions/20261128-trina-in-chrome.md`, `docs/CONNECTIONS.md` row, `docs/ASKS.md` entries
-    (`chrome.site`, `chrome.pair.confirm`, `ui.chrome.disconnect`), `changes/trina-in-chrome.md`,
+    (`chrome.site`, `chrome.pair.connect`), `changes/trina-in-chrome.md`,
     `chrome-extension/README.md` with the Web Store listing text (privacy, each permission's reason).
 12. **Packaging**: `bun chrome-extension/build.ts` builds `chrome-extension/dist/`; `--zip` makes
     `chrome-extension/release/<app>-chrome-<version>.zip` for the Web Store. Branding (name, icons) comes from
@@ -150,12 +158,17 @@ Out (later):
 ## Risks
 
 - **Migration** 464 (highest `4xx` on dev is 463). Check again before the PR.
+- **Review of the plan (2026-11-28)**: applied PKCE, the cut of the typed code, one Chrome per person, the token in
+  the first frame, the extension's own blocks, the CDP list, the private-address check, no `tabs`. Not taken: a
+  confirm card for buying, sending or deleting on allowed sites (the desktop browser has none either; Rule A and lean
+  UI; the prompt rule and the payment-field refusal stay), cutting file_upload and the desktop choice (both asked for).
+  Deferred: an e-mail when a Chrome is linked; the Web Store listing (owner's $5 OK).
 - **Security**: a stolen link token drives the person's Chrome (kept only in `chrome.storage.local`, revocable, only
   calls of that person's own turns reach it, the site rules still hold); a code made by someone else (the popup names
   the account and asks); another member's turn (never routed); the team page driven by the AI (hard block); page →
   AI injection (as the desktop browser; the AI never gets more rights from a page than its own turn has).
-- **Permissions in the manifest**: `debugger`, `tabs`, `tabGroups`, `storage`, `alarms`, and optional host access for
-  the one team origin. `debugger` is the strong one (it is how the AI clicks and reads in any tab it drives); the
+- **Permissions in the manifest**: `debugger`, `tabGroups`, `storage`, `alarms`, `activeTab`, and optional host access
+  for the one team origin (no `tabs`: addresses come from CDP on the tabs it drives). `debugger` is the strong one (it is how the AI clicks and reads in any tab it drives); the
   listing says why. No content scripts, no `<all_urls>` host access, no remote code.
 - **MV3 service worker** lifetime: the worker sends an app-level ping every 20 s (WebSocket traffic keeps it alive in
   Chrome 116+) and an alarm reconnects it after Chrome stopped it.

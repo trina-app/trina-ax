@@ -15,26 +15,30 @@
   is used. A phone, a scheduled run, a guest and a restricted chat never use one.
 - **Rule, the link:** the extension talks to the team server only (HTTPS and one WebSocket), so it works for hosted
   teams too; no native host, no relay of our own.
-  - Pairing, signed in: the popup opens `<team>/connect-chrome?state=…` in that Chrome; the signed-in team page asks
-    Connect / Cancel and puts a one-time code in the address **fragment** of `/connect-chrome/done`, which the
-    extension reads from its own tab (state checked) and redeems. A phishing link only makes a code in the victim's own
-    tab, for the victim's own account.
-  - Pairing, code: Settings › Browser › Use a code (8 characters, 10 minutes, one use, 5 tries). A code someone else made
-    would link this Chrome to their account, so the popup names the account and team and asks once more.
-  - A link token (32 random bytes, sha256 only on the server) in `chrome.storage.local`. The WebSocket
-    `/api/chrome/ws` carries only browser calls and results; it is not a hub window (no chat, file or presence event;
-    the person does not look online; it does not hold back notifications).
+  - Pairing, signed in in that Chrome only: the popup opens `<team>/connect-chrome?challenge=<sha256(verifier)>`; the
+    signed-in team page asks Connect / Cancel and puts a one-time code in the address **fragment** of
+    `/connect-chrome/done`, which the extension reads from its own tab and redeems with its secret verifier (PKCE). A
+    phishing link only makes a code in the victim's own tab, and a copied code is useless without the verifier.
+  - No typed code: a code someone else made would link a Chrome to the wrong account either way (review).
+  - One Chrome per person and one team per extension; a new link replaces the earlier one.
+  - A link token (32 random bytes, sha256 only on the server) in `chrome.storage.local`, sent in the WebSocket's first
+    frame (never a header or the address). The WebSocket `/api/chrome/ws` carries only browser calls and results; it
+    is not a hub window (no chat, file or presence event; the person does not look online; it does not hold back
+    notifications); a result counts only from the connection its call went to.
   - Revoked by Disconnect (Settings or the popup), the person's sessions all ending (sign out everywhere, password
     change, disabled, deleted) and 30 days unused; the socket closes at once.
-- **Rule, who drives:** only the person who linked that Chrome, in their own turns. In a shared chat the browser's
+- **Rule, who drives:** only the person who linked that Chrome, in their own turns. A desktop-app turn uses it only
+  when the person turned on "Use my Chrome" (Settings › Browser). In a shared chat the browser's
   notice once per place and the change card where others wrote apply as for the desktop browser (#647, #662).
 - **Rule, tabs:** the AI uses its own tab group; it reads and acts only on tabs in that group (those it opened and tabs
   the person drags in).
 - **Rule, sites (Rule A):** the person's one Always per site holds (`user_allowed_sites`). The extension has no card:
   a call on a site nobody allowed comes back `site_needed`, the server shows the existing `browser_site` card in the
-  chat, keeps an Always, and sends the call again. Hard blocks the extension applies whatever was allowed: the team's
-  own address, browser and extension pages, `file:` and other non-web schemes, this computer, and office addresses
-  without the office card.
+  chat, keeps an Always, and sends the call again. Hard blocks the extension applies whatever the server says (this
+  browser has the person's real cookies, unlike the desktop pane's own session): every address of the team (requests
+  to it from a driven tab are cancelled too), account-security and password pages, browser and extension pages,
+  non-web schemes, this computer, and office addresses (also a page served from a private address) without the office
+  card. It runs a fixed list of CDP methods and never reads cookies or storage.
 - **Rule, safety:** the desktop browser's (no passwords or payment details typed, ask before buying, sending or
   deleting, the key guard, page content is data, addresses in scripts checked, a script's tab cannot send to sites not
   allowed). Visible: the extension badge, the group's title, Chrome's own debugging bar. Stop: the chat, the popup,
@@ -43,7 +47,9 @@
   that connects out to the team works everywhere a page of the team works.
 - **Why not reuse the person's team session in the extension:** a session token can do everything the person can; the
   link token can only receive browser calls and fetch file_upload tickets.
-- **Left out:** the Web Store listing itself (needs the owner's $5 developer account), a phone driving Chrome,
+- **Not taken from the review:** a confirm card for buying, sending or deleting on an allowed site (the desktop browser
+  has none; Rule A; the prompt rule and the refusal of payment fields stay).
+- **Left out:** an e-mail when a Chrome is linked, the Web Store listing itself (needs the owner's $5 developer account), a phone driving Chrome,
   scheduled runs, the long-poll fallback, a chat side panel, Firefox and Safari.
 - **Tests:** `tests/unit/chrome-*.test.ts`, `tests/security/chrome-link.test.ts`, `tests/e2e/chrome-extension.spec.ts`.
 - **Version impact:** minor (a new client and endpoints, a migration).
