@@ -2,6 +2,9 @@
 
 [한국어](INSTALL-WINDOWS.ko.md) · [Linux server](INSTALL-LINUX.en.md) · [IT checklist](for-admins.md)
 
+> **Not technical?** The short version is the docs page [Host it on a Windows PC](site/operate/windows-pc.md): what you
+> need, four steps and what to keep in mind. This page has every detail behind it.
+
 Your team server can run on a Windows PC that stays on. Windows runs a small Debian Linux inside it (WSL2, the
 Windows Subsystem for Linux), and the normal [Linux server](INSTALL-LINUX.en.md) runs in that Linux. One script sets
 it all up. It is the same server as on a Linux machine, with the same updates, backups and AI sandbox. The script
@@ -19,7 +22,8 @@ a team that has one.
 2. Sign in to Windows with the account that will keep the server, an administrator account.
 3. [Run the setup script](#run-the-setup-script). The first time, Windows restarts once and the script goes on by itself.
 4. Open the setup page on this PC, create the owner and the team ([First run](#first-run)).
-5. Give the server an https address so the team can reach it ([Reach it from other computers](#reach-it-from-other-computers-and-phones)).
+5. Give the server an https address so colleagues' computers and phones can reach it: the Trina relay (a claim code
+   from us) or a tunnel of your own ([Reach it from other computers](#reach-it-from-other-computers-and-phones)).
 
 ## Requirements
 
@@ -53,7 +57,8 @@ Windows 10 no longer gets regular updates from Microsoft, so prefer Windows 11.
    it would make and changes nothing:
    `powershell -ExecutionPolicy Bypass -File .\install-wsl-server.ps1 -WhatIf`
 
-3. Answer its questions. It takes 15 to 40 minutes on a new PC, most of it the server's packages. Leave the window open.
+3. Answer its questions (Enter means yes). On the test PC (2026-11-28) it took about 6 minutes plus the restart; a
+   slower PC or connection can take up to 40 minutes, most of it the server's packages. Leave the window open.
 
 What the script does, in order. Run it again at any time: finished steps are skipped.
 
@@ -104,9 +109,14 @@ Create the owner, the team name and the language; check the team's time zone. Th
 
 ## Reach it from other computers and phones
 
-The server answers only on this PC (`127.0.0.1`). Colleagues and the phone apps need an **https address**, as with
-any self-hosted server: a tunnel or reverse proxy that reaches `127.0.0.1:47820` and a certificate the phones trust.
-Set it up as in the Linux guide's [First run](INSTALL-LINUX.en.md#first-run) (step 3), from inside Linux:
+The server answers only on this PC (`127.0.0.1`). Colleagues and the phone apps need an **https address** (a web
+address that starts with `https://`, with a certificate phones trust), as with any self-hosted server. Two ways:
+
+- **The Trina relay** (the simplest): an address like `yourteam.trina.app`. The server connects out to the relay, so
+  nothing on the PC or the office router is opened. Ask for a claim code at contact@trina.app, then enter the team name
+  and the code in **Admin › System › Change connection** (connection type **Trina AX relay**).
+- **Your own address**: a tunnel or reverse proxy that reaches `127.0.0.1:47820`. Set it up as in the Linux guide's
+  [First run](INSTALL-LINUX.en.md#first-run) (step 3), and register its host name from inside Linux:
 
 ```powershell
 wsl -d TrinaAX --cd / -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh repair --public-host team.example.com"
