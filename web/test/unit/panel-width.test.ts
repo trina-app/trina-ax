@@ -1,7 +1,8 @@
 // The widths behind the panel dividers (lib/panelWidth.ts, components/PanelDivider.tsx): the right-hand panel beside the
-// chat and a thread beside its room share the logic, each with its own limits and its own remembered width.
+// chat, a thread beside its room and the list panel beside the rail share the logic, each with its own limits and its own
+// remembered width (the list panel's in px, on the left of its row).
 import { describe, expect, test } from 'bun:test'
-import { clampPanel, fitPanel, keyWidth, panelLimits, PANEL_BIG_STEP, PANEL_STEP, readPanelFraction, settlePanel, SIDE_PANEL, SIDE_PANEL_BESIDE_THREAD, THREAD_PANEL, writePanelFraction } from '../../src/lib/panelWidth'
+import { clampPanel, fitPanel, keyWidth, LIST_PANEL, panelLimits, PANEL_BIG_STEP, PANEL_STEP, readPanelFraction, settlePanel, SIDE_PANEL, SIDE_PANEL_BESIDE_THREAD, THREAD_PANEL, writePanelFraction } from '../../src/lib/panelWidth'
 
 const setStorage = (s: unknown) => { (globalThis as { localStorage?: unknown }).localStorage = s }
 const clearStorage = () => { delete (globalThis as { localStorage?: unknown }).localStorage }
@@ -138,6 +139,59 @@ describe('remembered width', () => {
       expect(readPanelFraction(THREAD_PANEL)).toBeNull()
       writePanelFraction(0.4, THREAD_PANEL)
       writePanelFraction(null, THREAD_PANEL)
+    } finally {
+      clearStorage()
+    }
+  })
+})
+
+describe('the list panel beside the rail (docs/decisions/20261127-list-panel-resize.md)', () => {
+  // the panel and <main> share the window less the rail (72 px)
+  test('240 to 400 px, and the main area keeps 740 px', () => {
+    // 1440 window: 1368 shared, 400 is the cap
+    expect(panelLimits(1440 - 72, LIST_PANEL)).toEqual({ min: 240, max: 400 })
+    // 1280 window: 1208 shared, 468 would leave 740, the cap still wins
+    expect(panelLimits(1280 - 72, LIST_PANEL)).toEqual({ min: 240, max: 400 })
+    // 1100 window: 1028 shared, 288 keeps 740 for the main area
+    expect(panelLimits(1100 - 72, LIST_PANEL)).toEqual({ min: 240, max: 288 })
+    // 1052 window: nothing to drag
+    expect(panelLimits(1052 - 72, LIST_PANEL)).toEqual({ min: 240, max: 240 })
+    expect(clampPanel(1000, 1368, LIST_PANEL)).toBe(400)
+    expect(clampPanel(100, 1368, LIST_PANEL)).toBe(240)
+  })
+  test('remembered in px: the same width on any window that has room, clamped where it has not, back when it has', () => {
+    expect(settlePanel(352, 1368, LIST_PANEL, null)).toEqual({ width: 352, fraction: 352 })
+    expect(settlePanel(900, 1368, LIST_PANEL, null)).toEqual({ width: 400, fraction: 400 })
+    expect(fitPanel(352, 1368, LIST_PANEL)).toBe(352)
+    expect(fitPanel(352, 1208, LIST_PANEL)).toBe(352)
+    expect(fitPanel(352, 1028, LIST_PANEL)).toBe(288)
+    expect(fitPanel(352, 980, LIST_PANEL)).toBe(240)
+    // a 1052 window has no room to choose: what was set before stays remembered
+    expect(settlePanel(300, 980, LIST_PANEL, 352)).toEqual({ width: 240, fraction: 352 })
+    expect(settlePanel(null, 1368, LIST_PANEL, 352)).toEqual({ width: null, fraction: null })
+  })
+  test('the panel is on the divider\'s left: Right widens, Left narrows', () => {
+    const limits = { min: 240, max: 400 }
+    expect(keyWidth('ArrowRight', false, 288, limits, 'start')).toBe(288 + PANEL_STEP)
+    expect(keyWidth('ArrowLeft', false, 288, limits, 'start')).toBe(288 - PANEL_STEP)
+    expect(keyWidth('ArrowRight', true, 288, limits, 'start')).toBe(288 + PANEL_BIG_STEP)
+    expect(keyWidth('ArrowLeft', true, 288, limits, 'start')).toBe(288 - PANEL_BIG_STEP)
+    expect(keyWidth('Home', false, 288, limits, 'start')).toBe(240)
+    expect(keyWidth('End', false, 288, limits, 'start')).toBe(400)
+  })
+  test('kept as whole px under its own key; a width under the minimum or not a number is dropped', () => {
+    const store = memoryStorage()
+    try {
+      expect(LIST_PANEL.key).toBe('mycel.listPanel.width')
+      writePanelFraction(331.6, LIST_PANEL)
+      expect(store.get(LIST_PANEL.key)).toBe('332')
+      expect(readPanelFraction(LIST_PANEL)).toBe(332)
+      store.set(LIST_PANEL.key, '0.4')
+      expect(readPanelFraction(LIST_PANEL)).toBeNull()
+      store.set(LIST_PANEL.key, 'wide')
+      expect(readPanelFraction(LIST_PANEL)).toBeNull()
+      writePanelFraction(null, LIST_PANEL)
+      expect(store.has(LIST_PANEL.key)).toBe(false)
     } finally {
       clearStorage()
     }

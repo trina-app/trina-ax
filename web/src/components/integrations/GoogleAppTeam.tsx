@@ -24,6 +24,7 @@ import { AccessPicker } from './IntegrationDialog'
 import { SignInSteps } from './GoogleAppConnector'
 import { DialogSignInActions } from './GoogleAccount'
 import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
+import { googleStartBody } from '../../lib/driveSignIn'
 
 const NOBODY: IntegrationAccess = { everyone: false, groups: [], users: [] }
 const accountLine = (a: GoogleAppTeam['account']) => a.email ?? a.name ?? ''
@@ -94,7 +95,7 @@ export function GoogleAppTeamDialog({ app, team, step: first, isNew, onStatus, o
   const [access, setAccess] = useState<IntegrationAccess>(team?.access ?? NOBODY)
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null)
   const ops = useMemo<SignInOps<GoogleAppAdminStatus>>(() => ({
-    authorize: () => api.call(API.authorizeGoogleAppTeam, { params: { app }, body: {} }),
+    authorize: () => api.call(API.authorizeGoogleAppTeam, { params: { app }, body: googleStartBody() }),
     poll: (id) => api.call(API.googleAppTeamFlow, { params: { app, id } }),
     // a new one only when there is none yet: never replaces what another admin connected meanwhile
     complete: (id) => api.call(API.completeGoogleAppTeamFlow, { params: { app, id }, body: isNew ? { create: true } : {} }),

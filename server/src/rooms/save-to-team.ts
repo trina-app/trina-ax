@@ -20,9 +20,10 @@
 // answers fast and works with the AI off.
 import fs from 'node:fs'
 import path from 'node:path'
-import { SMALL_UPLOAD_MAX, type RoomSavePlan, type RoomSaveResult, type RoomSavedFile } from '@mycel/shared/api'
+import { SMALL_UPLOAD_MAX, type Locale, type RoomSavePlan, type RoomSaveResult, type RoomSavedFile } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { HttpError, fail } from '../http/errors'
+import { routeMsg } from '../http/route-messages'
 import { isGuest } from '../auth/guests'
 import { authorize } from '../policy/authorize'
 import { atLeast, type Principal, type RuleSet } from '../policy/access'
@@ -83,14 +84,14 @@ function contextWords(ctx: AppContext, f: Found): string {
 
 // ---------------- the folder ----------------
 /** A folder the person can see and write, by its path (actual names on disk); else the policy's errors. */
-function writableFolder(files: TeamFiles, user: Principal, rules: RuleSet, raw: string): string {
+function writableFolder(files: TeamFiles, user: Principal, rules: RuleSet, raw: string, locale: Locale): string {
   const p = raw.normalize('NFC').replace(/^\/+|\/+$/g, '')
-  if (!p) throw new HttpError('validation', 'Pick a folder.', { fields: { 'body.folder': 'empty' } })
+  if (!p) throw new HttpError('validation', routeMsg('pickFolder', locale), { fields: { 'body.folder': 'empty' } })
   const segs = p.split('/')
   if (segs.some((s, i) => badSegment(s) !== null || hiddenEntry(s, i))) fail('not_found')
   const a = authorize(files.fx, rules, user, p, 'list')
   if (!a.st?.isDirectory()) throw new ToolError(`'${a.rel}' is a file`, 'not_folder')
-  if (inSkills(a.rel) || /^users\/[^/]+\/skills(\/|$)/i.test(a.rel)) throw new HttpError('validation', 'Files from a conversation are not saved in a skills folder.', { params: { reason: 'skills_folder' } })
+  if (inSkills(a.rel) || /^users\/[^/]+\/skills(\/|$)/i.test(a.rel)) throw new HttpError('validation', routeMsg('saveSkillsFolder', locale), { params: { reason: 'skills_folder' } })
   authorize(files.fx, rules, user, a.rel, 'write')
   return a.rel
 }
@@ -178,7 +179,7 @@ export async function savedFiles(ctx: AppContext, userId: string, roomId: string
 }
 
 /** POST /api/rooms/:id/save-plan: the sheet's files, the folder it pre-selects and, for `folder`, its audience. */
-export async function savePlan(ctx: AppContext, userId: string, roomId: string, fileIds: readonly string[], folder?: string): Promise<RoomSavePlan> {
+export async function savePlan(ctx: AppContext, userId: string, roomId: string, fileIds: readonly string[], folder?: string, locale: Locale = 'en'): Promise<RoomSavePlan> {
   noGuests(ctx, userId)
   // every plan counts (it reads files and may hash), with or without a suggestion: the Move picker's limit
   admitSuggest(userId)
@@ -205,7 +206,7 @@ export async function savePlan(ctx: AppContext, userId: string, roomId: string, 
     out.files.push({ id: f.file.id, name: f.file.name, size: f.file.size, ...(savedPath ? { savedPath } : {}), ...(sensitive ? { sensitive } : {}), ...(sameAs ? { sameAs } : {}) })
   }
   if (folder !== undefined) {
-    const at = writableFolder(files, user, rules, folder)
+    const at = writableFolder(files, user, rules, folder, locale)
     out.folder = { path: at, outside: outsideRoom(ctx, rules, roomId, at) }
     return out
   }
@@ -225,7 +226,8 @@ export async function savePlan(ctx: AppContext, userId: string, roomId: string, 
 }
 
 /** POST /api/rooms/:id/save-to-team: copy the files into `folder`, each next to what is there, never over it. */
-export async function saveToTeam(ctx: AppContext, userId: string, roomId: string, fileIds: readonly string[], folder: string, o: { askWiden?: boolean; confirm?: boolean } = {}): Promise<RoomSaveResult> {
+export async function saveToTeam(ctx: AppContext, userId: string, roomId: string, fileIds: readonly string[], folder: string, o: { askWiden?: boolean; confirm?: boolean; locale?: Locale } = {}): Promise<RoomSaveResult> {
+  const locale = o.locale ?? 'en'
   noGuests(ctx, userId)
   const files = componentC(ctx).files
   const rooms = roomFilesOf(ctx)
@@ -233,12 +235,12 @@ export async function saveToTeam(ctx: AppContext, userId: string, roomId: string
   // every file and the place checked before anything is copied: one that cannot go refuses the whole save
   const found = ids.map((id) => lookup(ctx, userId, roomId, id))
   const user0 = files.principal(userId)
-  const at = writableFolder(files, user0, files.rules(), folder)
+  const at = writableFolder(files, user0, files.rules(), folder, locale)
   for (const f of found) {
-    if (ctx.files.quarantine.hasHash(f.file.sha256)) throw new HttpError('unavailable', 'This file is held by the team\'s safety check.', { params: { reason: 'quarantined' } })
-    if (f.file.size > SMALL_UPLOAD_MAX) throw new HttpError('payload_too_large', 'Larger than 50 MB: download it and upload it on the Files screen.', { params: { reason: 'too_large' } })
+    if (ctx.files.quarantine.hasHash(f.file.sha256)) throw new HttpError('unavailable', routeMsg('saveHeld', locale), { params: { reason: 'quarantined' } })
+    if (f.file.size > SMALL_UPLOAD_MAX) throw new HttpError('payload_too_large', routeMsg('saveTooLarge', locale), { params: { reason: 'too_large' } })
     const target = `${at}/${f.file.name}`
-    if (badSegment(f.file.name) !== null || instructionLike(target)) throw new HttpError('validation', 'A file with this name is not saved from a conversation.', { params: { reason: 'instruction_file' } })
+    if (badSegment(f.file.name) !== null || instructionLike(target)) throw new HttpError('validation', routeMsg('saveBadName', locale), { params: { reason: 'instruction_file' } })
   }
   // more people than the conversation's can see the folder (QA TC-ask2-6: a private room's file saved to Company-wide,
   // 17 people, no question): with askWiden, the person's yes first (409 audience_widened with how many), as a move or a

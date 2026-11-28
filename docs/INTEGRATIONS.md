@@ -594,7 +594,9 @@ idle minutes; a 404 for it starts a new one.
   computer (docs/decisions/20261121-connect-browser-handoff.md, the pattern of `google-drive/app-return.ts`): the code
   is exchanged, the tokens stay sealed in the flow (`exchanging`, reason `held`, read as `pending` by its poll, 5
   minutes), and the page gives a one-time code (32 random bytes, only its hash sealed) only in the fragment of the
-  desktop app's link (`trina-ax://open?url=<team>/#code=…`, opened by itself and by "Back to the app"), names whose
+  desktop app's link (`trina-ax://open?url=<team>/#code=…`, opened by itself and by "Back to the app"; since 2026-11-27
+  the app's own address `http://127.0.0.1:<port>/sign-in-code?code=…` instead when the app said its port, so a browser
+  that opens no apps finishes too: docs/decisions/20261127-desktop-sign-in-code-loopback.md), names whose
   account it joins and says not to send it on. The app posts it with its own session to the one claim address
   (`POST /api/integrations/google-drive/claim`, which tries Drive, the Google apps, then connections); only the session
   that started the flow redeems it, once, then the same checks and store as a direct return. A used, late, unknown or

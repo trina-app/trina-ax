@@ -6,7 +6,7 @@
 // - 'pair' (PAIR_MIN or more): the thread and the side chat share the row half and half over the room, which waits
 //   under them as it does under a sheet.
 // - 'one' (narrower: a phone, a small window with a file preview): one panel at a time, the side chat over the thread.
-// The conversation list folds away first while both are open (components/rail/railPanel.ts PANEL_ALWAYS_BOTH_PX), so
+// The conversation list folds away first while both are open (components/rail/railPanel.ts panelAlwaysBothPx), so
 // three columns fit from a window of about 1132 px.
 import { useLayoutEffect, useState, type RefObject } from 'react'
 import { THREAD_PANEL } from './panelWidth'

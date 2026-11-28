@@ -1678,7 +1678,7 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
           {project?.kind === 'open' && <span className="sr-only">({t('files.isProject', { name: project.project.name })})</span>}
           {/* phones: the name and its badges on line 1, date · size on line 2 */}
           <TwoLines phone={pressSelect} meta={meta}>
-          <span className="min-w-0 truncate" title={e.name}>
+          <span className="min-w-0 truncate" title={words.name(e.path, e.name)}>
             {words.name(e.path, e.name)}
           </span>
           {/* a folder the person can only pass through: a visible badge (a hover title alone does not reach phones);

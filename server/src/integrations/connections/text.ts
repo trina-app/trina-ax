@@ -200,6 +200,8 @@ export const TEXT = {
   callbackOtherTitle: t('이 브라우저에서는 마칠 수 없어요', 'This browser can’t finish it', 'Browser ini tidak bisa menyelesaikannya', "このブラウザーでは完了できません", "Este navegador no puede terminarlo", "这个浏览器无法完成"),
   callbackOpenConnectors: t('커넥터 열기', 'Open Connectors', 'Buka Konektor', "コネクタを開く", "Abrir conectores", "打开连接器"),
   callbackBackToApp: t('앱으로 돌아가기', 'Back to the app', 'Kembali ke aplikasi', "アプリに戻る", "Volver a la aplicación", "返回应用"),
+  // the app link beside the app's address on 127.0.0.1 (return-page.ts heldPage)
+  callbackOpenApp: t('앱이 열리지 않으면 여기를 누르세요', 'If the app does not open, press here', 'Jika aplikasi tidak terbuka, tekan di sini', "アプリが開かない場合はここを押してください", "Si la aplicación no se abre, pulse aquí", "如果应用没有打开，请点这里"),
   // the return came to a browser signed in to the team as someone else than who started: refused (service.ts callback)
   callbackOtherAccount: t('이 브라우저는 다른 사람 계정으로 로그인돼 있어요. 여기서 로그아웃하거나, 앱으로 돌아가서 연결을 다시 눌러 주세요.', 'This browser is signed in as someone else. Sign out here, or go back to the app and press Connect again.', 'Browser ini login sebagai orang lain. Keluar di sini, atau kembali ke aplikasi dan tekan Hubungkan lagi.', "このブラウザーは別の人のアカウントでログインしています。ここでログアウトするか、アプリに戻ってもう一度「接続」を押してください。", "Este navegador tiene la sesión iniciada con otra persona. Cierre la sesión aquí, o vuelva a la aplicación y pulse Conectar de nuevo.", "这个浏览器登录的是别人的账号。请在这里退出登录，或者回到应用再按一次“连接”。"),
   // the same sign-in's return opened again while it waits for the app: never a second code

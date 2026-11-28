@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { DriveConnection as Connection, DriveFlow } from '@mycel/shared/api'
 import { api, API, ApiError } from '../../lib/api'
 import { mobileApp, openExternal } from '../../lib/mobile'
-import { desktopOpenUrl, driveSignInUrl, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
+import { desktopOpenUrl, driveSignInUrl, googleStartBody, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
 import { useT } from '../../i18n'
 import { SIGN_IN_WAIT_MINUTES, useWaitLimit } from '../../lib/signInWait'
 import { peekCached, rememberCached } from '../../store/listCache'
@@ -128,7 +128,7 @@ export function useSignInFlow<C>(ops: SignInOps<C>, onConnected: (c: C) => void)
 export type SignInFlowState = ReturnType<typeof useSignInFlow>
 
 const DRIVE_OPS: SignInOps<Connection> = {
-  authorize: () => api.call(API.authorizeDrive, { body: {} }),
+  authorize: () => api.call(API.authorizeDrive, { body: googleStartBody() }),
   poll: (id) => api.call(API.driveFlow, { params: { id } }),
   complete: (id) => api.call(API.completeDriveFlow, { params: { id }, body: {} }),
   cancel: (id) => api.call(API.cancelDriveFlow, { params: { id } }),

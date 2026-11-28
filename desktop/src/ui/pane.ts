@@ -43,6 +43,8 @@ function activeTab() {
 }
 
 function render() {
+  // the pane's page title in the app's language (pane.html says "Browser" only until the first render)
+  document.title = tr('pane.title')
   document.body.classList.toggle('driving', state.driving)
   const hadFocus = document.activeElement?.id
   const tab = activeTab()

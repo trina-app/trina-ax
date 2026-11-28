@@ -176,11 +176,11 @@ function skillFiles(ctx: AppContext, user: Principal, from: string, L: Locale): 
   const walk = (rel: string) => {
     const r = authorize(ctx.files.fx, ctx.files.rules(), user, rel, 'read')
     const st = fs.lstatSync(r.abs)
-    if (st.isSymbolicLink()) throw new HttpError('conflict', 'a link in the skill folder')
+    if (st.isSymbolicLink()) throw new HttpError('conflict', st_('moveLink', L), { params: { reason: 'skill_link' } })
     if (st.isDirectory()) { for (const n of fs.readdirSync(r.abs).sort()) walk(`${r.rel}/${n}`); return }
     if (!st.isFile()) return
     if (st.nlink > 1) throw new HttpError('conflict', st_('moveHardLink', L, { path: r.rel }), { params: { reason: 'skill_hard_link' } })
-    if (out.length >= MOVE_MAX_FILES || (total += st.size) > MOVE_MAX_BYTES) throw new HttpError('payload_too_large', 'too many files', { params: { reason: 'skill_too_large' } })
+    if (out.length >= MOVE_MAX_FILES || (total += st.size) > MOVE_MAX_BYTES) throw new HttpError('payload_too_large', st_('moveTooLarge', L), { params: { reason: 'skill_too_large' } })
     const bytes = fs.readFileSync(path.join(root, ...r.rel.split('/')))
     out.push({ path: r.rel, size: bytes.length, sha: crypto.createHash('sha256').update(bytes).digest('hex'), bytes })
   }

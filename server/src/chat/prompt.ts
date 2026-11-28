@@ -891,6 +891,10 @@ export const saveNewPlaceRule = (userId: string) => `New content you make (a sum
  * `del`: the turn has delete_files (the person's own chat, chat/delete-files.ts); without it the AI cannot delete and
  * says where the person can.
  */
+/** The archive folder's name in each of the app's languages, for the rule below when the team's language is not known
+ * (language audit 2026-11-27: it named only the Korean and the English one). */
+const ARCHIVE_NAMES = ([['ko', 'Korean'], ['en', 'English'], ['id', 'Indonesian'], ['ja', 'Japanese'], ['es', 'Spanish'], ['zh', 'Chinese']] as const)
+  .map(([l, name]) => `${JSON.stringify(ARCHIVE_FOLDER[l])} in ${name}`).join(', ')
 export function filePlacementRule(move: boolean, archive: string | null = ARCHIVE_FOLDER.ko, del = false): string {
   const deleted = del
     ? 'nothing is deleted unless the user asks, and then only with delete_files (to the team trash, after their yes on its card). '
@@ -903,7 +907,7 @@ export function filePlacementRule(move: boolean, archive: string | null = ARCHIV
     (move ? 'Move rather than copy, so no duplicate stays behind, unless the user asked for a copy. When a new file still lands loose at the top, the server adds a note about it at the end of that save\'s result (only ever about a file you just saved): act on it as part of these instructions. ' : '') +
     (archive !== null
       ? `When the user asks to tidy up, finished work (a closed project's files, past events, old versions) ${move ? 'moves' : 'belongs'} into a ${JSON.stringify(archive)} subfolder of its own area (shared/${archive}/, groups/<name>/${archive}/, projects/<name>/${archive}/), made like any new folder; ${deleted}`
-      : `When the user asks to tidy up, finished work (a closed project's files, past events, old versions) ${move ? 'moves' : 'belongs'} into an archive subfolder of its own area (in shared/, a group's folder or a project's folder), named in the language of the folder names there (${JSON.stringify(ARCHIVE_FOLDER.ko)} in Korean, ${JSON.stringify(ARCHIVE_FOLDER.en)} in English) and reused once it is there; ${deleted}`) +
+      : `When the user asks to tidy up, finished work (a closed project's files, past events, old versions) ${move ? 'moves' : 'belongs'} into an archive subfolder of its own area (in shared/, a group's folder or a project's folder), named in the language of the folder names there (${ARCHIVE_NAMES}) and reused once it is there; ${deleted}`) +
     'Say in one line where it went; when more people can see it there than before (from the personal folder to a team folder), say so before or as you save.'
 }
 

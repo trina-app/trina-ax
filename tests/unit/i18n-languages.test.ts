@@ -149,6 +149,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/admin/users.ts': { why: 'archived-accounts folder name (ko next to en/id/ja/es)' },
   'server/src/admin/handover.ts': { why: '팀장 넘기기 refusals and the role-refresh lines (ko next to en/id/ja/es)' },
   'server/src/auth/messages.ts': { why: 'auth messages (ko next to en/id/ja/es)' },
+  'server/src/http/route-messages.ts': { why: 'API route refusals (ko next to en/id/ja/es/zh)' },
   'server/src/devenv/messages.ts': { why: 'dev environment refusals in the team settings (ko next to en/id/ja/es)' },
   'server/src/chat/i18n.ts': { why: 'chat texts (ko next to en/id/ja/es)' },
   'server/src/chat/room-copy-words.ts': { why: 'patterns of the AI\'s "only you can open it" sentences left out of an answer\'s room copy, in each language (not screen text)', also: /^\s*\/.*\/i?,$/ },
