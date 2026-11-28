@@ -63,7 +63,7 @@ import { AttachCopyError, copyTeamAttachments, discardCopies } from '../chat/att
 import { editState, restoreTo, saveText, tellChatOnAiVersions } from '../chat/chat-file-edit'
 import { streamFile } from '../team-files/download'
 import { SAFE_OPS_TEXT } from '../safe-ops/strings'
-import { Audiences, accountSeesProject, chatFor, memberWhileTrashed, chatPeople, chatView, isSharedRow, messageFor, messageView, projectCanShare, projectShare, rulesInPlace, severalAuthors, sharesNewChats, type ChatAccess, type ChatPeople } from '../chat/shared'
+import { Audiences, accountSeesProject, chatFor, memberWhileTrashed, chatPeople, chatView, isSharedRow, liveChat, messageFor, messageView, projectCanShare, projectShare, rulesInPlace, severalAuthors, sharesNewChats, type ChatAccess, type ChatPeople } from '../chat/shared'
 import { AnswerSight, type ChatHit } from '../chat/shared-answers'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { deleteProjectForGood } from '../chat/project-delete'
@@ -392,7 +392,7 @@ export const chatsRoutes: RouteModule = {
       // the chats my list's continuations came from that no page has brought yet (docs/decisions/20261127-fork-in-history.md):
       // my history's own rule below (historyWhere and visible()), only these ids, one answer, pins not first
       const byIds = query.ids
-      if (byIds && (query.q || query.projectId || query.folderId || query.sideRoomId || query.trash || query.cursor)) fail('validation', undefined, { fields: { 'query.ids': 'alone' } })
+      if (byIds && (query.q || query.projectId || query.folderId || query.sideRoomId || query.trash || query.cursor || query.limit !== undefined)) fail('validation', undefined, { fields: { 'query.ids': 'alone' } })
       // a room's AI session (rooms/ai.ts) and the server's own draft chats (the company profile, a team skill) are not
       // the person's conversations: never listed or found by a search (chat/internal-chats.ts)
       const where: string[] = ['room_id IS NULL', notInternalChat(ctx.db)]
@@ -617,11 +617,11 @@ export const chatsRoutes: RouteModule = {
       // a chat shared with me that I hid from my list: opening it brings it back ("Hide from my list")
       if (a.kind === 'people' && !a.creator && unhideOnOpen(ctx, auth.user.id, chat.id)) {
         const back = chatOut(rt, auth.user.id, chat)
-        rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat: back } })
+        rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat: liveChat(auth.user.id, chat, back) } })
       }
       // a chat shared with people or a project's shared chat: my unread messages there are read (chat/message-notices.ts);
       // my windows hear it
-      if (a.shared && readChatNotices(ctx, auth.user.id, chat.id)) rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat: chatOut(rt, auth.user.id, chat) } })
+      if (a.shared && readChatNotices(ctx, auth.user.id, chat.id)) rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat: liveChat(auth.user.id, chat, chatOut(rt, auth.user.id, chat)) } })
       if (a.shared && !a.creator) return chatOut(rt, auth.user.id, chat)
       const was = rt.store.unseen(chat)
       rt.store.markSeen(chat.id)
@@ -729,8 +729,9 @@ export const chatsRoutes: RouteModule = {
     // chat's other people never learn of my pin). Not the server's own drafts: they are in no list (chat/internal-chats.ts)
     const notDraft = (a: ChatAccess) => { if (isInternalChat(ctx.db, a.row.id)) fail('not_found') }
     const pinned = (me: string, id: string) => {
-      const chat = chatOut(rt, me, rt.store.chatRow(id)!)
-      rt.hub.publish(me, { type: 'chat.updated', data: { chatId: id, change: 'updated', chat } })
+      const row = rt.store.chatRow(id)!
+      const chat = chatOut(rt, me, row)
+      rt.hub.publish(me, { type: 'chat.updated', data: { chatId: id, change: 'updated', chat: liveChat(me, row, chat) } })
       return chat
     }
     kit.handle(API.pinChat, ({ c, params, auth }) => {
@@ -831,7 +832,7 @@ export const chatsRoutes: RouteModule = {
       hideChat(ctx, auth.user.id, a, hide, c.get('locale'))
       const out = chatOut(rt, auth.user.id, rt.store.chatRow(a.row.id)!)
       // my other windows: hidden, it leaves their lists (by its id alone); back, it returns
-      rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: a.row.id, change: hide ? 'deleted' : 'updated', chat: hide ? null : out } })
+      rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: a.row.id, change: hide ? 'deleted' : 'updated', chat: hide ? null : liveChat(auth.user.id, a.row, out) } })
       return out
     }
     // the delete-account dialog's count (admins): the chats this person shared with people that someone else sees
@@ -848,7 +849,7 @@ export const chatsRoutes: RouteModule = {
       if (!a.shared) fail('validation', undefined, { params: { reason: 'chat_mute_people_only' } })
       setMuted(ctx, auth.user.id, a.row.id, mute)
       const out = chatOut(rt, auth.user.id, rt.store.chatRow(a.row.id)!)
-      rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: a.row.id, change: 'updated', chat: out } })
+      rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: a.row.id, change: 'updated', chat: liveChat(auth.user.id, a.row, out) } })
       return out
     }
     kit.handle(API.muteChat, ({ c, params, auth }) => muted(auth, chatOf(rt, c, auth, params.id, 'view'), true))
