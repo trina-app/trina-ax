@@ -66,7 +66,10 @@ describe('install-wsl-server.ps1', () => {
       expect(`${c}: ${at.length > 0}`).toBe(`${c}: true`)
       for (const i of at) {
         const before = lines.slice(Math.max(0, i - 12), i + 1).join('\n')
-        expect(`${c} (line ${i + 1}): ${/Test-Change|function Initialize-DataDir|Read-YesNo -Question 'WSL must restart/.test(before)}`).toBe(`${c} (line ${i + 1}): true`)
+        // (or inside Initialize-DataDir, which starts with its own Test-Change)
+        const fnAt = lines.slice(0, i + 1).map((l) => /^function /.test(l)).lastIndexOf(true)
+        const inDataDir = fnAt >= 0 && lines[fnAt]!.startsWith('function Initialize-DataDir') && !lines.slice(fnAt, i).some((l) => l === '}')
+        expect(`${c} (line ${i + 1}): ${inDataDir || /Test-Change|Read-YesNo -Question 'WSL must restart/.test(before)}`).toBe(`${c} (line ${i + 1}): true`)
       }
     }
   })
@@ -101,7 +104,7 @@ describe('install-wsl-server.ps1', () => {
     const list = JSON.parse(read('scripts/system/packages.json')) as { groups: Record<string, { packages?: Record<string, unknown> }> }
     for (const p of ['ca-certificates', 'curl', 'python3']) expect(Object.values(list.groups).some((g) => p in (g.packages ?? {}))).toBe(true)
   })
-  test('the helper\'s bash is valid, and turns systemd on in wsl.conf without losing what is there', () => {
+  test('the helper\'s bash is valid; wsl.conf: systemd on, interop and drive mounts off, root, nothing else lost', () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'wsl-helper-'))
     const helper = path.join(d, 'wsl-setup.sh')
     fs.writeFileSync(helper, between(PS1, "$HelperScript = @'\n", "\n'@") + '\n')
@@ -109,20 +112,63 @@ describe('install-wsl-server.ps1', () => {
     const conf = path.join(d, 'wsl.conf')
     const sd = (text: string | null) => {
       if (text === null) fs.rmSync(conf, { force: true }); else fs.writeFileSync(conf, text)
-      const r = bash(`bash '${helper}' systemd`, { TRINA_WSL_CONF: conf })
+      const r = bash(`bash '${helper}' wslconf`, { TRINA_WSL_CONF: conf })
       return { out: r.out.trim(), conf: fs.existsSync(conf) ? fs.readFileSync(conf, 'utf8') : null }
     }
-    // (this machine's PID 1 is not systemd, so the helper writes the file each time)
-    expect(sd(null)).toEqual({ out: 'set', conf: '[boot]\nsystemd=true\n' })
-    expect(sd('[automount]\nenabled=true\n')).toEqual({ out: 'set', conf: '[automount]\nenabled=true\n\n[boot]\nsystemd=true\n' })
-    expect(sd('[boot]\nsystemd=false\ncommand=echo hi\n[user]\ndefault=me\n')).toEqual({ out: 'set', conf: '[boot]\nsystemd=true\ncommand=echo hi\n[user]\ndefault=me\n' })
+    const ours = '[boot]\nsystemd=true\n\n[interop]\nappendWindowsPath=false\nenabled=false\n\n[automount]\nmountFsTab=false\nenabled=false\n\n[user]\ndefault=root\n'
+    expect(sd(null)).toEqual({ out: 'set', conf: ours })
+    // the image's own file (Debian: [boot] systemd=true) and a person's lines stay; the keys we set win
+    expect(sd('[boot]\nsystemd=false\ncommand=echo hi\n[automount]\nenabled = true\nroot=/mnt/\n[network]\nhostname=office\n')).toEqual({ out: 'set', conf:
+      '[boot]\nsystemd=true\ncommand=echo hi\n[automount]\nmountFsTab=false\nenabled=false\nroot=/mnt/\n[network]\nhostname=office\n\n[interop]\nappendWindowsPath=false\nenabled=false\n\n[user]\ndefault=root\n' })
     // the earlier file is kept beside it
-    expect(fs.readFileSync(`${conf}.trina-backup`, 'utf8')).toBe('[boot]\nsystemd=false\ncommand=echo hi\n[user]\ndefault=me\n')
-    // already on: unchanged, no new copy (the distro only has to start again)
-    expect(sd('[boot]\nsystemd=true\n')).toEqual({ out: 'set', conf: '[boot]\nsystemd=true\n' })
+    expect(fs.readFileSync(`${conf}.trina-backup`, 'utf8')).toBe('[boot]\nsystemd=false\ncommand=echo hi\n[automount]\nenabled = true\nroot=/mnt/\n[network]\nhostname=office\n')
+    // already as wanted: unchanged, no new copy; "set" here only because this machine's PID 1 is not systemd
+    const now = fs.readFileSync(conf, 'utf8')
+    expect(sd(now)).toEqual({ out: 'set', conf: now })
     expect(fs.readFileSync(`${conf}.trina-backup`, 'utf8')).toContain('systemd=false')
+    // "on" needs all of it in effect: systemd as PID 1, no WSLInterop binfmt entry, no /mnt/<drive> mount
+    const helperText = fs.readFileSync(helper, 'utf8')
+    for (const s of ['/proc/1/comm', '/proc/sys/fs/binfmt_misc/WSLInterop', '/proc/mounts']) expect(helperText).toContain(s)
     expect(bash(`bash '${helper}' nonsense`).code).toBe(2)
     fs.rmSync(d, { recursive: true, force: true })
+  })
+  test('nothing the setup or the keep-alive needs reads the C: drive or runs Windows programs from Linux', () => {
+    const helper = between(PS1, "$HelperScript = @'\n", "\n'@")
+    expect(PS1).not.toContain('wslpath')
+    expect(helper).not.toMatch(/\/mnt\/[a-z]\/|\.exe\b/)
+    // the helper and a kit from this PC go in through wsl.exe's standard input
+    expect(PS1).toContain("$HelperLinux = '/root/.trina-wsl-setup.sh'")
+    expect(PS1).toMatch(/function Copy-ToDistro[\s\S]*RedirectStandardInput = \$true/)
+    for (const f of ['docs/INSTALL-WINDOWS.md', 'docs/INSTALL-WINDOWS.ko.md']) expect(`${f}: ${/\bcp\b[^\n]*\/mnt\//.test(read(f))}`).toBe(`${f}: false`)
+  })
+  test('a re-run after a half install repairs (installed = the server answers); the kit stays once the installer ran', () => {
+    const helper = between(PS1, "$HelperScript = @'\n", "\n'@")
+    expect(helper).toContain('if healthy; then echo "ok $v"; else echo "broken $v"; fi')
+    expect(helper).toContain('./install-linux.sh repair --from .')
+    expect(helper.indexOf('RAN=1')).toBeLessThan(helper.indexOf('./install-linux.sh install --from .'))
+    expect(helper.indexOf('RAN=1')).toBeGreaterThan(helper.indexOf('./install-linux.sh check --from .'))
+    expect(helper).toContain('if [ "$OK" = 1 ] || [ "$RAN" = 1 ]; then ln -sfn')
+    expect(PS1).toContain("$repair = ($state -match '^broken ') -and ((Invoke-Helper haskit).Out -eq 'yes')")
+  })
+  test('-KitPath: the same checks as a download, no unsigned kits; the setup code never on a command line', () => {
+    const helper = between(PS1, "$HelperScript = @'\n", "\n'@")
+    // only the download is skipped: the checksum, verify-bundle and the installer's check run for both
+    const local = helper.indexOf('if [ "$SRC" = local ]; then'), check = helper.indexOf("python3 - \"$KIT\" <<'CHECK'")
+    expect(local).toBeGreaterThan(0)
+    expect(helper.indexOf('if [ "$SRC" != local ]; then\n      curl -fLO')).toBeLessThan(check)
+    expect(helper.slice(local, check)).not.toMatch(/exit 0|verify-bundle|install-linux/)
+    expect(PS1).toContain('-not ($KitPath -and $SumsPath)')
+    expect(PS1).not.toContain('setup?token')
+    expect(PS1).toContain('Set-Clipboard -Value $code')
+    // a question that stops other distros answers No when no one can be asked; the restart window waits
+    expect(PS1).toContain("-Answer 'Ask' -Default $true -Unattended $false) {\n            $null = Invoke-Wsl @('--shutdown')")
+    expect(PS1).toMatch(/function Exit-Setup[\s\S]*?Wait-Resumed\n {4}exit \$Code/)
+    expect(PS1.trimEnd().endsWith('Wait-Resumed')).toBe(true)
+  })
+  test('ProgramData\\TrinaAX: a folder someone else made is moved aside; owner Administrators; links removed, files reset', () => {
+    const fn = between(PS1, 'function Initialize-DataDir {', '\n}\n')
+    for (const s of ['GetOwner(', '-ne $SidAdmins', '-ne $SidSystem', 'Rename-Item', '$acl.SetOwner($SidAdmins)', 'SetAccessRuleProtection($true, $false)', 'Test-ReparsePoint $e', '[IO.File]::Delete', '$fa.SetOwner($SidAdmins)']) expect(`${s}: ${fn.includes(s)}`).toBe(`${s}: true`)
+    expect(fn).not.toMatch(/Remove-Item[^\n]*-Recurse/)
   })
   test('keep-alive: a sign-in task of this user, never stopped by a time limit, that attaches again after WSL stops', () => {
     expect(PS1).toContain('New-ScheduledTaskTrigger -AtLogOn -User $userName')

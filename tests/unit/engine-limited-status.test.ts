@@ -8,6 +8,7 @@ import { EngineStatus } from '@mycel/shared/api'
 import { checkEngine, type EngineEnv } from '../../server/src/admin/engines'
 import { onlyWaitingForLimit } from '../../server/src/credentials/resolve'
 import { checkEngines } from '../../server/src/system/engines'
+import type { Unusable } from '../../server/src/credentials/store'
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'engine-limited-'))
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }))
@@ -33,8 +34,8 @@ describe('managed engine status with limited connections', () => {
     const s = await checkEngine('claude-code', env(() => ({ total: 1, usable: 0, reasons: ['limited'] })), true, 'en')
     expect(s).toMatchObject({ status: 'limited', limitedUntil: null })
   })
-  test('a refused, expired or signed-out connection beside a limited one is still not_logged_in', async () => {
-    for (const bad of ['invalid', 'needs_reconnect', 'expired']) {
+  test('a refused, expired, signed-out or out-of-credit connection beside a limited one is still not_logged_in', async () => {
+    for (const bad of ['invalid', 'needs_reconnect', 'expired', 'no_credit'] as const) {
       const s = await checkEngine('claude-code', env(() => ({ total: 2, usable: 0, reasons: ['limited', bad], limitedUntil: until })), true, 'en')
       expect(s.status).toBe('not_logged_in')
     }
@@ -62,16 +63,16 @@ describe('managed engine status with limited connections', () => {
 // waited for its usage limit to end. The diagnostics (system/engines.ts) took "limited" only when every connection
 // was limited, Admin > Providers (above) when one is and none is refused: one rule now (credentials/resolve.ts).
 describe('the diagnostics read limited connections with the same rule as Admin > Providers', () => {
-  const managed = (reasons: string[]) => checkEngines({
+  const managed = (reasons: Unusable[]) => checkEngines({
     authMode: 'managed', roleAccount: true, claudeBin: claude, codexBin: null, secretsDir: dir,
     managed: { 'claude-code': { total: reasons.length, usable: 0, expiring: 0, reasons }, codex: { total: 0, usable: 0, expiring: 0, reasons: [] } },
   }).then((r) => r.find((e) => e.engine === 'claude-code')!.reason)
   test('limited, also beside one switched off, not allowed here or with sharing off: credential_limited (warn)', async () => {
-    for (const r of [['limited'], ['over_limit'], ['limited', 'disabled'], ['over_limit', 'kind_off'], ['limited', 'sharing_off']])
+    for (const r of [['limited'], ['over_limit'], ['limited', 'disabled'], ['over_limit', 'kind_off'], ['limited', 'sharing_off']] as Unusable[][])
       expect(`${r}: ${await managed(r)}`).toBe(`${r}: credential_limited`)
   })
-  test('a refused, expired or signed-out one beside it, or nothing waiting for a limit: credential_unusable (fail)', async () => {
-    for (const r of [['limited', 'invalid'], ['limited', 'needs_reconnect'], ['over_limit', 'expired'], ['disabled'], ['no_credit']])
+  test('a refused, expired, signed-out or out-of-credit one beside it, or nothing waiting for a limit: credential_unusable (fail)', async () => {
+    for (const r of [['limited', 'invalid'], ['limited', 'needs_reconnect'], ['over_limit', 'expired'], ['limited', 'no_credit'], ['disabled'], ['no_credit']] as Unusable[][])
       expect(`${r}: ${await managed(r)}`).toBe(`${r}: credential_unusable`)
     expect(await managed([])).toBe('credential_none')
   })
@@ -80,5 +81,7 @@ describe('the diagnostics read limited connections with the same rule as Admin >
     for (const f of ['system/engines.ts', 'admin/engines.ts']) expect(`${f}: ${src(f).includes('onlyWaitingForLimit(')}`).toBe(`${f}: true`)
     expect(onlyWaitingForLimit(['limited', 'disabled'])).toBe(true)
     expect(onlyWaitingForLimit(['limited', 'invalid'])).toBe(false)
+    // out of credit does not end by waiting: an admin adds credit, so it stays a problem beside a limited one
+    expect(onlyWaitingForLimit(['limited', 'no_credit'])).toBe(false)
   })
 })

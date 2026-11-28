@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import type { Database } from 'bun:sqlite'
 import { onlyWaitingForLimit } from '../credentials/resolve'
+import type { Unusable } from '../credentials/store'
 import { subscriptionTokenStatus } from '../proxy/subscription'
 
 export { CLAUDE_OAUTH_TOKEN_FILE } from '../proxy/subscription'
@@ -47,7 +48,7 @@ async function run(cmd: string[], timeoutMs: number): Promise<{ code: number; ou
 }
 
 /** the team's AI connections of one family (credentials/resolve.ts teamCredentialSummary) */
-export interface CredentialSummary { total: number; usable: number; expiring: number; reasons: string[] }
+export interface CredentialSummary { total: number; usable: number; expiring: number; reasons: Unusable[] }
 
 export interface EngineCheckOptions {
   authMode: 'local-login' | 'managed'

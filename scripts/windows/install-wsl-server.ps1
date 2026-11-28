@@ -43,6 +43,14 @@ Ask (default), Yes or No: whether this PC should stop sleeping while it is plugg
 .PARAMETER OpenSetup
 Ask (default), Yes or No: whether to open the setup page in the browser at the end.
 
+.PARAMETER KitPath
+A server kit file on this PC (TrinaAX-server-<version>-linux-<arch>.tar.gz) to install instead of downloading one,
+for example a signed pre-release for testing. Needs -SumsPath. It is checked exactly like a download: the checksum
+from SHA256SUMS, the kit's release signature (verify-bundle) and the installer's check. An unsigned kit is refused.
+
+.PARAMETER SumsPath
+The SHA256SUMS file of the release that -KitPath comes from.
+
 .PARAMETER Resume
 Used by the task that continues the setup after the restart. You do not need it.
 
@@ -70,6 +78,8 @@ param(
     [string]$KeepAwake = 'Ask',
     [ValidateSet('Ask', 'Yes', 'No')]
     [string]$OpenSetup = 'Ask',
+    [string]$KitPath = '',
+    [string]$SumsPath = '',
     [switch]$Resume
 )
 
@@ -92,16 +102,23 @@ function Write-Step([string]$Text) { Write-Host ''; Write-Host "== $Text" -Foreg
 function Write-Ok([string]$Text) { Write-Host "   OK  $Text" -ForegroundColor Green }
 function Write-Info([string]$Text) { Write-Host "       $Text" }
 function Write-Note([string]$Text) { Write-Host "   !   $Text" -ForegroundColor Yellow }
+# the window the restart task opened closes when the script ends: keep it until the person has read it
+function Wait-Resumed {
+    if ($Resume -and [Environment]::UserInteractive) { $null = Read-Host '       Press Enter to close this window' }
+}
 function Exit-Setup([string]$Text, [int]$Code = 1) {
     Write-Host ''
     Write-Host "   STOP  $Text" -ForegroundColor Red
     Write-Host '         Nothing else was changed. Fix this, then run the same command again.' -ForegroundColor Red
+    Wait-Resumed
     exit $Code
 }
-function Read-YesNo([string]$Question, [string]$Answer, [bool]$Default = $true) {
+# -Unattended: the answer when no one can be asked (a dry run, no console); for a question that stops other programs it
+# is No
+function Read-YesNo([string]$Question, [string]$Answer, [bool]$Default = $true, [bool]$Unattended = $Default) {
     if ($Answer -eq 'Yes') { return $true }
     if ($Answer -eq 'No') { return $false }
-    if ($script:DryRun -or -not [Environment]::UserInteractive) { return $Default }
+    if ($script:DryRun -or -not [Environment]::UserInteractive) { return $Unattended }
     $hint = if ($Default) { '[Y/n]' } else { '[y/N]' }
     while ($true) {
         $r = (Read-Host "   ?   $Question $hint").Trim().ToLowerInvariant()
@@ -168,45 +185,81 @@ function Get-DistroWslVersion([string]$Name) {
     }
     return 0
 }
-# run a command of the setup helper (wsl-setup.sh, below) in the distro as root
+# a file into the distro through wsl.exe's standard input (the distro has no C: drive: /etc/wsl.conf turns the drive
+# mounts and Windows interop off). $From: a file on this PC, or $Text (written with LF line ends, no BOM).
+function Copy-ToDistro([string]$LinuxPath, [string]$From = '', [string]$Text = $null) {
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = 'wsl.exe'
+    $psi.Arguments = "-d $Distro -u root --exec /bin/sh -c `"umask 077 && mkdir -p -- `$(dirname -- `$1) && cat > `$1`" sh $LinuxPath"
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardError = $true
+    $p = [System.Diagnostics.Process]::Start($psi)
+    try {
+        if ($From) { $in = [IO.File]::OpenRead($From); try { $in.CopyTo($p.StandardInput.BaseStream) } finally { $in.Dispose() } }
+        else { $b = (New-Object System.Text.UTF8Encoding($false)).GetBytes(($Text -replace "`r`n", "`n")); $p.StandardInput.BaseStream.Write($b, 0, $b.Length) }
+    } finally { $p.StandardInput.Close() }
+    $err = $p.StandardError.ReadToEnd()
+    $p.WaitForExit()
+    return [pscustomobject]@{ Code = $p.ExitCode; Out = ($err -replace "`0", '').Trim() }
+}
+# run a command of the setup helper (below) in the distro as root
+$HelperLinux = '/root/.trina-wsl-setup.sh'
 function Invoke-Helper([string]$Step, [string[]]$More = @(), [switch]$Live) {
-    $a = @('-d', $Distro, '-u', 'root', '--exec', '/bin/bash', $script:HelperLinux, $Step) + @($More | Where-Object { $_ })
+    $a = @('-d', $Distro, '-u', 'root', '--exec', '/bin/bash', $HelperLinux, $Step) + @($More | Where-Object { $_ })
     if ($Live) { return Invoke-WslLive $a }
     return Invoke-Wsl $a
 }
 
-# ---- the steps run inside Debian, as root. Written next to this script's data (LF line ends, no BOM) and run with
-# bash. "install" is the Linux guide's "Download, verify, check" and "Install" blocks (docs/INSTALL-LINUX.en.md),
-# unchanged: a new, empty folder, the checksum from SHA256SUMS, verify-bundle, install-linux.sh check, then install. ----
+# ---- the steps run inside Debian, as root. Copied into the distro (/root/.trina-wsl-setup.sh, through wsl.exe's
+# standard input) and run with bash. "install" is the Linux guide's "Download, verify, check" and "Install" blocks
+# (docs/INSTALL-LINUX.en.md), unchanged: a new, empty folder, the checksum from SHA256SUMS, verify-bundle,
+# install-linux.sh check, then install. A kit from this PC (-KitPath) skips only the download. ----
 $HelperScript = @'
 #!/bin/bash
 # Trina AX on Windows: the steps scripts/windows/install-wsl-server.ps1 runs inside the WSL distro, as root.
 set -euo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 BASE=/var/lib/mycel
+UPLOAD=/root/.trina-upload
 cmd=${1:-}
 [ $# -eq 0 ] || shift
+port() { python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["port"])' "$BASE/root/install.json" 2>/dev/null || echo 47820; }
+healthy() { local p i; p=$(port); for i in 1 2 3 4 5 6 7 8 9 10 11 12; do curl -fsS -m 5 -o /dev/null "http://127.0.0.1:$p/api/health" && return 0; sleep 5; done; return 1; }
+# set_key SECTION KEY VALUE: KEY=VALUE in [SECTION] of $f (the key's other lines in that section go; the rest stays)
+set_key() {
+  awk -v s="$1" -v k="$2" -v v="$3" '
+    /^[[:space:]]*\[/ { h = $0; gsub(/[[:space:]]/, "", h); ins = (tolower(h) == "[" s "]"); print; if (ins) { print k "=" v; seen = 1 }; next }
+    ins { t = $0; sub(/^[[:space:]]*/, "", t); if (index(t, k) == 1 && substr(t, length(k) + 1) ~ /^[[:space:]]*=/) next }
+    { print }
+    END { if (!seen) { if (NR) print ""; print "[" s "]"; print k "=" v } }' "$f" > "$f.new"
+  mv "$f.new" "$f"
+}
 case "$cmd" in
   os)
     . /etc/os-release
     echo "${ID:-unknown} ${VERSION_ID:-unknown}"
     ;;
-  systemd)
-    # "on": systemd is PID 1. "set": /etc/wsl.conf turns it on and the distro must start again (wsl --terminate).
-    if [ "$(cat /proc/1/comm 2>/dev/null)" = systemd ]; then echo on; exit 0; fi
+  wslconf)
+    # systemd on; Windows interop off (a Linux program, the AI's sandbox included, cannot start Windows programs) and
+    # no C: drive in Linux (it cannot read or change the PC's files); root as the default user.
+    # "on": all of it is in effect. "set": /etc/wsl.conf says so and the distro must start again (wsl --terminate).
     f=${TRINA_WSL_CONF:-/etc/wsl.conf}  # (the tests point it elsewhere)
-    if [ -f "$f" ] && grep -Eq '^[[:space:]]*systemd[[:space:]]*=[[:space:]]*true[[:space:]]*$' "$f"; then echo set; exit 0; fi
-    if [ -f "$f" ]; then cp -p "$f" "$f.trina-backup"; fi
-    if [ -f "$f" ] && grep -Eq '^[[:space:]]*\[boot\][[:space:]]*$' "$f"; then
-      # a [boot] section: its systemd line (false) goes, ours comes right after the header
-      awk '/^[[:space:]]*\[/ { b = ($0 ~ /^[[:space:]]*\[boot\][[:space:]]*$/) }
-           b && /^[[:space:]]*systemd[[:space:]]*=/ { next }
-           { print } /^[[:space:]]*\[boot\][[:space:]]*$/ { print "systemd=true" }' "$f" > "$f.new"
-      mv "$f.new" "$f"
-    else
-      { [ ! -s "$f" ] || echo; printf '[boot]\nsystemd=true\n'; } >> "$f"
-    fi
-    echo set
+    want='boot systemd true
+interop enabled false
+interop appendWindowsPath false
+automount enabled false
+automount mountFsTab false
+user default root'
+    [ -f "$f" ] || : > "$f"
+    before=$(cat "$f")
+    while read -r sec key val; do set_key "$sec" "$key" "$val"; done <<< "$want"
+    if [ "$before" != "$(cat "$f")" ]; then printf '%s\n' "$before" > "$f.trina-backup"; echo set; exit 0; fi
+    live=1
+    [ "$(cat /proc/1/comm 2>/dev/null)" = systemd ] || live=0
+    for i in /proc/sys/fs/binfmt_misc/WSLInterop /proc/sys/fs/binfmt_misc/WSLInterop-late; do [ ! -e "$i" ] || live=0; done
+    ! grep -qE '^[^ ]+ /mnt/[a-z] ' /proc/mounts 2>/dev/null || live=0
+    if [ "$live" = 1 ]; then echo on; else echo set; fi
     ;;
   bootstrap)
     # only what downloading and checking the kit needs (INSTALL-LINUX "Requirements": curl and Python 3); the
@@ -221,36 +274,55 @@ case "$cmd" in
     apt-get update -qq
     apt-get install -y -qq --no-install-recommends "${need[@]}"
     ;;
-  installed)
-    # the installed version, or nothing
-    if [ -f "$BASE/root/install.json" ] && [ -L "$BASE/app/current" ]; then basename "$(readlink -f "$BASE/app/current")"; fi
+  state)
+    # none: not installed. ok <version>: installed and the server answers. broken <version>: installed, no answer
+    # (an install that stopped half-way, or a server that does not start)
+    if [ ! -f "$BASE/root/install.json" ] || [ ! -L "$BASE/app/current" ]; then echo none; exit 0; fi
+    v=$(basename "$(readlink -f "$BASE/app/current")")
+    if healthy; then echo "ok $v"; else echo "broken $v"; fi
+    ;;
+  haskit)
+    if [ -x /root/trina-ax-kit/install-linux.sh ]; then echo yes; else echo no; fi
     ;;
   port)
-    python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["port"])' "$BASE/root/install.json" 2>/dev/null || echo 47820
+    port
     ;;
   install)
-    V=${1:?version}
+    SRC=${1:?source}
     ARCH=${2:?arch}
     shift 2
     ENGINES=()
     for e in "$@"; do ENGINES+=(--engine "$e"); done
-    if [ "$V" = latest ]; then
-      V=$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/trina-app/trina-ax/releases/latest)
-      V=${V##*/v}
-    fi
-    [[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "could not find the latest release (got: $V)" >&2; exit 1; }
-    echo "release $V ($ARCH)"
     # a new, empty download folder (the guide's first line)
     W=$(mktemp -d /root/trina-ax-kit.XXXXXX)
-    # a run that stops leaves nothing behind; a finished one keeps the unpacked kit for later repairs (its
-    # install-linux.sh: /root/trina-ax-kit, docs/INSTALL-WINDOWS.md)
-    OK=0
-    trap '[ "$OK" = 1 ] || { cd / && rm -rf -- "$W"; }' EXIT
+    # a run that stops before the installer leaves nothing behind; once the installer ran, the unpacked kit stays
+    # for repairs (its install-linux.sh: /root/trina-ax-kit, docs/INSTALL-WINDOWS.md)
+    OK=0 RAN=0 V=''
+    trap 'if [ "$OK" = 1 ] || [ "$RAN" = 1 ]; then ln -sfn "$W/TrinaAX-server-$V-linux-$ARCH" /root/trina-ax-kit; else cd / && rm -rf -- "$W"; fi' EXIT
     cd "$W"
+    if [ "$SRC" = local ]; then
+      # a kit and its SHA256SUMS from this PC (-KitPath, -SumsPath): only the download differs
+      KIT=$(cd "$UPLOAD" && ls -- TrinaAX-server-*-linux-"$ARCH".tar.gz 2>/dev/null | head -n 1)
+      [ -n "$KIT" ] && [ -f "$UPLOAD/SHA256SUMS" ] || { echo "no kit for $ARCH or no SHA256SUMS was copied" >&2; exit 1; }
+      V=${KIT#TrinaAX-server-}
+      V=${V%-linux-$ARCH.tar.gz}
+      mv -- "$UPLOAD/$KIT" "$UPLOAD/SHA256SUMS" .
+      rm -rf -- "$UPLOAD"
+    else
+      V=$SRC
+      if [ "$V" = latest ]; then
+        V=$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/trina-app/trina-ax/releases/latest)
+        V=${V##*/v}
+      fi
+    fi
+    [[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "not a release version: $V" >&2; exit 1; }
+    echo "release $V ($ARCH)"
     BASE_URL="https://github.com/trina-app/trina-ax/releases/download/v$V"
     KIT="TrinaAX-server-$V-linux-$ARCH.tar.gz"
-    curl -fLO "$BASE_URL/$KIT"
-    curl -fLO "$BASE_URL/SHA256SUMS"
+    if [ "$SRC" != local ]; then
+      curl -fLO "$BASE_URL/$KIT"
+      curl -fLO "$BASE_URL/SHA256SUMS"
+    fi
     python3 - "$KIT" <<'CHECK'
 import hashlib, pathlib, sys
 name = sys.argv[1]
@@ -263,10 +335,16 @@ CHECK
     cd "TrinaAX-server-$V-linux-$ARCH"
     ./app/$V/root/mycel-ctl verify-bundle "./app/$V"
     ./install-linux.sh check --from .
+    RAN=1
     ./install-linux.sh install --from . "${ENGINES[@]}"
     OK=1
     rm -f -- "$W/$KIT"
-    ln -sfn "$W/TrinaAX-server-$V-linux-$ARCH" /root/trina-ax-kit
+    mycel-ctl status || true
+    ;;
+  repair)
+    # an install that stopped half-way: the installer again, with the arguments it recorded (root/install.json)
+    cd /root/trina-ax-kit
+    ./install-linux.sh repair --from .
     mycel-ctl status || true
     ;;
   status)
@@ -301,22 +379,47 @@ function Write-LfFile([string]$Path, [string]$Text) {
     $utf8 = New-Object System.Text.UTF8Encoding($false)
     [IO.File]::WriteAllText($Path, ($Text -replace "`r`n", "`n"), $utf8)
 }
-# %ProgramData%\TrinaAX: administrators and SYSTEM may change it, everyone else only reads (the keep-alive task runs
-# the script in it)
+$SidSystem = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18')
+$SidAdmins = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')
+$SidUsers = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-545')
+function Test-ReparsePoint($Item) { return [bool]($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) }
+# %ProgramData%\TrinaAX holds the scripts the elevated restart task and the keep-alive task run. Any user may make a
+# folder in ProgramData, so one that someone else made first is moved aside, never used. Ours is owned by
+# Administrators, administrators and SYSTEM may change it, everyone else only reads; every entry in it gets that
+# (a link in it is removed, not followed) before this script writes there.
 function Initialize-DataDir {
-    if (-not (Test-Change $DataDir 'create the folder for the setup files (administrators may change it, others only read)')) { return $false }
-    if (-not (Test-Path $DataDir)) { New-Item -ItemType Directory -Path $DataDir | Out-Null }
-    $acl = New-Object System.Security.AccessControl.DirectorySecurity
-    $acl.SetAccessRuleProtection($true, $false)
+    if (-not (Test-Change $DataDir 'create or take over the folder for the setup files (owner Administrators; administrators may change it, others only read)')) { return $false }
+    if (Test-Path -LiteralPath $DataDir) {
+        $item = Get-Item -LiteralPath $DataDir -Force
+        $owner = (Get-Acl -LiteralPath $DataDir).GetOwner([System.Security.Principal.SecurityIdentifier])
+        if ((Test-ReparsePoint $item) -or -not $item.PSIsContainer -or (($owner -ne $SidAdmins) -and ($owner -ne $SidSystem))) {
+            $aside = "$DataDir.untrusted-$(Get-Date -Format yyyyMMdd-HHmmss)"
+            Rename-Item -LiteralPath $DataDir -NewName (Split-Path -Leaf $aside)
+            Write-Note "$DataDir was not made by an administrator: moved to $aside (not used). Delete it once you have looked at it."
+        }
+    }
+    if (-not (Test-Path -LiteralPath $DataDir)) { New-Item -ItemType Directory -Path $DataDir | Out-Null }
     $inherit = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
     $none = [System.Security.AccessControl.PropagationFlags]::None
-    foreach ($sid in @('S-1-5-18', 'S-1-5-32-544')) {
-        $id = (New-Object System.Security.Principal.SecurityIdentifier($sid))
-        $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($id, 'FullControl', $inherit, $none, 'Allow')))
+    $acl = New-Object System.Security.AccessControl.DirectorySecurity
+    $acl.SetOwner($SidAdmins)
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($sid in @($SidSystem, $SidAdmins)) {
+        $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', $inherit, $none, 'Allow')))
     }
-    $users = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-545')
-    $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($users, 'ReadAndExecute', $inherit, $none, 'Allow')))
-    Set-Acl -Path $DataDir -AclObject $acl
+    $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($SidUsers, 'ReadAndExecute', $inherit, $none, 'Allow')))
+    Set-Acl -LiteralPath $DataDir -AclObject $acl
+    foreach ($e in @(Get-ChildItem -LiteralPath $DataDir -Force)) {
+        if (Test-ReparsePoint $e) {
+            if ($e.PSIsContainer) { [IO.Directory]::Delete($e.FullName, $false) } else { [IO.File]::Delete($e.FullName) }
+            continue
+        }
+        if ($e.PSIsContainer) { Exit-Setup "$($e.FullName) is a folder this setup did not make. Move it out of $DataDir, then run this again." }
+        $fa = New-Object System.Security.AccessControl.FileSecurity
+        $fa.SetOwner($SidAdmins)
+        $fa.SetAccessRuleProtection($false, $false)
+        Set-Acl -LiteralPath $e.FullName -AclObject $fa
+    }
     return $true
 }
 
@@ -408,6 +511,19 @@ if ($freeGB -lt 20) { Exit-Setup "Drive $($env:SystemDrive) has $freeGB GB free.
 elseif ($freeGB -lt 40) { Write-Note "Drive $($env:SystemDrive): $freeGB GB free. Enough to start; the team's files and backups need more over time." }
 else { Write-Ok "Drive $($env:SystemDrive): $freeGB GB free" }
 
+# a kit from this PC (-KitPath): its file name says the version and the processor; SHA256SUMS comes with it
+if ($KitPath -or $SumsPath) {
+    if (-not ($KitPath -and $SumsPath)) { Exit-Setup '-KitPath and -SumsPath go together: the kit file and the SHA256SUMS file of its release.' }
+    foreach ($f in @($KitPath, $SumsPath)) { if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { Exit-Setup "$f is not a file." } }
+    $KitPath = (Resolve-Path -LiteralPath $KitPath).Path
+    $SumsPath = (Resolve-Path -LiteralPath $SumsPath).Path
+    $kitName = Split-Path -Leaf $KitPath
+    if ($kitName -notmatch "^TrinaAX-server-[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?-linux-$Arch\.tar\.gz$") {
+        Exit-Setup "$kitName is not a server kit for this PC (TrinaAX-server-<version>-linux-$Arch.tar.gz)."
+    }
+    Write-Ok "Kit from this PC: $kitName (checked like a download: checksum, signature, the installer's check)"
+}
+
 $onBattery = $false
 try { $onBattery = [bool](Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue) } catch { Write-Verbose 'no battery' }
 
@@ -426,6 +542,7 @@ function Register-ResumeTask {
     $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$copy`"", '-Resume', '-Distro', $Distro, '-Version', $Version,
         '-KeepAwake', $KeepAwake, '-OpenSetup', $OpenSetup, '-Engine', $Engine)
     if ($MemoryGB -gt 0) { $a += @('-MemoryGB', "$MemoryGB") }
+    if ($KitPath) { $a += @('-KitPath', "`"$KitPath`"", '-SumsPath', "`"$SumsPath`"") }
     $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ($a -join ' ')
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $userName
     $principal = New-ScheduledTaskPrincipal -UserId $userName -LogonType Interactive -RunLevel Highest
@@ -506,7 +623,7 @@ if ($null -eq $merged) {
     # WSL reads the file when it starts: restart it if it runs (other distros stop for a moment)
     $running = @(Get-DistroName -Running)
     if ($running.Count -gt 0) {
-        if (Read-YesNo -Question "WSL must restart to use the new memory limit. This stops the running Linux distros ($($running -join ', ')) for a moment. Restart WSL now?" -Answer 'Ask' -Default $true) {
+        if (Read-YesNo -Question "WSL must restart to use the new memory limit. This stops the running Linux distros ($($running -join ', ')) for a moment. Restart WSL now?" -Answer 'Ask' -Default $true -Unattended $false) {
             $null = Invoke-Wsl @('--shutdown')
         } else { Write-Info 'The memory limit applies after the next  wsl --shutdown  or restart of Windows.' }
     }
@@ -531,31 +648,32 @@ if ($haveDistro) {
             if ((Invoke-WslLive @('--set-version', $Distro, '2')) -ne 0) { Exit-Setup "Converting `"$Distro`" to WSL 2 failed." }
         }
     }
-    # the helper, where the distro can read it (C:\ProgramData\TrinaAX, read-only for non-administrators)
-    if (Initialize-DataDir) {
-        $helperWin = Join-Path $DataDir 'wsl-setup.sh'
-        Write-LfFile $helperWin $HelperScript
-        $p = Invoke-Wsl @('-d', $Distro, '-u', 'root', '--exec', 'wslpath', '-u', $helperWin)
-        if ($p.Code -ne 0 -or -not $p.Out) { Exit-Setup "The distro `"$Distro`" does not start or cannot read $helperWin ($($p.Out))." }
-        $script:HelperLinux = ($p.Out -split "`n")[-1].Trim()
+    # the helper, into the distro through wsl.exe's standard input (no file on this PC, nothing read from C:)
+    if (Test-Change $Distro "copy the setup steps into the distro ($HelperLinux)") {
+        $c = Copy-ToDistro -LinuxPath $HelperLinux -Text $HelperScript
+        if ($c.Code -ne 0) { Exit-Setup "The distro `"$Distro`" does not start, or the setup steps could not be copied into it ($($c.Out))." }
+        $script:HelperReady = $true
     }
 }
-$ready = $haveDistro -and (Test-Path variable:script:HelperLinux)
+$ready = $haveDistro -and (Test-Path variable:script:HelperReady)
 if ($ready) {
     $osr = (Invoke-Helper os).Out
     if ($osr -notmatch '^debian (12|13)$') {
         Exit-Setup "The WSL distro `"$Distro`" is $osr, not Debian 12 or 13. Choose another name for the server: add  -Distro TrinaAXServer  to the command."
     }
     Write-Ok "Debian $($osr -replace '^debian ', '')"
-    $sd = Invoke-Helper systemd
-    if ($sd.Code -ne 0) { Exit-Setup "Could not read or set systemd in /etc/wsl.conf: $($sd.Out)" }
+    # /etc/wsl.conf: systemd on, Windows interop off, no C: drive inside Linux, root as the default user
+    $sd = Invoke-Helper wslconf
+    if ($sd.Code -ne 0) { Exit-Setup "Could not read or change /etc/wsl.conf: $($sd.Out)" }
     if ($sd.Out -match 'set$') {
-        if (Test-Change $Distro 'start the distro again so that systemd runs (wsl --terminate)') {
+        if (Test-Change $Distro 'start the distro again with its new /etc/wsl.conf (wsl --terminate)') {
             $null = Invoke-Wsl @('--terminate', $Distro)
-            if ((Invoke-Helper systemd).Out -notmatch 'on$') { Exit-Setup "systemd does not start in `"$Distro`". Run  wsl --shutdown , then this again. If it still fails, WSL may be too old: run  wsl --update ." }
+            $c = Copy-ToDistro -LinuxPath $HelperLinux -Text $HelperScript
+            if ($c.Code -ne 0) { Exit-Setup "The distro `"$Distro`" does not start again ($($c.Out))." }
+            if ((Invoke-Helper wslconf).Out -notmatch 'on$') { Exit-Setup "The settings in /etc/wsl.conf of `"$Distro`" do not take effect (systemd, interop off, no drive mounts). Run  wsl --shutdown , then this again. If it still fails, WSL may be too old: run  wsl --update ." }
         }
     }
-    Write-Ok 'systemd runs'
+    Write-Ok 'systemd runs; Linux cannot start Windows programs or see drive C:'
 }
 
 # ---- 5. curl and Python 3 (the download and its check need them; a new Debian has neither) ----
@@ -567,15 +685,39 @@ if ($ready -and (Test-Change $Distro 'install curl, ca-certificates and python3 
 
 # ---- 6. the Trina AX server: the Linux kit, checked as in docs/INSTALL-LINUX.en.md, then install-linux.sh ----
 Write-Step "6/8  $ProductName server"
-$installed = if ($ready) { (Invoke-Helper installed).Out } else { '' }
-if ($installed) {
-    Write-Ok "$ProductName $installed is installed already. It updates itself; nothing to do here."
-} elseif ($ready -and (Test-Change $Distro "download the $Version server kit, check its checksum and signature, and install it (install-linux.sh install)")) {
-    Write-Info 'This takes 10 to 30 minutes on a new PC. Lines keep coming while it works; leave the window open.'
-    $code = Invoke-Helper 'install' (@($Version, $Arch) + ($Engine -split ',')) -Live
-    if ($code -ne 0) { Exit-Setup "The server install stopped (exit code $code; the reason is above). Run this again after fixing it: finished steps are skipped." }
-    $installed = (Invoke-Helper installed).Out
-    Write-Ok "$ProductName $installed installed"
+# none: install. ok: installed and answering, nothing to do. broken: installed but not answering (an install that
+# stopped half-way): the installer's repair from the kept kit, or a new install when there is no kit
+$state = if ($ready) { (Invoke-Helper state).Out } else { '' }
+$installed = ''
+if ($state -match '^ok (.+)$') {
+    $installed = $Matches[1]
+    Write-Ok "$ProductName $installed is installed and answers. It updates itself; nothing to do here."
+} elseif ($ready) {
+    $repair = ($state -match '^broken ') -and ((Invoke-Helper haskit).Out -eq 'yes')
+    $source = if ($KitPath) { "the kit $KitPath" } else { "the $Version server kit" }
+    $what = if ($repair) { 'repair the installed server that does not answer (install-linux.sh repair)' } else { "get $source, check its checksum and signature, and install it (install-linux.sh install)" }
+    if ($state -match '^broken (.+)$') { Write-Note "$ProductName $($Matches[1]) is installed but does not answer: the setup tries again." }
+    if (Test-Change $Distro $what) {
+        Write-Info 'This takes 10 to 30 minutes on a new PC. Lines keep coming while it works; leave the window open.'
+        if ($repair) { $code = Invoke-Helper 'repair' -Live }
+        else {
+            $src = $Version
+            if ($KitPath) {
+                # a kit from this PC: copied in, then checked exactly like a download
+                foreach ($pair in @(@($KitPath, "/root/.trina-upload/$(Split-Path -Leaf $KitPath)"), @($SumsPath, '/root/.trina-upload/SHA256SUMS'))) {
+                    $c = Copy-ToDistro -LinuxPath $pair[1] -From $pair[0]
+                    if ($c.Code -ne 0) { Exit-Setup "Copying $($pair[0]) into the distro failed ($($c.Out))." }
+                }
+                $src = 'local'
+            }
+            $code = Invoke-Helper 'install' (@($src, $Arch) + ($Engine -split ',')) -Live
+        }
+        if ($code -ne 0) { Exit-Setup "The server install stopped (exit code $code; the reason is above). Run this again after fixing it: finished steps are skipped." }
+        $state = (Invoke-Helper state).Out
+        if ($state -notmatch '^ok (.+)$') { Exit-Setup "The server is installed but does not answer ($state). See  wsl -d $Distro -u root -- mycel-ctl status , then run this again." }
+        $installed = $Matches[1]
+        Write-Ok "$ProductName $installed installed"
+    }
 }
 
 # ---- 7. keep it running: the sign-in task, and no sleep on power ----
@@ -628,9 +770,12 @@ if ($ready -and $installed) {
     Write-Host ''
     if ($code) {
         Write-Host "   Next: open $url/setup on this PC and create the owner account and the team." -ForegroundColor White
-        Write-Info "The setup page needs the one-time setup code. To see it:  wsl -d $Distro -u root -- cat $LinuxBase/setup/code"
-        if ($ok -and (Read-YesNo -Question 'Open the setup page in the browser now (with the code filled in)?' -Answer $OpenSetup -Default $true)) {
-            Start-Process "$url/setup?token=$([uri]::EscapeDataString($code))"
+        Write-Info "The setup page asks for the one-time setup code. To see it:  wsl -d $Distro -u root -- cat $LinuxBase/setup/code"
+        if ($ok -and (Read-YesNo -Question 'Open the setup page in the browser now? The setup code goes to the clipboard: paste it there.' -Answer $OpenSetup -Default $true)) {
+            # (on the clipboard, not in the address: an address is on the browser's command line, which other
+            # programs on this PC can read)
+            Set-Clipboard -Value $code
+            Start-Process "$url/setup"
         }
     } else {
         Write-Host "   $ProductName runs at $url on this PC." -ForegroundColor White
@@ -643,3 +788,4 @@ if ($ready -and $installed) {
     Write-Info 'Dry run: nothing was changed. Run it without -WhatIf to install.'
 }
 Write-Host ''
+Wait-Resumed

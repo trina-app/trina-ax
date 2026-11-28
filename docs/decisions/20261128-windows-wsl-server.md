@@ -25,6 +25,19 @@
 - **`.wslconfig`:** written when absent; an existing file only gets a `memory=` line in `[wsl2]` when it has none, after
   a copy. 5 GB on an 8 GB PC (WSL's default is half), 8 GB on 16 GB. Never `wsl --shutdown` without asking when other
   distros run.
+- **Linux cut off from Windows:** the distro's `/etc/wsl.conf` turns Windows interop off (`[interop] enabled=false`,
+  `appendWindowsPath=false`) and the drive mounts off (`[automount] enabled=false`, `mountFsTab=false`), default user
+  root. With interop on, any Linux process, the AI's sandboxed commands included, could start `cmd.exe` as the
+  Windows user outside the sandbox; with `/mnt/c` it could read the PC's files (review of #716). The script copies its
+  steps and a `-KitPath` kit in through `wsl.exe`'s standard input; backups are copied out from Windows
+  (`\\wsl.localhost\TrinaAX\...`).
+- **`C:\ProgramData\TrinaAX`** (the scripts the elevated restart task and the keep-alive run): a folder not owned by
+  Administrators or SYSTEM is moved aside, never used; ours is owned by Administrators, read-only for others, and
+  every entry in it is reset (links removed) before the script writes there.
+- **`-KitPath` / `-SumsPath`:** a kit from the PC instead of the download, with the same checks (checksum,
+  verify-bundle, `install-linux.sh check`). No way to install an unsigned kit: dev builds (`dev-build.yml`) are
+  unsigned bundles signed only with cosign for the QA server, so a Windows test of unreleased code needs a signed
+  pre-release from the release owner.
 - **Network:** WSL's default NAT mode; the script never sets `networkingMode=mirrored`. Checked in the code: the browser
   on the PC reaches the server through localhost forwarding (`127.0.0.1`, IPv4); the loopback sign-in returns
   (Canva, Intercom, Square) land in the desktop app on the person's own PC, not in the server; Google, Slack and phones

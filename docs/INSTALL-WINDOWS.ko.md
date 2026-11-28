@@ -4,10 +4,13 @@
 
 늘 켜 두는 윈도우 PC 한 대를 팀 서버로 쓸 수 있습니다. 윈도우가 PC 안에서 작은 데비안 리눅스(WSL2, Windows
 Subsystem for Linux)를 돌리고, 그 리눅스 안에서 일반 [리눅스 서버](INSTALL-LINUX.md)가 돌아갑니다. 스크립트 하나가
-전부 설정합니다. 리눅스 장비에 설치한 서버와 같은 서버입니다. 업데이트, 백업, 보안 점검도 같습니다.
+전부 설정합니다. 리눅스 장비에 설치한 서버와 같은 서버이고, 업데이트, 백업, AI 샌드박스도 같습니다. 스크립트는
+리눅스를 윈도우와 떼어 놓기도 합니다. 리눅스에서 윈도우 프로그램을 실행할 수 없고, PC의 드라이브도 리눅스에서 보이지
+않습니다([스크립트가 리눅스에서 바꾸는 것](#스크립트가-리눅스에서-바꾸는-것) 참고).
 
-새로 나온 방식입니다. 메모리 8 GB인 윈도우 11 PC에서 시험했습니다(2026-11-27: 설치, AI 샌드박스, 문서, 실제 AI
-답변). 전용 리눅스 서버나 VM이 있는 팀이라면 그쪽이 여전히 먼저입니다.
+새로 나온 방식입니다. 리눅스 서버(0.20.2)를 메모리 8 GB인 윈도우 11 PC에 손으로 설치해 동작을 확인했습니다(2026-11-27:
+설치, AI 샌드박스, 문서, 실제 AI 답변). **스크립트 자체는 아직 윈도우에서 실행해 보지 않았습니다.** 곧 QA에서 실행하고,
+그때 이 줄을 고칩니다. 전용 리눅스 서버나 VM이 있는 팀이라면 그쪽이 여전히 먼저입니다.
 
 ## 한눈에 보는 순서
 
@@ -61,13 +64,15 @@ systemd가 켜진 WSL2에는 Microsoft의 최신 WSL(2.4.4 이상)이 필요합�
 3. **WSL을 설치하거나 업데이트하고**, 리눅스가 쓸 메모리를 `%UserProfile%\.wslconfig`에 정합니다([메모리](#메모리)
    참고). 이미 있는 `.wslconfig`는 그대로 둡니다. 메모리 줄이 없을 때만, 사본(`.wslconfig.trina-backup-<날짜>`)을
    만든 뒤 한 줄을 넣습니다.
-4. **데비안을 `TrinaAX`라는 이름의 WSL 배포판으로 설치합니다**(다른 이름은 `-Distro <이름>`). systemd를 켭니다. 다른
-   WSL 배포판은 건드리지 않습니다. 처음에는 윈도우가 "Welcome to WSL" 창을 띄울 수 있습니다. 닫으면 됩니다.
+4. **데비안을 `TrinaAX`라는 이름의 WSL 배포판으로 설치하고** `/etc/wsl.conf`를 설정합니다([아래](#스크립트가-리눅스에서-바꾸는-것)).
+   다른 이름은 `-Distro <이름>`. 다른 WSL 배포판은 건드리지 않습니다. 처음에는 윈도우가 "Welcome to WSL" 창을 띄울 수
+   있습니다. 닫으면 됩니다.
 5. **curl과 Python 3를 설치합니다.** 새 데비안에는 둘 다 없고, 다운로드와 그 확인에 필요합니다.
 6. **서버 키트를 받아 리눅스 안내와 똑같이 확인합니다**([키트 받기와 확인](INSTALL-LINUX.md#3-키트-받기와-확인)):
    릴리스 `SHA256SUMS`의 체크섬, 키트 서명(`mycel-ctl verify-bundle`), 설치기의 점검. 어떤 확인도 건너뛰지 않고
    서명 없는 키트는 설치하지 않습니다. 그다음 일반 설치기(`install-linux.sh install`, Claude Code와 Codex 포함)를
-   실행합니다. 푼 키트는 나중의 복구를 위해 리눅스 안 `/root/trina-ax-kit`에 남습니다.
+   실행합니다. 푼 키트는 나중의 복구를 위해 리눅스 안 `/root/trina-ax-kit`에 남습니다. 설치가 중간에 멈춘 뒤(설치는
+   됐지만 서버가 응답하지 않음) 다시 실행하면 새로 설치하지 않고 복구(`install-linux.sh repair`)합니다.
 7. **서버가 계속 돌게 합니다**: "Keep the Trina AX server running" 작업(작업 스케줄러, TrinaAX 폴더)이 로그인할 때
    시작해 리눅스를 켜 둡니다([계속 켜 두기](#계속-켜-두기) 참고). 전원에 연결된 동안 이 PC가 절전 모드로 들어가지 않게
    할지 묻습니다.
@@ -75,14 +80,17 @@ systemd가 켜진 WSL2에는 Microsoft의 최신 WSL(2.4.4 이상)이 필요합�
 
 옵션: `-Version 0.21.0`(최신 대신 지정한 릴리스), `-Engine claude`(Claude Code만), `-MemoryGB 6`(메모리 한도),
 `-KeepAwake Yes|No`, `-OpenSetup Yes|No`(질문에 미리 답하기).
+`-KitPath <TrinaAX-server-...-linux-amd64.tar.gz> -SumsPath <SHA256SUMS>`는 내려받는 대신 이 PC에 있는 키트를
+설치합니다(예: 시험용 서명된 pre-release). 다운로드와 똑같이 확인하고, 서명 없는 키트는 거부합니다.
 
 스크립트 자체는 릴리스 소스에서 받습니다. 스크립트가 받아 설치하는 것(키트)은 리눅스와 같이 릴리스 서명으로
 확인합니다.
 
 ## 첫 설정
 
-스크립트가 일회용 설정 코드를 채운 `http://127.0.0.1:47820/setup`을 열어 줍니다. 코드를 직접 보려면(남에게 보이지
-마세요):
+스크립트가 `http://127.0.0.1:47820/setup`을 열고 일회용 설정 코드를 클립보드에 넣어 줍니다. 화면의 설정 코드 칸에
+붙여 넣으세요. (주소에 넣지 않는 이유: 주소는 브라우저의 명령줄에 남고, PC의 다른 프로그램이 그것을 읽을 수 있습니다.)
+코드를 직접 보려면(남에게 보이지 마세요):
 
 ```powershell
 wsl -d TrinaAX -u root -- cat /var/lib/mycel/setup/code
@@ -104,6 +112,20 @@ wsl -d TrinaAX -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh r
 터널 프로그램은 리눅스 안(`wsl -d TrinaAX -u root`)에서도, 윈도우에서도(`127.0.0.1:47820`으로 서버에 닿습니다) 돌릴
 수 있습니다. PC의 포트를 사무실 네트워크에 여는 방법(WSL 미러 네트워킹, `netsh portproxy`)은 필요 없고 여기서 다루지
 않습니다. https가 생기지 않습니다.
+
+## 스크립트가 리눅스에서 바꾸는 것
+
+`TrinaAX` 배포판의 `/etc/wsl.conf`(원래 파일은 `/etc/wsl.conf.trina-backup`으로 남김):
+
+| 설정 | 이유 |
+|---|---|
+| `[boot] systemd=true` | 서버의 서비스가 systemd로 돕니다 |
+| `[interop] enabled=false`, `appendWindowsPath=false` | AI의 명령을 포함해 리눅스 프로그램이 윈도우 프로그램(`cmd.exe`, `powershell.exe`)을 실행할 수 없습니다. 실행되면 내 윈도우 계정으로, AI 샌드박스 밖에서 돌게 됩니다 |
+| `[automount] enabled=false`, `mountFsTab=false` | C: 드라이브와 다른 드라이브를 리눅스에 붙이지 않습니다(`/mnt/c` 없음). 리눅스의 어떤 것도 PC의 파일을 읽거나 바꿀 수 없습니다 |
+| `[user] default=root` | 여기 명령과 파일 탐색기의 `\\wsl.localhost\TrinaAX`가 root를 씁니다. 배포판에 다른 사용자는 없습니다 |
+
+윈도우에서 리눅스로는 여전히 닿습니다(`wsl.exe`, 파일 탐색기, `127.0.0.1:47820`). 막힌 것은 반대 방향뿐입니다. 스크립트는
+자기 단계와 `-KitPath` 키트를 C: 드라이브가 아니라 `wsl.exe`를 통해 리눅스에 넣습니다.
 
 ## 윈도우에서 다르게 동작하는 것
 
@@ -173,13 +195,17 @@ wsl -d TrinaAX -u root
 ```
 
 리눅스 안에서 그 문서의 Linux 명령(`trina_admin backup --scope full`, `trina_admin archive --out
-/var/lib/mycel/data/off-host.tar.zst.age --password-stdin`)을 실행한 뒤, 아카이브를 윈도우로 옮겨 다른 디스크나
-저장소에 복사합니다.
+/var/lib/mycel/data/off-host.tar.zst.age --password-stdin`)을 실행합니다. 리눅스에서는 C: 드라이브가 보이지 않으니
+윈도우에서 복사합니다. 파일 탐색기에서 `\\wsl.localhost\TrinaAX\var\lib\mycel\data\`(또는 탐색 창의 **Linux ›
+TrinaAX**)를 열고 `off-host.tar.zst.age`를 다른 디스크나 저장소에 복사한 뒤, 양쪽의 SHA-256을 비교하고(윈도우에서는
+`Get-FileHash`) 리눅스에서 지웁니다.
 
 ```sh
-cp /var/lib/mycel/data/off-host.tar.zst.age /mnt/c/Users/Public/
 rm /var/lib/mycel/data/off-host.tar.zst.age
 ```
+
+파일 탐색기는 리눅스 파일을 root(배포판의 기본 사용자)로 엽니다. 비밀 정보를 포함해 모든 것을 읽고 바꿀 수 있습니다.
+이 파일만 복사하고 그 창을 열어 두지 마세요.
 
 서버를 멈춘 상태에서 리눅스 디스크 전체를 복사할 수도 있습니다: 작업을 사용 안 함으로 바꾸고
 `wsl --terminate TrinaAX`, 그다음 `wsl --export TrinaAX D:\TrinaAX-backup.tar`(비밀 정보가 들어 있으니 PC만큼
@@ -194,7 +220,8 @@ WSL은 윈도우 업데이트(또는 `wsl --update`)로 업데이트됩니다. �
 
 ## 제거와 되돌리기
 
-설치가 중간에 멈췄다면 스크립트를 다시 실행하세요. 끝난 단계는 건너뛰고, 서버 설치는 새로 받아 다시 시작합니다.
+설치가 중간에 멈췄다면 스크립트를 다시 실행하세요. 끝난 단계는 건너뜁니다. 설치기가 돌기 전에 멈췄다면 새로 받아 다시
+시작하고, 설치기가 돈 뒤에 멈췄다면 남겨 둔 키트로 복구합니다.
 
 **데이터는 두고** 서버만 제거(리눅스 설치기의 uninstall, 나중에 다시 설치하면 데이터를 다시 찾습니다):
 

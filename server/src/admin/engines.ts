@@ -14,7 +14,7 @@ import { allowedCredentialKinds, anthropicGateway, gatewayModelIds, REPO_ROOT, t
 import { findCodexBin } from '../config'
 import { openRouterKey } from '../credentials/validate'
 import { onlyWaitingForLimit, teamCredentialSummary } from '../credentials/resolve'
-import { credentialsOf } from '../credentials/store'
+import { credentialsOf, type Unusable } from '../credentials/store'
 import { resolveLayout } from '../system/layout'
 import { codexCatalogFor, CODEX_COMPATIBLE_VERSIONS } from '../engine/codex'
 import { codexLoginState, type CodexLoginState } from '../native'
@@ -198,7 +198,7 @@ export interface EngineEnv {
    * launcher did not answer. Absent (dev): `codex login status` of the owner's own login. */
   codexLogin?: () => Promise<CodexLoginState | null>
   /** managed: the team's AI connections of a family (usable now / all) */
-  credentials?: (family: 'anthropic' | 'openai') => { total: number; usable: number; reasons?: string[]; limitedUntil?: string | null }
+  credentials?: (family: 'anthropic' | 'openai') => { total: number; usable: number; reasons?: Unusable[]; limitedUntil?: string | null }
   /** the server's database */
   db?: import('bun:sqlite').Database
   /** which machine the status lines talk about (deployment.ts hostKind; absent = the Mac wording) and the install base */

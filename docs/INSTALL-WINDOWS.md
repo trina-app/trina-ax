@@ -4,10 +4,14 @@
 
 Your team server can run on a Windows PC that stays on. Windows runs a small Debian Linux inside it (WSL2, the
 Windows Subsystem for Linux), and the normal [Linux server](INSTALL-LINUX.en.md) runs in that Linux. One script sets
-it all up. It is the same server as on a Linux machine: same updates, same backups, same security checks.
+it all up. It is the same server as on a Linux machine, with the same updates, backups and AI sandbox. The script
+also cuts Linux off from Windows: Windows programs cannot be started from Linux, and the PC's drives are not visible
+in it (see [What the script changes in Linux](#what-the-script-changes-in-linux)).
 
-This way is new. It was tested on a Windows 11 PC with 8 GB of memory (2026-11-27: install, the AI's sandbox,
-documents, a real AI answer). A dedicated Linux server or VM is still the first choice for a team that has one.
+This way is new. The Linux server (0.20.2) was installed by hand on a Windows 11 PC with 8 GB of memory and worked
+(2026-11-27: install, the AI's sandbox, documents, a real AI answer). **The script itself has not been run on Windows
+yet**: our QA runs it next, and this line changes then. A dedicated Linux server or VM is still the first choice for
+a team that has one.
 
 ## Steps at a glance
 
@@ -61,14 +65,16 @@ What the script does, in order. Run it again at any time: finished steps are ski
 3. **Installs or updates WSL**, and sets how much memory Linux may use in `%UserProfile%\.wslconfig` (see
    [Memory](#memory)). A `.wslconfig` you already have is kept: it only gets a memory line when it has none, after a
    copy (`.wslconfig.trina-backup-<date>`).
-4. **Installs Debian as a WSL distro named `TrinaAX`** (`-Distro <name>` for another name) with systemd on. Your
-   other WSL distros are not touched. The first time, Windows may also open a "Welcome to WSL" window; close it.
+4. **Installs Debian as a WSL distro named `TrinaAX`** (`-Distro <name>` for another name) and sets its
+   `/etc/wsl.conf` ([below](#what-the-script-changes-in-linux)). Your other WSL distros are not touched. The first
+   time, Windows may also open a "Welcome to WSL" window; close it.
 5. **Installs curl and Python 3** in it: a new Debian has neither, and the download and its check need them.
 6. **Downloads the server kit and checks it exactly as the Linux guide does** ([Download, verify,
    check](INSTALL-LINUX.en.md#download-verify-check)): the checksum from the release's `SHA256SUMS`, the kit's
    signature (`mycel-ctl verify-bundle`) and the installer's own check. It never skips a check and never installs an
    unsigned kit. Then it runs the normal installer (`install-linux.sh install`, with Claude Code and Codex). The
-   unpacked kit stays in `/root/trina-ax-kit` inside Linux for later repairs.
+   unpacked kit stays in `/root/trina-ax-kit` inside Linux for later repairs. On a run after an install that stopped
+   half-way (installed, but the server does not answer), it repairs (`install-linux.sh repair`) instead.
 7. **Keeps the server running**: a task "Keep the Trina AX server running" (Task Scheduler, folder TrinaAX) starts at
    your sign-in and keeps Linux on (see [Keeping it running](#keeping-it-running)). It asks whether this PC should
    stop sleeping while it is plugged in.
@@ -76,14 +82,18 @@ What the script does, in order. Run it again at any time: finished steps are ski
 
 Options: `-Version 0.21.0` (a given release instead of the latest), `-Engine claude` (only Claude Code), `-MemoryGB 6`
 (the memory limit), `-KeepAwake Yes|No` and `-OpenSetup Yes|No` (answer those questions ahead).
+`-KitPath <TrinaAX-server-...-linux-amd64.tar.gz> -SumsPath <SHA256SUMS>` installs a kit from this PC instead of
+downloading one (for example a signed pre-release to test): it is checked exactly like a download, and an unsigned
+kit is refused.
 
 The script itself comes from the release's source. What it downloads and installs (the kit) is checked against the
 release signature, as on Linux.
 
 ## First run
 
-The script offers to open `http://127.0.0.1:47820/setup` with the one-time setup code filled in. To see the code
-yourself (keep it private):
+The script offers to open `http://127.0.0.1:47820/setup` and puts the one-time setup code on the clipboard: paste it
+into the page's setup code field. (Not in the address: an address is on the browser's command line, which other
+programs on the PC can read.) To see the code yourself (keep it private):
 
 ```powershell
 wsl -d TrinaAX -u root -- cat /var/lib/mycel/setup/code
@@ -105,6 +115,20 @@ wsl -d TrinaAX -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh r
 A tunnel program can run inside Linux (`wsl -d TrinaAX -u root`) or on Windows (it reaches the server at
 `127.0.0.1:47820`). Opening the PC's port to the office network (WSL's mirrored networking, `netsh portproxy`) is not
 needed and not covered here: it gives no https.
+
+## What the script changes in Linux
+
+`/etc/wsl.conf` of the `TrinaAX` distro (the earlier file is kept as `/etc/wsl.conf.trina-backup`):
+
+| Setting | Why |
+|---|---|
+| `[boot] systemd=true` | The server's services run under systemd |
+| `[interop] enabled=false`, `appendWindowsPath=false` | Linux programs, the AI's commands included, cannot start Windows programs (`cmd.exe`, `powershell.exe`): they would run as your Windows account, outside the AI's sandbox |
+| `[automount] enabled=false`, `mountFsTab=false` | Drive C: and the other drives are not mounted in Linux (`/mnt/c`): nothing in Linux can read or change the PC's files |
+| `[user] default=root` | The commands here and File Explorer's `\\wsl.localhost\TrinaAX` use root; the distro has no other user |
+
+Windows still reaches Linux (`wsl.exe`, File Explorer, `127.0.0.1:47820`); only the way back is closed. The script
+copies its own steps and a `-KitPath` kit into Linux through `wsl.exe`, not through drive C:.
 
 ## What works differently on Windows
 
@@ -176,13 +200,17 @@ wsl -d TrinaAX -u root
 ```
 
 Then, inside Linux, the Linux commands of that page (`trina_admin backup --scope full`, `trina_admin archive --out
-/var/lib/mycel/data/off-host.tar.zst.age --password-stdin`), and copy the archive to Windows and on to another disk
-or storage:
+/var/lib/mycel/data/off-host.tar.zst.age --password-stdin`). Linux does not see drive C:, so copy the archive from
+Windows: in File Explorer open `\\wsl.localhost\TrinaAX\var\lib\mycel\data\` (or **Linux › TrinaAX** in the
+navigation pane), copy `off-host.tar.zst.age` to another disk or storage, compare its SHA-256 at both ends
+(`Get-FileHash` on Windows), then delete it in Linux:
 
 ```sh
-cp /var/lib/mycel/data/off-host.tar.zst.age /mnt/c/Users/Public/
 rm /var/lib/mycel/data/off-host.tar.zst.age
 ```
+
+File Explorer opens the Linux files as root (the distro's default user): it can read and change everything there,
+the secrets included. Copy only this file, and do not leave that window open.
 
 A copy of the whole Linux disk is possible too, with the server stopped: disable the task, `wsl --terminate TrinaAX`,
 then `wsl --export TrinaAX D:\TrinaAX-backup.tar` (it holds the secrets: keep it as safe as the PC). `wsl --import`
@@ -197,8 +225,8 @@ WSL updates with Windows Update (or `wsl --update`). Keep Debian's security upda
 
 ## Uninstall and roll back
 
-A setup that stopped half-way: run the script again. Finished steps are skipped and the server install starts again
-from a new download.
+A setup that stopped half-way: run the script again. Finished steps are skipped. An install that stopped before the
+installer ran starts again from a new download; one that stopped after it is repaired from the kept kit.
 
 Remove the server and **keep the data** (the Linux installer's uninstall; a later install finds the data again):
 
