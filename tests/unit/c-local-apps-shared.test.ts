@@ -10,6 +10,10 @@ import { API, type ServerFrame } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
 import { waitFor } from '../lib/wait'
+import fs from 'node:fs'
+import { ATTACH_HOW_LOCAL } from '../../server/src/integrations/connections/team-attach'
+import path from 'node:path'
+import { getChatRuntime } from '../../server/src/chat/runtime'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -24,7 +28,7 @@ let h: Harness
 const sock: Record<string, TestSocket> = {}
 const stops: (() => void)[] = []
 /** what each fake desktop app was sent: its window, the method and the turn */
-const seen: { window: string; method: string; turnId: string | null }[] = []
+const seen: { window: string; method: string; turnId: string | null; args?: Record<string, unknown>; fetched?: { url: string; status: number; bytes: Buffer; type: string | null; again: number }[] }[] = []
 let projectId: string
 
 /** a fake desktop app: answers local.call as an MCP server (initialize, tools/list, tools/call echo) */
@@ -36,8 +40,24 @@ function serveLocal(s: TestSocket, window: string) {
       const call = f.data.call
       done.add(call.callId)
       s.send({ type: 'local.ack', callId: call.callId })
-      const m = call.message as { id?: string; method: string; params?: { arguments?: { text?: string } } }
-      seen.push({ window, method: m.method, turnId: call.turnId })
+      const m = call.message as { id?: string; method: string; params?: { arguments?: { text?: string; code?: string } } }
+      const entry: (typeof seen)[number] = { window, method: m.method, turnId: call.turnId, ...(m.params?.arguments ? { args: m.params.arguments } : {}) }
+      seen.push(entry)
+      // the app's code downloads each link it was given, as Aside's repl fetch does (local-file-links.ts), and says the
+      // address back in its answer
+      const urls = m.method === 'tools/call' ? [...(m.params?.arguments?.code ?? '').matchAll(/https?:\/\/[^"'`\s)]+/g)].map((x) => x[0]) : []
+      if (urls.length) {
+        void (async () => {
+          entry.fetched = []
+          for (const url of urls) {
+            const r = await fetch(url)
+            const bytes = Buffer.from(await r.arrayBuffer())
+            entry.fetched.push({ url, status: r.status, bytes, type: r.headers.get('content-type'), again: (await fetch(url)).status })
+          }
+          s.send({ type: 'local.result', result: { callId: call.callId, ok: true, message: { jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: `fetched ${entry.fetched.map((f) => `${f.status} ${f.bytes.length} B from ${f.url}`).join(', ')}` }] } } } })
+        })()
+        continue
+      }
       const result = m.method === 'initialize' ? { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' } }
         : m.method === 'tools/list' ? { tools: [{ name: 'echo', description: 'Say it back', inputSchema: { type: 'object', properties: { text: { type: 'string' } } }, annotations: { readOnlyHint: true } },
           // a tool that acts (Aside's repl: code in the person's browser)
@@ -179,26 +199,80 @@ describe("an app on alice's computer in each kind of chat", () => {
   })
 })
 
-// docs/decisions/20261126-shared-chat-own-tools.md: the owner asked for a vendor reply with team files through their Daum
-// mail in Aside. An app on the computer takes code or a task, never a file's content: a team file handle given to it is
-// refused in plain words before anything reaches the desktop app (in a private chat and a shared one alike), so the AI
-// says so instead of promising an attachment
+// docs/decisions/20261128-local-app-team-file-links.md: the owner asked for a vendor reply with a team quote PDF through
+// their Daum mail in Aside (earlier: "Aside cannot attach", 20261126-shared-chat-own-tools.md). An app on the computer
+// takes code or a task: a handle in quotes there becomes a one-time download link after the card, the app downloads the
+// checked bytes once, and the AI sees the handle again in the answer, never the link
 describe('a team file handed to an app on the computer', () => {
+  const REL = 'shared/handbook.pdf'
+  const code = (handle = `team-file:${REL}`) => `const r = await fetch("${handle}"); await page.locator('e5').setInputFiles([{ name: 'handbook.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await r.arrayBuffer()) }])`
+  const evOf = (turnId: string) => (h.ctx.db.query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool = 'my_aside__repl'").get(turnId) as { summary: string }).summary
   for (const kind of ['private', 'shared'] as const) {
-    test(`${kind} chat: refused plainly, nothing reaches the desktop app`, async () => {
+    test(`${kind} chat: the code gets a one-time link to the checked file; the AI sees only the handle`, async () => {
       const chat = kind === 'private' ? await privateChat() : await projectChat()
-      const r = await ask(from.desk, chat, fake({ tool: 'my_aside__repl', args: { code: 'team-file:projects/falcon/plan.md' }, sayResult: true }))
-      expect(r.content).toContain('a team file cannot be attached through it')
-      expect(callsOf(r.started.turnId).some((s) => s.method === 'tools/call')).toBe(false)
-      const ev = h.ctx.db.query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool = 'my_aside__repl'").get(r.started.turnId) as { summary: string }
-      expect(ev.summary).toContain('refused (attachment: app on the computer)')
+      const r = await ask(from.desk, chat, fake({ tool: 'my_aside__repl', args: { code: code() }, sayResult: true }))
+      // the card named the file (the repl changes something: its card is the consent for the file leaving the team)
+      expect(r.cards.some((c) => c.question.includes('Aside'))).toBe(true)
+      const call = callsOf(r.started.turnId).find((x) => x.method === 'tools/call')!
+      const sent = String(call.args?.code)
+      expect(sent).not.toContain('team-file:')
+      const url = /"(https?:\/\/[^"]+)"/.exec(sent)![1]!
+      expect(url.startsWith(`${h.url.replace(/\/$/, '')}/team-file-links/`)).toBe(true)
+      expect(sent).toBe(code(url))
+      await waitFor(() => !!call.fetched?.length)
+      const got = call.fetched![0]!
+      expect(got.status).toBe(200)
+      expect(got.type).toBe('application/pdf')
+      expect(got.bytes.equals(fs.readFileSync(path.join(h.team, REL)))).toBe(true)
+      // one download only
+      expect(got.again).toBe(404)
+      // the answer as the AI sees it: the handle, never the link
+      expect(r.content).toContain(`200 ${got.bytes.length} B from team-file:${REL}`)
+      expect(r.content).not.toContain('/team-file-links/')
+      expect(evOf(r.started.turnId)).toContain(`team file attached: ${REL}`)
+      expect(JSON.stringify(h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'local_app.file_link' ORDER BY id DESC").get())).toContain(REL)
     })
   }
-  // security review of #647: at any depth and under any name but a file's content
-  test('a handle nested under another argument name is refused too', async () => {
-    const chat = await projectChat()
-    const r = await ask(from.desk, chat, fake({ tool: 'my_aside__repl', args: { code: 'x', opts: { command: ['team-file:projects/falcon/plan.md'] } }, sayResult: true }))
-    expect(r.content).toContain('a team file cannot be attached through it')
+  test('the instructions say how (only where the app is offered), never that it cannot', async () => {
+    const r = await ask(from.desk, await privateChat(), PROBE)
+    expect(parts(r.content).system).toContain(ATTACH_HOW_LOCAL)
+    expect(parts(r.content).system).not.toContain('cannot attach one')
+    const web = await ask(from.web, await privateChat(), PROBE)
+    expect(parts(web.content).system).not.toContain(ATTACH_HOW_LOCAL)
+  })
+  test('a handle without quotes in the middle of the code: refused with how to write it, nothing reaches the app', async () => {
+    const chat = await privateChat()
+    const r = await ask(from.desk, chat, fake({ tool: 'my_aside__repl', args: { code: `fetch(team-file:${REL})` }, sayResult: true }))
+    expect(r.content).toContain('in quotes')
     expect(callsOf(r.started.turnId).some((s) => s.method === 'tools/call')).toBe(false)
+    expect(evOf(r.started.turnId)).toContain('refused (attachment: handle without quotes)')
+  })
+  test('a file the user cannot read: refused as not there, nothing reaches the app', async () => {
+    const chat = await privateChat()
+    const r = await ask(from.desk, chat, fake({ tool: 'my_aside__repl', args: { code: code('team-file:groups/finance/budget.md') }, sayResult: true }))
+    expect(r.content).toContain('there is no team file')
+    expect(callsOf(r.started.turnId).some((s) => s.method === 'tools/call')).toBe(false)
+  })
+  test('a path out of the team folder: refused as not there, nothing reaches the app', async () => {
+    const chat = await privateChat()
+    for (const p of ['../../etc/passwd', '/etc/passwd', 'shared/../../outside.txt']) {
+      const r = await ask(from.desk, chat, fake({ tool: 'my_aside__repl', args: { code: code(`team-file:${p}`) }, sayResult: true }))
+      expect(r.content).toContain('there is no team file')
+      expect(callsOf(r.started.turnId).some((s) => s.method === 'tools/call')).toBe(false)
+    }
+  })
+  test('a link the app did not use is gone when the turn ends (a turn that finished normally)', async () => {
+    const links = getChatRuntime(h.ctx).localRelay.links
+    const chat = await privateChat()
+    // a whole value of another argument gets a link too; this fake app downloads only what its code names
+    const r = await ask(from.desk, chat, fake({ tool: 'my_aside__repl', args: { code: 'void 0', url: `team-file:${REL}` }, sayResult: true }))
+    const call = callsOf(r.started.turnId).find((x) => x.method === 'tools/call')!
+    expect(String(call.args?.url)).toContain('/team-file-links/')
+    await waitFor(() => links.pendingBytes === 0)
+    const token = String(call.args?.url).split('/').pop()
+    expect((await fetch(`${h.url.replace(/\/$/, '')}/team-file-links/${token}`)).status).toBe(404)
+  })
+  test('a link nobody was given, or a made-up one: the same 404', async () => {
+    for (const t of ['x'.repeat(43), 'short']) expect((await fetch(`${h.url.replace(/\/$/, '')}/team-file-links/${t}`)).status).toBe(404)
   })
 })
