@@ -1985,7 +1985,14 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       const officeHosts = new Set<string>()
       const gate = async (href: string): Promise<string | null> => {
         try {
+          const hadSite = profile ? new Set(personSites(rt.db, spec.chatId, spec.userId, person)) : null
           const how = await gateUrl(rt.db, spec.chatId, href, person, { turnId: spec.turnId, userId: spec.userId })
+          // "Always allow this site" pressed on the address card now, for a call in a profile: kept for that profile too
+          // (one answer, not a second card for the same site there)
+          if (profile && hadSite && how === 'confirmed') {
+            const site = siteOf(href)
+            if (site && !hadSite.has(site) && personSites(rt.db, spec.chatId, spec.userId, person).includes(site) && !coversTeam(rt.ctx, site) && addLinkSite(rt.db, profile.linkId, site)) profile.sites.push(site)
+          }
           // an address "Allow all websites" opened is named in the audit line (plan §3)
           if (how === 'all') allSites = true
           if (!profile && (how === 'site' || how === 'all')) { const site = siteOf(href); if (site) sites.add(site) }
@@ -2116,7 +2123,6 @@ const CHROME_SITE_ASKS = 3
  */
 async function askChromeSite(exec: TurnExec, person: TurnPerson, profile: TurnExec['chromeProfiles'][number], need: NonNullable<BrowserResult['needSite']>, sites: Set<string>, office: Set<string>): Promise<string | null> {
   const { rt, spec } = exec
-  void person
   const host = need.host.toLowerCase().replace(/^www\./, '')
   const keep = teamAllowsAlways(rt.db) && !confidentialChat(rt.db, spec.chatId)
   const url = `https://${host}/`
@@ -2142,6 +2148,9 @@ async function askChromeSite(exec: TurnExec, person: TurnPerson, profile: TurnEx
   if (d !== 'once' && d !== 'always') return `The user did not allow ${host} in ${where}. Do not try that site there again; tell the user what you could not do.`
   // an Always is kept for this profile and site only (Rule A: it holds in every chat and the person's scheduled runs)
   if (d === 'always' && site) {
+    // ...and as the person's own site for the address check, so its next plain address asks no second card (it never
+    // opens anything in another profile: each profile hears only its own list)
+    allowSiteFromDevice(rt.db, spec.chatId, spec.userId, person, host, spec.turnId)
     if (addLinkSite(rt.db, profile.linkId, site)) auditLog(rt.db, { actor: spec.userId, action: 'ai.always_allow', target: spec.userId, detail: { kind: 'chrome_site', site, profile: profile.linkId, on: true, via: 'card', turnId: spec.turnId } })
     profile.sites.push(site)
     sites.add(site)

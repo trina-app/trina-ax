@@ -43,7 +43,9 @@
 - **Rule, sites (Rule A):** an Always on the Chrome site card is kept per profile and site (`chrome_link_sites`) and
   holds in every chat and scheduled run. The extension has no card: a call on a site nobody allowed comes back
   `site_needed`, the server shows the existing `browser_site` card in the chat, keeps an Always, and sends the call
-  again; a scheduled run gets a refusal saying how to allow it. A scheduled task's own instruction counts as the
+  again; a scheduled run gets a refusal saying how to allow it. One card per site (QA, 2026-11-28): an Always on the
+  address card for a call in a profile is kept for that profile, and an Always on the Chrome card is also the person's
+  site for the address check (it opens nothing in another profile). A scheduled task's own instruction counts as the
   person's OK for the buying, sending or deleting it names. Hard blocks the extension applies whatever the server says (this
   browser has the person's real cookies, unlike the desktop pane's own session): every address of the team (requests
   to it from a driven tab are cancelled too), account-security and password pages, browser and extension pages,

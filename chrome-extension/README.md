@@ -94,7 +94,7 @@ Needs a Chrome Web Store developer account (one-time USD 5 fee): the owner's dec
 2. `bun chrome-extension/build.ts --zip`; upload `release/<artifactBase>-chrome-<version>.zip` as a new item.
 3. Store listing: paste from [store/listing-en.md](store/listing-en.md) (and add the Korean listing from
    [store/listing-ko.md](store/listing-ko.md)); upload `store/store-icon-128.png`, `store/promo-small-440x280.png`
-   and at least one 1280x800 screenshot (from QA).
+   and the 1280x800 screenshots in [store/screenshots/](store/screenshots/) (en-*, ko-* for the Korean listing).
 4. Privacy practices tab: paste from [store/privacy-practices.md](store/privacy-practices.md); link the privacy policy
    (https://ax.trina.app/privacy or the site's current policy page).
 5. Distribution: public or unlisted (unlisted until the first customers try it), all regions.
