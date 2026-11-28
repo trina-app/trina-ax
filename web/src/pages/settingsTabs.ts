@@ -67,11 +67,16 @@ export function settingsTabs(withBrowser: boolean, withCredentials = false, with
 const GUEST_HIDDEN = new Set(['browser', 'allowances', 'connectors', 'ai-apps', 'dev-env-sites', 'memory', 'export'])
 const GUEST_AI_OFF_HIDDEN = new Set(['usage', 'providers'])
 
-/** Is there a Browser section: inside a desktop app that offers its site setting (the only client whose AI has the
- * browser); elsewhere only while the person's "Allow all websites" for the AI's web reads is on (Me.user.webAllowAll)
- * and the team allows it (Me.team.webAllowAll), so the choice can be turned off where it was turned on (an address card). */
-export const browserTabShown = (desktopBridge: boolean, teamWebAllowAll: boolean | undefined, ownWebAllowAll?: boolean) =>
-  desktopBridge || (teamWebAllowAll === true && ownWebAllowAll === true)
+/** Is there a Browser section: inside a desktop app that offers its site setting (the app's own browser); on a computer
+ * for "Your Chrome" (`chromeHere`: the AI's browser in the person's own Chrome, components/settings/ChromeLink.tsx);
+ * elsewhere only while the person's "Allow all websites" for the AI's web reads is on (Me.user.webAllowAll) and the team
+ * allows it (Me.team.webAllowAll), so the choice can be turned off where it was turned on (an address card). */
+export const browserTabShown = (desktopBridge: boolean, teamWebAllowAll: boolean | undefined, ownWebAllowAll?: boolean, chromeHere = false) =>
+  desktopBridge || chromeHere || (teamWebAllowAll === true && ownWebAllowAll === true)
+
+/** "Your Chrome" in Settings › Browser: on a computer (a desktop browser or the desktop app), never a phone (the phone
+ * app or a phone-wide window) and never a free-roam demo (lib/freeRoam.ts). A guest has no Browser section at all. */
+export const chromeLinkHere = (o: { phone: boolean; phoneApp: boolean; freeRoam: boolean }) => !o.phone && !o.phoneApp && !o.freeRoam
 
 /** Whether the search box finds a section: by its name or by the words of what is inside it ("비밀번호" finds 보안·기기).
  * `q` is the search text, trimmed and in lower case. */

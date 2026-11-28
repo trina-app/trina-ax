@@ -306,6 +306,29 @@ pk__apt() {  # apt-get ARG...
     DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 apt-get "$@" >/dev/null
   fi
 }
+# pk__heartbeat WHAT COMMAND...: COMMAND; with PK_APT_HEARTBEAT=<seconds> (an installer a person watches: apt prints
+# nothing for many minutes on a new server and looks hung, QA on WSL2 2026-11-27) a line on stderr every that many
+# seconds while it runs: "packages: still installing … (3 min)". COMMAND runs in the foreground (Ctrl-C reaches it as
+# before); the line stops with it, or when this shell is gone.
+pk__heartbeat() {
+  local what=$1 s=${PK_APT_HEARTBEAT:-} w rc=0 top=$$
+  shift
+  # (never in a sync: no one watches it, and its caller keeps what apt says for its note)
+  [[ "$s" =~ ^[1-9][0-9]*$ ]] && [ "${PK_APT_UNIT:-}" != 1 ] || { "$@"; return; }
+  ( trap 'kill $sp 2>/dev/null; exit 0' TERM
+    n=0 sp=''
+    while :; do
+      sleep "$s" & sp=$!; wait $sp
+      kill -0 "$top" 2>/dev/null || exit 0
+      n=$((n + s))
+      if [ "$n" -ge 60 ]; then echo "packages: still $what … ($((n / 60)) min)" >&2; else echo "packages: still $what … (${n} s)" >&2; fi
+    done ) &
+  w=$!
+  "$@" || rc=$?
+  kill -TERM "$w" 2>/dev/null || true
+  wait "$w" 2>/dev/null || true
+  return $rc
+}
 # pk_apt_install [APT-OPTION...] -- PACKAGE...: apt-get update (once per run), a free-space check, and install without
 # recommends. Both wait up to 5 minutes for dpkg's lock (unattended-upgrades). Exit 3: not enough disk space.
 # PK_APT_SNAPSHOT=<YYYYMMDDTHHMMSSZ> installs from that snapshot of the archive (apt 2.7+; used on Debian 13, the image's
@@ -322,11 +345,11 @@ pk_apt_install() {
   fi
   export DEBIAN_FRONTEND=noninteractive
   if [ -z "${PK_APT_UPDATED:-}" ]; then
-    pk__apt update -qq -o DPkg::Lock::Timeout=300 ${snap[@]+"${snap[@]}"} || { pk_err "apt-get update failed"; return 1; }
+    pk__heartbeat "reading the package lists" pk__apt update -qq -o DPkg::Lock::Timeout=300 ${snap[@]+"${snap[@]}"} || { pk_err "apt-get update failed"; return 1; }
     PK_APT_UPDATED=1
   fi
   if ! why=$(pk_apt_space ${snap[@]+"${snap[@]}"} "$@"); then pk_err "$why; nothing installed"; return 3; fi
-  pk__apt install -y -qq --no-install-recommends -o DPkg::Lock::Timeout=300 ${snap[@]+"${snap[@]}"} ${opts[@]+"${opts[@]}"} "$@" \
+  pk__heartbeat "installing packages" pk__apt install -y -qq --no-install-recommends -o DPkg::Lock::Timeout=300 ${snap[@]+"${snap[@]}"} ${opts[@]+"${opts[@]}"} "$@" \
     || { pk_err "apt-get install failed: $*$([ "${PK_APT_UNIT:-}" != 1 ] || echo " (log: $PK_APT_LOG)")"; return 1; }
   # the downloaded .deb files are not needed after the install (about 800 MB on a server that installed the browser and
   # its libraries); a failed clean changes nothing for the install

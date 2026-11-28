@@ -263,6 +263,15 @@ export const TEXT = {
     'Layanan ini hanya mengizinkan login dari aplikasi yang sudah disetujuinya, dan aplikasi ini belum disetujui. Hanya layanan itu yang bisa mengubahnya, jadi untuk sekarang layanan ini belum bisa dihubungkan di sini.',
     "このサービスは承認したアプリだけにログインを許可しており、このアプリはまだ承認されていません。変更できるのはサービス側だけのため、今はここで接続できません。",
     "Este servicio solo permite iniciar sesión a las aplicaciones que ha aprobado, y todavía no ha aprobado esta. Solo el servicio puede cambiarlo, así que por ahora no se puede conectar aquí.", "这项服务只允许它批准过的应用登录，而这个应用还没有获得批准。只有该服务能改变这一点，所以目前无法在这里连接。"),
+  // the service takes this server's client metadata document but every other client was refused, and the document can
+  // be offered only from the team's public https address: the team was opened at a local or http one (a WSL server at
+  // 127.0.0.1, WSL QA 2026-11-28 with Indeed). The fix is that address, not the service. {name}: the connection's name
+  oauth_needs_https: t('{name}은(는) 팀의 https 주소에서만 로그인할 수 있어요. 지금은 https가 아닌 주소(이 PC의 127.0.0.1 등)로 팀을 열었어요. 팀을 https 주소로 열고 다시 연결해 주세요. 아직 https 주소가 없으면 관리자 › 시스템 › 연결에서 중계 서버를 켜거나 터널을 만들어 주세요.',
+    "{name} signs in only from the team's https address, and the team is open at an address without https now (such as 127.0.0.1 on this PC). Open the team at its https address and connect again. Without one yet, turn on the relay in Admin › System › Connection or set up a tunnel.",
+    '{name} hanya bisa login dari alamat https tim, dan tim sekarang dibuka di alamat tanpa https (misalnya 127.0.0.1 di PC ini). Buka tim di alamat https-nya lalu hubungkan lagi. Jika belum ada, aktifkan relay di Admin › Sistem › Koneksi atau siapkan tunnel.',
+    "{name}にはチームのhttpsアドレスからしかログインできませんが、今はhttpsでないアドレス（このPCの127.0.0.1など）でチームを開いています。チームをhttpsアドレスで開いて、もう一度接続してください。まだない場合は、「管理 › システム › 接続」で中継を有効にするか、トンネルを用意してください。",
+    "{name} solo permite iniciar sesión desde la dirección https del equipo, y ahora el equipo está abierto en una dirección sin https (como 127.0.0.1 en este PC). Abra el equipo en su dirección https y vuelva a conectar. Si aún no tiene una, active la retransmisión en Administración › Sistema › Conexión o configure un túnel.",
+    "{name}只能从团队的 https 地址登录，而现在团队是在没有 https 的地址（比如这台电脑上的 127.0.0.1）打开的。请用 https 地址打开团队后再连接。如果还没有 https 地址，请在 管理 › 系统 › 连接 中开启中继，或设置隧道。"),
   // the service refused every app for the team's https address but takes one on the person's computer (Canva, Intercom,
   // Square: oauth.ts loopbackClient), and this sign-in came from the web or the phone app: the desktop app connects it.
   // {name}: the connection's name
@@ -514,7 +523,7 @@ export const demoHiggsfieldToolWord = (name: string, L: Locale): string | null =
 /** a reason a connection check failed (integrations.last_error holds "<reason>", "<reason>:<status>" or, for no_access,
  * "no_access:<status>:<the service's words>": refusal.ts codeParts) */
 export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'call_idle' | 'call_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'scope' | 'no_access' | 'no_secret' | 'sign_in' | 'redirect'
-  | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_needs_team_app' | 'oauth_approved_apps_only' | 'oauth_desktop_only' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe' | 'local_offline' | 'local_declined' | 'local_confirm' | 'local_failed' | 'local_missing' | 'local_share' | 'local_unsupported' | 'local_unsafe'
+  | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_needs_team_app' | 'oauth_approved_apps_only' | 'oauth_desktop_only' | 'oauth_needs_https' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe' | 'local_offline' | 'local_declined' | 'local_confirm' | 'local_failed' | 'local_missing' | 'local_share' | 'local_unsupported' | 'local_unsafe'
 
 /** a placeholder and a Korean particle mark right after it ("{name}은(는)"), as the web app's i18n format reads them */
 const PARTICLE_AFTER = new RegExp(`\\{(\\w+)\\}(${KO_PARTICLE_PATTERN})?`, 'g')
@@ -531,7 +540,7 @@ export const say = (key: TextKey, locale: Locale, vars: Record<string, string | 
 /** Reasons whose fix is the connection's address (or that read as such: a reason this server does not know). */
 const ADDRESS_REASONS: ReadonlySet<string> = new Set<Reason>(['unreachable', 'private_address', 'blocked_port', 'redirect', 'not_mcp'])
 /** Reasons whose fix is the connection's key or sign-in. */
-const KEY_REASONS: ReadonlySet<string> = new Set<Reason>(['refused', 'scope', 'no_secret', 'sign_in', 'oauth_unsupported', 'oauth_no_registration', 'oauth_needs_team_app', 'oauth_approved_apps_only', 'oauth_desktop_only', 'oauth_failed'])
+const KEY_REASONS: ReadonlySet<string> = new Set<Reason>(['refused', 'scope', 'no_secret', 'sign_in', 'oauth_unsupported', 'oauth_no_registration', 'oauth_needs_team_app', 'oauth_approved_apps_only', 'oauth_desktop_only', 'oauth_needs_https', 'oauth_failed'])
 
 /**
  * The stored code in words ("refused:401" -> "The service did not accept the key ... (HTTP 401)"), for a reader who can

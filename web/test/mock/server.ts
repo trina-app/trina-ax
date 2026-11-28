@@ -362,6 +362,11 @@ export class MockServer {
   notReadyTold = new Set<string>()
   /** people whose "Allow all websites" for the AI's web reads is on (PUT /api/me/web-access; server/src/tools/web-allow-all.ts) */
   webAccess = new Set<string>()
+  /** the AI's browser in the person's own Chrome (shared/src/api/chrome.ts): their linked Chromes, where a desktop-app
+   * turn's browser runs, and the codes the connect page made (POST /__test/chrome seeds links) */
+  chromeLinks = new Map<string, import('@mycel/shared/api').ChromeLink[]>()
+  chromeTargets = new Map<string, 'app' | 'chrome'>()
+  chromeCodes: { userId: string; challenge: string; code: string }[] = []
   /** the team lets members turn it on: both team keys, like the server */
   webTeam() { return this.settings.browserAllowAll && this.settings.webAllowAll }
   passwords = new Map<string, string>()
@@ -700,6 +705,9 @@ export class MockServer {
     this.generation++
     this.widening = null
     this.notReadyTold = new Set()
+    this.chromeLinks = new Map()
+    this.chromeTargets = new Map()
+    this.chromeCodes = []
     this.fileList = mockFileList()
     this.presence = new Map()
     this.presenceSent = []
@@ -1108,9 +1116,10 @@ export class MockServer {
     if (!w) return null
     const from = `users/${userId}/${FROM_COMPUTER_DIR}/`
     const files = [...this.files].some(([p, n]) => n.type === 'file' && p.startsWith(from))
-    // "all set" once the counted rows are done (the owner's card: tools only; a member's: tools, hi and asked)
+    // "all set" once the counted rows are done (the owner's card: tools and asked, and the team setup over: setupOpen
+    // as seeded; a member's: tools, hi and asked), as the server's countedDone
     const steps = { ...w.steps, files }
-    const allSet = w.allSet || (steps.tools !== undefined && (w.kind === 'owner' ? !!steps.tools : !!steps.tools && steps.hi && steps.asked))
+    const allSet = w.allSet || (steps.tools !== undefined && (w.kind === 'owner' ? !w.setupOpen && !!steps.tools && steps.asked : !!steps.tools && steps.hi && steps.asked))
     return { ...w, steps, allSet }
   }
   memberWelcomeAnswer(userId: string, role: string) {
@@ -3013,6 +3022,34 @@ export class MockServer {
       } else this.webAccess.delete(c.user.id)
       this.publish(WEB_ACCESS_CHANGED)
       return { allowAll: this.webAccess.has(c.user.id) }
+    },
+    // like server/src/routes/chrome.ts: the person's own links only; pair needs a signed-in member (a guest: 403)
+    chromeLinks: (c) => ({ links: this.chromeLinks.get(c.user.id) ?? [], target: this.chromeTargets.get(c.user.id) ?? 'app' }),
+    chromeUnlink: (c) => {
+      const mine = this.chromeLinks.get(c.user.id) ?? []
+      if (!mine.some((l) => l.id === c.params.id)) fail('not_found', 404, 'Not found')
+      this.chromeLinks.set(c.user.id, mine.filter((l) => l.id !== c.params.id))
+      return undefined
+    },
+    chromeUpdateLink: (c) => {
+      const mine = this.chromeLinks.get(c.user.id) ?? []
+      const l = mine.find((x) => x.id === c.params.id)
+      if (!l) fail('not_found', 404, 'Not found')
+      if (c.body.label !== undefined) l!.label = c.body.label
+      if (c.body.onlyListed !== undefined) l!.onlyListed = c.body.onlyListed
+      if (c.body.addSite && !l!.sites.includes(c.body.addSite)) l!.sites = [...l!.sites, c.body.addSite].sort()
+      if (c.body.removeSite) l!.sites = l!.sites.filter((x) => x !== c.body.removeSite)
+      return l
+    },
+    chromeTarget: (c) => {
+      this.chromeTargets.set(c.user.id, c.body.target)
+      return undefined
+    },
+    chromePair: (c) => {
+      if (c.user.role === 'guest') fail('forbidden', 403, 'Not for guests')
+      const code = crypto.randomUUID().replace(/-/g, '').padEnd(43, 'A').slice(0, 43)
+      this.chromeCodes.push({ userId: c.user.id, challenge: c.body.challenge, code })
+      return { code, expiresAt: new Date(Date.now() + 5 * 60_000).toISOString() }
     },
     myUsage: (c) => {
       const mine = c.user.id === 'olga'
@@ -6517,7 +6554,15 @@ export class MockServer {
       return body.path === undefined ? Response.json(Object.fromEntries(this.coverage)) : new Response(null, { status: route ? 204 : 404 })
     }
     if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined, withAdmin: !!body.withAdmin })
-    else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
+    else if (p === '/__test/chrome') {
+      // {username?, links: [{label, online?, lastSeenAt?, sites?, onlyListed?}], target?}: that person's (else everyone's)
+      // linked browser profiles
+      const links = (Array.isArray(body.links) ? body.links : []) as { label: string; email?: string; browser?: string; online?: boolean; lastSeenAt?: string | null; sites?: string[]; onlyListed?: boolean }[]
+      for (const u of this.users.filter((x) => body.username === undefined || x.username === body.username)) {
+        this.chromeLinks.set(u.id, links.map((l, i) => ({ id: `chrome-${u.id}-${i}`, label: l.label, email: l.email ?? null, browser: l.browser ?? null, createdAt: now(), lastSeenAt: l.lastSeenAt ?? null, online: l.online === true, version: '0.1.0', sites: l.sites ?? [], onlyListed: l.onlyListed === true })))
+        if (body.target === 'app' || body.target === 'chrome') this.chromeTargets.set(u.id, body.target)
+      }
+    } else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
     else if (p === '/__test/file-list') this.fileList = { ...this.fileList, ...(body as Partial<FileListStatus>) }
     else if (p === '/__test/handover') {
       if (typeof body.flag === 'boolean') this.handover.flag = body.flag

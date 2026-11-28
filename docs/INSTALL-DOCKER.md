@@ -266,7 +266,7 @@ docker compose down -v     # also deletes the volume: all team data. Only after 
 | `the engine sandbox (bubblewrap) cannot start here` | A `security_opt` line is missing, or an Ubuntu 24.04 host or Colima ([Ubuntu 24.04 hosts](#ubuntu-2404-hosts)). The container waits after this message; fix it, then `docker compose up -d --force-recreate` |
 | `... has no setgid bit` | `cap_add: FSETID` is missing. Add it, start once with `TRINA_AX_REINSTALL=1` |
 | `downloading https://downloads.claude.ai/... failed` | No outbound https at first start. The container tries again (restart policy) |
-| Installer warning `this kernel has no Landlock in its LSM list` | The container cannot read `/sys/kernel/security`. Check Landlock with `docker compose exec trina-ax runuser -u axagent -- /var/lib/mycel/root/mycel-sandbox probe`: `landlockAbi` must be 1 or more |
+| Installer warning `this kernel offers no Landlock` | The sandbox helper found no Landlock in the host's kernel (installers up to 0.20 read `/sys/kernel/security/lsm` instead and warned whenever a container could not read it). Check Landlock with `docker compose exec trina-ax runuser -u axagent -- /var/lib/mycel/root/mycel-sandbox probe`: `landlockAbi` must be 1 or more |
 | `opening seccomp profile (./seccomp.json) failed` | Run `docker compose` inside the `docker/` folder: the profile path is read from the current folder |
 | `kernel.yama.ptrace_scope is 0` | On the host: `sysctl -w kernel.yama.ptrace_scope=1` and add it to `/etc/sysctl.d/` |
 

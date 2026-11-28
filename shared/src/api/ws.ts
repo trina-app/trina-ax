@@ -243,7 +243,15 @@ export const AskUserRequest = z.object({
 /** browser wants to open an office-network (private) address: ask once / always / deny */
 export const BrowserSiteRequest = z.object({ kind: z.literal('browser_site'), requestId: z.string(), url: z.string(), host: z.string(), reason: z.string().optional(),
   /** the team's "Always allow" switch is off (Admin › Team AI settings): the card offers no Always; older servers omit it */
-  noAlways: z.literal(true).optional() })
+  noAlways: z.literal(true).optional(),
+  /** a public site the AI wants to use in the person's own Chrome (docs/decisions/20261128-trina-in-chrome.md); absent: an
+   * office-network address (the in-app browser's office card) */
+  chrome: z.literal(true).optional(),
+  /** the site "Always allow" keeps (shared/src/web-site.ts siteToKeep), named on its button; absent: no Always for good
+   * here (an IP address, a public suffix, a random-looking name) */
+  site: z.string().max(260).optional(),
+  /** the name of the person's browser profile the site would open in (`chrome`) */
+  profile: z.string().max(60).optional() })
 /** The AI filled in a connection for the person to finish (connect_service, docs/INTEGRATIONS.md "Connecting from a chat").
  * The card shows where a key or sign-in goes (`service.host`). The person pastes the key into the card or signs in; the
  * key goes from the card to POST /api/turns/:id/connect sealed in the browser ('integration.secret'), never through

@@ -14,6 +14,7 @@
 - [Local model-free demo](QUICKSTART.md) · [AI 계정 없이 체험](QUICKSTART.ko.md)
 - [IT handoff](for-admins.md) · [IT 담당자 안내](for-admins.ko.md)
 - [Linux](INSTALL-LINUX.en.md) · [Linux 한국어](INSTALL-LINUX.md)
+- [Windows PC (WSL2)](INSTALL-WINDOWS.md) · [윈도우 PC](INSTALL-WINDOWS.ko.md)
 - [Office Mac](OFFICE.en.md) · [사무실 Mac](OFFICE.md)
 - [Role-account Mac / advanced development](INSTALL.md)
 - [Backup and restore](BACKUP-RESTORE.md) · [Troubleshooting](TROUBLESHOOTING.md) · [Configuration](CONFIGURATION.md)

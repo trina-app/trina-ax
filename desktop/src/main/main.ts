@@ -21,6 +21,8 @@
  *   MYCEL_DESKTOP_TEST_STORE   1: the first-run and create screens as in the Mac App Store build (no create row, no plans)
  *   MYCEL_DESKTOP_TEST_CREATE_POLL_MS  how often the starting screen asks the console (main/create-team.ts)
  *   MYCEL_DESKTOP_TEST_OFFER_RETRY_MS  how soon an unknown "Create a team for free" answer is asked again (unpacked only)
+ *   MYCEL_CHROME_HOST_HELPER, MYCEL_CHROME_REGISTER_HOST, MYCEL_CHROME_DATA_DIRS, MYCEL_CHROME_BINARIES  app-led
+ *                              linking of the <app> in Chrome extension (main/chrome-profiles.ts)
  *   MYCEL_DESKTOP_TEST_PASSWORD_STORE  Linux: gnome-libsecret | kwallet5 | kwallet6, the keyring Chromium uses (Playwright's
  *                              Electron loader sets --password-store=basic, Electron's fixed-key fallback, which "Apps on
  *                              your computer" refuses to seal settings with)
@@ -63,12 +65,13 @@ import { handoffLog, setHandoffLogDir } from './handoff-log'
 import { ConsoleSignIn } from './console-signin'
 import { CreateTeam } from './create-team'
 import { consoleOrigin, createLinks } from '../common/create-team'
-import { APP_PRIVACY_PATH, APP_TERMS_PATH } from '@mycel/shared/cloud-protocol/owner-claim'
+import { APP_PRIVACY_PATH, APP_TERMS_PATH, isAppFinishSetupLink } from '@mycel/shared/cloud-protocol/owner-claim'
 import { execFile } from 'node:child_process'
 /** macOS's own tool that (re)registers an app bundle with LaunchServices */
 const LSREGISTER = '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister'
 import { LocalAppsHost } from './local-apps'
 import { DictationHost } from './dictation'
+import { ChromeProfilesHost } from './chrome-profiles'
 
 // the folder of the bundled main.cjs (Bun inlines __dirname at build time, so look for it at run time):
 // packaged = <app.asar>/dist, `electron .` = desktop/dist, `electron dist/main.cjs` = that file's folder
@@ -186,14 +189,17 @@ if (primary && app.isPackaged && process.platform === 'darwin' && !process.mas) 
 }
 /** a link that started the app (Windows, Linux: its command line; macOS: open-url before the window exists) */
 let launchLink: string | null = linkFromArgv(process.argv)
-/** Every link goes to screen ④ (AppWindow.offerLink), never straight to a team. */
+/** Every link goes to screen ④ (AppWindow.offerLink), never straight to a team. `trina-ax://finish-setup` (the console's
+ * and the team pages' way back to a lost owner claim, contract appFinishSetupLink) carries nothing: it runs this app's
+ * own create flow (CreateTeam.finishSetup), which asks the console for the person's own team's claim. */
 function onLink(url: string) {
   if (!win || win.win.isDestroyed()) {
     linkLog('link kept until the window is up', url)
     launchLink = url
     return
   }
-  win.offerLink(url)
+  if (isAppFinishSetupLink(url, LINK_SCHEME)) finishSetup('link')
+  else win.offerLink(url)
   if (win.win.isMinimized()) win.win.restore()
   win.win.show()
   win.win.focus()
@@ -314,6 +320,11 @@ let dictationPage: WebContents | null = null
 const dictation = new DictationHost({
   send: (ev) => { if (dictationPage && !dictationPage.isDestroyed()) dictationPage.send('bridge:dictation-event', ev) },
 })
+// app-led linking of the <app> in Chrome extension (main/chrome-profiles.ts): macOS, not a store build, for now (the
+// helper is a Mac program; Windows and Linux keep the in-profile Connect)
+const chromeProfiles = process.platform === 'darwin' && !storeBuild(process)
+  ? new ChromeProfilesHost({ userData: app.getPath('userData'), dataDirName: PRODUCT.desktopDataDir, dev, execPath: process.execPath, team: () => win?.chromePairTeam() ?? null })
+  : null
 const updater = new DesktopUpdater({
   team: () => (win?.team && win.app ? { id: win.team.id, origin: win.team.origin } : null),
   window: () => win?.win ?? null,
@@ -484,7 +495,7 @@ function registerIpc() {
   // team page bridge (shared/src/desktop-bridge.ts); store: a Mac App Store or Microsoft Store build, where Settings >
   // Apps offers no installer
   ipcMain.on('bridge:info', (e) => {
-    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, downloads: !process.mas, localApps: process.mas ? 0 : LOCAL_APPS_BRIDGE_VERSION, dictation: process.mas ? 0 : dictation.version(), googleSignIn: GOOGLE_SIGNIN_BRIDGE_VERSION, paneVersion: BROWSER_BRIDGE_VERSION, locale: chosenLocale() } : null
+    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, downloads: !process.mas, localApps: process.mas ? 0 : LOCAL_APPS_BRIDGE_VERSION, dictation: process.mas ? 0 : dictation.version(), googleSignIn: GOOGLE_SIGNIN_BRIDGE_VERSION, paneVersion: BROWSER_BRIDGE_VERSION, chromeProfiles: chromeProfiles ? 1 : 0, locale: chosenLocale() } : null
   })
   // voice input on this Mac (main/dictation.ts): the team page's top frame only; the sound comes in as samples, the
   // words go back to that page alone, and a reload or another page ends its recording
@@ -512,6 +523,11 @@ function registerIpc() {
     }
     return dictation.start(dictationLanguage(lang))
   })
+  // app-led Chrome linking (main/chrome-profiles.ts): the team page lists the profiles, opens one, and answers the
+  // app's pair requests (only the page that was asked)
+  ipcMain.handle('bridge:chrome-profiles-list', (e) => (fromApp(e) && chromeProfiles ? chromeProfiles.list() : []))
+  ipcMain.handle('bridge:chrome-profiles-connect', (e, p: unknown) => (fromApp(e) && chromeProfiles && p && typeof p === 'object' ? chromeProfiles.connect(p as { browser: unknown; dir: unknown }) : 'failed'))
+  ipcMain.on('bridge:chrome-pair-answer', (e, id: unknown, r: unknown) => { if (fromApp(e)) chromeProfiles?.answer(e.sender, id, r) })
   // a refused microphone is turned on again in System Settings (a fixed address; the page names nothing)
   ipcMain.on('bridge:mic-settings', (e) => { if (fromApp(e) && process.platform === 'darwin') void shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone').catch(() => {}) })
   ipcMain.on('bridge:dictation-push', (e, id: unknown, samples: unknown) => fromApp(e) && e.sender === dictationPage && typeof id === 'number' && samples instanceof Float32Array && dictation.push(id, samples))
@@ -641,6 +657,9 @@ function registerIpc() {
   ipcMain.handle('bridge:code-return-port', (e) => (fromApp(e) && e.senderFrame && e.senderFrame.origin === win?.team?.origin ? codeReturn.port() : null))
   // the app's key for that team's held sign-in codes (the sha256 of its proof, shared APP_RETURN_KEY_HEADER): the same
   // frame only; the proof itself never leaves the main process but on that team's claim (AppWindow.claimSignIn)
+  // "Get a new link" on the team page of a team with no owner account yet (S5 expired, Google `no_owner`): the top frame
+  // of the team on screen only; it carries nothing, the app asks the console for its own account's claim (finishSetup)
+  ipcMain.on('bridge:finish-team-setup', (e) => { if (fromApp(e) && e.senderFrame && e.senderFrame.origin === win?.team?.origin) finishSetup('page') })
   ipcMain.handle('bridge:code-return-key', (e) => (fromApp(e) && e.senderFrame && e.senderFrame.origin === win?.team?.origin ? codeReturn.key(e.senderFrame.origin) : null))
   ipcMain.handle('bridge:browser-settings', (e) => (fromApp(e) ? (win!.browserSettings() ?? null) : null))
   ipcMain.handle('bridge:browser-access', async (e, v: unknown): Promise<AllowAllOutcome> => {
@@ -762,6 +781,8 @@ async function createWindow() {
     changed: () => win?.createChanged(createTeam?.view().screen !== 'off'),
     openTeam: async (origin, label, path) => { await win?.openCreatedTeam(origin, label, path) },
     pollMs: dev && Number(process.env.MYCEL_DESKTOP_TEST_CREATE_POLL_MS) > 0 ? Number(process.env.MYCEL_DESKTOP_TEST_CREATE_POLL_MS) : undefined,
+    // a development run's tests: a shorter gap after a claim (MYCEL_DESKTOP_TEST_FINISH_GAP_MS), never in a packaged app
+    finishGapMs: dev && Number(process.env.MYCEL_DESKTOP_TEST_FINISH_GAP_MS) > 0 ? { page: Number(process.env.MYCEL_DESKTOP_TEST_FINISH_GAP_MS), link: Number(process.env.MYCEL_DESKTOP_TEST_FINISH_GAP_MS) } : undefined,
   })
   const create = createTeam
   // whether the console offers "Create a team for free" (asked once without a token; asked again later while unknown)
@@ -807,8 +828,24 @@ async function createWindow() {
   if (launchLink) {
     const link = launchLink
     launchLink = null
-    win.offerLink(link)
+    if (isAppFinishSetupLink(link, LINK_SCHEME)) finishSetup('link')
+    else win.offerLink(link)
   }
+}
+
+/** "Get a new link" for a team whose owner account is not made yet. From the team page's own button (`page`, the bridge
+ * call): the owner claim of the account's own team, opened in this window. From a link outside the app (`link`: any web
+ * page can open one): never while the owner setup page (S5) is on screen, and only to the app's own confirm screen
+ * ("You already have a team · Open it"); the claim is asked only by the person's press there. CreateTeam.finishSetup
+ * also ignores one right after a claim, and asks one at a time. */
+function finishSetup(from: 'page' | 'link') {
+  if (!win || win.win.isDestroyed() || !createTeam) return
+  if (from === 'link' && win.showsOwnerSetup()) {
+    handoffLog('finish-setup link ignored: the owner setup page is on screen')
+    return
+  }
+  const skipped = createTeam.finishSetup(from)
+  if (skipped) handoffLog(`finish-setup ignored: ${skipped}`)
 }
 
 // write cookies of the open team (page and browser) to disk before quitting. The window is already closed by
@@ -830,6 +867,7 @@ if (primary) {
       wc.on('will-attach-webview', (ev) => ev.preventDefault())
     })
     registerIpc()
+    chromeProfiles?.start()
     await createWindow()
     updater.start()
     // still the old version after the update was installed twice on quit: one plain line with the download page
@@ -850,7 +888,7 @@ if (primary) {
     if (!win) void createWindow()
   })
   // write cookies of the open team (page and browser) to disk before quitting (lastTeam, flushed: above)
-  app.on('before-quit', () => { debug('before-quit'); localApps?.apps.stopAll(); dictation.stopAll() })
+  app.on('before-quit', () => { debug('before-quit'); localApps?.apps.stopAll(); dictation.stopAll(); chromeProfiles?.stop() })
   app.on('will-quit', (e) => {
     debug('will-quit', flushed)
     // every program an app on this computer started ends with the app: asked to stop first (before-quit, and here),

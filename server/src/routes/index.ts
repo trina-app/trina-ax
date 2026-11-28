@@ -5,6 +5,7 @@ import { peopleRoutes } from './people'
 import { artifactsRoutes } from './artifacts'
 import { authRoutes } from './auth'
 import { browserRoutes } from './browser'
+import { chromeRoutes } from './chrome'
 import { localAppsRoutes } from './local-apps'
 import { chatsRoutes } from './chats'
 import { filesRoutes } from './files'
@@ -54,6 +55,7 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   navFoldersRoutes, // B (a person's own list folders, docs/DECISIONS.md "List folders"); after chats and rooms
   wsRoutes, // B
   browserRoutes, // B
+  chromeRoutes, // B: the AI's browser in the person's own Chrome (docs/decisions/20261128-trina-in-chrome.md); after chats
   localAppsRoutes, // C
   filesRoutes, // C
   artifactsRoutes, // C

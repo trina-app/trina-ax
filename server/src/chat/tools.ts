@@ -54,6 +54,10 @@ import { fromAsker, othersWordsIn, sameBytesAsEvent } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import { globFolderPrefix, inProjectOnly, noSearchPath, SEARCH_LEFT_OUT, searchLeftOutNote, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { StoredStep } from './store'
+import { siteToKeep } from '@mycel/shared/web-site'
+import { chromeWindowOf } from '../chrome/links'
+import { addLinkSite, siteCovers } from '../chrome/store'
+import { coversTeam } from '../chrome/team-hosts'
 import { cardEndShort, endOfText, KEEP_READ_LINE, leftGroupNote, lostAccessNote, regrantLine, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
 import { chatVersionPlace, mayReplace, placeArg, placeWriteRefusal, type TurnFiles } from '../files/service'
 import { allowSiteFromDevice, extractUrls, gateUrl, namedByPerson, personSites, siteOf, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
@@ -411,7 +415,15 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     else if (work && exec.shared?.kind === 'people') add(saveWorkFileTool(exec, where, 'chat'))
   }
   // file_upload only where the window's desktop app runs it (an older one cannot parse the call: chat/turn.ts browserUpload)
-  if (exec.browser) for (const t of PANE_TOOLS) if (t.name !== 'file_upload' || exec.browserUpload) add(browserTool(exec, t.name as BrowserToolName, t.description, t.inputSchema as unknown as Record<string, unknown>), { browser: true })
+  // in the person's own browser profiles every tool also takes `profile` (the AI picks one per call:
+  // docs/decisions/20261128-trina-in-chrome.md)
+  const schemaOf = (t: (typeof PANE_TOOLS)[number]) => {
+    const s = t.inputSchema as unknown as Record<string, unknown>
+    if (exec.browserVia !== 'chrome') return s
+    const props = (s.properties ?? {}) as Record<string, unknown>
+    return { ...s, properties: { ...props, profile: { type: 'string', description: 'Which of the user\'s browser profiles (its name, account email or id, listed in the Browser rules). Omit: the profile this answer used last.' } } }
+  }
+  if (exec.browser) for (const t of PANE_TOOLS) if (t.name !== 'file_upload' || exec.browserUpload) add(browserTool(exec, t.name as BrowserToolName, t.description, schemaOf(t)), { browser: true })
   // per-person tools (external-service connections), built from saved data at the start of the turn
   const prompt: string[] = []
   const context: string[] = []
@@ -1924,7 +1936,24 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
   return {
     name, description, inputSchema,
     async call(rawArgs) {
-      const args = (rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? rawArgs : {}) as Record<string, unknown>
+      let args = (rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? rawArgs : {}) as Record<string, unknown>
+      // the person's own browser profiles: the one this call names (`profile`), else the run's last, else the one whose
+      // sites hold the address, else the only one open (docs/decisions/20261128-trina-in-chrome.md)
+      const chrome = exec.browserVia === 'chrome'
+      let win = exec.browserWindow!
+      let profile: TurnExec['chromeProfiles'][number] | null = null
+      if (chrome) {
+        const picked = pickProfile(exec, name, args)
+        if ('refused' in picked) return { ...text(picked.refused, true), summary: `${name} -> not run (browser profile: ${picked.why})` }
+        profile = picked.profile
+        args = picked.args
+        win = chromeWindowOf(profile.linkId)
+        exec.chromeCurrent = profile.linkId
+        // a scheduled run: no script of the AI's own in the person's signed-in pages (nobody watches it)
+        if (spec.clientKind === 'schedule' && (name === 'javascript_tool' || (name === 'browser_batch' && Array.isArray(args.actions) && args.actions.some((a) => (a as { name?: unknown })?.name === 'javascript_tool')))) {
+          return { ...text('Not run: scripts (javascript_tool) are not used in the user\'s own browser during a scheduled run. Use read_page, find, computer and form_input.', true), summary: `${name} -> refused (scheduled run: no script in Chrome)` }
+        }
+      }
       // a shared chat: the asker's one notice for their browser in this place first, and what its pages bring in joins
       // the answer's read record as theirs (chat/turn.ts confirmSharedBrowser); nothing is opened without it
       if (exec.shared) {
@@ -1951,15 +1980,31 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       // what the person already allowed for this call, told to the desktop app with it so its own site card does not ask
       // again (one Always per person: docs/decisions/20261125-one-site-always-desktop-browser.md): their sites for good,
       // an address the server's card or their own message approved, and office addresses they allowed
-      const sites = new Set<string>(personSites(rt.db, spec.chatId, spec.userId, person))
+      // in the person's Chrome only that profile's own sites count (an Always given in one profile never opens another)
+      const sites = new Set<string>(profile ? [...profile.sites, ...(exec.chromeOnce.get(profile.linkId) ?? [])] : personSites(rt.db, spec.chatId, spec.userId, person))
       const officeHosts = new Set<string>()
       const gate = async (href: string): Promise<string | null> => {
         try {
+          const hadSite = profile ? new Set(personSites(rt.db, spec.chatId, spec.userId, person)) : null
           const how = await gateUrl(rt.db, spec.chatId, href, person, { turnId: spec.turnId, userId: spec.userId })
+          // "Always allow this site" pressed on the address card now, for a call in a profile: kept for that profile too
+          // (one answer, not a second card for the same site there; a profile limited to its list changes only in Settings)
+          if (profile && !profile.onlyListed && hadSite && how === 'confirmed') {
+            const site = siteOf(href)
+            if (site && !hadSite.has(site) && personSites(rt.db, spec.chatId, spec.userId, person).includes(site) && !coversTeam(rt.ctx, site) && addLinkSite(rt.db, profile.linkId, site)) profile.sites.push(site)
+          }
           // an address "Allow all websites" opened is named in the audit line (plan §3)
           if (how === 'all') allSites = true
-          if (how === 'site' || how === 'all') { const site = siteOf(href); if (site) sites.add(site) }
-          if (how === 'confirmed' || how === 'site' || how === 'all' || namedByPerson(rt.db, spec.chatId, href, person, spec.userId)) { const k = paneSiteKey(href); if (k) sites.add(k) }
+          if (!profile && (how === 'site' || how === 'all')) { const site = siteOf(href); if (site) sites.add(site) }
+          // a profile: only an address the person confirmed on the card now or named themselves
+          if (how === 'confirmed' || (!profile && (how === 'site' || how === 'all')) || namedByPerson(rt.db, spec.chatId, href, person, spec.userId)) {
+            const k = paneSiteKey(href)
+            if (k) {
+              sites.add(k)
+              // ...and in a profile for the rest of this answer there (reading the page it opened asks nothing more)
+              if (profile) { const once = exec.chromeOnce.get(profile.linkId) ?? new Set<string>(); once.add(k); exec.chromeOnce.set(profile.linkId, once) }
+            }
+          }
           return null
         } catch (e) {
           if (e instanceof ToolError) return e.message
@@ -2015,17 +2060,27 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       // of the path the AI gave (realtime/browser-uploads.ts)
       const prepare = files && name === 'file_upload'
         ? (callId: string, deadline: number) => {
-          const ids = rt.relay.uploads.issue(files.map((f) => ({ userId: spec.userId, windowId: spec.windowId!, callId, name: f.name, bytes: f.bytes, sha256: f.sha256, expiresAt: deadline, recheck: f.recheck })))
+          const ids = rt.relay.uploads.issue(files.map((f) => ({ userId: spec.userId, windowId: win, callId, name: f.name, bytes: f.bytes, sha256: f.sha256, expiresAt: deadline, recheck: f.recheck })))
           if (!ids) return BUSY_TEXT
           const { files: _named, ...rest } = args
           void _named
           return { ...rest, files: files.map((f, i) => ({ ticket: ids[i]!, name: f.name, size: f.bytes.length, sha256: f.sha256 })) }
         }
         : undefined
+      // each run its own window in the profile, named after the chat (the extension never mixes two runs' tabs)
+      const run = profile ? { id: spec.chatId, title: runTitle(exec) } : null
       const call: BrowserCall = async (tool, a) => {
-        const r = await rt.relay.call({ userId: spec.userId, windowId: spec.windowId!, turnId: spec.turnId, chatId: spec.chatId, tool, args: a, signal: exec.abort.signal, sites: [...sites], office: [...officeHosts], ...(tool === 'file_upload' && prepare ? { prepare } : {}) })
-        keepDeviceAlways(exec, person, r.always)
-        return tool === 'file_upload' ? oldAppResult(r) : r
+        // a site the person's Chrome needs and nobody allowed: their card here, then the call again (a few sites at most)
+        for (let asked = 0; ; asked++) {
+          const r = await rt.relay.call({ userId: spec.userId, windowId: win, turnId: spec.turnId, chatId: spec.chatId, tool, args: a, signal: exec.abort.signal, sites: [...sites], office: [...officeHosts], ...(run ? { run } : {}), ...(tool === 'file_upload' && prepare ? { prepare } : {}) })
+          // what a Chrome says it was allowed is never kept (its Always is the server's card, per profile)
+          if (!profile) keepDeviceAlways(exec, person, r.always)
+          if (!profile || !r.needSite || asked >= CHROME_SITE_ASKS) return tool === 'file_upload' ? oldAppResult(r) : r
+          const no = await askChromeSite(exec, person, profile, r.needSite, sites, officeHosts)
+          if (no) return { ...r, error: no }
+          // a batch ran its steps before the one that needed the site: it is not run again from the start
+          if (tool === 'browser_batch') return { ...r, error: `The user allowed ${r.needSite.host}. The batch stopped before the step that needed it; run the remaining steps again.` }
+        }
       }
       const g = await guardedBrowserCall(name, args, call, spec.locale, exec.redactor())
       if (g.refused) return { ...text(g.text, true), summary: g.summary }
@@ -2054,6 +2109,110 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       return { content, isError: !r.ok, summary: `${name} -> ${r.ok ? 'ok' : 'error: ' + (r.error ?? '').slice(0, 200)}${guardSummary(g)}${allSites ? ' (all websites allowed)' : ''}${files ? ` (${files.length} file${files.length === 1 ? '' : 's'} ${r.ok ? 'attached' : 'offered'}: ${uploadSummary(files)})` : ''}` }
     },
   }
+}
+
+/** a call asks the person about at most this many sites in a row in their Chrome (a page that keeps sending it on to new
+ * sites stops here) */
+const CHROME_SITE_ASKS = 3
+
+/**
+ * A site the person's Chrome needs for a call and nobody allowed (BrowserResult.needSite): the site card in the chat,
+ * as the desktop's own card asks (one Always per person: user_allowed_sites, Rule A). An office-network address gets
+ * the office card and its grant (browser_site_grants). null: allowed (added to `sites` / `office` for the call and the
+ * rest of the answer); else what the AI is told.
+ */
+async function askChromeSite(exec: TurnExec, person: TurnPerson, profile: TurnExec['chromeProfiles'][number], need: NonNullable<BrowserResult['needSite']>, sites: Set<string>, office: Set<string>): Promise<string | null> {
+  const { rt, spec } = exec
+  const host = need.host.toLowerCase().replace(/^www\./, '')
+  const keep = teamAllowsAlways(rt.db) && !confidentialChat(rt.db, spec.chatId)
+  const url = `https://${host}/`
+  const where = `the user's browser profile "${profile.label}"`
+  // limited to its own list: nothing else is asked there
+  if (profile.onlyListed && !need.office) return `Not opened: ${where} is limited to its own sites, and ${host} is not one of them. Use another profile, or tell the user they can add the site to that profile in Settings › Browser.`
+  // nobody watches a scheduled run: only what the profile already allows
+  if (spec.clientKind === 'schedule') return `Not opened: ${host} is not allowed in ${where}, and nobody can answer a question during a scheduled run. Tell the user: open it once in a chat and press "Always allow" for that profile (or add it in Settings › Browser), and the task can use it from then on.`
+  if (need.office) {
+    if (exec.allowedHosts.has(host) || (keep && rt.siteGranted(spec.userId, host))) { office.add(host); sites.add(host); return null }
+    const d = await exec.waitForPerson({ kind: 'browser_site', requestId: uuidv7(), url, host, reason: tr('browserSite', spec.locale, { host }), ...(keep ? {} : { noAlways: true as const }) }, { window: spec.windowId, timeoutMs: rt.askUserTimeoutMs() })
+    if (d !== 'once' && d !== 'always') return `The user did not allow opening ${host} (an office-network address) in their Chrome. Stop and tell the user what you could not do.`
+    if (d === 'always' && keep) rt.grantSite(spec.userId, host)
+    else exec.allowedHosts.add(host)
+    office.add(host); sites.add(host)
+    return null
+  }
+  // the team's own address or the hosting service: never (the extension blocks them too)
+  if (coversTeam(rt.ctx, host)) return `Not opened: ${host} is this team's own address or the hosting service's, which the AI never uses in the user's browser. Use the team's own tools instead.`
+  const kept = keep ? siteToKeep(host) : null
+  const site = kept && !coversTeam(rt.ctx, kept) ? kept : null
+  const d = await exec.waitForPerson({ kind: 'browser_site', requestId: uuidv7(), url, host, chrome: true, profile: profile.label, reason: tr('chromeSite', spec.locale, { host, profile: profile.label }), ...(site ? { site } : { noAlways: true as const }) }, { window: spec.windowId, timeoutMs: rt.askUserTimeoutMs() })
+  if (d !== 'once' && d !== 'always') return `The user did not allow ${host} in ${where}. Do not try that site there again; tell the user what you could not do.`
+  // an Always is kept for this profile and site only (Rule A: it holds in every chat and the person's scheduled runs)
+  if (d === 'always' && site) {
+    // ...and as the person's own site for the address check, so its next plain address asks no second card (it never
+    // opens anything in another profile: each profile hears only its own list)
+    allowSiteFromDevice(rt.db, spec.chatId, spec.userId, person, host, spec.turnId)
+    if (addLinkSite(rt.db, profile.linkId, site)) auditLog(rt.db, { actor: spec.userId, action: 'ai.always_allow', target: spec.userId, detail: { kind: 'chrome_site', site, profile: profile.linkId, on: true, via: 'card', turnId: spec.turnId } })
+    profile.sites.push(site)
+    sites.add(site)
+    return null
+  }
+  const once = exec.chromeOnce.get(profile.linkId) ?? new Set<string>()
+  once.add(host)
+  exec.chromeOnce.set(profile.linkId, once)
+  sites.add(host)
+  return null
+}
+
+/** The run's window title in the person's Chrome: the chat's name (the person's or the AI's title), short. */
+function runTitle(exec: TurnExec): string {
+  let t = ''
+  try { t = (exec.rt.db.query('SELECT title FROM chats WHERE id = ?').get(exec.spec.chatId) as { title: string | null } | null)?.title ?? '' } catch { t = '' }
+  return [...(t.trim() || 'Chat')].slice(0, 30).join('')
+}
+
+/** Strip `profile` from a call's input (and a batch's actions): what the extension gets has none. */
+function withoutProfile(args: Record<string, unknown>): Record<string, unknown> {
+  const { profile: _p, ...rest } = args
+  void _p
+  if (Array.isArray(rest.actions)) rest.actions = rest.actions.map((a) => a && typeof a === 'object' && (a as { input?: unknown }).input && typeof (a as { input: unknown }).input === 'object' ? { ...(a as object), input: withoutProfile((a as { input: Record<string, unknown> }).input) } : a)
+  return rest
+}
+
+/**
+ * Which of the person's browser profiles a call goes to: the `profile` it names (name or id; a batch's own or its first
+ * action's), else the profile this run used last, else the one whose sites hold the call's address (only when exactly
+ * one does), else the only one open. A named or pinned profile that is not open is refused, never swapped for another.
+ */
+function pickProfile(exec: TurnExec, tool: string, raw: Record<string, unknown>): { profile: TurnExec['chromeProfiles'][number]; args: Record<string, unknown> } | { refused: string; why: string } {
+  const ps = exec.chromeProfiles
+  const names = ps.map((p) => `"${p.label}"`).join(', ')
+  let asked = typeof raw.profile === 'string' ? raw.profile.trim() : ''
+  if (!asked && tool === 'browser_batch' && Array.isArray(raw.actions)) {
+    for (const a of raw.actions as { input?: { profile?: unknown } }[]) if (typeof a?.input?.profile === 'string') { asked = a.input.profile.trim(); break }
+  }
+  const args = withoutProfile(raw)
+  const ready = (p: TurnExec['chromeProfiles'][number]) => p.online && exec.rt.chrome.online(p.linkId)
+  if (asked) {
+    const k = asked.toLowerCase()
+    const p = ps.find((x) => x.linkId === asked) ?? ps.find((x) => x.label.toLowerCase() === k) ?? (ps.filter((x) => x.email?.toLowerCase() === k).length === 1 ? ps.find((x) => x.email?.toLowerCase() === k) : undefined)
+    if (!p) return { refused: `No browser profile named "${asked.slice(0, 80)}". The user's profiles: ${names}.`, why: 'unknown' }
+    if (!ready(p)) return { refused: `The browser profile "${p.label}" is not open now (its browser is closed or offline). Do not use another profile instead; tell the user to open it, or ask which profile to use.`, why: 'offline' }
+    return { profile: p, args }
+  }
+  const last = exec.chromeCurrent ? ps.find((x) => x.linkId === exec.chromeCurrent) : undefined
+  if (last && ready(last)) return { profile: last, args }
+  const hosts = urlsOf(tool, args).map((u) => { try { return new URL(/^[a-z]+:\/\//i.test(u) ? u : `https://${u}`).hostname } catch { return '' } }).filter(Boolean)
+  if (hosts.length) {
+    const pinned = ps.filter((p) => siteCovers(p.sites, hosts[0]!))
+    if (pinned.length === 1) {
+      if (!ready(pinned[0]!)) return { refused: `The address belongs to the browser profile "${pinned[0]!.label}", which is not open now. Do not use another profile instead; tell the user to open it.`, why: 'pinned offline' }
+      return { profile: pinned[0]!, args }
+    }
+  }
+  const open = ps.filter(ready)
+  if (open.length === 1) return { profile: open[0]!, args }
+  if (!open.length) return { refused: 'None of the user\'s browser profiles is open now. Tell the user to open their browser.', why: 'none open' }
+  return { refused: `Several browser profiles are open (${open.map((p) => `"${p.label}"`).join(', ')}): pass \`profile\` with the one whose account this step needs. If the task does not say which account, ask the user once (ask_user).`, why: 'which one' }
 }
 
 /** The name the desktop app hears for an allowed address: the host in lower case without "www." and without its port

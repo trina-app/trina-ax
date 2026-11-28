@@ -2968,6 +2968,19 @@ cases:
     good: Everyone else who can see the chat is told about a person's new message (a number on the chat in the Trina list, a phone or desktop notification); Trina's own answers only add to the number; "Mute this chat" in the chat's ··· menu stops it for that chat (an @mention still reaches); the general notification settings and quiet hours apply. No made-up menu names.
     checks: []
 
+- id: CHT-19
+  title: Use my own Chrome profiles
+  features: [chat.chrome-browser]
+  lang: en
+  context: personal
+  as: daniel
+  prompt: Can you use my own Chrome, where I'm signed in to my work mail and LinkedIn, instead of asking me to copy things?
+  expect:
+    outcome: explain
+    # docs/decisions/20261128-trina-in-chrome.md
+    good: Yes with the extension for Chrome, Edge or Brave; open the team in that browser profile, click the extension's icon and Connect; one profile per account works best and the AI picks the right one per step; it asks once per site in each profile; Settings › Browser lists them. No made-up menu names.
+    checks: []
+
 - id: SWM-01
   title: Read a file a teammate shared with me
   features: [files.shared-with-me]

@@ -312,8 +312,9 @@ export function AppSetup() {
     return (
       <AuthFrame title={t('appSetup.welcome', { team: p.teamName, name: p.name })} sub={p.email} switcher={false}>
         <form onSubmit={(e) => void submit(e)} noValidate>
-          {!p.google && (
-            // the person never chose a username (made from the e-mail): it is said here, with Copy; the e-mail works too
+          {(
+            // the person never chose a username (made from the e-mail): it is said here, with Copy, also to a Google
+            // owner (the phone and other computers may ask for it); the e-mail (and Google) work too
             <div className="mb-4 rounded-md border border-line px-3 py-2 text-sm" data-testid="app-setup-username">
               <p className="flex flex-wrap items-center gap-x-2">
                 <span>{t('appSetup.username', { username: p.username })}</span>
@@ -322,7 +323,7 @@ export function AppSetup() {
                   {t(copied ? 'appSetup.copied' : 'appSetup.copy')}
                 </button>
               </p>
-              <p className="mt-1 text-xs text-muted">{t('appSetup.usernameHint')}</p>
+              <p className="mt-1 text-xs text-muted">{t(p.google ? 'appSetup.usernameHintGoogle' : 'appSetup.usernameHint')}</p>
             </div>
           )}
           {!p.google && (
@@ -346,6 +347,7 @@ export function AppSetup() {
     )
   }
   // expired, used or no claim; or the team is set up already
+  if (state.s === 'gone' && !signedInNow) return <SetupGone onLogin={() => navigate('/login', { replace: true })} />
   return (
     <AuthFrame title={t(state.s === 'setUp' ? 'appSetup.doneTitle' : 'appSetup.goneTitle')} sub={state.s === 'gone' ? t('appSetup.gone') : undefined} switcher={false}>
       {signedInNow ? (
@@ -353,6 +355,32 @@ export function AppSetup() {
       ) : (
         <Button variant="primary" className="w-full" onClick={() => navigate('/login', { replace: true })} data-testid="app-setup-login">{t('appSignIn.signIn')}</Button>
       )}
+    </AuthFrame>
+  )
+}
+
+/**
+ * The setup link expired (or was used up, or the page was reopened without it) and nobody is signed in: an owner who
+ * signed up with Google has no password, so the way on is a new link from the app (docs/decisions/20261128-owner-claim-recovery.md).
+ * Inside an app that has the bridge call: Get a new link (the app asks the hosting service with its own sign-in; this
+ * page hands it nothing). Otherwise the steps in words. Signing in with a password stays, quieter, for an owner who
+ * chose one.
+ */
+export function SetupGone({ onLogin }: { onLogin: () => void }) {
+  const t = useT()
+  const [asked, setAsked] = useState(false)
+  const app = desktop()
+  const canAsk = typeof app?.finishTeamSetup === 'function'
+  return (
+    <AuthFrame title={t('appSetup.goneTitle')} sub={t(canAsk ? 'appSetup.goneNew' : 'appSetup.goneSteps')} switcher={false}>
+      {canAsk && (
+        <Button variant="primary" className="w-full" busy={asked} onClick={() => { setAsked(true); app!.finishTeamSetup!(); setTimeout(() => setAsked(false), 4000) }} data-testid="app-setup-new-link">
+          {t('appSetup.newLink')}
+        </Button>
+      )}
+      <button type="button" onClick={onLogin} className={`${canAsk ? 'mt-4' : ''} block w-full text-center text-sm text-accent-text underline max-md:min-h-11`} data-testid="app-setup-login">
+        {t('appSignIn.signIn')}
+      </button>
     </AuthFrame>
   )
 }

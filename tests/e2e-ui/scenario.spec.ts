@@ -49,7 +49,17 @@ test('step 1: first owner, language, groups, members (invite + direct), folder r
   await page.getByRole('textbox', { name: '아이디' }).fill(st.owner.username)
   await page.getByRole('textbox', { name: '비밀번호', exact: true }).fill(st.owner.password)
   await page.getByRole('button', { name: '팀 만들고 시작하기' }).click()
+  // a computer's browser is offered the desktop app first; in the browser the team setup's steps open
+  await page.getByTestId('open-app-browser').click()
+  await expect(page).toHaveURL(/\/welcome/)
+  // Home: the new owner's own My setup card from day one, the team setup's way back as its first row
+  // (docs/decisions/20261128-owner-personal-onboarding.md)
+  await page.goto(`${DIRECT}/`)
   await expect(page.getByTestId('composer-input')).toBeVisible()
+  await expect(page.getByTestId('member-welcome')).toHaveAttribute('data-kind', 'owner')
+  await expect(page.getByTestId('member-welcome-title')).toHaveText(`${st.owner.name.split(' ')[0]}님, 시작해 볼까요`)
+  await expect(page.getByTestId('member-welcome-setup')).toBeVisible()
+  await expect(page.getByTestId('welcome-resume')).toHaveCount(0)
 
   // sign out and in again (the login form, not only the setup session)
   await page.getByTestId('account-menu').click()

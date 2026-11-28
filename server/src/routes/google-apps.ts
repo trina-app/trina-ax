@@ -14,6 +14,7 @@ import { isAppId } from '../integrations/google-apps/catalog'
 import { CALLBACK_PATH } from '../integrations/google-apps/config'
 import { startedFrom } from './drive'
 import { googleAppsOf, GoogleAppError } from '../integrations/google-apps/service'
+import { googleDriveOf } from '../integrations/google-drive/oauth'
 import { GoogleOwnAppError, ownAppStatusFresh, removeOwnApp, setOwnApp } from '../integrations/google-drive/own-app'
 import { afterServiceSetup, askService, dismissServiceRequests, myServiceRequests, teamServiceRequests, withdrawService } from '../integrations/service-requests'
 
@@ -45,7 +46,9 @@ export function registerGoogleAppsRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.updateGoogleApp, ({ auth, params, body }) => safe(() => svc().setWritePolicy(auth.user.id, appOf(params.app), body.writePolicy)))
   kit.handle(API.disconnectGoogleApp, ({ auth, params }) => safe(() => svc().disconnect(auth.user.id, appOf(params.app))))
   // Admin › Connectors: one card per app (the route checks the admin role)
-  kit.handle(API.googleAppsAdminStatus, () => safe(() => svc().adminList()))
+  // the hosting service's answer fresh first (oauth.ts brokerFresh, shared with Drive's status and the company's app
+  // row), so a card the list shows as On is not Not set up on its page
+  kit.handle(API.googleAppsAdminStatus, () => safe(async () => { try { await googleDriveOf(ctx).brokerFresh() } catch {} return svc().adminList() }))
   kit.handle(API.setGoogleAppClient, ({ auth, params, body }) => safe(() => {
     const app = appOf(params.app), st = svc().setClient(auth.user.id, app, body)
     afterServiceSetup(ctx, app)

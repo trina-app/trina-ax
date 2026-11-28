@@ -36,6 +36,7 @@ import { resetInbox } from './store/inbox'
 import { resetChatMentions } from './store/chatMentions'
 import { useJobs } from './store/jobs'
 import { useSessionMarkers } from './store/sessionMarkers'
+import { useChromeAppLinking } from './lib/chromeAppLink'
 import { resetAdminReads } from './store/adminPeople'
 import { useRailMemory } from './lib/rail'
 import { setBeforePersonSwitch, useMe, useSession } from './store/session'
@@ -53,6 +54,7 @@ import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './compon
 import { StatusDialogHost } from './components/StatusMessage'
 import { AcceptInvite, ForcedPassword, GoogleReturn, InviteGoogleBack, InviteWhileSignedIn, Login, ResetPassword, Setup, signedInHome, TeamJoin } from './pages/Auth'
 import { AppSetup, AppSignIn, OpenApp } from './pages/OpenApp'
+import { ConnectChrome, ConnectChromeDone } from './pages/ConnectChrome'
 import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
 import { ImageViewerHost } from './components/ImageViewer'
@@ -324,6 +326,8 @@ function Gate() {
   // page the person was on opens again, where that dialog opens by itself (lib/workFiles.ts saveResume)
   const navigate = useNavigate()
   const signedInId = status.kind === 'signed-in' && !status.me.user.mustChangePassword ? status.me.user.id : null
+  // the desktop app links browser profiles of this computer through this page (lib/chromeAppLink.ts)
+  useChromeAppLinking(signedInId)
   useEffect(() => {
     if (!signedInId || location.pathname !== '/' || location.search) return
     const back = resumePath(signedInId)
@@ -366,6 +370,8 @@ function Gate() {
         {/* a team made from the desktop app: the hosting console's claim is after # (pages/OpenApp.tsx AppSetup) */}
         <Route path="/app-setup" element={<AppSetup />} />
         <Route path="/slack/done" element={<Suspense fallback={<Splash />}><SlackDone signedIn={false} /></Suspense>} />
+        {/* the code for the Chrome extension is after # (pages/ConnectChrome.tsx): never moved to the sign-in page */}
+        <Route path="/connect-chrome/done" element={<ConnectChromeDone />} />
         <Route path="*" element={<Navigate to={`/login${next}`} replace />} />
       </Routes>
     )
@@ -463,6 +469,9 @@ function Gate() {
         <Route path="/reset-password/:token" element={<ResetPassword />} />
         {/* after setup in a Mac or Windows browser: continue in the desktop app, or in the browser (pages/OpenApp.tsx) */}
         <Route path="/open-app" element={<NotForGuests><OpenApp /></NotForGuests>} />
+        {/* the <app> extension's Connect in Chrome (pages/ConnectChrome.tsx): the AI's browser in this Chrome */}
+        <Route path="/connect-chrome" element={<NotForGuests><ConnectChrome /></NotForGuests>} />
+        <Route path="/connect-chrome/done" element={<ConnectChromeDone />} />
         {/* the desktop app's one-time sign-in while someone is signed in: the code replaces that session */}
         <Route path="/app-signin" element={<AppSignIn />} />
         {/* a team made from the desktop app, right after its owner is made (pages/OpenApp.tsx AppSetup) */}

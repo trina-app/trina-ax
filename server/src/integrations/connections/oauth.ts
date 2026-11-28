@@ -301,10 +301,23 @@ const FALLBACK = new Set(['oauth_approved_apps_only', 'oauth_no_registration'])
  * document, only a clear refusal stops the sign-in: a plain 400 lets
  * it go on. Throws NetError: `oauth_approved_apps_only` when the service refused every client it was offered, or the
  * registration's own reason (`oauth_no_registration`, `oauth_busy`, `oauth_unsupported`). */
-export async function chooseClient(setup: { server: OAuthServer; metadataClients?: boolean; scope?: string | null }, origin: string, redirectUri: string, net: NetOptions, urlFor: (c: OAuthClient) => string, again: OAuthClient | null = null, servedAt: readonly string[] = []): Promise<OAuthClient> {
+/** The metadata document can be offered for this sign-in: the service takes one, and `origin` is a public https address
+ * this server serves the document at, with the team's https callback. */
+export function metadataOffered(setup: { metadataClients?: boolean }, origin: string, redirectUri: string, servedAt: readonly string[]): boolean {
   const at = documentOriginAt(servedAt, new URL(origin).host)
   const served = !!at && new URL(at).origin === new URL(origin).origin
-  const metadata = !!setup.metadataClients && served && publicOrigin(origin) && new URL(CALLBACK_PATH, origin).href === redirectUri
+  return !!setup.metadataClients && served && publicOrigin(origin) && new URL(CALLBACK_PATH, origin).href === redirectUri
+}
+
+/** A service that takes the metadata document refused every other client, and the document could not be offered only
+ * because of where the team was opened (a local, http or unserved address: a WSL server at 127.0.0.1): the fix is the
+ * team's public https address, not the service (`oauth_needs_https`; WSL QA 2026-11-28, Indeed). */
+export function needsHttpsAddress(setup: { metadataClients?: boolean }, origin: string, redirectUri: string, servedAt: readonly string[]): boolean {
+  return !!setup.metadataClients && !metadataOffered(setup, origin, redirectUri, servedAt)
+}
+
+export async function chooseClient(setup: { server: OAuthServer; metadataClients?: boolean; scope?: string | null }, origin: string, redirectUri: string, net: NetOptions, urlFor: (c: OAuthClient) => string, again: OAuthClient | null = null, servedAt: readonly string[] = []): Promise<OAuthClient> {
+  const metadata = metadataOffered(setup, origin, redirectUri, servedAt)
   let refusedBy: OAuthClient | null = null
   for (const stored of again ? [true, false] : [false]) {
     let c: OAuthClient

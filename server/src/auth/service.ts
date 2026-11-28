@@ -21,6 +21,7 @@ import { audit } from '../admin/audit'
 import { profileOf } from './profiles'
 import { myStatusOf } from './status-messages'
 import { hashToken, newToken, verifyPassword } from './passwords'
+import { unlinkAll as unlinkAllChrome } from '../chrome/store'
 import { limitIp, RateLimiter, reauthKey } from './rate-limit'
 import { isLoopback } from '../http/tunnel'
 import { guestDetail } from './guests'
@@ -231,6 +232,9 @@ export class AuthService implements SessionService {
    */
   endUserSessions(userId: string, reason: EndReason, keep?: string): number {
     voidAppSignInCodes(this.db, userId)
+    // the Chromes they linked go too, also when this session stays (a password change): chrome/store.ts; their live
+    // connections close on their next ping or call (chrome/links.ts stillLinked), or at once through disconnectUser
+    unlinkAllChrome(this.db, userId)
     // connector rows too (an MCP connector's own row, migration 130): their grants end with them (ON DELETE CASCADE)
     const rows = this.db.query('SELECT id, connector FROM sessions WHERE user_id = ? AND id IS NOT ?').all(userId, keep ?? null) as { id: string; connector: number }[]
     const ids = rows.filter((r) => !r.connector).map((r) => r.id)

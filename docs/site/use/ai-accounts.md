@@ -165,7 +165,7 @@ tools and costs can differ from Claude Code and Codex.
 | Claude API (Anthropic) | `https://api.anthropic.com/v1` | [platform.claude.com/settings/keys](https://platform.claude.com/settings/keys) |
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | OpenRouter | `https://openrouter.ai/api/v1` | [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys) |
-| Ollama (this Mac) | `http://127.0.0.1:11434/v1` | No key: a model running on the same computer as the server. Only the owner can set this address |
+| Ollama (on the server's computer) | `http://127.0.0.1:11434/v1` | No key: a model running on the same computer as the server. Only the owner can set this address |
 
 :::steps
 #### Open the API row

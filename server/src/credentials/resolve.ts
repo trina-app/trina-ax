@@ -140,6 +140,18 @@ export function credentialBackAt(db: Database, userId: string, engine: CredEngin
   return best === null ? null : new Date(best).toISOString()
 }
 
+/**
+ * A family with no usable connection that only waits for a limit to end (a rate or usage limit, or the monthly
+ * limit): set up, and back by itself. One that was refused, expired, needs a new sign-in or is out of credit beside it
+ * is a problem (waiting does not bring those back: an admin has to act); one switched off or not allowed here is not.
+ * Admin > Providers and the diagnostics (`mycel-ctl status`) use this one rule: the diagnostics said fail for a
+ * subscription at its usage limit while Admin said limited (QA on WSL2, 2026-11-27).
+ */
+const NEEDS_ADMIN: ReadonlySet<Unusable> = new Set<Unusable>(['invalid', 'needs_reconnect', 'expired', 'no_credit'])
+export function onlyWaitingForLimit(reasons: readonly Unusable[]): boolean {
+  return reasons.some((w) => w === 'limited' || w === 'over_limit') && !reasons.some((w) => NEEDS_ADMIN.has(w))
+}
+
 /** usable team (not personal) connections of a family: Admin > AI engines and the diagnostics */
 export function teamCredentialSummary(db: Database, family: Family, allowedKinds: AllowedKinds, now = new Date()): { total: number; usable: number; expiring: number; reasons: Unusable[]; limitedUntil: string | null } {
   const kinds = KINDS_OF[family]

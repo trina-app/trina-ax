@@ -9,7 +9,7 @@ import type { DesktopBridge } from '@mycel/shared/desktop-bridge'
 import { keepPageFocus } from '../common/keyboard-focus'
 
 // constants come from the main process: this preload stays free of shared runtime code (zod etc.)
-const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform']; store?: boolean; workFiles?: number; workFilesWide?: number; downloads?: boolean; localApps?: number; dictation?: number; googleSignIn?: number; paneVersion?: number; locale?: string | null } | null
+const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform']; store?: boolean; workFiles?: number; workFilesWide?: number; downloads?: boolean; localApps?: number; dictation?: number; googleSignIn?: number; paneVersion?: number; chromeProfiles?: number; locale?: string | null } | null
 
 const on = (channel: string) => (cb: (payload: any) => void) => {
   const handler = (_e: IpcRendererEvent, payload: unknown) => cb(payload)
@@ -144,6 +144,25 @@ const bridge: DesktopBridge = {
         },
       }
     : {}),
+  // app-led linking of the <app> in Chrome extension (main/chrome-profiles.ts): the profiles' names and folders, open
+  // one, answer the app's pair request with a code the page made itself, and the notice when a profile linked
+  ...(info?.chromeProfiles
+    ? {
+        chromeProfiles: {
+          list: () => ipcRenderer.invoke('bridge:chrome-profiles-list'),
+          connect: (p: { browser: string; dir: string }) => ipcRenderer.invoke('bridge:chrome-profiles-connect', { browser: String(p?.browser ?? ''), dir: String(p?.dir ?? '') }),
+          onPairRequest: (cb: (r: { challenge: string }) => Promise<{ code: string } | null>) =>
+            on('bridge:chrome-pair-request')((q: { id?: unknown; challenge?: unknown }) => {
+              if (!q || typeof q.id !== 'string' || typeof q.challenge !== 'string') return
+              const id = q.id
+              void Promise.resolve()
+                .then(() => cb({ challenge: String(q.challenge) }))
+                .then((r) => ipcRenderer.send('bridge:chrome-pair-answer', id, r && typeof r.code === 'string' ? { code: r.code } : null), () => ipcRenderer.send('bridge:chrome-pair-answer', id, null))
+            }),
+          onLinked: on('bridge:chrome-linked'),
+        },
+      }
+    : {}),
   // Sign in with Google: the app takes the code back for the team on screen (main/app-window.ts offerLink); the page
   // only learns that it may offer the button
   ...(info?.googleSignIn ? { googleSignIn: info.googleSignIn } : {}),
@@ -152,6 +171,8 @@ const bridge: DesktopBridge = {
     open: () => ipcRenderer.invoke('bridge:sign-in-return-open'),
     close: (port) => ipcRenderer.send('bridge:sign-in-return-close', Number(port)),
   },
+  // a lost owner claim: the app's own create flow asks the console again (main.ts finishSetup); carries nothing
+  finishTeamSetup: () => ipcRenderer.send('bridge:finish-team-setup'),
   // a sign-in's one-time code back from the system browser (common/code-return.ts): its port, never its requests
   codeReturn: {
     port: () => ipcRenderer.invoke('bridge:code-return-port'),

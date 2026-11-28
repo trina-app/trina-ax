@@ -104,7 +104,7 @@ Satu orang mengatur semuanya di server tim. AI setiap orang sudah bisa memakainy
 - **Coba di browser Anda:** tanpa memasang apa pun. Tim fiktif, AI nonaktif. [Buka demo](https://ax.trina.app/demo/)
 - **Hosting Trina:** Anda tidak perlu menjalankan server. Uji coba gratis 14 hari, lalu paket bulanan. [Harga](https://ax.trina.app/pricing)
 - **Aplikasi:** [Mac, Windows, Linux, iPhone, Android](https://ax.trina.app/download), atau browser apa pun.
-- **Pasang sendiri:** di server Linux Anda sendiri, Docker, atau Mac kantor. Gratis. [Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [Mac kantor](docs/OFFICE.en.md) · [Pasang dengan agen AI Anda](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
+- **Pasang sendiri:** di server Linux Anda sendiri, Docker, atau Mac kantor. Gratis. [Linux](docs/INSTALL-LINUX.en.md) · [PC Windows](docs/INSTALL-WINDOWS.md) · [Docker](docs/INSTALL-DOCKER.md) · [Mac kantor](docs/OFFICE.en.md) · [Pasang dengan agen AI Anda](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
 
 <b>Pasang sendiri dengan Docker</b> (Linux, atau Mac dengan OrbStack)
 

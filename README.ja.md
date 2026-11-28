@@ -104,7 +104,7 @@ https://github.com/user-attachments/assets/ec5f648a-7417-4e31-94df-e860b353b709
 - **ブラウザーで試す**：インストール不要。架空のチームで試せます（AIはオフ）。[デモを開く](https://ax.trina.app/demo/ja/)
 - **Trinaホスティング**：サーバーの運用は不要です。14日間は無料で試せて、そのあとは月額プランです。[料金プラン](https://ax.trina.app/pricing)
 - **アプリ**：[Mac、Windows、Linux、iPhone、Android](https://ax.trina.app/download)。どのブラウザーからでも使えます。
-- **セルフホスト**：自社のLinuxサーバー、Docker、オフィスのMacで動かせます。無料です。[Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [オフィスMac](docs/OFFICE.en.md) · [AIエージェントでインストール](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
+- **セルフホスト**：自社のLinuxサーバー、Docker、オフィスのMacで動かせます。無料です。[Linux](docs/INSTALL-LINUX.en.md) · [Windows PC](docs/INSTALL-WINDOWS.md) · [Docker](docs/INSTALL-DOCKER.md) · [オフィスMac](docs/OFFICE.en.md) · [AIエージェントでインストール](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
 
 <b>Dockerでセルフホスト</b>（Linux、またはOrbStackを入れたMac）
 

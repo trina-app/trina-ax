@@ -21,6 +21,7 @@ const SCOPE = [
   'server/src', 'relay/src', 'shared/src',
   'menubar/Sources', 'menubar/build.sh',
   'scripts/office',
+  'chrome-extension/src', 'chrome-extension/build.ts',
 ]
 /** Files that may carry the name, each with the reason. Keep this short. */
 const ALLOW: Record<string, string> = {

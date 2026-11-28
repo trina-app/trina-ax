@@ -13,6 +13,7 @@
 //   (placeProduced: write access checked again, conflict copies, versions, file events) after the wider-audience check
 //   for the inputs (confirmSources), asked before the query runs so a "no" costs nothing. What one answer saves has its
 //   own budget (DATA_LIMITS.saveBytes / saveFiles), not the turn's write limits for AI-typed text; a guest keeps those.
+import { internalWhy } from './internal-error'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -323,7 +324,7 @@ async function queryDataOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: Que
       } catch (e) {
         if (!(e instanceof Error)) throw e
         if (!result.saved.length && outs.length === 1) throw e
-        result.failed.push({ name: target, why: e instanceof ToolError ? e.message : e instanceof Denied ? `not allowed (${e.message})` : 'internal error' })
+        result.failed.push({ name: target, why: e instanceof ToolError ? e.message : e instanceof Denied ? `not allowed (${e.message})` : internalWhy('query_data', e, { turnId: c.turnId, userId: c.user.id }) })
       }
     }
     if (!result.saved.length) throw new ToolError(`nothing was saved:\n${result.failed.slice(0, 10).map((f) => `- ${f.name}: ${f.why}`).join('\n')}`)

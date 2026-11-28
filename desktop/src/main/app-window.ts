@@ -6,7 +6,7 @@
 //   └───────────────────────────────────────┴─────┘
 //   shell view (welcome.html) covers everything when no team is open, the team list is shown, or the team
 //   server cannot be reached.
-import { app as electronApp, BaseWindow, dialog, nativeTheme, net, Notification, powerMonitor, session, WebContentsView, type Session } from 'electron'
+import { app as electronApp, BaseWindow, dialog, nativeTheme, net, Notification, powerMonitor, session, WebContentsView, type Session, type WebContents } from 'electron'
 import { COMPUTER_REPORT_PATH, ComputerReporter, readSystemActivity, SYSTEM_ACTIVITY_EVERY_MS, type SystemActivity } from '../common/system-activity'
 import { join } from 'node:path'
 import { applyMePolicy } from '../common/me-policy'
@@ -512,6 +512,17 @@ export class AppWindow {
    * origin, exactly) opens there at once (common/address.ts desktopPagePath): no new server is connected, so ④ has
    * nothing to ask; the team's own sign-in and access checks still apply to the page.
    */
+  /** the team page on screen is the owner setup page (S5, `/app-setup`): a finish-setup link from outside never
+   * replaces it (main.ts finishSetup) */
+  showsOwnerSetup(): boolean {
+    if (!this.app || this.app.webContents.isDestroyed() || this.mode === 'welcome') return false
+    try {
+      return /^\/app-setup\/?$/.test(new URL(this.app.webContents.getURL()).pathname)
+    } catch {
+      return false
+    }
+  }
+
   offerLink(raw: string) {
     if (this.openLinkedPage(raw)) return
     // a Google sign-in's one-time code for the team on screen (its address, or the office address the window shows): that
@@ -1152,6 +1163,14 @@ export class AppWindow {
     const app = this.app
     if (!app || app.webContents.isDestroyed()) return null
     return (await this.folderGrants.get(app.webContents.session)?.problem(origin, name, this.allowedOrigins())) ?? null
+  }
+
+  /** The team page on screen when someone is signed in there (app-led Chrome linking asks it for a pair code): the
+   * team address the extension spends the code at, the team's name, and the page. */
+  chromePairTeam(): { origin: string; name: string; page: WebContents } | null {
+    const app = this.app
+    if (!app || !this.team || !this.signedIn || this.mode !== 'team' || app.webContents.isDestroyed()) return null
+    return { origin: this.team.origin, name: this.team.label, page: app.webContents }
   }
 
   /** Origins the bridge and navigation accept: the team address and, when in use, its pinned LAN address. */

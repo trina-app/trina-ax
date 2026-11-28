@@ -15,6 +15,7 @@ Files/chats are stored on the server, but selected context goes to model provide
 - [Model-free local demo](docs/QUICKSTART.md)
 - [Skills and fictional inputs](examples/README.md)
 - [Linux install](docs/INSTALL-LINUX.en.md)
+- [Windows PC install (WSL2)](docs/INSTALL-WINDOWS.md)
 - [Office Mac](docs/OFFICE.en.md)
 - [Backup and restore](docs/BACKUP-RESTORE.md)
 - [Security and permissions](docs/security-and-permissions.md)
