@@ -30,7 +30,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   brokerSelfOrigin, DRIVE_BROKER_MAX_BODY_BYTES, DRIVE_BROKER_PATHS, driveBrokerAuthorization, driveBrokerConnectUrl, driveBrokerSigningString,
-  type DriveBrokerOp, type DriveBrokerPurpose, type GoogleBrokerApp,
+  isDriveBrokerLocale, type DriveBrokerOp, type DriveBrokerPurpose, type GoogleBrokerApp,
 } from '@mycel/shared/cloud-protocol'
 import type { AppContext } from '../../context'
 import { isHosted, publicHostOf, runKindOf } from '../../system/deployment'
@@ -126,6 +126,10 @@ export class BrokerRequestRefused extends DriveError {
 
 /** The hosting service does not serve this key (`not_hosted`): not registered, disabled or removed. Reads as
  * broker_unavailable everywhere; only checkBroker looks at it, to register a self-installed server. */
+/** A `start` with `locale` an older control plane refused as a request (it does not know the key): start() tries once
+ * more without it. Never leaves start(). */
+class LocaleRefused extends Error {}
+
 export class BrokerNotServing extends DriveError {
   constructor() { super('broker_unavailable', 503) }
 }
@@ -135,7 +139,7 @@ export class DriveBroker {
 
   /** A signed call. Answers only JSON objects; maps the broker's error codes to Drive errors without its message. */
   private async call(op: DriveBrokerOp, body: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, any>> {
-    const forApp = 'app' in body
+    const forApp = 'app' in body, withLocale = 'locale' in body
     const path = DRIVE_BROKER_PATHS[op], text = JSON.stringify(body)
     if (Buffer.byteLength(text) > DRIVE_BROKER_MAX_BODY_BYTES) throw new DriveError('invalid_flow')
     let id: BrokerIdentity
@@ -161,6 +165,8 @@ export class DriveBroker {
     const code = typeof json?.error?.code === 'string' ? json.error.code : ''
     if (code === 'invalid_grant') throw new DriveError('needs_reconnect', 409)
     if (code === 'invalid_handoff') throw new DriveError('invalid_flow')
+    // the person's language: an older control plane refuses the key it does not know; start() asks again without it
+    if (withLocale && code === 'invalid_request') throw new LocaleRefused()
     // Google's answer lacks part of the access asked for (a box left unticked): sign in again and allow every access
     if (code === 'scope_denied') throw new DriveError('scope_denied', 409)
     // a Google app other than Drive (gmail, calendar, docs, sheets): an older control plane refuses the `app` field, and
@@ -189,9 +195,19 @@ export class DriveBroker {
     try { return (await this.call('register', { v: 1, origin: this.o.selfOrigin }, signal)).ok === true } catch { return false }
   }
   /** Google's sign-in address for this flow, and the hosting service's own start page for it when it sent one
-   * (connectUrl: kept only when it is exactly that page on the configured origin, else dropped). */
-  async start(purpose: DriveBrokerPurpose, returnState: string, codeChallenge: string, app?: GoogleBrokerApp): Promise<{ authorizationUrl: string; connectUrl?: string }> {
-    const j = await this.call('start', { v: 1, purpose, returnState, codeChallenge, ...(app ? { app } : {}) })
+   * (connectUrl: kept only when it is exactly that page on the configured origin, else dropped). `locale`: the
+   * person's Trina language, for that page and Google's screen; an older control plane that refuses it as a request
+   * is asked again without it (its page then follows the team or the browser, as before). */
+  async start(purpose: DriveBrokerPurpose, returnState: string, codeChallenge: string, app?: GoogleBrokerApp, locale?: string | null): Promise<{ authorizationUrl: string; connectUrl?: string }> {
+    const body = { v: 1, purpose, returnState, codeChallenge, ...(app ? { app } : {}) }
+    let j: Record<string, any>
+    if (!isDriveBrokerLocale(locale)) j = await this.call('start', body)
+    else {
+      try { j = await this.call('start', { ...body, locale }) } catch (e) {
+        if (!(e instanceof LocaleRefused)) throw e
+        j = await this.call('start', body)
+      }
+    }
     const url = typeof j.authorizationUrl === 'string' ? j.authorizationUrl : ''
     // only ever send a person to Google's own sign-in page, or to the hosting service's page on the origin set here
     let u: URL

@@ -4,7 +4,8 @@
 // only in the Mac and Windows app; people who stay in the browser see one quiet line in the files step and in My files
 // (components/OpenAppLine.tsx). Pure rules here, unit-tested in web/test/unit/open-app.test.ts.
 import { OWNER_CLAIM_SETUP_PATH, readOwnerClaimFragment } from '@mycel/shared/cloud-protocol/owner-claim'
-import { openInAppHref } from './team-link'
+import { isLoopbackHost } from '@mycel/shared/team-link'
+import { appLinkOffered, openInAppHref } from './team-link'
 import { desktopPlatform, type DesktopPlatform, type Platform } from './pwa'
 
 export const OPEN_APP_PATH = '/open-app'
@@ -15,16 +16,13 @@ export type AppComputer = DesktopPlatform
 /**
  * The computer whose desktop app this page can hand the person to: a web browser (not our desktop or phone app) on macOS,
  * Windows or Linux (the systems with the desktop app; an iPad that says "Mac" is a phone here, an Android tablet or a
- * Chromebook is not Linux, lib/pwa.ts), on a team the app can open from a link: https (the app opens no plain-http link
- * from outside; desktop/src/common/address.ts readDesktopLink) or this machine (development and the tests). null
- * everywhere else (phones, inside the apps).
+ * Chromebook is not Linux, lib/pwa.ts), on a team the app can open from a link (lib/team-link.ts appLinkOffered: https,
+ * never this computer's own address, which the app refuses: desktop/src/common/address.ts readDesktopLink). null
+ * everywhere else (phones, inside the apps, a page at 127.0.0.1 or localhost).
  */
 export function appComputer(o: { platform: Platform; client: 'web' | 'desktop' | 'mobile'; origin: string }): AppComputer | null {
   if (o.client !== 'web' || !desktopPlatform(o.platform)) return null
-  let u: URL
-  try { u = new URL(o.origin) } catch { return null }
-  const local = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(u.hostname)
-  return u.protocol === 'https:' || (u.protocol === 'http:' && local) ? o.platform : null
+  return appLinkOffered(o.origin) ? o.platform : null
 }
 
 /** This page's origin ('' where there is none: tests without a page address) */
@@ -39,6 +37,15 @@ export const afterSetupPath = (o: Parameters<typeof appComputer>[0]): string => 
 export const openAppLineShown = (o: Parameters<typeof appComputer>[0] & { guest: boolean }): boolean => {
   const c = appComputer(o)
   return !o.guest && (c === 'mac' || c === 'windows')
+}
+
+/** The files line on a page at this computer's own address (the server and the browser on one Mac or PC, e.g.
+ * http://127.0.0.1:47820 on Windows WSL), where no "Open the app" is offered (appComputer): it says instead that the app
+ * connects when this address is pasted on its first screen (docs/INSTALL-WINDOWS.md). Mac and Windows browsers, never
+ * a guest, as openAppLineShown. */
+export const openAppLinePaste = (o: Parameters<typeof appComputer>[0] & { guest: boolean }): boolean => {
+  if (o.guest || o.client !== 'web' || (o.platform !== 'mac' && o.platform !== 'windows') || appComputer(o)) return false
+  try { return isLoopbackHost(new URL(o.origin).hostname) } catch { return false }
 }
 
 /** The desktop app's link for a fresh code: `<scheme>://open?url=<origin>/app-signin#c=<code>` (the code only in the
