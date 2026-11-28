@@ -20,6 +20,9 @@
   and "앱에서 열기", the title menus' Open in the app, the welcome card's and the files line's link. At a loopback
   address none of them shows; setup goes to the welcome steps, the join pages show the form. Every other address keeps
   the 11-25 rule (a computer's browser offers the app first).
+- **Plain-http LAN addresses too:** `openInAppHref` used to make its computer link for any origin, so "앱에서 열기"
+  under the join form showed on `http://192.168.…` and the like, where the app always refused the link as insecure.
+  With the same rule it is hidden there now as well (appComputer had already left those out).
 - **One line instead, where the app matters:** the files line (welcome files step, My files) on a Mac or Windows page at
   a loopback address says "To use it, paste {address} on the app's first screen." The app's first screen takes `http://`
   for this computer's own address (docs/INSTALL-WINDOWS.md "Desktop app on this PC"). Nothing else is added.

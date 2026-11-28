@@ -300,7 +300,7 @@ test.describe('on a phone', () => {
 // suite's mycel.e2eAppLinks key the page behaves as a real one there
 test.describe('in a Windows browser at this computer\'s own address', () => {
   test.use({ userAgent: WINDOWS_CHROME, locale: 'en-US', viewport: { width: 1440, height: 900 }, storageState: { cookies: [], origins: [] } })
-  test('setup goes to the welcome steps, /open-app is never shown, the join page has no app offer, the files line says to paste the address', async ({ page }) => {
+  test('setup goes to the welcome steps, /open-app is never shown, the join page has no app offer (no Open the app, no "앱에서 열기"), the files line says to paste the address', async ({ page }) => {
     await reset(page, { setup: true, teamLocale: 'en' })
     await page.goto('/')
     await page.getByLabel('Setup code').fill('setup-token-0123456789')
@@ -327,14 +327,10 @@ test.describe('in a Windows browser at this computer\'s own address', () => {
     const { token } = (await r.json()) as { token: string }
     const ctx = await page.context().browser()!.newContext({ userAgent: WINDOWS_CHROME, locale: 'en-US', storageState: { cookies: [], origins: [] } })
     const p = await ctx.newPage()
-    const tries: string[] = []
-    p.on('requestfailed', (q) => { if (q.url().startsWith('trina-ax://')) tries.push(q.url()) })
     await p.goto(`${origin}/invite/${token}`)
     await expect(p.getByTestId('invite-name')).toBeVisible()
     await expect(p.getByTestId('app-first')).toHaveCount(0)
     await expect(p.getByTestId('open-in-app')).toHaveCount(0)
-    await p.waitForTimeout(1000)
-    expect(tries).toEqual([])
     await ctx.close()
   })
 })

@@ -49,6 +49,10 @@ describe('who is offered the desktop app', () => {
       expect(openInAppHref({ scheme: 'trina-ax', origin: HTTPS, path: '/invite/abc', platform, androidPackage: '' })).toBe(`trina-ax://open?url=${encodeURIComponent(`${HTTPS}/invite/abc`)}`)
     }
     expect(appSignInHref({ scheme: 'trina-ax', origin: 'http://127.0.0.1:47820', code: CODE, computer: 'windows' })).toBeNull()
+    // a plain-http LAN address: the app always refused it as insecure, so "앱에서 열기" under the join form is gone there too
+    for (const origin of ['http://192.168.0.10:47820', 'http://team.example.lan'])
+      for (const platform of ['mac', 'windows', 'linux'] as const)
+        expect({ origin, platform, href: openInAppHref({ scheme: 'trina-ax', origin, path: '/invite/abc', platform, androidPackage: '' }) }).toEqual({ origin, platform, href: null })
   })
   test('never inside our apps, on a phone, on another system, or on a plain-http team the app cannot open', () => {
     expect(appComputer({ platform: 'mac', client: 'desktop', origin: HTTPS })).toBeNull()
