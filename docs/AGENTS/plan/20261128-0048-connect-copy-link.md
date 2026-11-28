@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 00:48
 - Branch: `feat/connect-copy-link`
-- Status: in progress
+- Status: done
 - Where: web (wait lines), desktop (return secret), server (held sign-in claim). Why: a Connect in the desktop app
   always opens the default browser; the owner wants to finish it in another browser or profile (docs/REPOSITORY-RULES.md)
 - Version impact: patch (a small addition to an existing wait and a tighter claim; optional headers only, no API shape
@@ -98,4 +98,11 @@ Google hint (its 5-minute and work-account sentences came from QA TC-2132 / TC-1
 
 ## Result
 
-(filled in at the end)
+- Built as the UX spec says: `web/src/components/integrations/CopySignInLink.tsx`, at the end of the wait's hint in
+  BrowserWait (Drive, Drive shares, Google apps personal and team, Slack sign-in and Add to Slack), the Drive panel of
+  the chat card, app connections (SignInPanel, chat card, welcome steps). Desktop app only.
+- The held code needs the app's proof: the key is sealed at the start of each sign-in (security review: a key read at
+  hold time could be replaced by a later call, and a restart dropped it); the page waits up to 1.5 s for the key before
+  its calls. Tests fail without the server change (`c-held-sign-in-app-key`: 3 of 6).
+- Screenshots before/after (1440/390, light/dark, ko/en) taken with `web/test/e2e/connect-copy-link.spec.ts`
+  (`SHOTS_DIR`). The real-browser walk on qa.trina.app runs after the merge (qa takes dev builds).
