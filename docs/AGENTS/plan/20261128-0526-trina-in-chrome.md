@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 05:26
 - Branch: `feat/trina-in-chrome`
-- Status: in progress
+- Status: done
 - Where: new top-level `chrome-extension/` (an app of its own, like `desktop/`, `menubar/`, `relay/`), the core server
   (`server/src/chrome/`, `server/src/realtime/`), the web app (Settings › Browser, one sign-in page). Why: the browser
   tools are core (chat, permissions, AI connections) and a browser extension is another client of the same server.
@@ -248,4 +248,21 @@ one), the `tabs` and `<all_urls>` permissions.
 
 ## Result
 
-Filled in at the end.
+Built as planned with the owner's additions (13–15) and both plan reviews applied.
+- Extension `chrome-extension/` (MV3; permissions debugger, tabGroups, storage, alarms, activeTab, optional host access
+  for the team only), `bun chrome-extension/build.ts --zip` makes the Web Store zip; the listing kit (en, ko, privacy
+  answers, icons) is in `chrome-extension/store/`.
+- Server: migration 464, `server/src/chrome/`, `routes/chrome.ts`, the relay's window transport, per-call profiles
+  (`profile` on every browser tool), per-profile site Always, runs in their own windows, scheduled runs without cards
+  or scripts.
+- Web: Settings › Browser › Your browsers, `/connect-chrome`, the profile-named site card.
+- Security review of the diff: 2 HIGH, 4 MEDIUM, 7 LOW; fixed all but L2 (office grants are per person, as on the
+  desktop: accepted) and what the extension cannot see (listed in `chrome-extension/README.md` "Limits").
+- Tests: `tests/unit/chrome-link.test.ts`, `tests/unit/chrome-ext-*.test.ts`, `web/test/unit/chrome-link.test.tsx`,
+  `web/test/e2e/chrome-link.spec.ts`, `tests/e2e/chrome-extension.test.ts` (the unpacked extension in two Chromium
+  profiles of one person against the real server: per-call profile switching, the site card, Stop, Disconnect).
+- Local QA with the real AI (two profiles): pairing through the real pages, a task across both profiles on real sites,
+  a real form filled, Stop per run, Disconnect of one profile.
+- Differs from the plan: a site the person typed in their own message opens without the Chrome card for the rest of
+  that answer in that profile (as the desktop browser does); clicks that would lead a driven page to a site nobody
+  allowed are held back and the AI is told to navigate (the card then asks).
