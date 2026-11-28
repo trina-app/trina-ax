@@ -17,8 +17,10 @@
   API call (`x-mycel-app-return-key`, like the port), and the server keeps it in memory for that session. A result held
   for the app's code (Google Drive, the Google apps, app connections, Slack) seals the key of the starter's session;
   its claim must carry the proof (`x-mycel-app-return-proof`), which only the app's main process sends, on the claim to
-  the team on screen (`AppWindow.claimSignIn`). A missing or wrong proof is the same refusal as an unknown code. A start
-  that only says `client: 'desktop'` (a session recorded as a browser's) is held only when that session said a key.
+  the team on screen (`AppWindow.claimSignIn`). A missing or wrong proof is the same refusal as an unknown code. The key is
+  the one the session said at the START, sealed in the flow (a key said later changes nothing for it). A start that only
+  says `client: 'desktop'` (a session recorded as a browser's) is held only with a key: a browser's page has none (no
+  app). A hand-made client can send one of its own, which gives it no more than a curl `desktop` login already did.
   The desktop wait shows "Copy link" (`web/src/components/integrations/CopySignInLink.tsx`) with the address Connect
   opened.
 - **Why safe:** the copied address carries nothing that finishes anything: no code, no proof. Whoever opens it gets at

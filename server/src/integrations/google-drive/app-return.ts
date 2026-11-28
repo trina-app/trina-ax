@@ -78,6 +78,9 @@ export function noteAppReturn(session: { id: string; client: string }, header: s
   if (returnPorts.size > RETURN_PORTS_MAX) returnPorts.delete(returnPorts.keys().next().value!)
 }
 
+/** Forget what sessions said (tests: the map is per process, and harnesses reuse session ids across files). */
+export function forgetAppReturns() { returnPorts.clear() }
+
 /** The port the app of this session said, or null (an app from before, or none said since the server started). */
 export function appReturnPort(sessionId: string): number | null {
   return returnPorts.get(sessionId)?.port ?? null

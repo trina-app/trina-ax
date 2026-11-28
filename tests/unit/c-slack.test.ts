@@ -19,6 +19,7 @@ import { startHarness, type Harness } from '../lib/b-harness'
 import { nextTs, startFakeSlack, type FakeSlack } from '../lib/fake-slack'
 import { waitFor } from '../lib/wait'
 import { CodeReturn } from '../../desktop/src/common/code-return'
+import { forgetAppReturns } from '../../server/src/integrations/google-drive/app-return'
 import { APP_RETURN_KEY_HEADER, APP_RETURN_PROOF_HEADER } from '../../shared/src/desktop-bridge'
 
 setDefaultTimeout(60_000)
@@ -529,6 +530,8 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
     const ok = await claim(ret.proof(team)!)
     expect(ok.status).toBe(200)
     expect(h.ctx.db.query("SELECT slack_user_id FROM slack_links WHERE user_id = 'carol'").get()).toEqual({ slack_user_id: 'U0CAROL' })
+    // the key said for carol's session stays in this process otherwise (other files reuse the session ids)
+    forgetAppReturns()
   })
 
   test('signed in as somebody else, or too late after signing in: refused; a code that is not one goes nowhere', async () => {

@@ -821,11 +821,15 @@ export class SlackConnector {
     if (recent >= 20) throw new SlackError('ratelimited', 'rate_limited')
     const state = crypto.randomBytes(32).toString('base64url'), nonce = crypto.randomBytes(32).toString('base64url')
     const replaced = this.heldRows('signin', 'user_id = ?', [userId])
+    // the app's key its session said at this start, sealed now (google-drive/app-return.ts appReturnKey; holdFor)
+    const flowId = newId(), appKey = appReturnKey(sessionId)
+    let keyed: { enc: string; keyVersion: number } | null = null
+    if (appKey) { try { keyed = this.box.seal(`slack:signin-flow:${flowId}`, { appKey }) } catch { throw new SlackError('key_unsafe', 'unavailable') } }
     this.db.transaction(() => {
       // only the newest flow of this person works
       this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = 'superseded' WHERE user_id = ? AND state = 'pending'").run(userId)
-      this.db.query("INSERT INTO slack_signin_flows (id, user_id, session_id, state_hash, nonce_hash, redirect_uri, client, state, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)")
-        .run(newId(), userId, sessionId, sha(state), sha(nonce), redirect, client === 'desktop' || client === 'mobile' ? client : 'web', iso(now), iso(now + LINK_TTL_MS))
+      this.db.query("INSERT INTO slack_signin_flows (id, user_id, session_id, state_hash, nonce_hash, redirect_uri, client, state, created_at, expires_at, verifier_enc, verifier_key_version) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)")
+        .run(flowId, userId, sessionId, sha(state), sha(nonce), redirect, client === 'desktop' || client === 'mobile' ? client : 'web', iso(now), iso(now + LINK_TTL_MS), keyed?.enc ?? null, keyed?.keyVersion ?? null)
     })()
     this.unhold('signin', replaced)
     const u = new URL(SLACK_AUTHORIZE)
@@ -927,7 +931,8 @@ export class SlackConnector {
     if (recent >= 20) throw new SlackError('ratelimited', 'rate_limited')
     const id = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
     let sealed: { enc: string; keyVersion: number }
-    try { sealed = this.box.seal(`slack:signin-flow:${id}`, { verifier }) } catch { throw new SlackError('key_unsafe', 'unavailable') }
+    const appKey = appReturnKey(sessionId)
+    try { sealed = this.box.seal(`slack:signin-flow:${id}`, { verifier, ...(appKey ? { appKey } : {}) }) } catch { throw new SlackError('key_unsafe', 'unavailable') }
     const replaced = this.heldRows('signin', 'user_id = ?', [userId])
     this.db.transaction(() => {
       this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = 'superseded' WHERE user_id = ? AND state = 'pending'").run(userId)
@@ -974,7 +979,7 @@ export class SlackConnector {
     if (f.verifier_enc) { try { kept = this.box.open<Record<string, unknown>>(aad, f.verifier_enc, (kind === 'signin' ? (f as SigninFlowRow).verifier_key_version : (f as InstallFlowRow).key_version) ?? 0) } catch { return null } }
     const code = newToken(), until = Math.min(this.now() + CLAIM_MS, Date.parse(f.expires_at))
     let sealed: { enc: string; keyVersion: number }
-    try { sealed = this.box.seal(aad, { ...kept, held: { ...value, claim: tokenHash(code), until, key: appReturnKey(f.session_id) } satisfies Held }) } catch { return null }
+    try { sealed = this.box.seal(aad, { ...kept, held: { ...value, claim: tokenHash(code), until, key: typeof kept.appKey === 'string' ? kept.appKey : null } satisfies Held }) } catch { return null }
     if (!this.db.query(`UPDATE ${table} SET verifier_enc = ?, ${keyCol} = ?, reason = ?, expires_at = ? WHERE id = ? AND state = 'pending' AND reason IS NULL`).run(sealed.enc, sealed.keyVersion, HELD, iso(until), f.id).changes) return { result: 'handed', client: f.client }
     const who = this.db.query('SELECT name, username FROM users WHERE id = ?').get(f.user_id) as { name: string; username: string } | null
     return { result: 'held', client: f.client, held: { code, who: who ?? { name: '', username: '' }, name: 'Slack', returnPort: appReturnPort(f.session_id) } }
@@ -1103,7 +1108,8 @@ export class SlackConnector {
     if (recent >= 20) throw new SlackError('ratelimited', 'rate_limited')
     const id = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
     let sealed: { enc: string; keyVersion: number }
-    try { sealed = this.box.seal(`slack:install-flow:${id}`, { verifier }) } catch { throw new SlackError('key_unsafe', 'unavailable') }
+    const appKey = appReturnKey(sessionId)
+    try { sealed = this.box.seal(`slack:install-flow:${id}`, { verifier, ...(appKey ? { appKey } : {}) }) } catch { throw new SlackError('key_unsafe', 'unavailable') }
     const replaced = this.heldRows('install', '1 = 1', [])
     this.db.transaction(() => {
       this.db.query("UPDATE slack_install_flows SET state = 'failed', reason = 'superseded' WHERE state = 'pending'").run()

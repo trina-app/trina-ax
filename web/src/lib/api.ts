@@ -54,10 +54,18 @@ let appReturnPort: number | null = null
  * sends, on its claim): a result the server holds for the app's code is then redeemed only by this app (server
  * google-drive/app-return.ts). An app from before has none. */
 let appReturnKey: string | null = null
+/** settled once both are known (at most 1.5 s): the page's calls wait for it, so a Connect pressed right after the
+ * page opened already carries the key (a start without it would be held without the app's proof) */
+let appReturnReady: Promise<unknown> = Promise.resolve()
 try {
   const back = desktop()?.codeReturn
-  void back?.port().then((p) => { appReturnPort = appReturnPortOf(p) }, () => {})
-  void back?.key?.().then((k) => { appReturnKey = appReturnKeyOf(k) }, () => {})
+  if (back) {
+    const both = Promise.allSettled([
+      back.port().then((p) => { appReturnPort = appReturnPortOf(p) }),
+      back.key ? back.key().then((k) => { appReturnKey = appReturnKeyOf(k) }) : null,
+    ])
+    appReturnReady = Promise.race([both, new Promise((r) => setTimeout(r, 1500))])
+  }
 } catch { /* no bridge */ }
 
 /** A request that always carries the current window id (ApiClient reads it once, so wrap) and the language on screen
@@ -119,6 +127,7 @@ function noteDemoLimit(res: Response) {
 // uploads (fetchWithProgress below) are not wrapped: no seat refusal comes that way
 // (an answer that says Trina is updating starts the window's wait for it: lib/serverUpdating.ts)
 const fetchWithWindow = (async (input: RequestInfo | URL, init?: RequestInit) => afterWrite(init, async () => {
+  await appReturnReady
   const res = await fetch(input, inWindow(init))
   noteAnswer(res)
   noteDemoLimit(res)

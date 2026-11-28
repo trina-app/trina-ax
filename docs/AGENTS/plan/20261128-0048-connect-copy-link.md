@@ -26,8 +26,8 @@ In:
   started it: the app keeps a random secret with its 127.0.0.1 return address (per team), the page sends its sha256
   with every API call (like the port), the server seals that hash into the held result, and the claim must carry the
   secret (header, from the main process only; the page never sees it).
-- A start that only SAYS `client: 'desktop'` (#698) is held only when its session has such an app key, so a browser
-  session can no longer get a held result by saying so.
+- A start that only SAYS `client: 'desktop'` (#698) is held only with an app key sealed at the start: a browser's page
+  (no app) no longer gets held results by saying so; a hand-made client still can, as with a curl `desktop` login.
 
 Out:
 - The web app: Connect opens a tab of the same browser; a copied link in another browser has no session there and the

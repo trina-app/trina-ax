@@ -68,6 +68,17 @@ test('ATTACK (Drive): a held code reaches the starter\'s session without the app
   expect((await desk.call('POST', `${driveBase}/flows/${f.flowId}/complete`, {})).status).toBe('connected')
 })
 
+test('ATTACK (Drive): a key said after the start (a page\'s script, another call) does not change whose proof the held code needs', async () => {
+  const desk = await session('desktop'), me = app(), other = app()
+  const f = await desk.call('POST', driveBase + '/authorize', { client: 'desktop' }, me.key)
+  // later calls of the same session say another key (sealed at the start: it changes nothing for this sign-in)
+  await desk.call('GET', `${driveBase}/flows/${f.flowId}`, undefined, other.key)
+  const code = codeOf(await (await bare(driveReturn(drive.authorize(f.authorizationUrl, 'alice')))).text())!
+  expect((await claim(desk, code, other.proof)).status).toBe(400)
+  const r = await claim(desk, code, me.proof)
+  expect(r.status).toBe(200); expect(r.body.state).toBe('ready')
+})
+
 test('ATTACK (Drive): a browser\'s session that only SAYS client desktop gets no held result (it needs the app\'s key)', async () => {
   const web = await session('web')
   const f = await web.call('POST', driveBase + '/authorize', { client: 'desktop' })

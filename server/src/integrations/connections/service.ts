@@ -103,6 +103,8 @@ interface FlowSecret {
   /** a desktop sign-in answered in a browser without the starter's session (hold): the tokens, waiting for the app's
    * one-time code (`claim`: its sha256, never the code) until `until` (ms) */
   held?: { tokens: OAuthTokens; claim: string; until: number; key?: string | null }
+  /** the app's key the starting session said at the start (google-drive/app-return.ts appReturnKey) */
+  appKey?: string
 }
 /** integration_oauth_flows.reason of a flow whose result waits for the desktop app's code (state 'exchanging') */
 const HELD = 'held'
@@ -1374,7 +1376,7 @@ export class Integrations {
     }
     // no token address remembered yet: this one is, once this sign-in worked (callback)
     const pinOnto = app?.clientSecret && !app.tokenUrl && !app.foundTokenUrl ? { json: app.stored.json, enc: app.stored.enc } : null
-    const secret: FlowSecret = { verifier, server: setup.server, client, resource: setup.resource, scope: setup.scope, pinOnto, appVersion: row.template_id && app && !app.serverApp ? app.stored.version : null, own: app && !app.serverApp ? (row.template_id ? 'template' : 'mine') : undefined, ...(app?.serverApp ? { serverApp: app.serverApp } : {}) }
+    const secret: FlowSecret = { verifier, server: setup.server, client, resource: setup.resource, scope: setup.scope, pinOnto, appVersion: row.template_id && app && !app.serverApp ? app.stored.version : null, own: app && !app.serverApp ? (row.template_id ? 'template' : 'mine') : undefined, ...(app?.serverApp ? { serverApp: app.serverApp } : {}), ...(appReturnKey(session) ? { appKey: appReturnKey(session)! } : {}) }
     let sealed
     try { sealed = this.box.seal(flowAad({ id: flowId, user_id: viewer.id }), secret) } catch { return fail('unavailable', say('key_unsafe', L)) }
     const expiresAt = iso(this.now() + FLOW_TTL)
@@ -1609,7 +1611,7 @@ export class Integrations {
    * (32 random bytes) that the page hands only to the desktop app, in its link's fragment. */
   private hold(f: FlowRow, s: FlowSecret, tokens: OAuthTokens, row: Row): CallbackResult {
     const code = newToken(), until = this.now() + CLAIM_MS
-    const sealed = this.box.seal(flowAad(f), { ...s, held: { tokens, claim: tokenHash(code), until, key: appReturnKey(f.session_id) } } satisfies FlowSecret)
+    const sealed = this.box.seal(flowAad(f), { ...s, held: { tokens, claim: tokenHash(code), until, key: s.appKey ?? null } } satisfies FlowSecret)
     if (!this.db.query("UPDATE integration_oauth_flows SET secret_enc=?, key_version=?, reason=?, expires_at=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, HELD, iso(until), f.id).changes) {
       void this.revokeTokens(heldSecret(s, tokens))
       return { ok: false, reason: null }
