@@ -94,7 +94,7 @@ async function codex(token: string, prompt: string, tag: string): Promise<string
   const ssh = process.env.MCP_LIVE_CODEX_SSH
   if (ssh) {
     const port = new URL(h.url).port
-    const remote = `export PATH=$PATH:/opt/homebrew/bin:/usr/local/bin; read -r T; cd "$(mktemp -d)" && TRINA_MCP_TOKEN="$T" codex exec --skip-git-repo-check --sandbox read-only -c 'mcp_servers.trina.url="http://127.0.0.1:18765/mcp"' -c 'mcp_servers.trina.bearer_token_env_var="TRINA_MCP_TOKEN"' -c 'mcp_servers.trina.tool_timeout_sec=300' ${JSON.stringify(prompt)} </dev/null`
+    const remote = `export PATH=$PATH:/opt/homebrew/bin:/usr/local/bin; read -r T; cd "$(mktemp -d)" && TRINA_MCP_TOKEN="$T" codex exec --skip-git-repo-check --sandbox read-only -c 'mcp_servers.trina.url="http://127.0.0.1:18765/mcp"' -c 'mcp_servers.trina.bearer_token_env_var="TRINA_MCP_TOKEN"' -c 'mcp_servers.trina.tool_timeout_sec=300' -c 'mcp_servers.trina.default_tools_approval_mode="approve"' ${JSON.stringify(prompt)} </dev/null`
     const p = Bun.spawn(['ssh', '-i', path.join(os.homedir(), '.ssh/id_ed25519'), '-o', 'IdentitiesOnly=yes', '-o', 'ExitOnForwardFailure=yes', '-R', `18765:127.0.0.1:${port}`, ssh, remote], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' })
     p.stdin.write(token + '\n'); p.stdin.end()
     const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()])
@@ -103,7 +103,7 @@ async function codex(token: string, prompt: string, tag: string): Promise<string
     return out + err
   }
   const viaOpenRouter = process.env.MCP_LIVE_CODEX_MODEL ? ['-c', 'model_provider="openrouter"', '-c', 'model_providers.openrouter.name="OpenRouter"', '-c', 'model_providers.openrouter.base_url="https://openrouter.ai/api/v1"', '-c', 'model_providers.openrouter.env_key="OPENROUTER_API_KEY"', '-c', `model="${process.env.MCP_LIVE_CODEX_MODEL}"`] : []
-  const p = Bun.spawn(['codex', 'exec', '--skip-git-repo-check', '--sandbox', 'read-only', ...viaOpenRouter, '-c', `mcp_servers.trina.url="${h.url}/mcp"`, '-c', 'mcp_servers.trina.bearer_token_env_var="TRINA_MCP_TOKEN"', '-c', 'mcp_servers.trina.tool_timeout_sec=300', prompt], { stdout: 'pipe', stderr: 'pipe', cwd: OUT, env: { ...process.env, TRINA_MCP_TOKEN: token } })
+  const p = Bun.spawn(['codex', 'exec', '--skip-git-repo-check', '--sandbox', 'read-only', ...viaOpenRouter, '-c', `mcp_servers.trina.url="${h.url}/mcp"`, '-c', 'mcp_servers.trina.bearer_token_env_var="TRINA_MCP_TOKEN"', '-c', 'mcp_servers.trina.tool_timeout_sec=300', '-c', 'mcp_servers.trina.default_tools_approval_mode="approve"', prompt], { stdout: 'pipe', stderr: 'pipe', cwd: OUT, env: { ...process.env, TRINA_MCP_TOKEN: token } })
   const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()])
   await p.exited
   log(`${tag}.codex.txt`, `$ codex exec ${JSON.stringify(prompt)}\n--- stdout\n${out}\n--- stderr\n${err}`)
@@ -265,7 +265,8 @@ describe.skipIf(!LIVE)('live: Claude Code and Codex in the person\'s browser pro
     if (/usage limit/i.test(out)) { log('L7-BLOCKED.txt', 'Codex sign-in is at its usage limit: ' + (/try again at ([^.\n]+)/.exec(out)?.[1] ?? '')); return }
     const rows = audits(from)
     log('L7-audit.json', JSON.stringify(rows, null, 2))
-    expect(rows.some((r) => r.tool === 'navigate' && r.ok && r.profile === profiles[0]!.linkId)).toBe(true)
+    expect(rows.some((r) => (r.tool === 'navigate' || r.tool === 'browser_batch') && r.ok && r.profile === profiles[0]!.linkId)).toBe(true)
+    expect(hits.some((x) => x.includes('shop-codex'))).toBe(true)
     expect(out.toLowerCase()).toContain('hello codex')
   })
 
