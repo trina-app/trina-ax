@@ -185,15 +185,26 @@ function ownerFile(ctx: AppContext, userId: string, rel: string, locale: Locale)
   throw new HttpError('validation', TEXT.badFile[locale], { fields: { 'body.files': 'not_found' } })
 }
 
+/** The background AI help of the onboarding press (admin/team-icon-site.ts startOnboardingIconAi): true when it took the
+ * staged icon (or none); false: no AI help now. */
+export type SiteIconAi = (staged: { bytes: Uint8Array<ArrayBuffer>; url: string; source: string } | null) => boolean
+
 /**
  * The website's square icon (onboarding/site-icon.ts, staged while the draft read the site) as the team logo, only if the
  * team has none at this moment (docs/decisions/20261128-team-icon-from-site.md): never over a logo someone set, even
  * one set a moment ago (saveTeamIconIfAbsent links, it does not check then write). The staged icon is used once either
  * way, so an undo stays undone. Audited as team_icon.set with source "site"; open windows show it at once.
  */
-export function applySiteIcon(ctx: AppContext, userId: string, chatId: string): { version: string } | null {
-  const staged = stagedSiteIcon(ctx.engineConfig.dataDir, chatId)
-  if (!staged) return null
+export function applySiteIcon(ctx: AppContext, userId: string, chatId: string | null, ai?: SiteIconAi): { version: string } | { pending: true } | null {
+  const staged = chatId ? stagedSiteIcon(ctx.engineConfig.dataDir, chatId) : null
+  // with the team's AI (docs/decisions/20261128-team-icon-ai-assist.md): the staged icon (or none: a site behind a bot
+  // check gives the draft nothing, and no draft with pictures) goes to the background run, which checks it and looks
+  // for the logo; used once either way
+  if (ai && ai(staged)) {
+    if (chatId) try { dropStagedSiteIcon(ctx.engineConfig.dataDir, chatId) } catch { /* the sweep removes it later */ }
+    return { pending: true }
+  }
+  if (!staged || !chatId) return null
   let set: ReturnType<typeof saveTeamIconIfAbsent> = null
   try {
     const info = imageInfo(staged.bytes)
@@ -213,7 +224,7 @@ export function applySiteIcon(ctx: AppContext, userId: string, chatId: string): 
  * the profile stays saved either way. `siteIcon`: the owner's own press (not the server's runs below) also sets the
  * website's square icon as the team logo when the team has none (applySiteIcon).
  */
-export function placeBrand(ctx: AppContext, userId: string, locale: Locale, body: WelcomeBrand, o: { siteIcon?: boolean } = {}): Omit<WelcomeBrandResult, 'progress'> {
+export function placeBrand(ctx: AppContext, userId: string, locale: Locale, body: WelcomeBrand, o: { siteIcon?: boolean; ai?: SiteIconAi } = {}): Omit<WelcomeBrandResult, 'progress'> {
   let p = readWelcome(ctx)
   if (!p?.teamGroup?.brandFolder) p = setupWelcomeTeam(ctx, userId, locale).progress
   const group = p.teamGroup
@@ -225,7 +236,8 @@ export function placeBrand(ctx: AppContext, userId: string, locale: Locale, body
   const draft = latestDraftChat(ctx, userId)
   const images = draft ? placeBrandAssets(ctx, userId, draft, imagesFolder, team) : []
   // before the sweep, which removes a draft's staged folder once its pictures are placed
-  const teamIcon = o.siteIcon && draft ? applySiteIcon(ctx, userId, draft) : null
+  const icon = o.siteIcon && (draft || o.ai) ? applySiteIcon(ctx, userId, draft, o.ai) : null
+  const teamIcon = icon && 'version' in icon ? icon : null
   sweepStagedAssets(ctx)
   let intro: string | null = null
   let wrote = false
@@ -247,7 +259,7 @@ export function placeBrand(ctx: AppContext, userId: string, locale: Locale, body
   const first = !brandDone(ctx)
   markBrand(ctx, BRAND_AT)
   if (first || wrote || images.length) audit(ctx.db, { actor: userId, action: 'onboarding.brand', target: brandFolder, detail: { files: files.length, intro: wrote, images: images.length } })
-  return { brandFolder, imagesFolder, images, intro, teamIcon }
+  return { brandFolder, imagesFolder, images, intro, teamIcon, ...(icon && 'pending' in icon ? { teamIconPending: true } : {}) }
 }
 
 /** Whose brand materials a read puts in: the active owner with the latest website reading (its pictures are theirs:

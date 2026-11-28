@@ -270,6 +270,8 @@ describe('the onboarding press and the admin button (a team server)', () => {
       return new Response('nothing', { status: 404 })
     } })
     h = await startHarness({ name: 'b-site-icon', fetch: { ...net, timeoutMs: 3000 } })
+    // the rules alone here (the team's AI help: b-site-icon-ai.test.ts)
+    setSiteIconNetForTests(h.ctx, { net, ai: false })
   })
   afterAll(async () => { setSiteIconNetForTests(h?.ctx, null); await h?.close(); web?.stop(true) })
 
@@ -331,7 +333,7 @@ describe('the onboarding press and the admin button (a team server)', () => {
   test('admin button: members refused, not while the exit address is unknown, the saved website only, replaces an uploaded logo, one at a time, "not found" in plain words', async () => {
     const post = (who: string) => h.req(who, '/api/admin/team-icon/from-site', { method: 'POST' })
     expect((await post('alice')).status).toBe(403)
-    setSiteIconNetForTests(h.ctx, { net, site: () => site() })
+    setSiteIconNetForTests(h.ctx, { net, site: () => site(), ai: false })
     // the server does not know its own public address yet: refused, nothing fetched
     const notReady = await post('carol')
     expect(notReady.status).toBe(503)
@@ -352,7 +354,7 @@ describe('the onboarding press and the admin button (a team server)', () => {
     slow = 0
     expect([a.status, b.status].sort()).toEqual([200, 409])
     // nothing usable: one plain line
-    setSiteIconNetForTests(h.ctx, { net, site: () => `http://nothing.example:${port()}/` })
+    setSiteIconNetForTests(h.ctx, { net, site: () => `http://nothing.example:${port()}/`, ai: false })
     const none = await post('carol')
     expect(none.status).toBe(404)
     expect((await none.json()).error).toMatchObject({ params: { reason: 'not_found' }, message: '홈페이지에서 쓸 만한 아이콘을 찾지 못했어요. 로고 파일을 올려 주세요.' })

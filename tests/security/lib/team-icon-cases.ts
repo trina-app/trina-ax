@@ -46,4 +46,14 @@ export const TEAM_ICON_SPECS: Record<string, Spec> = {
   // the saved company profile's website, never an address from the request: this world has none, so an admin meets 409
   // no_website (the found and not-found paths are tests/unit/b-site-icon.test.ts)
   teamIconFromSite: { build: c => c.post('/api/admin/team-icon/from-site'), scope: 'byLevel' },
+  // the caller's own last run only (another person's is never shown: tests/unit/b-site-icon-ai.test.ts); in this world
+  // nobody pressed, so an admin meets idle, and never anything that names an address or another person
+  teamIconSiteRun: {
+    build: c => c.get('/api/admin/team-icon/from-site'),
+    scope: 'byLevel',
+    check: async (r) => {
+      if (r.status !== 200) return
+      if (r.json.status !== 'idle') throw new Error(`a run nobody here started is shown: ${JSON.stringify(r.json).slice(0, 200)}`)
+    },
+  },
 }

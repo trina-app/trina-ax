@@ -58,7 +58,7 @@ import { assertConcurrencyAllowed, concurrencyMax } from '../system/limits'
 import { checkApiEngineUrl, checkApiEngineUrlForAdmin } from '../system/egress'
 import { feature } from '../system/deployment'
 import { readTeamIcon, removeTeamIcon, saveTeamIcon, TEAM_ICON_CHANGED, teamIconInfo } from '../admin/team-icon'
-import { teamIconFromSite } from '../admin/team-icon-site'
+import { siteRunOf, teamIconFromSite } from '../admin/team-icon-site'
 
 const hostOf = (u: string) => { try { return new URL(u).host } catch { return '' } }
 
@@ -461,12 +461,19 @@ export const adminRoutes: RouteModule = {
     // the saved company profile's website, never an address from the request (admin/team-icon-site.ts)
     kit.handle(API.teamIconFromSite, async ({ c, auth }) => {
       const before = readTeamIcon(ctx.config.dataDir)?.version ?? null
-      const { icon, url } = await teamIconFromSite(ctx, auth.user.id, c.get('locale'))
+      let rt: ReturnType<typeof getChatRuntime> | null = null
+      try { rt = getChatRuntime(ctx) } catch { rt = null }
+      // with the caller's AI it runs in the background and lands (audited, announced) there (admin/team-icon-site.ts)
+      const r = await teamIconFromSite(ctx, auth.user, c.get('locale'), rt)
+      if ('pending' in r) return r
+      const { icon, url } = r
       const info = teamIconInfo(icon)
       audit(ctx.db, { actor: auth.user.id, action: 'team_icon.set', target: null, detail: { ...info, before, source: 'site', url } })
       ctx.services.realtime.publishEach(() => TEAM_ICON_CHANGED)
       return info
     })
+
+    kit.handle(API.teamIconSiteRun, ({ auth }) => siteRunOf(ctx, auth.user.id))
 
     // ---------------- voice input: the OpenRouter key (credentials/speech-key.ts) ----------------
     kit.handle(API.speechKey, () => speechKeyStatus(ctx.db))

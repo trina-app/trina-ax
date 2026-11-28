@@ -29,6 +29,7 @@ import { cheapestCodexModel } from '../engine/codex'
 import type { EngineConfs } from '../chat/engines'
 import { profileFactLines, readCompanyProfile } from './profile'
 import { organizeSystemPrompt, type OrganizeMaterial } from './files-organize-ai'
+import { isTeamIconMaterial, teamIconSystemPrompt, type TeamIconMaterial } from './site-icon-ai'
 
 /** A member's own pick asks for at most this many ids, grouped by kind (a short answer: the turn took 11 s for 80 names
  * with an id and a reason per pick, measured 2026-11-15; the page shows 50 at most). */
@@ -48,7 +49,7 @@ export interface FileRankMaterial {
    * the 팀 파일 step's pick for the whole team (owners and admins) */
   purpose?: 'own'
 }
-export interface FileRankScope { chatId: string; userId: string; material: FileRankMaterial | OrganizeMaterial }
+export interface FileRankScope { chatId: string; userId: string; material: FileRankMaterial | OrganizeMaterial | TeamIconMaterial }
 
 export const FILE_RANK_REFUSAL = 'This chat only picks which of the listed files the team should have: no tool and no team file is available here. Answer from the material in your instructions.'
 
@@ -87,7 +88,7 @@ export function fileRankOf(db: Database, chatId: string): FileRankScope | null {
     throw e
   }
   if (!r) return null
-  return { chatId, userId: r.user_id, material: JSON.parse(r.material) as FileRankMaterial | OrganizeMaterial }
+  return { chatId, userId: r.user_id, material: JSON.parse(r.material) as FileRankScope['material'] }
 }
 
 const sizeText = (n: number) => (n >= 1024 * 1024 ? `${(n / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
@@ -96,6 +97,8 @@ const sizeText = (n: number) => (n >= 1024 * 1024 ? `${(n / (1024 * 1024)).toFix
 export function fileRankSystemPrompt(d: FileRankScope, o: { history?: { role: 'user' | 'assistant'; content: string }[] | null }): string {
   // the setup's folder plan (onboarding/files-organize.ts) runs on the same marking with its own instructions
   if ('kind' in d.material && d.material.kind === 'organize') return organizeSystemPrompt(d.material, o)
+  // the team logo's AI help (onboarding/site-icon-ai.ts) too, with its own two tools
+  if (isTeamIconMaterial(d.material)) return teamIconSystemPrompt(d.material, o)
   const m = d.material as FileRankMaterial
   if (m.purpose === 'own') return ownRankPrompt(m, o)
   const lines = [
@@ -216,7 +219,7 @@ export function smallModelFor(engine: EngineId, confs: EngineConfs): string | nu
 export interface RankCaller { id: string; role: Role }
 
 /** Can AI answer this person now (their AI connection, their budget)? */
-function aiAnswers(ctx: AppContext, rt: ChatRuntime, who: RankCaller, locale: Locale): boolean {
+export function aiAnswersNow(ctx: AppContext, rt: ChatRuntime, who: RankCaller, locale: Locale): boolean {
   if (budgetBlock(ctx.db, who.id, locale)) return false
   try { return aiAccessFor(ctx, who, memberOwnAllowed(ctx.db), { problems: rt.engines.get().problems }).usable } catch { return false }
 }
@@ -256,6 +259,8 @@ export interface RankOptions {
   onAnswer?: (content: string) => void
   /** 'own': files of the caller's own computer for their own folder (rankOwnFiles) */
   purpose?: 'own'
+  /** the task's chat id, as soon as it is made and before its turn starts (the logo task keeps its pictures by it) */
+  onChat?: (chatId: string) => void
 }
 
 /** The AI's picks among `entries`, for `who` (an owner or admin; with `purpose: 'own'` anyone but a guest, for their own
@@ -283,12 +288,13 @@ export type FilesTurnResult = { ai: 'done'; content: string } | { ai: 'none' | '
 
 /**
  * One no-tools turn of `who` over `material` (a rank or, with `kind: 'organize'`, the setup's folder plan:
- * onboarding/files-organize.ts): a new chat marked in onboarding_file_ranks, the turn started with `o.ask`, its answer
+ * onboarding/files-organize.ts; with `kind: 'team-icon'`, the team logo's AI help, whose turn has logo_look and web
+ * search: onboarding/site-icon-ai.ts): a new chat marked in onboarding_file_ranks, the turn started with `o.ask`, its answer
  * waited for at most `o.limitMs` (then, or when `o.signal` aborts, stopped: timeout), the chat deleted after. `none`: no
  * AI answers the caller now (their connection, their budget).
  */
-export async function runFilesTurn(ctx: AppContext, rt: ChatRuntime, who: RankCaller, material: FileRankMaterial | OrganizeMaterial, locale: Locale, o: RankOptions & { ask: string; limitMs: number; title?: string; small?: boolean }): Promise<FilesTurnResult> {
-  if (!aiAnswers(ctx, rt, who, locale)) return { ai: 'none' }
+export async function runFilesTurn(ctx: AppContext, rt: ChatRuntime, who: RankCaller, material: FileRankScope['material'], locale: Locale, o: RankOptions & { ask: string; limitMs: number; title?: string; small?: boolean }): Promise<FilesTurnResult> {
+  if (!aiAnswersNow(ctx, rt, who, locale)) return { ai: 'none' }
   const userLocale = rt.userLocale(who.id)
   let chatId: string
   let answerId: string
@@ -306,6 +312,7 @@ export async function runFilesTurn(ctx: AppContext, rt: ChatRuntime, who: RankCa
       ctx.db.query('INSERT INTO onboarding_file_ranks (chat_id, user_id, material, created_at) VALUES (?,?,?,?)').run(chatId, who.id, JSON.stringify(material), now)
     })()
     const chat = rt.store.chatRow(chatId)!
+    o.onChat?.(chatId)
     try {
       const te = turnEngine(ctx, who, chat, {}, userLocale, (e) => rt.defaultModelFor(e))
       const started = rt.createTurn({ chat, userId: who.id, locale: userLocale, windowId: null, clientKind: null, engine: te.engine, model: te.model,

@@ -8,6 +8,7 @@ import { dismissSuggestion, resultSuggestion } from '../onboarding/suggestions'
 import { markWelcomeOpened, readWelcome, setupWelcomeTeam, updateWelcome, welcomeOut } from '../onboarding/welcome'
 import { brandOnRead, placeBrand } from '../onboarding/welcome-result'
 import { getChatRuntime } from '../chat/runtime'
+import { startOnboardingIconAi } from '../admin/team-icon-site'
 import type { AppContext } from '../context'
 import type { RouteModule } from './module'
 
@@ -43,7 +44,12 @@ export const onboardingWelcomeRoutes: RouteModule = {
       // the pictures and 회사 소개.md are written as the owner through the file layer (their folder rules)
       try { ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
       markWelcomeOpened(ctx)
-      const r = logged(ctx, 'the brand action', auth.user.id, () => placeBrand(ctx, auth.user.id, c.get('locale'), body, { siteIcon: true }))
+      // the team's AI checks the website's icon and finds the logo in the background when the owner's AI answers them
+      // (admin/team-icon-site.ts); else the staged icon as before
+      let rt: ReturnType<typeof getChatRuntime> | null = null
+      try { rt = getChatRuntime(ctx) } catch { rt = null }
+      const ai = (staged: Parameters<typeof startOnboardingIconAi>[4]) => startOnboardingIconAi(ctx, rt, auth.user, c.get('locale'), staged)
+      const r = logged(ctx, 'the brand action', auth.user.id, () => placeBrand(ctx, auth.user.id, c.get('locale'), body, { siteIcon: true, ai }))
       return { ...r, progress: welcomeOut(ctx, readWelcome(ctx))! }
     })
     kit.handle(API.getResultSuggestion, ({ query, auth }) => ({ suggestion: resultSuggestion(ctx, auth.user.id, query.chatId, query.messageId, getChatRuntime(ctx), { phone: query.phone === '1' }) }))

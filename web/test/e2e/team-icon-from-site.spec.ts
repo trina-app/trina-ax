@@ -29,7 +29,7 @@ test('회사 소개: 저장하고 계속 sets the website icon as the team logo 
   await stageIcon(page, makePng(256, 256, [14, 94, 78]))
   await page.getByTestId('welcome-profile-continue').click()
   await expect(page.locator('[data-step="skills"]')).toBeVisible()
-  const toast = page.getByRole('status').filter({ hasText: '홈페이지 아이콘을 팀 로고로 썼어요' })
+  const toast = page.getByRole('status').filter({ hasText: '찾은 로고를 팀 로고로 썼어요' })
   await expect(toast).toBeVisible()
   await expect(teamLogo(page)).toHaveAttribute('src', /^\/team-icon\?v=[0-9a-f]{16}$/)
   await toast.getByRole('button', { name: '되돌리기' }).click()
@@ -59,7 +59,7 @@ test('회사 소개: a logo already there is never replaced, and nothing is said
   await page.getByTestId('welcome-profile-continue').click()
   await expect(page.locator('[data-step="skills"]')).toBeVisible()
   await expect(teamLogo(page)).toHaveAttribute('src', `/team-icon?v=${v}`)
-  await expect(page.getByText('홈페이지 아이콘을 팀 로고로 썼어요')).toHaveCount(0)
+  await expect(page.getByText('찾은 로고를 팀 로고로 썼어요')).toHaveCount(0)
 })
 
 for (const [width, scheme] of [[1440, 'light'], [390, 'dark']] as const) {
@@ -84,7 +84,7 @@ for (const [width, scheme] of [[1440, 'light'], [390, 'dark']] as const) {
     // found: the logo, and the toast
     await stageIcon(page, makePng(192, 192, [200, 40, 40]))
     await button.click()
-    await expect(page.getByText('홈페이지 아이콘을 팀 로고로 바꿨어요.')).toBeVisible()
+    await expect(page.getByText('찾은 로고로 팀 로고를 바꿨어요.')).toBeVisible()
     await expect(page.getByTestId('team-icon-error')).toHaveCount(0)
     await expect(page.getByTestId('team-icon')).toHaveAttribute('data-version', /^[0-9a-f]{16}$/)
     if (width === 1440) await expect(teamLogo(page)).toHaveAttribute('src', /^\/team-icon\?v=[0-9a-f]{16}$/)
@@ -92,3 +92,51 @@ for (const [width, scheme] of [[1440, 'light'], [390, 'dark']] as const) {
     expect(realErrors(errors).filter((e) => !/status of 404/.test(e))).toEqual([])
   })
 }
+
+// With the team's AI (docs/decisions/20261128-team-icon-ai-assist.md): the press answers at once and the logo lands a
+// moment later, with the same toast (and 되돌리기 on 회사 소개); Admin shows one line while the AI checks
+const stageAiIcon = async (page: Page, png: Uint8Array | null, aiMs: number) =>
+  expect((await page.request.post('/__test/site-icon', { data: { png: png ? Buffer.from(png).toString('base64') : null, aiMs } })).ok()).toBeTruthy()
+
+test('회사 소개 with the team\'s AI: the steps go on at once; the logo and the same toast with 되돌리기 come a moment later', async ({ page }) => {
+  const errors = watchConsole(page)
+  await reset(page)
+  await noSlack(page)
+  await signIn(page)
+  await page.goto('/welcome')
+  await page.getByLabel('홈페이지 주소').fill('acme.example')
+  await page.getByRole('button', { name: '읽어 오기' }).click()
+  await expect(page.getByTestId('welcome-profile-line')).toBeVisible({ timeout: 15_000 })
+  await stageAiIcon(page, makePng(256, 256, [14, 94, 78]), 2500)
+  await page.getByTestId('welcome-profile-continue').click()
+  // not held on the step while the AI works
+  await expect(page.locator('[data-step="skills"]')).toBeVisible()
+  await expect(teamLogo(page)).toHaveAttribute('src', '/favicon.svg')
+  const toast = page.getByRole('status').filter({ hasText: '찾은 로고를 팀 로고로 썼어요' })
+  await expect(toast).toBeVisible({ timeout: 10_000 })
+  await expect(teamLogo(page)).toHaveAttribute('src', /^\/team-icon\?v=[0-9a-f]{16}$/)
+  await toast.getByRole('button', { name: '되돌리기' }).click()
+  await expect(teamLogo(page)).toHaveAttribute('src', '/favicon.svg')
+  expect(realErrors(errors)).toEqual([])
+})
+
+test('Admin › 팀 로고 with the team\'s AI: one line while it checks, then the logo and the toast; nothing found says so', async ({ page }) => {
+  const errors = watchConsole(page)
+  await reset(page)
+  await signIn(page)
+  await saveProfile(page, 'https://acme.example/')
+  await page.goto('/admin/settings')
+  const button = page.getByTestId('team-icon-from-site')
+  await stageAiIcon(page, makePng(192, 192, [200, 40, 40]), 1500)
+  await button.click()
+  await expect(page.getByTestId('team-icon-checking')).toHaveText('AI가 홈페이지 로고를 확인하고 있어요…')
+  await expect(page.getByText('찾은 로고로 팀 로고를 바꿨어요.')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId('team-icon-checking')).toHaveCount(0)
+  await expect(page.getByTestId('team-icon')).toHaveAttribute('data-version', /^[0-9a-f]{16}$/)
+  // the AI found nothing it would use: the same plain line as without AI
+  await stageAiIcon(page, null, 800)
+  await button.click()
+  await expect(page.getByTestId('team-icon-error')).toHaveText('홈페이지에서 쓸 만한 아이콘을 찾지 못했어요. 로고 파일을 올려 주세요.', { timeout: 10_000 })
+  await expect(button).toBeEnabled()
+  expect(realErrors(errors)).toEqual([])
+})

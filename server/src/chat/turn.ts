@@ -162,6 +162,7 @@ import { BrandCollector } from '../onboarding/brand-assets'
 import { skillDraftOf, skillDraftSystemPrompt, type SkillDraftScope } from '../onboarding/skill-draft'
 import { shareJudgeOf, shareJudgeSystemPrompt, type ShareJudgeScope } from '../skills/share-judge'
 import { fileRankOf, fileRankSystemPrompt, type FileRankScope } from '../onboarding/file-rank'
+import { isTeamIconMaterial, LOGO_LOOK } from '../onboarding/site-icon-ai'
 import { shareMergeOf, shareMergeSystemPrompt, type ShareMergeScope } from '../skills/share-merge'
 import { backdateChat, DEMO_REPLAY_TOOL, demoReplayFor, runReplay } from '../demo/replay'
 import { demoFakesOf } from '../demo/fakes'
@@ -489,6 +490,9 @@ export class TurnExec {
   /** a draft, judge or merge chat: none of the team's instructions, project, attachments, browser, sub-agents or web
    * search */
   get restricted(): boolean { return !!this.profileDraft || !!this.skillDraft || !!this.shareJudge || !!this.shareMerge || !!this.fileRank }
+  /** the team logo's AI help (onboarding/site-icon-ai.ts), a file-rank marking of its own kind: restricted like the
+   * others, with logo_look and the engine's own web search as its only tools (chat/tools.ts) */
+  get teamIconAi(): boolean { return !!this.fileRank && isTeamIconMaterial(this.fileRank.material) }
   /** a seeded past chat of the demo replayed this turn: how many days ago it says it was (demo/replay.ts) */
   private replayDaysAgo = 0
   /** office-network hosts the person allowed "once" in this turn */
@@ -1198,7 +1202,8 @@ export class TurnExec {
     const guestPrompt = guestTurn ? guestPromptOf(rt.db, spec.userId) ?? { places: [], inviter: null } : null
     // a free-roam demo (docs/decisions/20261119-demo-free-roam-a.md): no web search and no sub-agents either
     const freeRoam = isFreeRoam(rt.ctx.config)
-    const webSearch = !this.templateScope && !this.restricted && !confidential && !guestTurn && !freeRoam
+    // (the team logo's AI help is restricted and searches: its whole task is finding the logo on the web)
+    const webSearch = !this.templateScope && (!this.restricted || this.teamIconAi) && !confidential && !guestTurn && !freeRoam
     const subagents = !!claude && !guestTurn && !freeRoam && !this.templateScope && !this.restricted && getTeamSettings(rt.db).aiSubagents
       && !(claude.authMode === 'local-login' && confidential && !LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS)
     // the skills of this turn (chat/skill-list.ts), one walk for the instructions, the hints and "/name": every skill
@@ -1714,7 +1719,7 @@ export class TurnExec {
           stash: resumedStash, model, maxTurns: turnsLeft, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
           // a pick of work files from names (not the folder plan, which reads files): low effort, quick; else the depth
           // the person chose (보통 and nothing chosen: no flag)
-          ...(this.fileRank && !('kind' in this.fileRank.material) ? { effort: 'low' as const } : spec.effort && CLAUDE_EFFORT[spec.effort] ? { effort: CLAUDE_EFFORT[spec.effort] } : {}),
+          ...(this.fileRank && (!('kind' in this.fileRank.material) || this.teamIconAi) ? { effort: 'low' as const } : spec.effort && CLAUDE_EFFORT[spec.effort] ? { effort: CLAUDE_EFFORT[spec.effort] } : {}),
           ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken, caPem: core.proxy?.refreshCaPem ?? null } } : {}),
         }, claude)
         const { exit, stderr } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
@@ -1931,7 +1936,7 @@ export class TurnExec {
         prepareCodexTurn(codex, chatDir)
         // Codex's own web search, cached index only (docs/DECISIONS.md "Codex web search"): never in an approved
         // template run or a confidential chat; the model proxy refuses its searches for a token without it as well
-        const webSearch = !this.templateScope && !this.restricted && !confidentialChat(rt.db, spec.chatId) && !isGuestUser(rt.db, spec.userId) && !isFreeRoam(rt.ctx.config)
+        const webSearch = !this.templateScope && (!this.restricted || this.teamIconAi) && !confidentialChat(rt.db, spec.chatId) && !isGuestUser(rt.db, spec.userId) && !isFreeRoam(rt.ctx.config)
         const parser = new CodexEventParser()
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false
@@ -3377,7 +3382,7 @@ export class TurnExec {
     this.noteOthersTool(chatFiles ? 'chat_file' : tool)
     // what the in-app browser showed (pages the person is signed in to) counts as seen by this person only (tab 7)
     if (BROWSER_TOOL_NAMES.has(tool)) addSources(this.rt.db, this.spec.chatId, [{ type: 'user', id: this.spec.userId, via: 'browser' }])
-    if (tool === 'WebSearch' || tool === 'web_search' || tool === 'web_fetch' || BROWSER_TOOL_NAMES.has(tool)) return this.taint()
+    if (tool === 'WebSearch' || tool === 'web_search' || tool === 'web_fetch' || tool === LOGO_LOOK || BROWSER_TOOL_NAMES.has(tool)) return this.taint()
     if (['read', 'grep', 'glob', 'list'].includes(tool)) {
       const a = (input ?? {}) as Record<string, unknown>
       const p = String(a.file_path ?? a.path ?? '')
