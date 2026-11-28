@@ -154,7 +154,7 @@ export function iconCandidates(html: string, pageUrl: string): { manifest: strin
 }
 
 /** A web app manifest's icons, best first: "any" before "maskable" (a maskable one has a safe-zone margin), largest
- * first; never SVG, never "any" size, nothing named smaller than 64 px. Bad JSON or no icons: none. */
+ * first; never "monochrome" alone, never SVG, never "any" size, nothing named smaller than 64 px. Bad JSON or no icons: none. */
 export function manifestIcons(json: string, manifestUrl: string): IconCandidate[] {
   let raw: unknown
   try { raw = JSON.parse(json) } catch { return [] }
@@ -173,6 +173,8 @@ export function manifestIcons(json: string, manifestUrl: string): IconCandidate[
     const size = parseSizes(typeof sizes === 'string' ? sizes : '')
     if (size < 0 || (size > 0 && size < SITE_ICON_MIN_SIDE)) continue
     const p = (typeof purpose === 'string' ? purpose : '').toLowerCase().split(/\s+/).filter(Boolean)
+    // "monochrome" alone is a one-colour silhouette for the system to tint, not the brand's mark
+    if (p.length > 0 && !p.includes('any') && !p.includes('maskable')) continue
     ;(p.length === 0 || p.includes('any') ? any : maskable).push({ url, source: 'manifest', size })
   }
   return [...any.sort(bySize), ...maskable.sort(bySize)]

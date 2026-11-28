@@ -22,7 +22,7 @@
   website**, never an address from the request, runs the same picker on its home page and replaces the logo there,
   since the admin pressed for it. Found: "홈페이지 아이콘을 팀 로고로 바꿨어요". Nothing usable: one line "홈페이지에서 쓸
   만한 아이콘을 찾지 못했어요. 로고 파일을 올려 주세요." (404, `params.reason: not_found`, the same for every failure).
-  One run at a time per server (`busy`). Refused with "서버가 아직 준비 중이에요. 잠시 후 다시 눌러 주세요." (409
+  One run at a time per server (`busy`). Refused with "서버가 아직 준비 중이에요. 잠시 후 다시 눌러 주세요." (503
   `not_ready`) while the server does not know its own public exit address, unless the install turned that check off
   (`MYCEL_EXIT_ADDRESS_CHECK=off`, where web_fetch asks a person and this press is one).
 - **Rule, which icon:** in order, the first that passes: the web app manifest's icons ("any" before "maskable", largest

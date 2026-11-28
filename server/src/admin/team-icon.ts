@@ -26,7 +26,7 @@ export const TEXT: Record<TeamIconProblem, T> = {
 export const SITE_ICON_TEXT = {
   noWebsite: t('회사 소개에 홈페이지 주소가 없어요. 회사 소개에서 홈페이지를 먼저 저장해 주세요.', 'The company profile has no website. Save the website in the company profile first.', 'Profil perusahaan belum punya situs web. Simpan dulu situs webnya di profil perusahaan.', '会社紹介にホームページがありません。先に会社紹介でホームページを保存してください。', 'El perfil de la empresa no tiene sitio web. Guarde primero el sitio web en el perfil de la empresa.', '公司介绍里没有网站地址。请先在公司介绍中保存网站。'),
   notReady: t('서버가 아직 준비 중이에요. 잠시 후 다시 눌러 주세요.', 'The server is still getting ready. Press it again in a moment.', 'Server masih bersiap. Tekan lagi sebentar lagi.', 'サーバーはまだ準備中です。少し待ってからもう一度押してください。', 'El servidor aún se está preparando. Vuelva a pulsarlo en un momento.', '服务器还在准备中。请稍后再按一次。'),
-  notFound: t('홈페이지에서 쓸 만한 아이콘을 찾지 못했어요. 로고 파일을 올려 주세요.', "We couldn't find an icon on the website that works as a logo. Upload a logo file instead.", 'Kami tidak menemukan ikon di situs web yang bisa dipakai sebagai logo. Unggah berkas logo saja.', 'ホームページにロゴとして使えるアイコンが見つかりませんでした。ロゴファイルをアップロードしてください。', 'No encontramos en el sitio web un icono que sirva como logotipo. Suba un archivo de logotipo.', '没有在网站上找到可以用作标志的图标。请上传标志文件。'),
+  notFound: t('홈페이지에서 쓸 만한 아이콘을 찾지 못했어요. 로고 파일을 올려 주세요.', "We couldn't find an icon on the website that works as a logo. Upload a logo file instead.", 'Kami tidak menemukan ikon di situs web yang bisa dipakai sebagai logo. Unggah berkas logo saja.', 'ホームページにロゴとして使えるアイコンが見つかりませんでした。ロゴファイルをアップロードしてください。', 'No encontramos en el sitio web un icono que sirva como logo. Suba un archivo de logo.', '没有在网站上找到可以用作标志的图标。请上传标志文件。'),
   busy: t('홈페이지에서 아이콘을 가져오는 중이에요. 잠시 후 다시 눌러 주세요.', 'The icon is already being fetched from the website. Try again in a moment.', 'Ikon sedang diambil dari situs web. Coba lagi sebentar lagi.', 'ホームページからアイコンを取得中です。少し待ってからもう一度お試しください。', 'Ya se está obteniendo el icono del sitio web. Vuelva a intentarlo en un momento.', '正在从网站获取图标。请稍后再试。'),
 } as const
 const refuse = (problem: TeamIconProblem, locale: Locale): never =>
@@ -127,14 +127,25 @@ export function saveTeamIconIfAbsent(dataDir: string, bytes: Uint8Array<ArrayBuf
 }
 
 /** Remove the logo (the default icon again). False when there was none; 'stale' when `version` is given and the logo
- * now is another one (an undo never removes a newer logo). */
+ * now is another one (an undo never removes a newer logo). With a version it is not a check, then a remove (an upload's
+ * rename could land between the two): the file is renamed aside first, so the bytes compared are the bytes removed;
+ * another version is linked back unless a newer logo took the place meanwhile (that one stays). */
 export function removeTeamIcon(dataDir: string, version?: string): boolean | 'stale' {
   cache.delete(dataDir)
+  const target = teamIconFile(dataDir)
   if (version !== undefined) {
-    const now = readTeamIcon(dataDir)
-    if (!now) return false
-    if (now.version !== version) return 'stale'
-    cache.delete(dataDir)
+    const aside = `${target}.${crypto.randomBytes(6).toString('hex')}.undo`
+    try { fs.renameSync(target, aside) } catch { return false }
+    try {
+      let bytes: Uint8Array | null = null
+      try { bytes = new Uint8Array(fs.readFileSync(aside)) } catch { /* unreadable: put back */ }
+      if (bytes && versionOf(bytes) === version) return true
+      try { fs.linkSync(aside, target) } catch { /* a newer logo is there now: it stays */ }
+      return 'stale'
+    } finally {
+      fs.rmSync(aside, { force: true })
+      cache.delete(dataDir)
+    }
   }
   try {
     fs.rmSync(teamIconFile(dataDir))

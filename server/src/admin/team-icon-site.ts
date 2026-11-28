@@ -40,7 +40,7 @@ export async function teamIconFromSite(ctx: AppContext, userId: string, locale: 
     // unless the install turned the check off (MYCEL_EXIT_ADDRESS_CHECK=off: then a person's press is what web_fetch
     // asks for, and this press is one)
     await egressSettled(ctx)
-    if (!egressOf(ctx).known && !exitAddressCheckOff()) return fail('conflict', SITE_ICON_TEXT.notReady[locale], { params: { reason: 'not_ready' } })
+    if (!egressOf(ctx).known && !exitAddressCheckOff()) return fail('unavailable', SITE_ICON_TEXT.notReady[locale], { params: { reason: 'not_ready' } })
     const test = testNets.get(ctx)
     const scope = webScope(website)
     let why = 'shared platform'

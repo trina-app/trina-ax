@@ -99,6 +99,7 @@ describe('where the icon is looked for (pure)', () => {
       { src: '/a.svg', sizes: 'any', type: 'image/svg+xml' },
       { src: '/vector', sizes: '512x512', type: 'image/svg+xml' },
       { src: '/a-48.png', sizes: '48x48' },
+      { src: '/mono-1024.png', sizes: '1024x1024', purpose: 'monochrome' },
       { src: 'icons/a-1024.gif', sizes: '1024x1024', type: 'image/gif' },
       { nope: true }, 'x',
     ] })
@@ -238,9 +239,12 @@ describe('the "only if no logo" write and its undo', () => {
     const a = saveTeamIconIfAbsent(dir, makePng(200, 200), 'image/png')!
     fs.writeFileSync(teamIconFile(dir), uploaded)
     expect(removeTeamIcon(dir, a.version)).toBe('stale')
-    expect(fs.existsSync(teamIconFile(dir))).toBe(true)
+    // the newer logo is back in place as it was, and nothing is left aside
+    expect(new Uint8Array(fs.readFileSync(teamIconFile(dir)))).toEqual(uploaded)
+    expect(fs.readdirSync(dir)).toEqual(['team-icon'])
     expect(removeTeamIcon(dir, readTeamIcon(dir)!.version)).toBe(true)
     expect(removeTeamIcon(dir, a.version)).toBe(false)
+    expect(fs.readdirSync(dir)).toEqual([])
   })
 })
 
@@ -330,7 +334,7 @@ describe('the onboarding press and the admin button (a team server)', () => {
     setSiteIconNetForTests(h.ctx, { net, site: () => site() })
     // the server does not know its own public address yet: refused, nothing fetched
     const notReady = await post('carol')
-    expect(notReady.status).toBe(409)
+    expect(notReady.status).toBe(503)
     expect((await notReady.json()).error).toMatchObject({ params: { reason: 'not_ready' }, message: '서버가 아직 준비 중이에요. 잠시 후 다시 눌러 주세요.' })
     noteEgressIp(h.ctx, '203.0.113.9')
     const before = await me()
