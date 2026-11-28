@@ -173,7 +173,8 @@ export const adminRoutes: RouteModule = {
     kit.handle(API.listConnected, ({ c }) => {
       if (!connectedOn()) return { items: [], available: false }
       const cf = connectedFolders(ctx)
-      return { items: cf.list().map((r) => ({ ...connectedOut(r, cf.isSyncing(r.id)), lastError: r.last_error ? msg(`connected_${r.last_error}` as never, c.get('locale')) : null })), available: true }
+      // the folder form's wording: "this Mac" and Finder's examples only on a Mac (Windows QA 2026-11-28)
+      return { items: cf.list().map((r) => ({ ...connectedOut(r, cf.isSyncing(r.id)), lastError: r.last_error ? msg(`connected_${r.last_error}` as never, c.get('locale')) : null })), available: true, mac: process.platform === 'darwin' }
     })
     kit.handle(API.addConnected, ({ c, body, auth }) => {
       if (!connectedOn()) fail('conflict', msg('connected_unavailable' as never, c.get('locale')))

@@ -52,6 +52,36 @@ describe('install-linux.sh: Landlock from the sandbox helper\'s probe', () => {
   })
 })
 
+describe('install-linux.sh: the closing hint on a WSL server (Windows QA 2026-11-28)', () => {
+  const part = between(INSTALLER, '# BEGIN wsl check\n', '# END wsl check') + '\n' + 'done_ok() {\n' + between(INSTALLER, '\ndone_ok() {\n', '\n}\n') + '\n}\n'
+  const run = (release: string) => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'wsl-done-'))
+    fs.mkdirSync(path.join(d, 'setup')); fs.mkdirSync(path.join(d, 'data'))
+    fs.writeFileSync(path.join(d, 'setup', 'code'), 'ABCD\n'); fs.writeFileSync(path.join(d, 'data', 'setup-token'), 'x')
+    fs.writeFileSync(path.join(d, 'osrelease'), release)
+    const r = bash(`WARNINGS=()\nsay() { echo "$*"; }\ndev_env_step() { :; }\nBASE='${d}' PORT=47820 ID=mycel RUNNING=1.0.0 DEPLOYMENT=x SRV_USER=s AGT_USER=a CTL_LINK=c\n${part}\ndone_ok`, { MYCEL_OSRELEASE: path.join(d, 'osrelease'), WSL_DISTRO_NAME: 'TrinaAX' })
+    fs.rmSync(d, { recursive: true, force: true })
+    return { ...r, out: r.out.replaceAll(d, '<base>') }
+  }
+  test('WSL: open 127.0.0.1 on this PC, the code on the clipboard or through wsl.exe; no ssh -L, no sudo cat', () => {
+    expect(part).toContain('on_wsl')
+    const r = run('6.6.87.2-microsoft-standard-WSL2\n')
+    expect(r.code).toBe(0)
+    expect(r.out).toContain('open http://127.0.0.1:47820/setup on this PC')
+    expect(r.out).toContain('The setup code is on the clipboard')
+    expect(r.out).toContain('wsl -d TrinaAX --cd / -u root -- cat <base>/setup/code')
+    expect(r.out).not.toContain('ssh -L')
+    expect(r.out).not.toContain('sudo cat')
+  })
+  test('a Linux server elsewhere: the ssh tunnel and sudo cat as before', () => {
+    const r = run('6.12.48+deb13-amd64\n')
+    expect(r.code).toBe(0)
+    expect(r.out).toContain('ssh -L 47820:127.0.0.1:47820 <this server>')
+    expect(r.out).toContain('sudo cat <base>/setup/code')
+    expect(r.out).not.toContain('wsl -d')
+  })
+})
+
 describe('install-wsl-server.ps1', () => {
   test('Windows PowerShell 5.1 reads it as written: ASCII only, -WhatIf through ShouldProcess, every change behind it', () => {
     // (5.1 reads a file without a BOM in the PC's code page: one non-ASCII character can break the script on a Korean PC)
@@ -59,7 +89,7 @@ describe('install-wsl-server.ps1', () => {
     expect(PS1).toContain('#Requires -Version 5.1')
     expect(PS1).toContain('[CmdletBinding(SupportsShouldProcess = $true)]')
     // the commands that change this PC all sit under a Test-Change (ShouldProcess) in the same block
-    const changes = ['Enable-WindowsOptionalFeature', 'Register-ScheduledTask', 'Unregister-ScheduledTask', 'Restart-Computer', 'powercfg.exe /change', 'Set-Acl', "'--install'", "'--update'", "'--shutdown'", "'--terminate'", "'--set-version'"]
+    const changes = ['Enable-WindowsOptionalFeature', 'Register-ScheduledTask', 'Unregister-ScheduledTask', 'Restart-Computer', 'powercfg.exe /change', 'Set-Acl', "'--install'", "'--update'", "'--shutdown'", "'--terminate'", "'--set-version'", "'--unregister'"]
     const lines = PS1.split('\n')
     for (const c of changes) {
       const at = lines.map((l, i) => (l.includes(c) ? i : -1)).filter((i) => i >= 0 && !lines[i]!.trimStart().startsWith('#'))
@@ -99,7 +129,7 @@ describe('install-wsl-server.ps1', () => {
   test('it installs only what the download needs; the rest comes from the kit\'s list (scripts/system/packages.json)', () => {
     const helper = between(PS1, "$HelperScript = @'\n", "\n'@")
     const installs = helper.split('\n').filter((l) => /apt-get install/.test(l))
-    expect(installs).toEqual(['    apt-get install -y -qq --no-install-recommends "${need[@]}"'])
+    expect(installs).toEqual(['    { apt-get update -qq && apt-get install -y -qq --no-install-recommends "${need[@]}"; } >> "$PK_APT_LOG" 2>&1 \\'])
     expect(helper).toContain('for p in ca-certificates curl python3; do')
     const list = JSON.parse(read('scripts/system/packages.json')) as { groups: Record<string, { packages?: Record<string, unknown> }> }
     for (const p of ['ca-certificates', 'curl', 'python3']) expect(Object.values(list.groups).some((g) => p in (g.packages ?? {}))).toBe(true)
@@ -172,6 +202,48 @@ describe('install-wsl-server.ps1', () => {
     // a new -KitPath kit goes into an emptied folder
     expect(PS1.indexOf('$cu = Invoke-Helper clearupload')).toBeLessThan(PS1.indexOf('$c = Copy-ToDistro -LinuxPath $pair[1] -From $pair[0]'))
     expect(between(PS1, "$HelperScript = @'\n", "\n'@")).toContain('  clearupload)\n    # an earlier -KitPath copy that stopped half-way: an empty folder for the next one\n    rm -rf -- "$UPLOAD"\n')
+  })
+  test('step 4: a failed Debian install is tried once more; a leftover distro is removed only on a positive "empty" (fail-closed)', () => {
+    // Windows QA 2026-11-28: wsl --install ... --web-download stopped once with exit code -1 after 22 s on a clean PC
+    const step = between(PS1, 'Write-Step "4/8', '} else { Write-Ok "`"$Distro`" is installed" }')
+    expect(step).not.toBe('')
+    expect(step).toContain('for ($try = 1; $try -le 2; $try++) {')
+    expect(step.match(/'--install', '--distribution', 'Debian'/g)?.length).toBe(1)
+    // "none before" needs a list that answered (asked twice); a failed list is unknown
+    expect(step).toContain("$absentBefore = (-not $haveDistro) -and (((Invoke-Wsl @('--list', '--quiet')).Code -eq 0) -or ((Invoke-Wsl @('--list', '--quiet')).Code -eq 0))")
+    // success only with exit code 0 and the distro listed; otherwise the STOP message that says to run it again
+    expect(step).toContain("if ($code -eq 0 -and ((Get-DistroName) -contains $Distro)) { $installed = $true; break }")
+    expect(step).toContain('if (-not $installed) { Exit-Setup "Installing Debian failed (wsl.exe exit code $code). This happens now and then on a new PC: run this script again (finished steps are skipped).')
+    // the one --unregister sits right after the one check that needs 'remove'; every other answer leaves the loop
+    const lines = step.split('\n')
+    const un = lines.map((l, i) => (l.includes("'--unregister'") ? i : -1)).filter((i) => i >= 0)
+    expect(un.length).toBe(1)
+    expect(lines[un[0]! - 1]!.trim()).toBe("if ((Get-LeftoverAction -AbsentBefore $absentBefore -Probe $probe) -ne 'remove') { break }")
+    expect(lines[un[0]! - 2]!).toContain("$probe = Invoke-Wsl @('-d', $Distro, '--cd', '/', '-u', 'root', '--exec', '/bin/sh', '-c',")
+    // Get-LeftoverAction: one 'remove', behind AbsentBefore, a probe that ran (code 0) and said exactly "empty"
+    const f = between(PS1, 'function Get-LeftoverAction([bool]$AbsentBefore, $Probe) {', '\n}\n')
+    expect(f.trim().split('\n').map((l) => l.trim())).toEqual([
+      "if (-not $AbsentBefore -or $null -eq $Probe) { return 'keep' }",
+      `if ($Probe.Code -eq 0 -and "$($Probe.Out)".Trim() -eq 'empty') { return 'remove' }`,
+      "return 'keep'",
+    ])
+  })
+  test('step 4: the leftover probe says "empty" only for a bare distro; the server folder, an upload or a home folder: "keep"', () => {
+    const m = PS1.match(/'-c', "(if \[ -e \$LinuxBase \][^"]*)"\)/)
+    expect(m).not.toBeNull()
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'wsl-probe-'))
+    const probe = (prep: (root: string) => void) => {
+      const root = fs.mkdtempSync(path.join(d, 'r-'))
+      fs.mkdirSync(path.join(root, 'home')); fs.mkdirSync(path.join(root, 'root'))
+      prep(root)
+      const script = m![1]!.replace('$LinuxBase', `${root}/var/lib/mycel`).replace('/root/.trina-upload', `${root}/root/.trina-upload`).replace('/home', `${root}/home`)
+      return bash(script).out.trim()
+    }
+    expect(probe(() => {})).toBe('empty')
+    expect(probe((r) => fs.mkdirSync(path.join(r, 'var/lib/mycel'), { recursive: true }))).toBe('keep')
+    expect(probe((r) => fs.mkdirSync(path.join(r, 'root/.trina-upload')))).toBe('keep')
+    expect(probe((r) => fs.mkdirSync(path.join(r, 'home/alice')))).toBe('keep')
+    fs.rmSync(d, { recursive: true, force: true })
   })
   test('-WhatIf / -Confirm only on cmdlets that take them (Windows PowerShell 5.1 stops on any other: QA 2026-11-28)', () => {
     // the cmdlets of this script and its guides that support ShouldProcess; Import-Module, Get-*, Write-*, Read-Host,
@@ -280,6 +352,19 @@ ${call}
     expect(p.stderr.toString()).toBe('')
     return p.stdout.toString()
   }
+  test('Get-LeftoverAction is fail-closed: only a list that answered and a probe that said "empty" remove', () => {
+    const cases = [
+      ['$true', "[pscustomobject]@{ Code = 0; Out = 'empty'; Err = '' }", 'remove'],
+      ['$false', "[pscustomobject]@{ Code = 0; Out = 'empty'; Err = '' }", 'keep'],
+      ['$true', "[pscustomobject]@{ Code = 0; Out = 'keep'; Err = '' }", 'keep'],
+      ['$true', "[pscustomobject]@{ Code = 1; Out = 'empty'; Err = '' }", 'keep'],
+      ['$true', "[pscustomobject]@{ Code = -1; Out = ''; Err = 'failed' }", 'keep'],
+      ['$true', "[pscustomobject]@{ Code = 0; Out = 'Failed to translate x' + [char]10 + 'empty'; Err = '' }", 'keep'],
+      ['$true', '$null', 'keep'],
+    ]
+    for (const [before, probe, want] of cases)
+      expect(`${before} ${probe}: ${fn('Get-LeftoverAction', `Get-LeftoverAction -AbsentBefore ${before} -Probe (${probe})`).trim()}`).toBe(`${before} ${probe}: ${want}`)
+  })
   const merge = (text: string, cap = 5) => {
     const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'wslconfig-')), 'in')
     fs.writeFileSync(f, text)

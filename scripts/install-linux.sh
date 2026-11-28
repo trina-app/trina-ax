@@ -1587,12 +1587,23 @@ dev_env_step() {
   dev_env_wait
   say "dev environment on (srt). Team admins turn it off in the team settings; --no-dev-env removes it from this server"
 }
+# BEGIN wsl check
+# inside WSL on a Windows PC: the kernel says so in its release string (as server/src/system/wsl.ts reads it)
+on_wsl() { grep -qiE 'microsoft|wsl' "${MYCEL_OSRELEASE:-/proc/sys/kernel/osrelease}" 2>/dev/null; }
+# END wsl check
 done_ok() {
   dev_env_step
   say "installed $ID $RUNNING ($DEPLOYMENT; server $SRV_USER, engine $AGT_USER)"
   if [ -f "$BASE/setup/code" ] && [ -e "$BASE/data/setup-token" ]; then
-    say "first-run setup: the code is in $BASE/setup/code (sudo cat $BASE/setup/code). This server has no screen: from your"
-    say "  computer run ssh -L $PORT:127.0.0.1:$PORT <this server>, then open http://127.0.0.1:$PORT/setup?token=<code>"
+    if on_wsl; then
+      # a WSL server on a Windows PC (scripts/windows/install-wsl-server.ps1): its browser reaches 127.0.0.1 itself, and
+      # the setup script puts the code on the clipboard; no ssh, no sudo (Windows QA 2026-11-28)
+      say "first-run setup: open http://127.0.0.1:$PORT/setup on this PC. The setup code is on the clipboard, or in"
+      say "  PowerShell: wsl -d ${WSL_DISTRO_NAME:-TrinaAX} --cd / -u root -- cat $BASE/setup/code"
+    else
+      say "first-run setup: the code is in $BASE/setup/code (sudo cat $BASE/setup/code). This server has no screen: from your"
+      say "  computer run ssh -L $PORT:127.0.0.1:$PORT <this server>, then open http://127.0.0.1:$PORT/setup?token=<code>"
+    fi
   fi
   say "AI login: claude setup-token (anywhere), then sudo $BASE/root/set-claude-token < token.txt; Codex: sudo $CTL_LINK codex-login"
   say "owner password recovery: sudo $BASE/root/mycel-account reset-link; status: sudo $CTL_LINK status"

@@ -466,6 +466,36 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
     fs.rmSync(d, { recursive: true, force: true })
   })
 
+  test('PK_APT_TO_LOG=1 (the Windows setup): apt\'s stdout and stderr go to PK_APT_LOG; a failure names the log and its last lines', () => {
+    // Windows QA 2026-11-28: dpkg's "Reading database ... 5%" filled the setup window between the heartbeat lines
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-log-'))
+    const bin = path.join(d, 'bin'); fs.mkdirSync(bin)
+    fs.writeFileSync(path.join(bin, 'apt-get'), `#!/bin/sh\ncase "$*" in *assume-no*) exit 0 ;; install*) echo "(Reading database ... 5%"; echo "debconf: delaying package configuration" >&2 ;; esac\nexit 0\n`, { mode: 0o755 })
+    const log = path.join(d, 'apt.log')
+    const env = { PATH: `${bin}:${PATH}`, PK_SYSTEMD_DIR: path.join(d, 'none'), PK_APT_LOG: log }
+    const quiet = lib('PK_APT_TO_LOG=1 pk_apt_install -- unzip', env)
+    expect(quiet.code).toBe(0)
+    expect(quiet.out + quiet.err).not.toContain('Reading database')
+    expect(quiet.out + quiet.err).not.toContain('debconf')
+    const text = fs.readFileSync(log, 'utf8')
+    expect(text).toContain('(Reading database ... 5%')
+    expect(text).toContain('debconf: delaying package configuration')
+    expect(text).toMatch(/Z apt-get install -y -qq --no-install-recommends/)
+    // without it (an administrator over ssh) apt's stderr stays in the terminal as before, and nothing is logged
+    fs.rmSync(log)
+    expect(lib('pk_apt_install -- unzip', env).err).toContain('debconf')
+    expect(fs.existsSync(log)).toBe(false)
+    // a failure: the log's path and its last lines
+    fs.writeFileSync(path.join(bin, 'apt-get'), `#!/bin/sh\ncase "$*" in *assume-no*) exit 0 ;; install*) echo "E: Unable to locate package unzip" >&2; exit 100 ;; esac\nexit 0\n`, { mode: 0o755 })
+    const failed = lib('PK_APT_TO_LOG=1 pk_apt_install -- unzip || echo "rc=$?"', env)
+    expect(failed.out).toContain('rc=1')
+    expect(failed.err).toContain(`apt-get install failed: unzip (log: ${log}; its last lines:`)
+    expect(failed.err).toContain('E: Unable to locate package unzip')
+    // the Windows script turns it on for every step it runs in the distro
+    expect(read('scripts/windows/install-wsl-server.ps1')).toContain('export PK_APT_TO_LOG=1 PK_APT_LOG=/var/log/trina-packages-apt.log')
+    fs.rmSync(d, { recursive: true, force: true })
+  })
+
   test('an installer a person watches says every PK_APT_HEARTBEAT seconds that apt still runs; a sync and a quick apt say nothing', () => {
     // QA on WSL2 (2026-11-27): the default packages took minutes with no output, and the install looked hung
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-hb-'))
