@@ -300,7 +300,10 @@ test('hosted: signs in through the hosting service with the app; an older one th
   }
   const drive = googleDriveOf(A.ctx, { config: null, fetch: fetcher, broker: broker.options() })
   apps = googleAppsOf(A.ctx, { fetch: fetcher })
-  expect((await A.json('/api/admin/google-apps', { as: 'carol' })).body.apps[0]).toMatchObject({ configured: false, source: 'none', blocked: 'hosted', redirectUri: null })
+  // nothing before the hosting service answered; the admin page's read asks it first (oauth.ts brokerFresh), so the
+  // list and a card's page say the same (WSL QA 2026-11-28)
+  expect(apps.adminStatus('gmail')).toMatchObject({ configured: false, source: 'none', blocked: 'hosted', redirectUri: null })
+  expect((await A.json('/api/admin/google-apps', { as: 'carol' })).body.apps[0]).toMatchObject({ configured: true, source: 'service', blocked: 'hosted', redirectUri: null })
   expect(await drive.checkBroker()).toBe(true)
   expect((await A.json('/api/admin/google-apps', { as: 'carol' })).body.apps[0]).toMatchObject({ configured: true, source: 'service', canSetUp: false })
   expect((await put('carol', '/api/admin/google-apps/gmail/client', { clientId: 'x', clientSecret: 'y' })).body.error.params.reason).toBe('setup_hosted')

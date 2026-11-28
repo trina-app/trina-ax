@@ -459,3 +459,29 @@ test('admin.js google-broker-key prints the relay public key and the address, pl
     expect(r.out + r.err).not.toContain(body)
   }
 }, 60_000)
+
+test('reads of the admin page at once wait for the one check under way and all say its answer (WSL QA 2026-11-28)', async () => {
+  // the hosting service served this team; minutes later it says no, slowly: the Drive status, the Google apps' list and
+  // the company's app row are read at once, and none answers with the old "yes" (the list said On, the page Not set up)
+  let t = Date.now()
+  let hold = false
+  let release: (() => void) | null = null
+  const slow = async (u: string | URL | Request, init?: RequestInit) => {
+    if (hold && String(u instanceof Request ? u.url : u).includes(DRIVE_BROKER_PATHS.status)) await new Promise<void>((r) => { release = r })
+    return broker.fetch(u as any, init)
+  }
+  const s = googleDriveOf(a.ctx, { config: null, fetch: slow as typeof fetch, now: () => t, broker: broker.options() })
+  expect(await s.checkBroker()).toBe(true)
+  t += 2 * 60_000
+  broker.trusted = 'another-team-key'
+  hold = true
+  const asked = broker.requests.filter((q) => q.path === DRIVE_BROKER_PATHS.status).length
+  const reads = [s.brokerFresh(60_000, 5_000), s.brokerFresh(60_000, 5_000), s.brokerFresh(60_000, 5_000)]
+  for (let n = 0; n < 100 && !release; n++) await Bun.sleep(2)
+  expect(release).not.toBeNull()
+  ;(release as unknown as () => void)()
+  expect(await Promise.all(reads)).toEqual([false, false, false])
+  expect(s.brokerServes).toBe(false)
+  // one question for the three reads
+  expect(broker.requests.filter((q) => q.path === DRIVE_BROKER_PATHS.status).length).toBe(asked + 1)
+})

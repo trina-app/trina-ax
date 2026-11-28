@@ -167,7 +167,7 @@ Mesin API berbicara dengan layanan apa pun yang menyediakan API yang kompatibel 
 | Claude API (Anthropic) | `https://api.anthropic.com/v1` | [platform.claude.com/settings/keys](https://platform.claude.com/settings/keys) |
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | OpenRouter | `https://openrouter.ai/api/v1` | [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys) |
-| Ollama (Mac ini) | `http://127.0.0.1:11434/v1` | Tanpa kunci: model yang berjalan di komputer yang sama dengan server. Hanya owner yang dapat mengatur alamat ini |
+| Ollama (di komputer server) | `http://127.0.0.1:11434/v1` | Tanpa kunci: model yang berjalan di komputer yang sama dengan server. Hanya owner yang dapat mengatur alamat ini |
 
 :::steps
 #### Buka baris API

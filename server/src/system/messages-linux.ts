@@ -203,10 +203,27 @@ export const ML = {
 const gib = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GiB`
 const gb = (n: number, locale: Locale = 'en') => `${new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1, useGrouping: false }).format(n / 1024 ** 3)} GB`
 
-/** M with the entries for this host replaced (the Mac gets M itself). */
-export function hostMessages(host: HostKind, o: { id: string; base: string }): MT {
+/** A Linux server inside WSL on a Windows PC (system/wsl.ts): the office network cannot reach it (WSL's NAT), only this
+ * PC and the https address (the relay or a tunnel) can; its setup is the Windows script, not install-linux.sh
+ * (docs/INSTALL-WINDOWS.md; WSL QA 2026-11-28: the check said "only from the office network"). */
+export function wslMessages(): Partial<MT> {
+  return {
+    relayOff: {
+      ko: '중계 서버도 공개 주소도 설정되어 있지 않아서 이 PC에서만 팀을 열 수 있어요. WSL 서버에는 다른 컴퓨터에서 접속할 수 없어요. 관리자 > 시스템 > 연결에서 중계 서버를 켜거나, 터널로 https 주소를 만들어 주세요(docs/INSTALL-WINDOWS.md).',
+      en: 'No relay or public address is set up, so the team opens only on this PC: a WSL server cannot be reached from other computers. Turn on the relay in Admin > System > Connection, or give it an https address with a tunnel (docs/INSTALL-WINDOWS.md).',
+      id: 'Relay dan alamat publik belum diatur, jadi tim hanya bisa dibuka di PC ini: server WSL tidak bisa dijangkau dari komputer lain. Aktifkan relay di Admin > Sistem > Koneksi, atau beri alamat https lewat tunnel (docs/INSTALL-WINDOWS.md).',
+      ja: "中継も公開アドレスも設定されていないため、チームはこのPCでしか開けません。WSLのサーバーには他のコンピューターから接続できません。「管理 > システム > 接続」で中継を有効にするか、トンネルでhttpsアドレスを用意してください（docs/INSTALL-WINDOWS.md）。",
+      es: "No hay retransmisión ni dirección pública configuradas, así que el equipo solo se abre en este PC: a un servidor WSL no se llega desde otros ordenadores. Active la retransmisión en Administración > Sistema > Conexión o dele una dirección https con un túnel (docs/INSTALL-WINDOWS.md).",
+      zh: "未设置中继或公网地址，所以只能在这台电脑上打开团队：WSL 服务器无法从其他电脑访问。可在“管理 > 系统 > 连接”中开启中继，或用隧道提供 https 地址（docs/INSTALL-WINDOWS.md）。",
+    },
+    relayOffline: { ko: '중계 서버에 연결되지 않아요. 이 PC의 인터넷 연결을 확인해 주세요. 그동안은 이 PC에서만 팀을 열 수 있어요.', en: 'Cannot reach the relay. Check this PC\'s internet connection. Meanwhile the team opens only on this PC.', id: 'Tidak dapat menjangkau relay. Periksa koneksi internet PC ini. Sementara itu tim hanya bisa dibuka di PC ini.', ja: "中継サーバーに接続できません。このPCのインターネット接続を確認してください。その間、チームはこのPCでしか開けません。", es: "No se puede conectar con el servidor de retransmisión. Revise la conexión a internet de este PC. Mientras tanto, el equipo solo se abre en este PC.", zh: "无法连接中继服务器。请检查这台电脑的网络连接。在此期间只能在这台电脑上打开团队。" },
+  }
+}
+
+/** M with the entries for this host replaced (the Mac gets M itself). `wsl`: a Linux server inside WSL (wslMessages). */
+export function hostMessages(host: HostKind, o: { id: string; base: string; wsl?: boolean }): MT {
   if (host === 'mac') return M
-  return { ...M, ...linuxMessages(o.id, o.base), ...(host === 'hosted' ? hostedMessages() : {}) } as MT
+  return { ...M, ...linuxMessages(o.id, o.base), ...(host === 'hosted' ? hostedMessages() : o.wsl ? wslMessages() : {}) } as MT
 }
 
 // ---------------- admin/engines.ts status lines ----------------

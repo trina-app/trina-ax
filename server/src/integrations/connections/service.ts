@@ -19,7 +19,7 @@ import { errorForLog, secretHider, SecretTooLarge } from './hide'
 import { MCP_CALL_IDLE_MS, MCP_CALL_TIMEOUT_MS, MAX_SCHEMA_CHARS, MCP_LIST_TIMEOUT_MS, McpClient, McpError } from './mcp'
 import { NetError, serviceRequest, TIMEOUT_MS, type NetOptions, type NetResponse } from './net'
 import { codeParts, refusalCode, refusalOf, refusalReason, refusesToken } from './refusal'
-import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, documentOrigins, GrantError, issuerMatches, loopbackClient, loopbackPortOk, loopbackRedirect, manualServer, MAX_SCOPE_CHARS, NoSignInFound, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
+import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, documentOrigins, GrantError, issuerMatches, loopbackClient, loopbackPortOk, loopbackRedirect, manualServer, MAX_SCOPE_CHARS, needsHttpsAddress, NoSignInFound, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
 import {
   accessOf, activeUser, clientAad, clientInfo, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, offByTeam, requestSignedIn, savedTools, SecretBox, secretHere, selectRows, setAccess, StoreError, templateClientAad, templateCovers, toolListsOf, usable, view,
   microsoftAccountIn, type ClientInfo, type FlowRow, type MicrosoftAccount, type Row, type Viewer,
@@ -1369,7 +1369,7 @@ export class Integrations {
       // a refusal of the app is a flow too (failed, nothing sealed): FLOWS_PER_HOUR bounds those tries (each opens the
       // service's sign-in page, and may register an app there); a service that is down or busy is not counted, so it
       // never locks anyone out of signing in
-      if (reason === 'oauth_approved_apps_only' || reason === 'oauth_desktop_only') this.db.query(`INSERT INTO integration_oauth_flows (id, integration_id, integration_version, user_id, session_id, state_hash, state, secret_enc, key_version, reason, expires_at, created_at)
+      if (reason === 'oauth_approved_apps_only' || reason === 'oauth_desktop_only' || reason === 'oauth_needs_https') this.db.query(`INSERT INTO integration_oauth_flows (id, integration_id, integration_version, user_id, session_id, state_hash, state, secret_enc, key_version, reason, expires_at, created_at)
         VALUES (?,?,?,?,?,?,'failed',NULL,1,'refused',?,?)`).run(flowId, id, row.version, viewer.id, session, hash(state), iso(this.now()), iso(this.now()))
       // the desktop sentence names the service, and its code lets the page link the desktop app's download
       return fail('validation', say(reason as Reason, L, { status: e instanceof NetError ? e.status ?? '?' : '?', name: row.name }), reason === 'oauth_desktop_only' ? { params: { reason } } : undefined)
@@ -1426,10 +1426,14 @@ export class Integrations {
     // for a scope: a fresh registration names it (register)
     const sameScope = (c: OAuthClient) => !setup.scope || (c.registeredScope ?? null) === setup.scope
     const again = old?.type === 'oauth' && old.server.issuer && old.server.issuer === setup.server.issuer && old.client.redirectUri === redirectUri && sameScope(old.client) ? old.client : null
+    // refused for want of the team's https address (the service takes the metadata document, which a local or http
+    // address cannot offer): said so, so the fix is known (oauth.ts needsHttpsAddress)
+    const servedAt = documentOrigins(this.ctx.config)
+    const why = (e: unknown) => e instanceof NetError && e.reason === 'oauth_approved_apps_only' && needsHttpsAddress(setup, origin, redirectUri, servedAt) ? new NetError('oauth_needs_https', e.status) : e
     try {
-      return await chooseClient(setup, origin, redirectUri, this.net, urlFor, again, documentOrigins(this.ctx.config))
+      return await chooseClient(setup, origin, redirectUri, this.net, urlFor, again, servedAt)
     } catch (e) {
-      if (!(e instanceof NetError) || e.reason !== 'oauth_approved_apps_only' || !setup.server.registrationEndpoint || (!port && !probe)) throw e
+      if (!(e instanceof NetError) || e.reason !== 'oauth_approved_apps_only' || !setup.server.registrationEndpoint || (!port && !probe)) throw why(e)
       const key = loopbackKey(setup.server)
       const seen = this.loopbackSeen.get(key)
       const known = seen && this.now() - seen.at < LOOPBACK_VERDICT_MS ? seen.verdict : null
@@ -1438,7 +1442,7 @@ export class Integrations {
         this.loopbackSeen.set(key, { verdict, at: this.now() })
       }
       // clearly refused at 127.0.0.1 too lately (Figma): nothing more to try
-      if (known === 'none') throw e
+      if (known === 'none') throw why(e)
       if (!port && known === 'desktop') throw new NetError('oauth_desktop_only')
       try {
         const c = await loopbackClient(setup.server, port ?? PROBE_PORT, this.net, urlFor, setup.scope ?? null)
@@ -1447,8 +1451,8 @@ export class Integrations {
       } catch (p) {
         // a clear refusal is remembered and said; a service busy or down meanwhile says nothing either way (not
         // remembered): from the web the old reason, from the desktop app its own (oauth_busy and the like)
-        if (p instanceof NetError && p.reason === 'oauth_approved_apps_only') { remember('none'); throw p }
-        throw port ? p : e
+        if (p instanceof NetError && p.reason === 'oauth_approved_apps_only') { remember('none'); throw why(p) }
+        throw port ? p : why(e)
       }
       throw new NetError('oauth_desktop_only')
     }

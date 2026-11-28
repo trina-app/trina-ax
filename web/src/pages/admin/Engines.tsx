@@ -325,7 +325,9 @@ function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
             }}>
               {API_PRESETS.map((p) => {
                 const ownerOnly = !owner && ownerOnlyAddress(p.baseUrl)
-                return <option key={p.id} value={p.id} disabled={ownerOnly}>{ownerOnly ? t('engines.api.ownerOnlyOption', { name: p.label }) : p.label}</option>
+                // Ollama runs on the server's own computer: a Mac, Linux or Windows (WSL) one, in the person's words
+                const name = p.id === 'ollama' ? t('engines.api.preset.ollama') : p.label
+                return <option key={p.id} value={p.id} disabled={ownerOnly}>{ownerOnly ? t('engines.api.ownerOnlyOption', { name }) : name}</option>
               })}
               <option value="custom">{t('engines.api.custom')}</option>
             </select>

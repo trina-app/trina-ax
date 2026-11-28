@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { uuidv7 } from '@mycel/shared'
+import { setInternalErrorLog } from './tools/internal-error'
 import { anthropicGateway, DEFAULT_PROXY_PORT, gatewayHost, gatewayModelIds, isManaged, type AppConfig } from './app-config'
 import { resolveLayout } from './system/layout'
 import { defaultConfig, engineSandboxProfile, findCodexBin, type ServerConfig } from './config'
@@ -174,6 +175,8 @@ export function createContext(o: ContextOptions): AppContext {
     ...(config.engine.agentRoot ? { agentRoot: config.engine.agentRoot } : {}),
     ...(config.engine.agentUid !== undefined ? { agentUid: config.engine.agentUid } : {}),
   })
+  // a tool call's internal error goes to this server's log with its reference (tools/internal-error.ts)
+  setInternalErrorLog(log)
   const closers: (() => void | Promise<void>)[] = []
   let core: Promise<Running> | null = null
   const ctx: AppContext = {

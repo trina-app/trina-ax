@@ -1,4 +1,5 @@
 // Minimal MCP (JSON-RPC 2.0) server side: initialize, tools/list, tools/call, ping.
+import { internalErrorText } from '../tools/internal-error'
 import { z } from 'zod'
 import { EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS } from '@mycel/shared'
 import type { Database } from 'bun:sqlite'
@@ -97,7 +98,7 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
       return add.length ? { ...r, result: { ...r.result, content: [...r.result.content, ...add.map((text) => ({ type: 'text' as const, text }))] } } : r
     }
     if (extra?.has(name)) {
-      const out: Awaited<ReturnType<TurnToolSet['call']>> = await extra.call(name, params?.arguments ?? {}, caller).catch((e) => ({ content: [{ type: 'text' as const, text: 'Error: internal error' }], isError: true, summary: `${name} -> internal: ${String(e?.message ?? e).slice(0, 200)}` }))
+      const out: Awaited<ReturnType<TurnToolSet['call']>> = await extra.call(name, params?.arguments ?? {}, caller).catch((e) => ({ content: [{ type: 'text' as const, text: internalErrorText(name, e, { turnId: ctx.turnId, userId: ctx.user.id }) }], isError: true, summary: `${name} -> internal: ${String(e?.message ?? e).slice(0, 200)}` }))
       audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)
       // a room file's content (room_file) is checked again before it goes, as a read's is below
       if (out.beforeDelivery) {

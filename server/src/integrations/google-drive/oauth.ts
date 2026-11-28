@@ -108,12 +108,18 @@ export class GoogleDrive {
    * most `wait` ms (a slow hosting service keeps the earlier answer; the page stays fast). */
   async brokerFresh(maxAge = 60_000, wait = 2_500): Promise<boolean> {
     if (!this.broker) return false
-    if (this.brokerCheckedAt && this.now() - this.brokerCheckedAt < maxAge) return this.brokerOk
+    // the admin page reads its Google statuses at once (Drive, the four apps, the company's app): they wait for the one
+    // check under way, never answer with the value from before it, so the list and a page never disagree (WSL QA
+    // 2026-11-28: the list said On, the page Not set up)
+    const running = this.brokerRunning ?? (this.brokerCheckedAt && this.now() - this.brokerCheckedAt < maxAge ? null : this.checkBroker().catch(() => false))
+    if (!running) return this.brokerOk
     let timer: ReturnType<typeof setTimeout> | undefined
-    await Promise.race([this.checkBroker().catch(() => false), new Promise((r) => { timer = setTimeout(r, wait) })])
+    await Promise.race([running, new Promise((r) => { timer = setTimeout(r, wait) })])
     clearTimeout(timer)
     return this.brokerOk
   }
+  /** the check under way (checkBroker), if any */
+  private brokerRunning: Promise<boolean> | null = null
   /** Read the client file again (after an admin's in-app setup). Connections and flows made with another client then
    * fail their config_key checks and ask the person to reconnect, as after an operator's change and restart. */
   reload() {
@@ -123,7 +129,12 @@ export class GoogleDrive {
   }
   /** Ask the hosting service whether its Google sign-in serves this team (signed with the team key). Until it says
    * yes, Drive stays off here: no Connect button and no tools that would fail. */
-  async checkBroker(): Promise<boolean> {
+  checkBroker(): Promise<boolean> {
+    const p = this.askBroker().finally(() => { if (this.brokerRunning === p) this.brokerRunning = null })
+    this.brokerRunning = p
+    return p
+  }
+  private async askBroker(): Promise<boolean> {
     if (!this.broker) return false
     this.brokerCheckedAt = this.now()
     const seq = ++this.brokerSeq
