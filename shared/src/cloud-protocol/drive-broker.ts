@@ -22,8 +22,11 @@
 // (not to any team), and disabling or removing it makes `status` answer no and every other call refuse at once.
 //
 // Flow:
-//   1. POST {api}/start   (signed) { purpose, returnState, codeChallenge }  → { authorizationUrl, connectUrl?, expiresAt }
+//   1. POST {api}/start   (signed) { purpose, returnState, codeChallenge, locale? }  → { authorizationUrl, connectUrl?, expiresAt }
 //      The team server made `returnState` (its own flow state) and `codeChallenge` = S256(its own verifier).
+//      `locale` (optional, newer control planes): the person's Trina language, one of DRIVE_BROKER_LOCALES; the control
+//      plane's pages for this sign-in and Google's screen use it. An older control plane refuses the key
+//      (invalid_request): the team server starts again without it.
 //      `connectUrl` (optional, newer control planes): the control plane's own page for this sign-in,
 //      {console origin}DRIVE_BROKER_CONNECT_PATH?state=<the state sent to Google>. It names the team, explains Google's
 //      consent screen and links on to `authorizationUrl`. A team server opens it only when it is exactly that shape on
@@ -137,7 +140,13 @@ export type DriveBrokerPurpose = (typeof DRIVE_BROKER_PURPOSES)[number]
  * hosting service's start page words it): "personal" one person's own, "share" one connection the team uses (an admin
  * connects it). An older control plane accepts an app only with "personal" (invalid_request otherwise); a team server
  * then starts again with "personal". The scopes are the app's one set either way. */
-export interface DriveBrokerStart { v: 1; purpose: DriveBrokerPurpose; returnState: string; codeChallenge: string; app?: GoogleBrokerApp }
+/** The languages of Trina (and of the control plane's broker pages). */
+export const DRIVE_BROKER_LOCALES = ['en', 'ko', 'ja', 'zh', 'es', 'id'] as const
+export type DriveBrokerLocale = (typeof DRIVE_BROKER_LOCALES)[number]
+export const isDriveBrokerLocale = (v: unknown): v is DriveBrokerLocale => typeof v === 'string' && (DRIVE_BROKER_LOCALES as readonly string[]).includes(v)
+
+/** `locale`: the language of the person signing in (left out: the control plane picks one, its team's or the browser's). */
+export interface DriveBrokerStart { v: 1; purpose: DriveBrokerPurpose; returnState: string; codeChallenge: string; app?: GoogleBrokerApp; locale?: DriveBrokerLocale }
 export interface DriveBrokerRedeem { v: 1; handoff: string; codeVerifier: string }
 export interface DriveBrokerRefresh { v: 1; refreshToken: string; app?: GoogleBrokerApp }
 export interface DriveBrokerStatus { v: 1 }
@@ -198,11 +207,13 @@ function parseApp(o: Record<string, unknown> | null): GoogleBrokerApp | null | f
 export function parseDriveBrokerStart(raw: unknown): DriveBrokerStart | null {
   const o = plain(raw)
   const app = parseApp(o)
-  if (!o || app === false || !exactly(o, ['v', 'purpose', 'returnState', 'codeChallenge', ...(app ? ['app'] : [])]) || o.v !== 1) return null
+  const locale = !!o && 'locale' in o
+  if (!o || app === false || !exactly(o, ['v', 'purpose', 'returnState', 'codeChallenge', ...(app ? ['app'] : []), ...(locale ? ['locale'] : [])]) || o.v !== 1) return null
   if (!(DRIVE_BROKER_PURPOSES as readonly unknown[]).includes(o.purpose)) return null
   if (typeof o.returnState !== 'string' || !B64URL43.test(o.returnState)) return null
   if (typeof o.codeChallenge !== 'string' || !B64URL43.test(o.codeChallenge)) return null
-  return { v: 1, purpose: o.purpose as DriveBrokerPurpose, returnState: o.returnState, codeChallenge: o.codeChallenge, ...(app ? { app } : {}) }
+  if (locale && !isDriveBrokerLocale(o.locale)) return null
+  return { v: 1, purpose: o.purpose as DriveBrokerPurpose, returnState: o.returnState, codeChallenge: o.codeChallenge, ...(app ? { app } : {}), ...(locale ? { locale: o.locale as DriveBrokerLocale } : {}) }
 }
 
 export function parseDriveBrokerRedeem(raw: unknown): DriveBrokerRedeem | null {
