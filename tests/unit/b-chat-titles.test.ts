@@ -390,6 +390,33 @@ describe('set_title in real turns', () => {
     expect(source(f.id)).toBe('ai')
   })
 
+  test('a continuation renamed while its first message is on the way (the chat row read before the send\'s awaits) keeps the new name', async () => {
+    const f = await fork((await named()).id)
+    const rt = h.rt()
+    const stale = rt.store.chatRow(f.id)!
+    expect(stale.title_source).toBe('fork')
+    await h.api('alice').call(API.updateChat, { params: { id: f.id }, body: { title: '내 이름' } })
+    const started = rt.createTurn({ chat: stale, userId: 'alice', locale: 'ko', windowId: null, clientKind: null, engine: stale.engine as never, model: stale.model,
+      user: { parentId: stale.active_leaf_id, content: '다음 단계\n' + fake({ echo: 'tools' }), attachments: [], clientMessageId: 'cm-' + crypto.randomUUID() } })
+    await waitFor(() => (h.ctx.db.query('SELECT status FROM messages WHERE id = ?').get(started.assistantMessage.id) as { status: string }).status !== 'streaming', { timeoutMs: 30_000 })
+    expect((await h.api('alice').call(API.getChat, { params: { id: f.id } })).title).toBe('내 이름')
+    expect(source(f.id)).toBe('user')
+    const answer = h.ctx.db.query('SELECT content FROM messages WHERE id = ?').get(started.assistantMessage.id) as { content: string }
+    expect(tools(answer.content)).not.toContain('set_title')
+  })
+
+  test('regenerating a copied answer in a continuation names nothing: no placeholder, no set_title', async () => {
+    const orig = await h.api('alice').call(API.createChat, { body: {} })
+    await ask(h, alice, 'alice', orig.id, 'launch plan\n' + fake({ echo: 'tools' }))
+    const f = await fork(orig.id)
+    const copied = (await h.api('alice').call(API.listMessages, { params: { id: f.id }, query: {} })).items.find((m) => m.role === 'assistant')!
+    const r = await h.api('alice').call(API.regenerate, { params: { id: f.id, messageId: copied.id }, body: {} })
+    const done = await alice.next('message.done', (x) => x.data.messageId === r.assistantMessage.id, 20_000)
+    expect(tools(done.data.message.content)).not.toContain('set_title')
+    expect((await h.api('alice').call(API.getChat, { params: { id: f.id } })).title).toBe(f.title)
+    expect(source(f.id)).toBe('fork')
+  })
+
   test('a scheduled run is not offered set_title and keeps its title', async () => {
     const rt = h.rt()
     const now = new Date()

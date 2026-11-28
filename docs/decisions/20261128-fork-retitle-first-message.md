@@ -16,12 +16,15 @@
     AI may call set_title in the chat's first two messages of its own (copied messages, `messages.fork_copy = 1`, do not
     count). The same tool for Claude Code, Codex and the API engine. The rule for the AI: the title says what the person
     asks in the new message; the carried messages are context only.
-  - A rename by the person ('user') ends it for good, before or after the first message, as for any chat.
+  - A rename by the person ('user') ends it for good, before or after the first message, as for any chat, also one that
+    lands while the first message is still being sent (the send keeps the title the row has then, not the one it read
+    before its uploads).
+  - Regenerating a copied answer is not a message of its own: no placeholder and no set_title until the first new one.
   - The line "‘<원래 제목>’에서 이어 왔어요" keeps the original's title (`chats.fork_title`), and the history keeps the row
     under its original (`chats.fork_parent`, `Chat.forkParents`): neither reads the title.
 - **Why:** the title is what tells rows apart; the original's name is kept by the line back and the indent.
 - **Left out:** continuations made before this change keep their titles (a rename fixes one). No migration:
   `title_source` is free text, and an older build reads 'fork' as a title it never renames.
 - **Tests:** tests/unit/b-chat-titles.test.ts (a continuation's first message, the live update keeping forkParents, a
-  greeting then the second message, a renamed continuation, Codex).
+  greeting then the second message, a renamed continuation, a rename during the first send, a regenerated copied answer, Codex).
 - **Version impact:** patch (a fix to how an existing feature names its chats).

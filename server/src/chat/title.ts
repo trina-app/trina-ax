@@ -152,7 +152,8 @@ export function titleToolOffered(db: Database, chatId: string, clientKind: strin
   if (clientKind === 'schedule') return false
   const r = db.query(`SELECT title_source AS s, (SELECT COUNT(*) FROM messages WHERE chat_id = chats.id AND role = 'user' AND fork_copy = 0) AS n
     FROM chats WHERE id = ? AND deleted_at IS NULL`).get(chatId) as { s: string; n: number } | null
-  return !!r && (r.s === 'auto' || r.s === 'fork') && r.n <= AI_TITLE_MESSAGES
+  // a continuation not named yet: only once it has a message of its own (a regenerated copied answer names nothing new)
+  return !!r && (r.s === 'auto' || (r.s === 'fork' && r.n >= 1)) && r.n <= AI_TITLE_MESSAGES
 }
 
 /** The AI's title, only while the title is still automatic (a rename by the person in the meantime wins). */
