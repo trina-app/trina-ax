@@ -30,7 +30,7 @@ import { useRooms } from '../../store/rooms'
 import { isUnused } from '../chat/ChatState'
 import { toast } from '../../store/ui'
 import { Button, confirmDialog, inputCls, Modal, promptDialog } from '../ui'
-import { MenuButton, type MenuItem } from '../rooms/MenuButton'
+import { MenuButton, type MenuItem, type RowMenuOpen } from '../rooms/MenuButton'
 import { menuItem, type EntityItem } from '../menus/entityMenu'
 import { RoomIcon, useRoomTitle } from '../rooms/RoomIcon'
 import { SectionAddButton, useDropTarget, useFolders } from './NavFolders'
@@ -301,8 +301,9 @@ function AddDialog({ kind, section, candidates, onClose }: { kind: NavFolderKind
 
 // ---------------- a section's header ----------------
 
-/** A section's "⋯": Add conversations, Rename, Move up, Move down, Delete section. */
-export function SectionMenu({ section, className, buttonClassName }: { section: NavFolder; className?: string; buttonClassName?: string }) {
+/** A section's "⋯": Add conversations, Rename, Move up, Move down, Delete section. `open`: the header's right-click, long
+ * press and menu key (MenuButton useRowMenu: its `row` on the header, ListSection headProps) */
+export function SectionMenu({ section, className, buttonClassName, open }: { section: NavFolder; className?: string; buttonClassName?: string; open?: RowMenuOpen }) {
   const t = useT()
   const act = useSectionActions(section.kind)
   const list = useSections(section.kind)
@@ -314,7 +315,7 @@ export function SectionMenu({ section, className, buttonClassName }: { section: 
     ...(i >= 0 && i < list.length - 1 ? [{ label: t('navFolders.moveDown'), icon: <ArrowDown size={14} aria-hidden />, onSelect: () => void act.move(section, 1), testId: 'section-menu-down' }] : []),
     { label: t('sidebarSections.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: () => void act.remove(section), testId: 'section-menu-delete' },
   ]
-  return <MenuButton label={t('sidebarSections.menu', { name: section.name })} tip={t('sidebarSections.menu', { name: section.name })} items={items} compact className={className} buttonClassName={buttonClassName} sheetTitle={section.name} testId="section-menu" />
+  return <MenuButton label={t('sidebarSections.menu', { name: section.name })} tip={t('sidebarSections.menu', { name: section.name })} items={items} compact className={className} buttonClassName={buttonClassName} sheetTitle={section.name} {...open} testId="section-menu" />
 }
 
 /** An empty section's line: how to fill it, and the button that does (a phone has no drag, so its words differ). */

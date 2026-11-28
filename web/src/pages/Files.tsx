@@ -43,7 +43,7 @@ import { topFoldersFirst, useFolderName, useFolderWords } from '../lib/folderLab
 import { droppedEntries, planFromEntries, planFromInput, type FolderPlan } from '../lib/folderUpload'
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../lib/paths'
 import { iconKind, previewKind, serverPreview, type FileIconKind } from '../lib/preview'
-import { isMenuKey, teamFileLink } from '../lib/fileMenu'
+import { teamFileLink } from '../lib/fileMenu'
 import { canCopyImage } from '../lib/copyImage'
 import { copyImageFrom, useCopyFileLink } from '../components/FileMenu'
 import { folderProjectAction, isProjectsFolder, isProjectsTop, projectFolderOf, projectsByFolder, type FolderProjectAction } from '../lib/projectFolders'
@@ -81,7 +81,7 @@ import { nameList, restoreDropouts } from '../lib/restoreDropouts'
 import { chatItemKey } from '../lib/appWording'
 import { isAdmin, useMeStrict } from '../store/session'
 import { Badge, Button, buttonClass, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, Tabs, choiceDialog, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
-import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
+import { MenuButton, useRowMenu, type MenuItem } from '../components/rooms/MenuButton'
 import { PhonePickButton, useDevicePick } from '../components/DevicePick'
 import { AiMark } from '../components/rooms/AiFace'
 import { PhonePageBar } from '../components/phone/PhonePageBar'
@@ -1532,12 +1532,9 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
   const changeable = writable && !e.fixed
   const menuId = useId()
   // a right-click on the row (the menu key, Shift+F10): its ⋯ menu at the pointer; Shift keeps the browser's own
-  const [menuRequest, setMenuRequest] = useState(0)
-  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
-  const openMenuAt = (at: { x: number; y: number }) => {
-    setMenuAt(at)
-    setMenuRequest((n) => n + 1)
-  }
+  // (MenuButton useRowMenu, every list row's way). A dimmed row has no menu; a phone's long press selects the row
+  // (below), so the hook's long press is off there
+  const menu = useRowMenu({ off: dim, longPress: !pressSelect })
   // phones (`pressSelect`): a long press selects the row (or takes it out of the selection), and the click that ends it
   // does not open it; while something is selected (`selecting`) a tap does the same instead of opening. Phones also show
   // the row in two lines (the name; date · size) and offer "Select" in its ⋯
@@ -1612,6 +1609,7 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
       data-open={open || undefined}
       {...dropTarget}
       data-drop={dropOk ? 'ok' : dropNo ? 'no' : undefined}
+      {...menu.row}
       data-testid="file-row"
     >
       {/* phones: seen only while something is selected (a long press starts it); until then the box is still there for
@@ -1650,19 +1648,10 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
           onPointerUp={endPress}
           onPointerCancel={endPress}
           onPointerLeave={endPress}
-          // a phone's own long-press menu (Android) does not open over the selection
+          // a phone's own long-press menu (Android) does not open over the selection (nor the row's ⋯ menu: the
+          // event is cancelled, so the row's hook leaves it)
           onContextMenu={(ev) => {
-            if (press.current || pressed.current) return ev.preventDefault()
-            if (dim || ev.shiftKey) return
-            ev.preventDefault()
-            const r = ev.currentTarget.getBoundingClientRect()
-            openMenuAt(ev.button === 2 || ev.clientX || ev.clientY ? { x: ev.clientX, y: ev.clientY } : { x: r.left, y: r.bottom })
-          }}
-          onKeyDown={(ev) => {
-            if (dim || !isMenuKey(ev)) return
-            ev.preventDefault()
-            const r = ev.currentTarget.getBoundingClientRect()
-            openMenuAt({ x: r.left, y: r.bottom })
+            if (press.current || pressed.current) ev.preventDefault()
           }}
           // phones: a row of 48px or more to tap, and a long press selects the row, not its text
           className="flex w-full min-w-0 items-center gap-2.5 rounded py-1 text-left hover:underline max-md:min-h-12 max-md:gap-3 max-md:py-1.5 max-md:select-none max-md:hover:no-underline max-md:[-webkit-touch-callout:none]"
@@ -1749,8 +1738,7 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
             footer={footer}
             muted
             buttonRef={menuTrigger}
-            openRequest={menuRequest}
-            at={menuAt}
+            {...menu.open}
             buttonClassName="[@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 max-md:size-11"
             sheetTitle={words.name(e.path, e.name)}
             testId="file-menu"

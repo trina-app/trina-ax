@@ -289,20 +289,21 @@ for (const [width, reducedMotion] of [[1440, 'no-preference'], [900, 'reduce']] 
   })
 }
 
-test('at a short window: a sidebar row\'s menu opens above the row where it would run off the bottom', async ({ page }) => {
+test('at a short window: a sidebar row\'s right-click menu opens above the pointer where it would run off the bottom', async ({ page }) => {
   await start(page, ROOMS, 'en')
   const row = sidebarRow(page, '김소라')
   // the window ends a little under the row
   const at = (await row.boundingBox())!
   await page.setViewportSize({ width: 1440, height: Math.round(at.y + at.height + 60) })
-  await roomRowLink(row).click({ button: 'right' })
-  const rowBox = (await row.boundingBox())!
+  // (at the pointer since the row context menu, MenuButton useRowMenu: its bottom above the point clicked)
+  await roomRowLink(row).click({ button: 'right', position: { x: 24, y: 6 } })
+  const link = (await roomRowLink(row).boundingBox())!
   const menu = row.getByRole('menu')
   // 상단에 고정, 섹션으로 옮기기, 알림 설정, 앱 추가, 새 프로젝트, 링크 복사, 대화 숨기기
   await expect(menu.getByRole('menuitem')).toHaveCount(7)
   await inWindow(page, menu)
   const box = (await menu.boundingBox())!
-  expect(box.y + box.height).toBeLessThanOrEqual(rowBox.y)
+  expect(box.y + box.height).toBeLessThanOrEqual(link.y + 6)
 })
 
 test.describe('phone', () => {

@@ -33,7 +33,7 @@ import { menuItem, orderMenu, type EntityItem } from '../menus/entityMenu'
 import { toast } from '../../store/ui'
 import { promptDialog, useCopy, useMediaQuery } from '../ui'
 import { useNameFallback, useRoomTitle } from './RoomIcon'
-import { MenuButton, type MenuItem } from './MenuButton'
+import { MenuButton, type MenuItem, type RowMenuOpen } from './MenuButton'
 import { RoomNotifyMenu, roomNotify } from './RoomNotifyMenu'
 import { canSection, useSectionRowItems } from '../nav/SidebarSections'
 import { openDmProject, openMakeProject } from './MakeProjectDialog'
@@ -181,9 +181,9 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
  * room name on top of a phone's sheet (the header's menu needs none: the name is right above it). `phone`: the room
  * header's on a phone (useRoomMenuItems); `dot`: a mark on the button (threads with new replies inside); `buttonRef`:
  * the "⋯" itself (where the keyboard goes back from the header's level menu when the bell is not shown). `onInvite`: the
- * room header's 초대하기 (the add list). `onSearch`: the room header's 이 대화에서 검색.
+ * room header's 초대하기 (the add list). `onSearch`: the room header's 이 대화에서 검색. `at`, `rowBack`: a row's right-click (MenuButton useRowMenu's `open`, spread here).
  */
-export function RoomMenu({ room, onNotify, onInvite, onSearch, openSignal, openRequest, label, title, className, buttonClassName, compact, testId = 'room-menu', phone, dot, buttonRef, folders = false }: { room: Room; onNotify?: () => void; onInvite?: () => void; onSearch?: () => void; openSignal?: number; openRequest?: number; label?: string; title?: string; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; phone?: PhoneHeaderMenu; dot?: boolean; buttonRef?: RefObject<HTMLButtonElement | null>; folders?: boolean }) {
+export function RoomMenu({ room, onNotify, onInvite, onSearch, openSignal, openRequest, at, rowBack, label, title, className, buttonClassName, compact, testId = 'room-menu', phone, dot, buttonRef, folders = false }: { room: Room; onNotify?: () => void; onInvite?: () => void; onSearch?: () => void; openSignal?: number; openRequest?: number; at?: RowMenuOpen['at']; rowBack?: () => void; label?: string; title?: string; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; phone?: PhoneHeaderMenu; dot?: boolean; buttonRef?: RefObject<HTMLButtonElement | null>; folders?: boolean }) {
   const t = useT()
   const [notify, setNotify] = useState(0)
   const own = useRef<HTMLButtonElement>(null)
@@ -207,6 +207,8 @@ export function RoomMenu({ room, onNotify, onInvite, onSearch, openSignal, openR
         compact={compact}
         openSignal={openSignal}
         openRequest={openRequest}
+        at={at}
+        rowBack={rowBack}
         testId={testId}
         sheetTitle={title}
         buttonRef={more}

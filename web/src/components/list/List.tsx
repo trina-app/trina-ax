@@ -253,8 +253,7 @@ export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name,
           // the content's right edge, the page's gutter kept
           className={clsx('absolute inset-y-0 flex items-center', page ? '-right-2 max-md:right-0' : 'right-1 max-md:right-0')}
           buttonClassName="touch-hit hover:bg-surface max-md:size-11 pointer-fine:opacity-0 pointer-fine:group-focus-within:opacity-100 pointer-fine:group-hover:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 max-md:opacity-100"
-          openSignal={rm.openSignal}
-          openRequest={rm.openRequest}
+          {...rm.open}
           testId={rowMenu.testId}
         />
       )}
@@ -278,9 +277,10 @@ const sectionBody = '[&>button]:pl-row-indent [&>ul>li>a]:pl-row-indent [&>secti
  * `unread` makes the name bold in ink; `keep` is still drawn under the header (the room open on screen). `foldId`: the
  * whole fold key, when one place of the list shares it with another (a room folder on the phone and the computer).
  * `headClassName`: the header row's own inset (a phone page's gutter); `as`: the heading's level; `indent` false: the
- * rows keep their own inset (a page's list with its own gutter, pages/Rooms.tsx).
+ * rows keep their own inset (a page's list with its own gutter, pages/Rooms.tsx). `headProps`: a header with a "···"
+ * (a personal section's, 트리나 기록's) opens it on a right-click too.
  */
-export function ListSection({ id, label, icon, count, pill, unread = false, keep, foldId, headClassName, as: Heading = 'h3', indent = true, action, link, foldKey, labelTestId, children, className, folded: foldedFirst = false, ...rest }: {
+export function ListSection({ id, label, icon, count, pill, unread = false, keep, foldId, headClassName, headProps, as: Heading = 'h3', indent = true, action, link, foldKey, labelTestId, children, className, folded: foldedFirst = false, ...rest }: {
   id: string
   label: ReactNode
   icon?: ReactNode
@@ -290,6 +290,8 @@ export function ListSection({ id, label, icon, count, pill, unread = false, keep
   keep?: ReactNode
   foldId?: string
   headClassName?: string
+  /** the header row's handlers: its "···"'s right-click, long press and menu key (MenuButton useRowMenu's `row`) */
+  headProps?: HTMLAttributes<HTMLDivElement>
   as?: 'h2' | 'h3'
   indent?: boolean
   action?: ReactNode
@@ -319,7 +321,7 @@ export function ListSection({ id, label, icon, count, pill, unread = false, keep
   const lit = folded && unread
   return (
     <section aria-labelledby={id} className={clsx('mt-4 first:mt-0', className)} data-folded={folded ? '' : undefined} data-unread={lit ? '' : undefined} {...rest}>
-      <div className={clsx(headBox, headClassName ?? 'pr-1')} data-testid={labelTestId}>
+      <div className={clsx(headBox, headClassName ?? 'pr-1', headProps && 'pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]')} {...headProps} data-testid={labelTestId}>
         <Heading id={id} className={clsx('flex min-w-0 flex-1 items-center gap-1.5 text-list-head', lit ? 'font-bold text-ink' : 'font-semibold text-list-head-ink')}>
           {link ? (
             <>
