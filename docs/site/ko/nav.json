@@ -15,7 +15,7 @@
       { "title": "내 계정", "pages": ["use/settings-and-search", "use/sign-in-with-google"] }
     ] },
     { "title": "설치와 운영", "groups": [
-      { "title": "설치", "pages": ["operate/install", "operate/configuration", "operate/google-own-app-self-installed"] },
+      { "title": "설치", "pages": ["operate/install", "operate/windows-pc", "operate/configuration", "operate/google-own-app-self-installed"] },
       { "title": "계속 돌아가게 하기", "pages": ["operate/updates-and-releases", "operate/backups", "operate/troubleshooting"] },
       { "title": "보안", "pages": ["operate/security"] }
     ] },

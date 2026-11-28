@@ -153,9 +153,24 @@ describe('opening a profile', () => {
     fs.writeFileSync(bin, '')
     const urls: string[] = []
     const page = { send: () => {}, isDestroyed: () => false }
-    const host = new ChromeProfilesHost({ userData: tmp(), dataDirName: 'Team AX', dev: true, execPath: '/x', team: () => ({ origin: 'https://acme.test', name: 'Acme', page }), env: env({ MYCEL_CHROME_DATA_DIRS: `chrome=${chrome}`, MYCEL_CHROME_BINARIES: `chrome=${bin}` }), exec: async (_f, a) => { urls.push(a[a.length - 1]!); return true } })
+    const ud = tmp()
+    // no helper program: nothing could answer the pair page, so Connect says so and opens nothing
+    const bare = new ChromeProfilesHost({ userData: ud, dataDirName: 'Team AX', dev: true, execPath: '/x', tempDir: () => ud, team: () => ({ origin: 'https://acme.test', name: 'Acme', page }), env: env({ MYCEL_CHROME_DATA_DIRS: `chrome=${chrome}`, MYCEL_CHROME_BINARIES: `chrome=${bin}` }), exec: async (_f, a) => { urls.push(a[a.length - 1]!); return true } })
+    expect(await bare.connect({ browser: 'chrome', dir: 'Default' })).toBe('unavailable')
+    bare.stop()
+    expect(urls).toEqual([])
+    // a helper built in the app's folder (native/chrome-host/build.sh): found without MYCEL_CHROME_HOST_HELPER, and the
+    // manifests written by themselves, because the browsers' folders are test folders
+    const app = tmp()
+    fs.mkdirSync(path.join(app, 'native-build'))
+    fs.writeFileSync(path.join(app, 'native-build', 'chrome-host'), '', { mode: 0o755 })
+    const host = new ChromeProfilesHost({ userData: ud, dataDirName: 'Team AX', dev: true, execPath: '/x', appPath: app, tempDir: () => ud, team: () => ({ origin: 'https://acme.test', name: 'Acme', page }), env: env({ MYCEL_CHROME_DATA_DIRS: `chrome=${chrome}`, MYCEL_CHROME_BINARIES: `chrome=${bin}` }), exec: async (_f, a) => { urls.push(a[a.length - 1]!); return true } })
+    host.start()
     expect(host.list()).toEqual([{ browser: 'chrome', dir: 'Default', name: 'Person 1', email: 'me@acme.test', installed: true }, { browser: 'chrome', dir: 'Profile 2', name: 'Home', installed: false }])
     expect(await host.connect({ browser: 'chrome', dir: 'Default' })).toBe('pair')
+    host.stop()
+    expect(JSON.parse(fs.readFileSync(path.join(chrome, 'NativeMessagingHosts', 'com.mycel.chrome_host.json'), 'utf8')).path).toBe(path.join(ud, 'chrome', 'chrome-host.sh'))
+    expect(fs.readFileSync(path.join(ud, 'chrome', 'chrome-host.sh'), 'utf8')).toContain(`MYCEL_CHROME_PAIR_SOCKET='${host.socket}'`)
     expect(await host.connect({ browser: 'chrome', dir: 'Profile 2' })).toBe('store')
     expect(await host.connect({ browser: 'chrome', dir: 'Profile 9' })).toBe('failed')
     expect(await host.connect({ browser: 'safari', dir: 'Default' })).toBe('failed')

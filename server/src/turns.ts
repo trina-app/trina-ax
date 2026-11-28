@@ -31,6 +31,9 @@ export interface TurnToolSet {
   /** a tool call starts (any tools/call of the turn); the function returned is called when it ends. The chat turn's
    * stall guard waits while one of our tools runs (chat/turn.ts ownCallStarted) */
   callStarted?(): () => void
+  /** the whole answer was stopped (the person pressed Stop in their Chrome): every tool call, a file tool's too, gets
+   * this sentence and nothing runs; null: go on */
+  stopped?(): string | null
   /** a tool call's arguments with the person's stored connection keys hidden in what the tool saves or sends to a
    * connected service (integrations/connections/hide-args.ts); `hidden`: something was replaced, `note`: what the AI
    * is told then. Runs before every other check; throws KeyRefusal for a call that is not sent at all */

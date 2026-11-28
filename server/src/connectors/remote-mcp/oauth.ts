@@ -134,6 +134,14 @@ export function dropAdminScope(db: Database, userId: string, reason: 'role' | 's
 export class RemoteOAuth {
   readonly origin: string | null
   now: () => number
+  /** a person's list of connections changed (one made, its first token taken, one ended): their open Settings ›
+   * <app> MCP reads it again (remoteOAuthOf: the quiet integrations_changed notice) */
+  changed: (userId: string) => void = () => {}
+  /** after the write is committed (a transaction is synchronous: the next turn of the loop sees it) */
+  private tell(userId: string | null | undefined) {
+    if (!userId) return
+    setTimeout(() => { try { this.changed(userId) } catch { /* a notice that fails changes nothing */ } }, 0)
+  }
   constructor(readonly db: Database, opts: { origin?: string | null; now?: () => number } = {}) {
     this.origin = validOrigin(opts.origin === undefined ? process.env.MYCEL_REMOTE_MCP_ORIGIN : opts.origin)
     this.now = opts.now ?? Date.now
@@ -348,6 +356,7 @@ export class RemoteOAuth {
       this.db.query('INSERT INTO remote_mcp_grants(id,client_id,user_id,session_id,resource,scopes,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?)').run(grant, r.client_id, auth.user.id, anchor, r.resource, JSON.stringify(selected), this.now(), end)
       this.db.query('INSERT INTO remote_mcp_codes VALUES(?,?,?,?,?,NULL)').run(hash(code), grant, r.redirect_uri, r.challenge, this.now() + CODE_MS)
       audit(this.db, { actor: auth.user.id, action: 'remote_mcp.connected', target: grant, detail: { scopes: selected, asked, app: grantApp(this.db, grant) } })
+      this.tell(auth.user.id)
       url.searchParams.set('code', code)
       return { redirectUrl: url.href }
     }).immediate()
@@ -361,6 +370,7 @@ export class RemoteOAuth {
   }
   revokeGrant(id: string) {
     this.db.query('UPDATE remote_mcp_grants SET revoked_at=COALESCE(revoked_at,?) WHERE id=?').run(this.now(), id)
+    this.tell((this.db.query('SELECT user_id FROM remote_mcp_grants WHERE id=?').get(id) as { user_id: string } | null)?.user_id)
     // what lives in memory for it (the browser's asks, once-answers, sessions: remote-mcp/browser.ts) goes now
     for (const l of grantEnded) try { l(id) } catch { /* a listener that throws changes nothing */ }
     // its own session row ends now: the session sweep removes it, and the grant, its codes and tokens cascade away
@@ -409,6 +419,7 @@ export class RemoteOAuth {
         if (row.used_at !== null) { this.revokeGrant(g.id); return invalid() }
         if (row.expires_at <= this.now()) throw invalid()
         this.db.query('UPDATE remote_mcp_codes SET used_at=? WHERE hash=?').run(this.now(), hash(code))
+        this.tell(g.user_id)
         return this.issue(g, JSON.parse(g.scopes))
       }
       if (body.grant_type === 'refresh_token') {
@@ -506,8 +517,15 @@ export function connectorOrigin(config: Pick<AppConfig, 'appConnectors' | 'tunne
   return config.appConnectors && config.tunnel ? validOrigin(`https://${config.tunnel.host}`) : null
 }
 
+/** the same quiet notice a connector's change sends (integrations/connections/service.ts INTEGRATIONS_CHANGED) */
+const MCP_CONNECTIONS_CHANGED = { type: 'notice', data: { level: 'info', code: 'integrations_changed', message: '' } } as const
 const instances = new WeakMap<AppContext, RemoteOAuth>()
 export function remoteOAuthOf(ctx: AppContext, opts?: { origin?: string | null; now?: () => number }) {
-  if (opts || !instances.has(ctx)) instances.set(ctx, new RemoteOAuth(ctx.db, { ...opts, origin: opts?.origin !== undefined ? opts.origin : connectorOrigin(ctx.config) }))
+  if (opts || !instances.has(ctx)) {
+    const o = new RemoteOAuth(ctx.db, { ...opts, origin: opts?.origin !== undefined ? opts.origin : connectorOrigin(ctx.config) })
+    // quiet, like a connector's change: an open Settings › <app> MCP shows the new or ended connection at once
+    o.changed = (userId) => { try { ctx.services.realtime.publish(userId, MCP_CONNECTIONS_CHANGED) } catch (err) { ctx.log.warn('mcp connections notice failed', { err }) } }
+    instances.set(ctx, o)
+  }
   return instances.get(ctx)!
 }

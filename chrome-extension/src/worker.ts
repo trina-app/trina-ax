@@ -26,6 +26,8 @@ export interface PopupStatus {
   stopped: boolean
   renameFailed: boolean
   pair: Awaited<ReturnType<typeof pairState>>
+  /** the person's language as the team told it: the popup speaks it (else the browser's) */
+  locale?: string
 }
 
 installTabListeners()
@@ -60,6 +62,7 @@ async function status(): Promise<PopupStatus> {
     stopped: live.stoppedAt > 0 && Date.now() - live.stoppedAt < 60_000,
     pair: await pairState(),
     renameFailed: (() => { const f = renameFailed; renameFailed = false; return f })(),
+    ...(l?.locale ? { locale: l.locale } : {}),
   }
 }
 
