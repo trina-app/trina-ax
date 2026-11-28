@@ -3,6 +3,35 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## Unreleased
+
+## 0.20.4 — 2026-11-28
+
+- Admin notes: 0.20.4 changes a root file (`scripts/system/packages.sh`: a progress line while system packages install), so every Linux server takes it through the root update: the update timer installs it in the team's update window, or run `sudo mycel-ctl update`. The system package list is unchanged. Migrations 464 and 465 only add tables and columns (Trina in Chrome); the reader level stays 9: going back to 0.20.3 needs no backup.
+
+- A new team's owner who signed up with Google is no longer locked out when the first screen's link expires: the page (and the team's sign-in page) now has **Get a new link**, which asks the Trina AX app for a new one. The hosting console's team page has the same way back.
+- The new team's first screen shows your username to Google owners too, with Copy.
+- In your browser profiles the AI asks once per site: "Always allow this site" on either card now covers both.
+- **Connect every browser profile from the desktop app.** Settings › Browser now lists the Chrome, Edge and Brave profiles on this computer. Press Connect next to one (or Connect all): the app opens that profile and links it, with no sign-in there and no code to type. Profiles without the extension open its store page first. New profiles show up in the list by themselves, and a quiet notice with Undo says when one connected.
+- Linked profiles are named after the browser's own profile name and show their Google account, so you and the AI can tell them apart. Rename one in Settings › Browser or in the extension's popup.
+- Without the desktop app, connecting from inside the profile works as before; Settings › Browser now says that each profile connects once and links to the Chrome Web Store.
+- New owners and admins now get their own **My setup** card on Home too, not only an owner who reached the end of the team setup. It shows from the first visit for an account made in the last 30 days that has not connected a tool of its own, including on a server we set up for you and after a team is handed over to a new owner.
+- While the team setup is unfinished, the owner's card starts with **Continue team setup · 2/5** (or **Start team setup** when it was never opened), so Home shows one card. The card's 14 days start again when the setup ends.
+- The owner's card now counts **Ask Trina what you can do here** next to **Connect your tools**, and says "all set" only once the team setup is done too. Without an AI, **Connect an AI** is the card's first row.
+- Hiding My setup shows a toast with **Undo**.
+- **The AI can now use your own browser.** Install the extension in Chrome, Edge or Brave, open your team in that browser and click its icon, then Connect. The AI then opens sites and acts there with the accounts you are signed in to, from the web app, the desktop app (Settings › Browser › Use my Chrome) and your scheduled tasks. It works for hosted teams too.
+- Connect each browser profile you keep for an account (work mail, personal …) and give it a name: the AI picks the right profile for each step by itself, and can switch between them within one answer.
+- Each task gets its own background window in that profile, so several chats can use the browser at once without touching the tabs you are working in. Stop one from the extension's icon.
+- The AI asks once per site and profile ("Always allow this site" holds from then on, also for scheduled tasks). Your team's own pages and account-security pages are never opened for it. Settings › Browser lists your browsers with their allowed sites; disconnect one any time.
+- **A Windows PC can be the team server.** `scripts/windows/install-wsl-server.ps1` sets up the normal Linux server inside WSL2 Debian on Windows 11 or Windows 10 22H2: it checks the PC (memory, virtualization, disk), turns on the WSL features (one restart, then it goes on by itself), installs Debian with systemd, downloads and checks the kit exactly as the Linux guide does, installs, keeps the server running while the Windows account is signed in, and asks before it turns off sleep. `-WhatIf` shows the changes first. Guide: [docs/INSTALL-WINDOWS.md](docs/INSTALL-WINDOWS.md) ([한국어](docs/INSTALL-WINDOWS.ko.md)).
+- The Linux installer no longer warns that "every turn" will be refused on a kernel whose Landlock works but whose `/sys/kernel/security/lsm` it cannot read (WSL2, some containers and VMs): it asks the sandbox helper instead.
+- The Linux installer says every minute that it is still installing packages; on a new server that step took several minutes without a line and looked hung.
+- `mycel-ctl status` and Admin › System › Diagnostics show a Claude or ChatGPT connection that waits for its usage limit as a warning, also when another connection of the team is switched off; they said fail, while Admin › Providers said limited.
+- When an AI file save (or another tool) fails with a server error, the server log now has a line with the cause and a short reference, and the AI says it failed on the server with that reference instead of guessing. It no longer sends people to the storage settings unless the storage is really full. A converter that could not start because the server was short of memory is tried again.
+- Admin › Connected apps no longer lists Gmail, Calendar, Docs, Drive or Sheets as On while their page says Not set up.
+- Windows setup script: `-WhatIf` no longer prints the Dism module's alias lines, and a sleep setting it could not read is no longer put back as -1 by the uninstall steps.
+- On a Linux or Windows (WSL) server: the Ollama choice says "on the server's computer" instead of "this Mac", the connection check of a WSL server no longer mentions the office network, and a service that signs in only from the team's https address (such as Indeed) says so when the team is open at 127.0.0.1 or another non-https address.
+
 ## 0.20.3 — 2026-11-28
 
 - Admin notes: 0.20.3 changes a root file (`mycel-ctl`: on a server hosted by Trina, `mycel-ctl firewall apply` adds an input chain that refuses every inbound connection; a self-installed server gets no input chain), so every Linux server takes it through the root update: the update timer installs it in the team's update window, or run `sudo mycel-ctl update`. The system package list is unchanged. There is no new migration and the reader level stays 9: going back to 0.20.2 needs no backup. `mycel-enroll` (only in the hosted team image) waits up to 10 minutes for a data disk attached after boot. The release CI also builds a Lightsail team image for hosting.
