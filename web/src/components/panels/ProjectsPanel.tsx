@@ -39,6 +39,8 @@ import { readManagedList, readProjectList, useProjects } from '../../store/proje
 import { NewProjectDialog } from '../NewProjectDialog'
 import { ProjectMembersDialog } from '../ProjectMembersDialog'
 import { useProjectMenuItems } from '../projectActions'
+import { useChatMenuItems } from '../chat/chatMenuItems'
+import { MoveToProjectDialog } from '../chat/ChatProject'
 import { useGuestAiOff } from '../GuestView'
 import { whoSeesProject } from '../projectWho'
 import { ListIcon, ListRow } from '../list/List'
@@ -275,6 +277,8 @@ function ProjectChats({ project: p, byChat, mentioned = NONE }: { project: Proje
   const { pathname } = useLocation()
   const [list, setList] = useState<{ items: Chat[]; more: boolean } | null>(null)
   const [failed, setFailed] = useState(false)
+  // a chat row's "···" 프로젝트 변경: the move dialog (as the Trina history's, nav/HistoryList.tsx)
+  const [moving, setMoving] = useState<Chat | null>(null)
   // a change of one of this project's chats (made, renamed, moved, deleted), a reload or a change of access: read again
   const [again, setAgain] = useState(0)
   // the chats listed now (a chat moved out of this project: its event names the other project)
@@ -346,11 +350,21 @@ function ProjectChats({ project: p, byChat, mentioned = NONE }: { project: Proje
         {!list && !failed && <li className={clsx(sub, 'py-1 text-meta text-faint')}>{t('projectsPanel.fold.loading')}</li>}
         {failed && !list && <li className={clsx(sub, 'py-1 text-meta text-faint')} data-testid="projects-panel-chats-failed">{t('projectsPanel.fold.failed')}</li>}
         {list && !items.length && <li className={clsx(sub, 'py-1 text-meta text-faint')} data-testid="projects-panel-chats-empty">{t('projectsPanel.fold.none')}</li>}
-        {items.map((c) => <ProjectChatItem key={c.id} chat={c} mention={byChat.get(c.id)} selected={pathname.startsWith(`/c/${c.id}`)} rowClass={sub} tag={formatRelative(c.updatedAt, locale)} />)}
+        {items.map((c) => <ProjectChatItem key={c.id} chat={c} mention={byChat.get(c.id)} selected={pathname.startsWith(`/c/${c.id}`)} rowClass={sub} tag={formatRelative(c.updatedAt, locale)} onMove={setMoving} onGone={() => setAgain((n) => n + 1)} />)}
         {list?.more && (
           <ListRow to={`/projects/${p.id}`} name={<span className="text-meta text-muted">{t('projectsPanel.fold.more')}</span>} rowClass={sub} testId="projects-panel-chats-more" />
         )}
       </ul>
+      {moving && (
+        <MoveToProjectDialog
+          chat={moving}
+          onClose={() => setMoving(null)}
+          onMoved={(c) => {
+            useChats.getState().upsertChat(c)
+            setAgain((n) => n + 1)
+          }}
+        />
+      )}
     </li>
   )
 }
@@ -366,22 +380,30 @@ export function UnreadMessages({ chat }: { chat: Chat }) {
   return marker?.reason === 'message' && !chat.muted ? <SessionMarker marker={marker} label={reason} className="self-center" /> : null
 }
 
-/** One chat under an open project's row: bold with my unread mentions (their count) or messages (their number) */
-function ProjectChatItem({ chat, mention: m, selected, rowClass, tag }: { chat: Chat; mention?: ChatMention; selected: boolean; rowClass: string; tag: string }) {
+/** One chat under an open project's row: bold with my unread mentions (their count) or messages (their number). Its
+ * "···" (also a right-click and a long press) holds the Trina history row's items by the same rules
+ * (chat/chatMenuItems.tsx), as the project page's chat rows do (pages/Projects.tsx ProjectChatRow). `onGone`: it left
+ * the list (hidden, left, deleted): the list is read again */
+function ProjectChatItem({ chat, mention: m, selected, rowClass, tag, onMove, onGone }: { chat: Chat; mention?: ChatMention; selected: boolean; rowClass: string; tag: string; onMove: (c: Chat) => void; onGone: () => void }) {
   const t = useT()
   const c = useLiveChat(chat)
   const news = !!c.unreadCount && !c.muted
+  const more = useRef<HTMLButtonElement>(null)
+  // the keyboard waits on "···" after an item (a dialog it opens gives it back there)
+  const items = useChatMenuItems(c, { testId: 'projects-panel-chat', more, select: (fn) => () => (more.current?.focus(), void fn()), onMove, onRemoved: onGone })
+  const name = c.title || t('chat.untitled')
   return (
     <ListRow
       to={`/c/${c.id}`}
       selected={selected}
       icon={<MessageSquare />}
-      name={c.title || t('chat.untitled')}
+      name={name}
       nameTitle={c.title}
       unread={!!m || news}
       tag={m || news ? undefined : tag}
       end={m ? <MentionPill mention={m} testId="projects-panel-chat-mentions" /> : news ? <UnreadMessages chat={c} /> : undefined}
       rowClass={rowClass}
+      rowMenu={{ items, label: t('rooms.menu.rowLabel', { name }), tip: t('rooms.menu.label'), sheetTitle: name, buttonRef: more, testId: 'projects-panel-chat-menu' }}
       testId="projects-panel-chat"
       link={{ 'data-chat-id': c.id }}
     />

@@ -24,7 +24,7 @@ import { useProjects } from '../../store/projects'
 import { MoveToProjectDialog } from '../chat/ChatProject'
 import { HistoryGroups, useHistoryGroups, useSeesProject } from '../history/HistoryGroups'
 import { headBox } from '../list/List'
-import { MenuButton, menuBoxCls, menuRowCls, menuSpot, MENU_EDGE, type MenuItem } from '../rooms/MenuButton'
+import { MenuButton, menuBoxCls, menuRowCls, menuSpot, MENU_EDGE, type MenuItem, type RowMenuOpen } from '../rooms/MenuButton'
 import { useMediaQuery } from '../ui'
 import { LoadError } from '../LoadError'
 import { Tooltip } from '../Tooltip'
@@ -356,8 +356,9 @@ export function HistoryList({ onNavigate, peek, viewState, caps, sections: outsi
  * docs/decisions/20261123-history-filter-place.md): the filter, right above the list it controls, and the "⋯" with New
  * section (then Add chats). `trash`: the "⋯" also holds 삭제한 기록 (the drawer has a row of its own for it). `folded`: the
  * section is folded, so the filter has no list to act on and hides, unless a filter is on: that must never be out of
- * sight. It stays mounted when hidden, so a reset from its own menu closes that menu as usual. */
-export function HistoryHeadActions({ state, folded = false, trash = false }: { state: RecentsViewState; folded?: boolean; trash?: boolean }) {
+ * sight. It stays mounted when hidden, so a reset from its own menu closes that menu as usual. `open`: the header's
+ * right-click, long press and menu key (MenuButton useRowMenu) open the "⋯". */
+export function HistoryHeadActions({ state, folded = false, trash = false, open }: { state: RecentsViewState; folded?: boolean; trash?: boolean; open?: RowMenuOpen }) {
   const t = useT()
   const navigate = useNavigate()
   const sections = useSectionActions('chats')
@@ -385,6 +386,7 @@ export function HistoryHeadActions({ state, folded = false, trash = false }: { s
         muted
         items={items}
         buttonRef={more}
+        {...open}
         testId="trina-recent-menu"
         // 44 px to tap: a phone, and a touch screen wider than a phone (touch-hit is phones' only)
         buttonClassName="max-md:min-h-11 max-md:min-w-11 pointer-coarse:min-h-11 pointer-coarse:min-w-11"

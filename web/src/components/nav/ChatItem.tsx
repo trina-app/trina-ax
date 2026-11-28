@@ -121,8 +121,7 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false, s
           items={items}
           className="absolute inset-y-0 right-1 flex items-center max-md:right-0"
           buttonClassName="hover:bg-surface max-md:size-11 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 max-md:opacity-100"
-          openSignal={menu.openSignal}
-          openRequest={menu.openRequest}
+          {...menu.open}
           sheetTitle={title}
           buttonRef={more}
           testId="chat-row-menu"
