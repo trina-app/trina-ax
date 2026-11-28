@@ -28,7 +28,7 @@ export interface ChromeProfilesDeps {
   userData: string
   /** the app's data folder name (PRODUCT.desktopDataDir): the helper's default socket is under it */
   dataDirName: string
-  /** the app's own folder (app.getAppPath()): a development run's helper is <it>/native-build/chrome-host */
+  /** the app's own folder (app.getAppPath()): a development run's helper is <it or its parent>/native-build/chrome-host */
   appPath?: string
   /** a line for the app's log (why app-led linking is off in this run) */
   log?: (msg: string, detail?: unknown) => void
@@ -74,13 +74,17 @@ export class ChromeProfilesHost {
    * one native/chrome-host/build.sh made in the app's folder */
   helperPath(): string | null {
     const own = this.d.dev ? this.env.env.MYCEL_CHROME_HOST_HELPER : undefined
-    const built = this.d.dev && this.d.appPath ? path.join(this.d.appPath, 'native-build', 'chrome-host') : null
-    for (const p of own ? [own] : [path.join(path.dirname(this.d.execPath), 'chrome-host'), ...(built ? [built] : [])]) if (fs.existsSync(p)) return p
+    // (`electron .` gives the desktop folder as the app path, `electron dist/main.cjs` its dist folder)
+    const built = this.d.dev && this.d.appPath ? [this.d.appPath, path.dirname(this.d.appPath)].map((d) => path.join(d, 'native-build', 'chrome-host')) : []
+    for (const p of own ? [own] : [path.join(path.dirname(this.d.execPath), 'chrome-host'), ...built]) if (fs.existsSync(p)) return p
     return null
   }
 
   /** a development run writes the manifests only when told to, or when the browsers' folders are test folders */
   private mayRegister(): boolean {
+    // a packaged app run from another user data folder (MYCEL_DESKTOP_USER_DATA): its release helper takes no socket
+    // but the default one, so it cannot pair, and must not point the browsers' manifest at itself
+    if (!this.d.dev && !this.socketFixed) return false
     return !this.d.dev || this.env.env.MYCEL_CHROME_REGISTER_HOST === '1' || browserDataDirs(this.env).overridden
   }
 
@@ -89,7 +93,20 @@ export class ChromeProfilesHost {
     if (this.server) return
     if (!this.socket) return void this.d.log?.('chrome pairing off: no socket path fits', { userData: this.d.userData })
     this.listening = 'no'
-    this.server = listenForPairs(this.socket, {
+    try {
+      this.server = this.listen(this.socket)
+    } catch (err) {
+      // the folder could not be made ours (another owner, a link): no pairing this run, and the window still opens
+      this.server = undefined
+      this.listening = 'failed'
+      this.d.log?.('chrome pairing off: the pair socket folder is not usable', { socket: this.socket, err: String((err as Error)?.message ?? err) })
+      return
+    }
+    if (this.mayRegister()) this.register()
+  }
+
+  private listen(socket: string) {
+    return listenForPairs(socket, {
       nonces: this.nonces,
       ids: () => chromeExtensionIds(this.d.dev),
       team: () => { const t = this.d.team(); return t ? { origin: t.origin, name: t.name } : null },
@@ -99,7 +116,6 @@ export class ChromeProfilesHost {
       this.listening = state === 'listening' ? 'yes' : 'failed'
       if (state === 'failed') this.d.log?.('chrome pairing off: the pair socket did not open', { socket: this.socket, err: String((err as Error)?.message ?? err) })
     })
-    if (this.mayRegister()) this.register()
   }
 
   stop(): void {
@@ -113,8 +129,9 @@ export class ChromeProfilesHost {
   /** Why a profile cannot pair now, or null when it can (what Connect answers, `unavailable`, instead of a pair page that
    * would say "not running"). The socket file gone while the app runs (a temp folder cleaned): listened again. */
   async unavailable(): Promise<PairUnavailable | null> {
-    if (!this.socket) return 'socket_path'
-    if (this.listening === 'yes' && !fs.existsSync(this.socket)) { this.stop(); this.start() }
+    if (!this.socket || (!this.d.dev && !this.socketFixed)) return 'socket_path'
+    // the socket file gone (a cleaned temp folder) or an earlier listen that failed: once more
+    if ((this.listening === 'yes' && !fs.existsSync(this.socket)) || this.listening === 'failed') { this.stop(); this.start() }
     if (!this.server) this.start()
     for (let i = 0; i < 20 && this.listening === 'no'; i++) await new Promise((r) => setTimeout(r, 50))
     if (this.listening !== 'yes') return 'listen_failed'

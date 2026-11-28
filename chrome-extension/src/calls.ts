@@ -33,6 +33,9 @@ let keptBytes = 0
 const stoppedRuns = new Map<string, { until: number; why: string; turns: Set<string> | null }>()
 /** calls the person stopped (not a deadline or the turn's own stop): their result says stopped, so an MCP app pauses */
 const stoppedCalls = new Set<string>()
+/** the answer each run's last call came from, and when: a Stop between two calls of an answer holds it too */
+const lastTurn = new Map<string, { turnId: string; at: number }>()
+const LAST_TURN_MS = 10 * 60_000
 
 export function runningCalls(): CallCtx[] {
   return [...running.values()]
@@ -64,8 +67,11 @@ export function stopRun(runId: string, why = STOPPED): void {
   live.stoppedAt = Date.now()
   try { onStopped?.(runId) } catch { /* the server learns it from the next result */ }
   const turns = new Set([...running.values()].filter((c) => c.run.id === runId).map((c) => c.turnId))
+  const last = lastTurn.get(runId)
+  if (last && Date.now() - last.at < LAST_TURN_MS) turns.add(last.turnId)
   // an MCP app's run, or a server that does not stop the chat's answer itself: the whole run waits; else the answers
-  // that ran (none: the server's answer stops on run.stopped, and the next message works)
+  // that were running or made the run's last call (the server also stops that answer on run.stopped; the next message
+  // is a new answer and works at once)
   stoppedRuns.set(runId, { until: Date.now() + STOP_HOLD_MS, why, turns: runId.startsWith('mcp:') || !live.link?.runStops ? null : turns })
   while (stoppedRuns.size > 200) stoppedRuns.delete(stoppedRuns.keys().next().value!)
   for (const c of running.values()) if (c.run.id === runId) { stoppedCalls.add(c.callId); cancel(c, why) }
@@ -122,6 +128,8 @@ async function runOnce(call: BrowserCall): Promise<BrowserResult> {
   const stopped = stoppedRuns.get(runId)
   if (stopped && stopped.until > Date.now() && (stopped.turns === null || stopped.turns.has(call.turnId))) return { ...errorResult(call.callId, stopped.why), stopped: true }
   if (stopped && stopped.until <= Date.now()) stoppedRuns.delete(runId)
+  lastTurn.set(runId, { turnId: call.turnId, at: Date.now() })
+  while (lastTurn.size > 200) lastTurn.delete(lastTurn.keys().next().value!)
   const remaining = call.deadline - (Date.now() + live.clockOffset)
   if (remaining <= 0) return errorResult(call.callId, 'The browser call arrived after its deadline; nothing was done.')
   const parsed = parseBrowserToolInput(call.tool, call.args)

@@ -75,15 +75,14 @@ export class NonceStore {
 export const SOCKET_PATH_MAX = 103
 
 /** This OS user's own temp folder: macOS's per-user DARWIN_USER_TEMP_DIR (0700, /var/folders/…/T/, short), never
- * $TMPDIR (a terminal or a tool may point it anywhere, long); elsewhere the system's temp folder. */
+ * $TMPDIR (a terminal or a tool may point it anywhere, long, or shared like /tmp); elsewhere the system's temp folder.
+ * '' when macOS does not say (no shared folder is taken instead: no socket, and the app says so). */
 export function userTempDir(platform: NodeJS.Platform = process.platform): string {
-  if (platform === 'darwin') {
-    try {
-      const d = execFileSync('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'], { encoding: 'utf8', timeout: 2000 }).trim()
-      if (path.isAbsolute(d)) return d
-    } catch { /* below */ }
-  }
-  return os.tmpdir()
+  if (platform !== 'darwin') return os.tmpdir()
+  try {
+    const d = execFileSync('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'], { encoding: 'utf8', timeout: 2000 }).trim()
+    return path.isAbsolute(d) ? d : ''
+  } catch { return '' }
 }
 
 /**
@@ -98,7 +97,9 @@ export function chromePairSocketPath(o: { home: string; dataDirName: string; use
   const own = path.join(o.home, 'Library', 'Application Support', o.dataDirName)
   const fixed = path.join(own, 'chrome', 'pair.sock')
   if (path.resolve(o.userData) === own && Buffer.byteLength(fixed) <= SOCKET_PATH_MAX) return { path: fixed, fixed: true }
-  const short = path.join((o.tempDir ?? userTempDir)(), 'mycel-chrome', `${crypto.createHash('sha256').update(path.resolve(o.userData)).digest('hex').slice(0, 12)}.sock`)
+  const temp = (o.tempDir ?? userTempDir)()
+  if (!temp) return null
+  const short = path.join(temp, 'mycel-chrome', `${crypto.createHash('sha256').update(path.resolve(o.userData)).digest('hex').slice(0, 12)}.sock`)
   return Buffer.byteLength(short) <= SOCKET_PATH_MAX ? { path: short, fixed: false } : null
 }
 
@@ -147,6 +148,9 @@ const READ_MS = 2000
 export function listenForPairs(socket: string, d: PairServerDeps, state: (s: 'listening' | 'failed', err?: unknown) => void = () => {}): net.Server {
   const dir = path.dirname(socket)
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
+  // a real folder of this OS user (not a link, not someone else's), then 0700; else throw: no socket this run
+  const st = fs.lstatSync(dir)
+  if (!st.isDirectory() || (typeof process.getuid === 'function' && st.uid !== process.getuid())) throw new Error(`not this user's folder: ${dir}`)
   fs.chmodSync(dir, 0o700)
   try { fs.rmSync(socket, { force: true }) } catch { /* a socket a crashed run left: replaced below */ }
   const server = net.createServer((sock) => {

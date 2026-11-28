@@ -90,6 +90,15 @@ describe('Stop in the person\'s Chrome', () => {
     expect(r.ok).toBe(true)
   })
 
+  test('Stop between two calls of one answer: that answer stays held, a new one is not (F, review)', async () => {
+    state.live.link = link(true)
+    const turn = uuidv7()
+    expect((await call('chat-between', turn)).ok).toBe(true)
+    calls.stopRun('chat-between')
+    expect((await call('chat-between', turn)).stopped).toBe(true)
+    expect((await call('chat-between')).stopped).toBeUndefined()
+  })
+
   test('an older server, or an MCP app\'s run: the whole run waits (as before)', async () => {
     state.live.link = link(false)
     calls.stopRun('chat-old')

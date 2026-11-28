@@ -227,6 +227,25 @@ describe('the socket path (QA 2026-11-28: a long user data folder made no socket
   })
 })
 
+describe('the socket path, review fixes', () => {
+  test('a packaged app run from another user data folder cannot pair (its release helper takes only the default socket)', async () => {
+    const dir = tmp()
+    const host = new ChromeProfilesHost({ userData: dir, dataDirName: 'X', dev: false, execPath: '/x', team: () => null, tempDir: () => dir })
+    expect(await host.unavailable()).toBe('socket_path')
+    host.stop()
+  })
+
+  test('a socket folder that is a link (or not this user\'s): no socket, no throw, the window still opens', async () => {
+    const dir = tmp(), elsewhere = tmp()
+    fs.symlinkSync(elsewhere, path.join(dir, 'mycel-chrome'))
+    const host = new ChromeProfilesHost({ userData: tmp(), dataDirName: 'X', dev: true, execPath: '/x', team: () => null, tempDir: () => dir })
+    expect(() => host.start()).not.toThrow()
+    expect(await host.unavailable()).toBe('listen_failed')
+    expect(fs.readdirSync(elsewhere)).toEqual([])
+    host.stop()
+  })
+})
+
 describe('socket', () => {
   function serve(o: Partial<PairServerDeps> = {}) {
     const dir = tmp()

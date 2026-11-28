@@ -46,7 +46,8 @@ export default function AiApps() {
     // an app connected or a connection ended (here, in another window, or the app's own sign-in tab): read again
     const changed = integrationsChanged.on(() => void load())
     // ...and when the person comes back to this window (an older server sends no notice)
-    const back = () => { if (document.visibilityState === 'visible') void load() }
+    let lastBack = 0
+    const back = () => { if (document.visibilityState === 'visible' && Date.now() - lastBack > 5000) { lastBack = Date.now(); void load() } }
     window.addEventListener('focus', back)
     document.addEventListener('visibilitychange', back)
     return () => { reload(); access(); changed(); window.removeEventListener('focus', back); document.removeEventListener('visibilitychange', back) }

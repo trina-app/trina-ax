@@ -967,7 +967,8 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
   // apps offer "always allow" at once), only where ①d could open this very address next time (a plain address, not an
   // echo, in a turn ①d applies to), while the team allows it and the person's switch is off. Picking it opens this
   // address and turns the switch on (read with the team's policy in one transaction)
-  const offerAll = !!(person.choose && plain && why !== 'echo' && why !== 'echoWeb' && allSitesTurn() && teamAllowsWebAll(db) && !webAllowAll(db, o.userId))
+  // (never on a card for the person's own Chrome: "all websites" is not sent to a browser profile, whose sites are its own)
+  const offerAll = !!(!o.profile && person.choose && plain && why !== 'echo' && why !== 'echoWeb' && allSitesTurn() && teamAllowsWebAll(db) && !webAllowAll(db, o.userId))
   if (offerAll) lines.push(`${TEXT.all[L]} ${WEB_ALLOW_ALL_RISK[L]}`)
   const extra: ConfirmExtra | undefined = marks.length ? { details: [{ label: TEXT.labelUrl[L], text: readable, marks }] } : undefined
   const question = lines.join('\n\n')

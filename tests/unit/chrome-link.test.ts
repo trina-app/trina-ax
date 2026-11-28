@@ -438,6 +438,8 @@ describe('QA 2026-11-28: profile names, Stop, language', () => {
       expect(words).toContain("It opens in your browser profile 'Work'.")
       expect(words).toContain("saved for your browser profile 'Work'")
       expect(words).not.toContain('in all your chats from now on. Addresses')
+      // "Allow all websites" never reaches a browser profile, so its card does not offer it
+      expect(words).not.toContain('Allow all websites')
       await win.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
     } finally { stop(); win.close(); e.ws.close() }
   })

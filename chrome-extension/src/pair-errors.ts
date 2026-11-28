@@ -25,4 +25,3 @@ export const FAILURE_TEXT: Record<PairFailure, MessageKey> = {
   not_accepted: 'pairAppNotAccepted',
   helper_failed: 'pairAppHelperFailed',
 }
-

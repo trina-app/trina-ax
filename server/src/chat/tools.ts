@@ -2079,6 +2079,8 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       const call: BrowserCall = async (tool, a) => {
         // a site the person's Chrome needs and nobody allowed: their card here, then the call again (a few sites at most)
         for (let asked = 0; ; asked++) {
+          // stopped meanwhile (run.stopped between two relay calls of one tool call: its key check, a site card): no more
+          if (profile && exec.chromeStopped) return { callId: '', ok: false, content: [], error: CHROME_STOPPED, stopped: true }
           const r = await rt.relay.call({ userId: spec.userId, windowId: win, turnId: spec.turnId, chatId: spec.chatId, tool, args: a, signal: exec.abort.signal, sites: [...sites], office: [...officeHosts], ...(run ? { run } : {}), ...(tool === 'file_upload' && prepare ? { prepare } : {}) })
           // the person stopped it in their Chrome: the rest of this answer uses no tool, and the AI asks what next
           if (profile && r.stopped) { exec.chromeStopped = true; return { ...r, ok: false, error: CHROME_STOPPED } }
