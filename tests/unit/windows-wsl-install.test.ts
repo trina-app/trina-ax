@@ -203,24 +203,47 @@ describe('install-wsl-server.ps1', () => {
     expect(PS1.indexOf('$cu = Invoke-Helper clearupload')).toBeLessThan(PS1.indexOf('$c = Copy-ToDistro -LinuxPath $pair[1] -From $pair[0]'))
     expect(between(PS1, "$HelperScript = @'\n", "\n'@")).toContain('  clearupload)\n    # an earlier -KitPath copy that stopped half-way: an empty folder for the next one\n    rm -rf -- "$UPLOAD"\n')
   })
-  test('step 4: a failed Debian install is tried once more; a half-made distro of our name goes first, never one with the server', () => {
+  test('step 4: a failed Debian install is tried once more; a leftover distro is removed only on a positive "empty" (fail-closed)', () => {
     // Windows QA 2026-11-28: wsl --install ... --web-download stopped once with exit code -1 after 22 s on a clean PC
-    const step = between(PS1, "Write-Step \"4/8", "} else { Write-Ok \"`\"$Distro`\" is installed\" }")
+    const step = between(PS1, 'Write-Step "4/8', '} else { Write-Ok "`"$Distro`" is installed" }')
     expect(step).not.toBe('')
-    // the distro was not there when the step began: only then does it install (and may remove what a failed try left)
-    expect(step).toMatch(/^[^\n]*\n\$haveDistro = \(Get-DistroName\) -contains \$Distro\nif \(-not \$haveDistro\) \{/)
     expect(step).toContain('for ($try = 1; $try -le 2; $try++) {')
     expect(step.match(/'--install', '--distribution', 'Debian'/g)?.length).toBe(1)
-    // success needs exit code 0 and the distro; the second try is the last
-    expect(step).toContain("if (($code -eq 0 -and ((Get-DistroName) -contains $Distro)) -or $try -eq 2) { break }")
-    // a leftover distro of our name is unregistered only when the server's folder is not in it
-    const keep = step.indexOf("\"test -e $LinuxBase\")).Code -eq 0) { break }"), drop = step.indexOf("$null = Invoke-Wsl @('--unregister', $Distro)")
-    expect(keep).toBeGreaterThan(0)
-    expect(drop).toBeGreaterThan(keep)
-    expect(step.match(/--unregister/g)?.length).toBe(1)
-    expect(step).toContain('Start-Sleep -Seconds 10')
-    // the STOP message says to run the script again
-    expect(step).toContain('Exit-Setup "Installing Debian failed twice (wsl.exe exit code $code). This happens now and then on a new PC: run this script again (finished steps are skipped).')
+    // "none before" needs a list that answered (asked twice); a failed list is unknown
+    expect(step).toContain("$absentBefore = (-not $haveDistro) -and (((Invoke-Wsl @('--list', '--quiet')).Code -eq 0) -or ((Invoke-Wsl @('--list', '--quiet')).Code -eq 0))")
+    // success only with exit code 0 and the distro listed; otherwise the STOP message that says to run it again
+    expect(step).toContain("if ($code -eq 0 -and ((Get-DistroName) -contains $Distro)) { $installed = $true; break }")
+    expect(step).toContain('if (-not $installed) { Exit-Setup "Installing Debian failed (wsl.exe exit code $code). This happens now and then on a new PC: run this script again (finished steps are skipped).')
+    // the one --unregister sits right after the one check that needs 'remove'; every other answer leaves the loop
+    const lines = step.split('\n')
+    const un = lines.map((l, i) => (l.includes("'--unregister'") ? i : -1)).filter((i) => i >= 0)
+    expect(un.length).toBe(1)
+    expect(lines[un[0]! - 1]!.trim()).toBe("if ((Get-LeftoverAction -AbsentBefore $absentBefore -Probe $probe) -ne 'remove') { break }")
+    expect(lines[un[0]! - 2]!).toContain("$probe = Invoke-Wsl @('-d', $Distro, '--cd', '/', '-u', 'root', '--exec', '/bin/sh', '-c',")
+    // Get-LeftoverAction: one 'remove', behind AbsentBefore, a probe that ran (code 0) and said exactly "empty"
+    const f = between(PS1, 'function Get-LeftoverAction([bool]$AbsentBefore, $Probe) {', '\n}\n')
+    expect(f.trim().split('\n').map((l) => l.trim())).toEqual([
+      "if (-not $AbsentBefore -or $null -eq $Probe) { return 'keep' }",
+      `if ($Probe.Code -eq 0 -and "$($Probe.Out)".Trim() -eq 'empty') { return 'remove' }`,
+      "return 'keep'",
+    ])
+  })
+  test('step 4: the leftover probe says "empty" only for a bare distro; the server folder, an upload or a home folder: "keep"', () => {
+    const m = PS1.match(/'-c', "(if \[ -e \$LinuxBase \][^"]*)"\)/)
+    expect(m).not.toBeNull()
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'wsl-probe-'))
+    const probe = (prep: (root: string) => void) => {
+      const root = fs.mkdtempSync(path.join(d, 'r-'))
+      fs.mkdirSync(path.join(root, 'home')); fs.mkdirSync(path.join(root, 'root'))
+      prep(root)
+      const script = m![1]!.replace('$LinuxBase', `${root}/var/lib/mycel`).replace('/root/.trina-upload', `${root}/root/.trina-upload`).replace('/home', `${root}/home`)
+      return bash(script).out.trim()
+    }
+    expect(probe(() => {})).toBe('empty')
+    expect(probe((r) => fs.mkdirSync(path.join(r, 'var/lib/mycel'), { recursive: true }))).toBe('keep')
+    expect(probe((r) => fs.mkdirSync(path.join(r, 'root/.trina-upload')))).toBe('keep')
+    expect(probe((r) => fs.mkdirSync(path.join(r, 'home/alice')))).toBe('keep')
+    fs.rmSync(d, { recursive: true, force: true })
   })
   test('-WhatIf / -Confirm only on cmdlets that take them (Windows PowerShell 5.1 stops on any other: QA 2026-11-28)', () => {
     // the cmdlets of this script and its guides that support ShouldProcess; Import-Module, Get-*, Write-*, Read-Host,
@@ -329,6 +352,19 @@ ${call}
     expect(p.stderr.toString()).toBe('')
     return p.stdout.toString()
   }
+  test('Get-LeftoverAction is fail-closed: only a list that answered and a probe that said "empty" remove', () => {
+    const cases = [
+      ['$true', "[pscustomobject]@{ Code = 0; Out = 'empty'; Err = '' }", 'remove'],
+      ['$false', "[pscustomobject]@{ Code = 0; Out = 'empty'; Err = '' }", 'keep'],
+      ['$true', "[pscustomobject]@{ Code = 0; Out = 'keep'; Err = '' }", 'keep'],
+      ['$true', "[pscustomobject]@{ Code = 1; Out = 'empty'; Err = '' }", 'keep'],
+      ['$true', "[pscustomobject]@{ Code = -1; Out = ''; Err = 'failed' }", 'keep'],
+      ['$true', "[pscustomobject]@{ Code = 0; Out = 'Failed to translate x' + [char]10 + 'empty'; Err = '' }", 'keep'],
+      ['$true', '$null', 'keep'],
+    ]
+    for (const [before, probe, want] of cases)
+      expect(`${before} ${probe}: ${fn('Get-LeftoverAction', `Get-LeftoverAction -AbsentBefore ${before} -Probe (${probe})`).trim()}`).toBe(`${before} ${probe}: ${want}`)
+  })
   const merge = (text: string, cap = 5) => {
     const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'wslconfig-')), 'in')
     fs.writeFileSync(f, text)

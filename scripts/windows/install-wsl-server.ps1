@@ -206,6 +206,14 @@ function Get-DistroName([switch]$Running) {
     $all = Get-DistroName
     return @($names | Where-Object { $all -contains $_ })
 }
+# step 4: what happens to a distro of our name that a failed install left. 'remove' only when the list answered before
+# the step and had no such distro, and the probe inside it ran and said "empty" (no server folder, no upload, no
+# home folders); any other answer, a probe that failed or said something else included: 'keep' (and the setup stops)
+function Get-LeftoverAction([bool]$AbsentBefore, $Probe) {
+    if (-not $AbsentBefore -or $null -eq $Probe) { return 'keep' }
+    if ($Probe.Code -eq 0 -and "$($Probe.Out)".Trim() -eq 'empty') { return 'remove' }
+    return 'keep'
+}
 # the distro's WSL version (1 or 2) from "wsl -l -v": "* TrinaAX   Running   2"
 function Get-DistroWslVersion([string]$Name) {
     $r = Invoke-Wsl @('--list', '--verbose')
@@ -694,24 +702,29 @@ if ($null -eq $merged) {
 # ---- 4. the Debian distro ----
 Write-Step "4/8  Debian for the server (WSL distro `"$Distro`")"
 $haveDistro = (Get-DistroName) -contains $Distro
+# a distro of this name that a failed install leaves may go only when the list said there was none before this step
+# (asked twice: a list that does not answer is "unknown", never "none")
+$absentBefore = (-not $haveDistro) -and (((Invoke-Wsl @('--list', '--quiet')).Code -eq 0) -or ((Invoke-Wsl @('--list', '--quiet')).Code -eq 0))
 if (-not $haveDistro) {
     if (Test-Change $Distro 'install Debian as a new WSL distro (wsl --install --distribution Debian --name ... --no-launch --web-download)') {
         # --no-launch: no first-start prompt for a Linux user name (everything here runs as root). One more try when it
         # fails: on a clean PC it stopped once with exit code -1 after 22 s and the same command worked again (Windows QA
-        # 2026-11-28). A distro of this name that the failed try left is ours (there was none before this step); it goes
-        # first, unless the server's folder is in it.
+        # 2026-11-28). A distro the failed try left goes first only when Get-LeftoverAction says 'remove'; else STOP.
+        $installed = $false
         for ($try = 1; $try -le 2; $try++) {
             $code = Invoke-WslLive @('--install', '--distribution', 'Debian', '--name', $Distro, '--no-launch', '--web-download')
-            if (($code -eq 0 -and ((Get-DistroName) -contains $Distro)) -or $try -eq 2) { break }
-            Write-Note "Installing Debian stopped (wsl.exe exit code $code). Trying once more in 10 seconds."
+            if ($code -eq 0 -and ((Get-DistroName) -contains $Distro)) { $installed = $true; break }
+            if ($try -eq 2) { break }
             if ((Get-DistroName) -contains $Distro) {
-                if ((Invoke-Wsl @('-d', $Distro, '--cd', '/', '-u', 'root', '--exec', '/bin/sh', '-c', "test -e $LinuxBase")).Code -eq 0) { break }
+                $probe = Invoke-Wsl @('-d', $Distro, '--cd', '/', '-u', 'root', '--exec', '/bin/sh', '-c', "if [ -e $LinuxBase ] || [ -e /root/.trina-upload ] || ls -A /home 2>/dev/null | grep -q .; then echo keep; else echo empty; fi")
+                if ((Get-LeftoverAction -AbsentBefore $absentBefore -Probe $probe) -ne 'remove') { break }
                 $null = Invoke-Wsl @('--unregister', $Distro)
             }
+            Write-Note "Installing Debian stopped (wsl.exe exit code $code). Trying once more in 10 seconds."
             Start-Sleep -Seconds 10
         }
-        $haveDistro = (Get-DistroName) -contains $Distro
-        if (-not $haveDistro) { Exit-Setup "Installing Debian failed twice (wsl.exe exit code $code). This happens now and then on a new PC: run this script again (finished steps are skipped). If it keeps failing, check the internet connection and run  wsl --update ." }
+        if (-not $installed) { Exit-Setup "Installing Debian failed (wsl.exe exit code $code). This happens now and then on a new PC: run this script again (finished steps are skipped). If it keeps failing, check the internet connection and run  wsl --update ." }
+        $haveDistro = $true
         Write-Ok "Debian installed as `"$Distro`""
     }
 } else { Write-Ok "`"$Distro`" is installed" }
