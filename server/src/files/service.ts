@@ -486,7 +486,7 @@ export const BINARY_WRITE = new Set(['hwp', 'hwpx', 'docx', 'pptx', 'xlsx', 'xls
 /** Which tool changes or makes a file write and edit refuse (the error named only text files, and the AI saved a .md
  * where a .docx was asked; chat/chat-file-write.ts names edit_office the same way for a chat file). A guest's turn has
  * no edit_office (chat/guest-tools.ts), so it is named "when you have it"; edit_office refuses .xls, .odt and .ods
- * (tools/edit-office.ts). `connector`: a call outside a chat turn (turnId null: the Trina AX MCP connector), which has none of these tools. */
+ * (tools/edit-office.ts). `connector`: a call outside a chat turn (turnId null: the <app> MCP connector), which has none of these tools. */
 export function binaryWriteHint(e: string, connector = false): string {
   if (connector) return 'upload the finished file instead (upload_file or create_upload_link, when you have them)'
   if (['docx', 'pptx', 'xlsx'].includes(e)) return 'change an existing Word, Excel or PowerPoint file with edit_office when you have it, and make a new one with make_file'
