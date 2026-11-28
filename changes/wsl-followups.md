@@ -8,3 +8,5 @@
 - The Windows setup window no longer fills with apt's output ("Reading database … 5%"): it goes to
   /var/log/trina-packages-apt.log, the window shows the "still installing" lines, and a failure names the log and its
   last lines.
+- Windows setup: when installing Debian stops on a new PC (wsl.exe exit code -1), the script tries once more by itself,
+  after removing the half-made distro it left; if that fails too, it says to run the script again.

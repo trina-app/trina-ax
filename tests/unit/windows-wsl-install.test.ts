@@ -89,7 +89,7 @@ describe('install-wsl-server.ps1', () => {
     expect(PS1).toContain('#Requires -Version 5.1')
     expect(PS1).toContain('[CmdletBinding(SupportsShouldProcess = $true)]')
     // the commands that change this PC all sit under a Test-Change (ShouldProcess) in the same block
-    const changes = ['Enable-WindowsOptionalFeature', 'Register-ScheduledTask', 'Unregister-ScheduledTask', 'Restart-Computer', 'powercfg.exe /change', 'Set-Acl', "'--install'", "'--update'", "'--shutdown'", "'--terminate'", "'--set-version'"]
+    const changes = ['Enable-WindowsOptionalFeature', 'Register-ScheduledTask', 'Unregister-ScheduledTask', 'Restart-Computer', 'powercfg.exe /change', 'Set-Acl', "'--install'", "'--update'", "'--shutdown'", "'--terminate'", "'--set-version'", "'--unregister'"]
     const lines = PS1.split('\n')
     for (const c of changes) {
       const at = lines.map((l, i) => (l.includes(c) ? i : -1)).filter((i) => i >= 0 && !lines[i]!.trimStart().startsWith('#'))
@@ -202,6 +202,25 @@ describe('install-wsl-server.ps1', () => {
     // a new -KitPath kit goes into an emptied folder
     expect(PS1.indexOf('$cu = Invoke-Helper clearupload')).toBeLessThan(PS1.indexOf('$c = Copy-ToDistro -LinuxPath $pair[1] -From $pair[0]'))
     expect(between(PS1, "$HelperScript = @'\n", "\n'@")).toContain('  clearupload)\n    # an earlier -KitPath copy that stopped half-way: an empty folder for the next one\n    rm -rf -- "$UPLOAD"\n')
+  })
+  test('step 4: a failed Debian install is tried once more; a half-made distro of our name goes first, never one with the server', () => {
+    // Windows QA 2026-11-28: wsl --install ... --web-download stopped once with exit code -1 after 22 s on a clean PC
+    const step = between(PS1, "Write-Step \"4/8", "} else { Write-Ok \"`\"$Distro`\" is installed\" }")
+    expect(step).not.toBe('')
+    // the distro was not there when the step began: only then does it install (and may remove what a failed try left)
+    expect(step).toMatch(/^[^\n]*\n\$haveDistro = \(Get-DistroName\) -contains \$Distro\nif \(-not \$haveDistro\) \{/)
+    expect(step).toContain('for ($try = 1; $try -le 2; $try++) {')
+    expect(step.match(/'--install', '--distribution', 'Debian'/g)?.length).toBe(1)
+    // success needs exit code 0 and the distro; the second try is the last
+    expect(step).toContain("if (($code -eq 0 -and ((Get-DistroName) -contains $Distro)) -or $try -eq 2) { break }")
+    // a leftover distro of our name is unregistered only when the server's folder is not in it
+    const keep = step.indexOf("\"test -e $LinuxBase\")).Code -eq 0) { break }"), drop = step.indexOf("$null = Invoke-Wsl @('--unregister', $Distro)")
+    expect(keep).toBeGreaterThan(0)
+    expect(drop).toBeGreaterThan(keep)
+    expect(step.match(/--unregister/g)?.length).toBe(1)
+    expect(step).toContain('Start-Sleep -Seconds 10')
+    // the STOP message says to run the script again
+    expect(step).toContain('Exit-Setup "Installing Debian failed twice (wsl.exe exit code $code). This happens now and then on a new PC: run this script again (finished steps are skipped).')
   })
   test('-WhatIf / -Confirm only on cmdlets that take them (Windows PowerShell 5.1 stops on any other: QA 2026-11-28)', () => {
     // the cmdlets of this script and its guides that support ShouldProcess; Import-Module, Get-*, Write-*, Read-Host,

@@ -696,10 +696,22 @@ Write-Step "4/8  Debian for the server (WSL distro `"$Distro`")"
 $haveDistro = (Get-DistroName) -contains $Distro
 if (-not $haveDistro) {
     if (Test-Change $Distro 'install Debian as a new WSL distro (wsl --install --distribution Debian --name ... --no-launch --web-download)') {
-        # --no-launch: no first-start prompt for a Linux user name (everything here runs as root)
-        $code = Invoke-WslLive @('--install', '--distribution', 'Debian', '--name', $Distro, '--no-launch', '--web-download')
+        # --no-launch: no first-start prompt for a Linux user name (everything here runs as root). One more try when it
+        # fails: on a clean PC it stopped once with exit code -1 after 22 s and the same command worked again (Windows QA
+        # 2026-11-28). A distro of this name that the failed try left is ours (there was none before this step); it goes
+        # first, unless the server's folder is in it.
+        for ($try = 1; $try -le 2; $try++) {
+            $code = Invoke-WslLive @('--install', '--distribution', 'Debian', '--name', $Distro, '--no-launch', '--web-download')
+            if (($code -eq 0 -and ((Get-DistroName) -contains $Distro)) -or $try -eq 2) { break }
+            Write-Note "Installing Debian stopped (wsl.exe exit code $code). Trying once more in 10 seconds."
+            if ((Get-DistroName) -contains $Distro) {
+                if ((Invoke-Wsl @('-d', $Distro, '--cd', '/', '-u', 'root', '--exec', '/bin/sh', '-c', "test -e $LinuxBase")).Code -eq 0) { break }
+                $null = Invoke-Wsl @('--unregister', $Distro)
+            }
+            Start-Sleep -Seconds 10
+        }
         $haveDistro = (Get-DistroName) -contains $Distro
-        if (-not $haveDistro) { Exit-Setup "Installing Debian failed (wsl.exe exit code $code). Check the internet connection and run this again." }
+        if (-not $haveDistro) { Exit-Setup "Installing Debian failed twice (wsl.exe exit code $code). This happens now and then on a new PC: run this script again (finished steps are skipped). If it keeps failing, check the internet connection and run  wsl --update ." }
         Write-Ok "Debian installed as `"$Distro`""
     }
 } else { Write-Ok "`"$Distro`" is installed" }
