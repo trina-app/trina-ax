@@ -8,6 +8,7 @@
 import { z } from 'zod'
 import { empty, endpoint } from './endpoint'
 import { SkillPackInstallResult } from './onboarding-packs'
+import { TEAM_ICON_VERSION_RE } from '../team-icon'
 
 /** `ai` (connect an AI) opens the steps only while the owner has no AI that answers them (docs/DECISIONS.md "W2 — AI
  * connection first"), in front of the steps that need it, never in front of the later ones; it is recorded once it was
@@ -183,6 +184,9 @@ export const WelcomeBrandResult = z.object({
   images: z.array(z.string()),
   /** 회사 소개.md when it is there (written now or kept), else null (the owner's files are the intro) */
   intro: z.string().nullable(),
+  /** the website's square icon became the team logo with this press (the team had none), else null or absent (older
+   * servers). Its undo is DELETE /api/admin/team-icon?version=<version>. */
+  teamIcon: z.object({ version: z.string().regex(TEAM_ICON_VERSION_RE) }).nullable().optional(),
 })
 export type WelcomeBrandResult = z.infer<typeof WelcomeBrandResult>
 

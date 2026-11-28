@@ -22,6 +22,13 @@ export const TEXT: Record<TeamIconProblem, T> = {
   too_small: t(`가로와 세로가 ${TEAM_ICON_MIN_PX}px 이상인 이미지를 올려 주세요.`, `Use an image at least ${TEAM_ICON_MIN_PX} × ${TEAM_ICON_MIN_PX} pixels.`, `Pakai gambar minimal ${TEAM_ICON_MIN_PX} × ${TEAM_ICON_MIN_PX} piksel.`, `${TEAM_ICON_MIN_PX} × ${TEAM_ICON_MIN_PX}ピクセル以上の画像を使ってください。`, `Use una imagen de al menos ${TEAM_ICON_MIN_PX} × ${TEAM_ICON_MIN_PX} píxeles.`, `请使用至少${TEAM_ICON_MIN_PX} × ${TEAM_ICON_MIN_PX}像素的图片。`),
   too_large: t(`가로와 세로가 ${TEAM_ICON_MAX_PX}px 이하인 이미지를 올려 주세요.`, `Use an image at most ${TEAM_ICON_MAX_PX} × ${TEAM_ICON_MAX_PX} pixels.`, `Pakai gambar paling besar ${TEAM_ICON_MAX_PX} × ${TEAM_ICON_MAX_PX} piksel.`, `${TEAM_ICON_MAX_PX} × ${TEAM_ICON_MAX_PX}ピクセル以下の画像を使ってください。`, `Use una imagen de como máximo ${TEAM_ICON_MAX_PX} × ${TEAM_ICON_MAX_PX} píxeles.`, `请使用最大${TEAM_ICON_MAX_PX} × ${TEAM_ICON_MAX_PX}像素的图片。`),
 }
+/** The words of Admin › Team logo › "From the website" (admin/team-icon-site.ts; the web mock says them too). */
+export const SITE_ICON_TEXT = {
+  noWebsite: t('회사 소개에 홈페이지 주소가 없어요. 회사 소개에서 홈페이지를 먼저 저장해 주세요.', 'The company profile has no website. Save the website in the company profile first.', 'Profil perusahaan belum punya situs web. Simpan dulu situs webnya di profil perusahaan.', '会社紹介にホームページがありません。先に会社紹介でホームページを保存してください。', 'El perfil de la empresa no tiene sitio web. Guarde primero el sitio web en el perfil de la empresa.', '公司介绍里没有网站地址。请先在公司介绍中保存网站。'),
+  notReady: t('서버가 아직 준비 중이에요. 잠시 후 다시 눌러 주세요.', 'The server is still getting ready. Press it again in a moment.', 'Server masih bersiap. Tekan lagi sebentar lagi.', 'サーバーはまだ準備中です。少し待ってからもう一度押してください。', 'El servidor aún se está preparando. Vuelva a pulsarlo en un momento.', '服务器还在准备中。请稍后再按一次。'),
+  notFound: t('홈페이지에서 쓸 만한 아이콘을 찾지 못했어요. 로고 파일을 올려 주세요.', "We couldn't find an icon on the website that works as a logo. Upload a logo file instead.", 'Kami tidak menemukan ikon di situs web yang bisa dipakai sebagai logo. Unggah berkas logo saja.', 'ホームページにロゴとして使えるアイコンが見つかりませんでした。ロゴファイルをアップロードしてください。', 'No encontramos en el sitio web un icono que sirva como logotipo. Suba un archivo de logotipo.', '没有在网站上找到可以用作标志的图标。请上传标志文件。'),
+  busy: t('홈페이지에서 아이콘을 가져오는 중이에요. 잠시 후 다시 눌러 주세요.', 'The icon is already being fetched from the website. Try again in a moment.', 'Ikon sedang diambil dari situs web. Coba lagi sebentar lagi.', 'ホームページからアイコンを取得中です。少し待ってからもう一度お試しください。', 'Ya se está obteniendo el icono del sitio web. Vuelva a intentarlo en un momento.', '正在从网站获取图标。请稍后再试。'),
+} as const
 const refuse = (problem: TeamIconProblem, locale: Locale): never =>
   fail(problem === 'too_big' ? 'payload_too_large' : 'validation', TEXT[problem][locale] ?? TEXT[problem].en, {
     params: { reason: problem },
@@ -86,9 +93,49 @@ export async function saveTeamIcon(dataDir: string, body: AsyncIterable<Uint8Arr
   return { bytes, type: r.type, width: r.width, height: r.height, version: versionOf(bytes) }
 }
 
-/** Remove the logo (the default icon again). False when there was none. */
-export function removeTeamIcon(dataDir: string): boolean {
+/** Store checked bytes in place of the old logo (the admin's "from the website": an explicit press may replace one). */
+export async function saveTeamIconBytes(dataDir: string, bytes: Uint8Array<ArrayBuffer>, type: string): Promise<TeamIconFile | null> {
+  const r = checkTeamIcon(bytes, type)
+  if (!r.ok) return null
+  await writeAtomic([bytes], teamIconFile(dataDir), 0o600)
   cache.delete(dataDir)
+  return { bytes, type: r.type, width: r.width, height: r.height, version: versionOf(bytes) }
+}
+
+/**
+ * Store checked bytes as the logo only if the team has none at this moment (onboarding: never over an uploaded one).
+ * Not a check, then a write: the bytes go to a temporary file that is then hard-linked to <data>/team-icon, which fails
+ * at once when a logo appeared meanwhile. Null when one is there (or the bytes are no logo).
+ */
+export function saveTeamIconIfAbsent(dataDir: string, bytes: Uint8Array<ArrayBuffer>, type: string): TeamIconFile | null {
+  const r = checkTeamIcon(bytes, type)
+  if (!r.ok) return null
+  const target = teamIconFile(dataDir)
+  const tmp = `${target}.${crypto.randomBytes(6).toString('hex')}.tmp`
+  try {
+    const fd = fs.openSync(tmp, 'wx', 0o600)
+    try { fs.writeSync(fd, bytes); fs.fsyncSync(fd) } finally { fs.closeSync(fd) }
+    try { fs.linkSync(tmp, target) } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'EEXIST') return null
+      throw e
+    }
+  } finally {
+    fs.rmSync(tmp, { force: true })
+    cache.delete(dataDir)
+  }
+  return { bytes, type: r.type, width: r.width, height: r.height, version: versionOf(bytes) }
+}
+
+/** Remove the logo (the default icon again). False when there was none; 'stale' when `version` is given and the logo
+ * now is another one (an undo never removes a newer logo). */
+export function removeTeamIcon(dataDir: string, version?: string): boolean | 'stale' {
+  cache.delete(dataDir)
+  if (version !== undefined) {
+    const now = readTeamIcon(dataDir)
+    if (!now) return false
+    if (now.version !== version) return 'stale'
+    cache.delete(dataDir)
+  }
   try {
     fs.rmSync(teamIconFile(dataDir))
     return true

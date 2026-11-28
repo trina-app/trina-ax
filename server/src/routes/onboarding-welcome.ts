@@ -43,7 +43,7 @@ export const onboardingWelcomeRoutes: RouteModule = {
       // the pictures and 회사 소개.md are written as the owner through the file layer (their folder rules)
       try { ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
       markWelcomeOpened(ctx)
-      const r = logged(ctx, 'the brand action', auth.user.id, () => placeBrand(ctx, auth.user.id, c.get('locale'), body))
+      const r = logged(ctx, 'the brand action', auth.user.id, () => placeBrand(ctx, auth.user.id, c.get('locale'), body, { siteIcon: true }))
       return { ...r, progress: welcomeOut(ctx, readWelcome(ctx))! }
     })
     kit.handle(API.getResultSuggestion, ({ query, auth }) => ({ suggestion: resultSuggestion(ctx, auth.user.id, query.chatId, query.messageId, getChatRuntime(ctx), { phone: query.phone === '1' }) }))

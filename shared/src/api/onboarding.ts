@@ -133,7 +133,9 @@ export const ProfileDraftState = z.object({
   /** what the server collected from the pages it opened for the latest answer (docs/DECISIONS.md "N"): images it saved
    * aside for the brand folder (the logo among them when there was one) and the brand colours it found, main first.
    * The images go into the team's brand folder when the first result starts. Absent from servers before it. */
-  assets: z.object({ images: z.number().int().nonnegative(), logo: z.boolean(), colors: z.array(BrandColor).max(PROFILE_LIMITS.colors) }).optional(),
+  assets: z.object({ images: z.number().int().nonnegative(), logo: z.boolean(), colors: z.array(BrandColor).max(PROFILE_LIMITS.colors),
+    /** true: a square icon for the team logo is staged (set as the team logo by the brand press when the team has none) */
+    icon: z.boolean().optional() }).optional(),
 })
 export type ProfileDraftState = z.infer<typeof ProfileDraftState>
 
