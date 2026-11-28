@@ -474,6 +474,9 @@ export class TurnExec {
   chromeCurrent: string | null = null
   /** public sites the person allowed once in this answer on the Chrome site card, per profile (chat/tools.ts) */
   readonly chromeOnce = new Map<string, Set<string>>()
+  /** the person stopped this answer in their Chrome (the popup's Stop, the task's window or the debugging bar closed):
+   * every further tool call of the answer is refused and the AI asks what to do next (chat/tools.ts CHROME_STOPPED) */
+  chromeStopped = false
   /** the dev environment of this turn (devenv/tool.ts box_shell): off (null), or on with the chat's project (null for a
    * chat with no project, srt runner only) */
   devEnv: { project: { id: string; folderPath: string; name: string } | null; shared?: SharedRun; documents?: boolean } | null = null

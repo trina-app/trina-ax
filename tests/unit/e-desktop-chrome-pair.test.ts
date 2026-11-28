@@ -10,7 +10,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { CHROME_EXTENSION_IDS, CHROME_NATIVE_MAX_BYTES, CHROME_PAIR_NONCE_TTL_MS, type ChromeNativeReply } from '@mycel/shared/chrome-native'
-import { chromePairSocketPath, handlePairMessage, listenForPairs, NonceStore, type PairBinding, type PairServerDeps } from '../../desktop/src/common/chrome-pair'
+import { chromePairSocketPath, handlePairMessage, listenForPairs, NonceStore, SOCKET_PATH_MAX, userTempDir, type PairBinding, type PairServerDeps } from '../../desktop/src/common/chrome-pair'
 import { ChromeProfilesHost, type PageLike } from '../../desktop/src/main/chrome-profiles'
 
 const ORIGIN = `chrome-extension://${CHROME_EXTENSION_IDS.dev}/`
@@ -173,10 +173,64 @@ describe('review fixes', () => {
   })
 })
 
+/** the socket an app with this user data folder listens on (its temp folder: the test's own) */
+const sockOf = (dir: string) => chromePairSocketPath({ home: '/nowhere-home', dataDirName: 'Team AX', userData: dir, tempDir: () => dir })!.path
+
+describe('the socket path (QA 2026-11-28: a long user data folder made no socket, and nothing said so)', () => {
+  test('the app\'s default folder: <it>/chrome/pair.sock, which the helper finds by itself', () => {
+    const home = '/Users/mina'
+    expect(chromePairSocketPath({ home, dataDirName: 'Team AX', userData: `${home}/Library/Application Support/Team AX`, tempDir: () => '/t' }))
+      .toEqual({ path: `${home}/Library/Application Support/Team AX/chrome/pair.sock`, fixed: true })
+  })
+
+  test('any other folder, however long: a short path in this user\'s temp folder, one per folder', () => {
+    const temp = '/var/folders/m6/j99wtm9s3_j5m1x9nbt5m2j40000gn/T'
+    const long = `/private/tmp/claude-501/${'a-very-long-folder-name-'.repeat(8)}/desk-userdata`
+    const a = chromePairSocketPath({ home: '/Users/mina', dataDirName: 'Team AX', userData: long, tempDir: () => temp })!
+    const b = chromePairSocketPath({ home: '/Users/mina', dataDirName: 'Team AX', userData: `${long}2`, tempDir: () => temp })!
+    expect(a.fixed).toBe(false)
+    expect(a.path.startsWith(`${temp}/mycel-chrome/`)).toBe(true)
+    expect(Buffer.byteLength(a.path)).toBeLessThanOrEqual(SOCKET_PATH_MAX)
+    expect(a.path).not.toBe(b.path)
+    // the same folder always gets the same path (a restart finds its own start script still right)
+    expect(chromePairSocketPath({ home: '/Users/mina', dataDirName: 'Team AX', userData: long, tempDir: () => temp })!.path).toBe(a.path)
+    // the dev run's "(dev)" folder next to the app's own is not the default one
+    expect(chromePairSocketPath({ home: '/Users/mina', dataDirName: 'Team AX', userData: '/Users/mina/Library/Application Support/Team AX (dev)', tempDir: () => temp })!.fixed).toBe(false)
+  })
+
+  test('a home folder so long that even the default does not fit: the temp path; nothing fits: null', () => {
+    const home = `/Users/${'x'.repeat(80)}`
+    expect(chromePairSocketPath({ home, dataDirName: 'Team AX', userData: `${home}/Library/Application Support/Team AX`, tempDir: () => '/t' })).toMatchObject({ fixed: false })
+    expect(chromePairSocketPath({ home, dataDirName: 'Team AX', userData: '/u', tempDir: () => `/${'t'.repeat(120)}` })).toBeNull()
+  })
+
+  test.skipIf(process.platform !== 'darwin')('macOS: the per-user temp folder, not $TMPDIR', () => {
+    const d = userTempDir('darwin')
+    expect(d.startsWith('/var/folders/') || d.startsWith('/private/var/folders/')).toBe(true)
+  })
+
+  test('the host says why it cannot pair instead of a pair page that waits for nobody', async () => {
+    const dir = tmp()
+    const host = new ChromeProfilesHost({ userData: dir, dataDirName: 'X', dev: true, execPath: '/x', team: () => null, tempDir: () => `/${'t'.repeat(120)}` })
+    expect(host.socket).toBeNull()
+    expect(await host.unavailable()).toBe('socket_path')
+    const ok = new ChromeProfilesHost({ userData: dir, dataDirName: 'X', dev: true, execPath: '/x', team: () => null, tempDir: () => dir })
+    cleanup.unshift(() => ok.stop())
+    ok.start()
+    // listening, but a development run with no helper and no manifest written
+    expect(await ok.unavailable()).toBe('no_helper')
+    // the socket file went away while the app runs (a cleaned temp folder): listened again
+    await new Promise((r) => setTimeout(r, 50))
+    fs.rmSync(ok.socket!, { force: true })
+    await ok.unavailable()
+    expect(fs.existsSync(ok.socket!)).toBe(true)
+  })
+})
+
 describe('socket', () => {
   function serve(o: Partial<PairServerDeps> = {}) {
     const dir = tmp()
-    const socket = chromePairSocketPath(dir)!
+    const socket = sockOf(dir)
     const t = deps(o)
     const server = listenForPairs(socket, t.d)
     cleanup.unshift(() => server.close())
@@ -217,7 +271,8 @@ describe('the host and the page', () => {
     const sent: { channel: string; payload: any }[] = []
     const page: PageLike = { send: (channel, payload) => sent.push({ channel, payload }), isDestroyed: () => false }
     const other: PageLike = { send: () => {}, isDestroyed: () => false }
-    const host = new ChromeProfilesHost({ userData: tmp(), dataDirName: 'X', dev: true, execPath: '/x', team: () => ({ origin: 'https://acme.trina.test', name: 'Acme', page }), askMs: 300 })
+    const udir = tmp()
+    const host = new ChromeProfilesHost({ userData: udir, dataDirName: 'X', dev: true, execPath: '/x', tempDir: () => udir, team: () => ({ origin: 'https://acme.trina.test', name: 'Acme', page }), askMs: 300 })
     host.start()
     cleanup.unshift(() => host.stop())
     await Bun.sleep(50)
@@ -271,7 +326,7 @@ describe.skipIf(!helperBuilt)('the native helper', () => {
 
   test('pair and linked through the helper and the app\'s socket, one message each, as Chrome sends them', async () => {
     const dir = tmp()
-    const socket = chromePairSocketPath(dir)!
+    const socket = sockOf(dir)
     const t = deps()
     const server = listenForPairs(socket, t.d)
     cleanup.unshift(() => server.close())
@@ -293,6 +348,14 @@ describe.skipIf(!helperBuilt)('the native helper', () => {
   test('the app is not running: app_not_running', async () => {
     const socket = path.join(tmp(), 'none.sock')
     expect(await run(socket, ORIGIN, frame({ type: 'pair', nonce: secret(), challenge: secret() }), 1)).toEqual([{ type: 'error', reason: 'app_not_running' }])
+  })
+
+  test('the app takes the line but answers nothing: no_answer (not "not running")', async () => {
+    const socket = path.join(tmp(), 'mute.sock')
+    const server = net.createServer((c) => c.on('data', () => c.end()))
+    cleanup.unshift(() => server.close())
+    await new Promise<void>((r) => server.listen(socket, () => r()))
+    expect(await run(socket, ORIGIN, frame({ type: 'pair', nonce: secret(), challenge: secret() }), 1)).toEqual([{ type: 'error', reason: 'no_answer' }])
   })
 
   test('a message larger than the limit ends the helper without a reply; not JSON is refused', async () => {

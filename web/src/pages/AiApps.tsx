@@ -13,7 +13,7 @@ import { REMOTE_MCP, type RemoteConnectionInfo } from '@mycel/shared/api'
 import { api, errorText } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { useLocale, useT } from '../i18n'
-import { accessChanged, reloadAsked } from '../store/live'
+import { accessChanged, integrationsChanged, reloadAsked } from '../store/live'
 import { Button, ErrorNote, IconButton, Skeleton, confirmDialog } from '../components/ui'
 import { AiAppDialog, AiAppLogo, AiAppRows, appIdFor, ConnectorOff } from '../components/integrations/AiAppConnect'
 import { ConnectionRow, connectionLogo } from '../components/integrations/ConnectionRow'
@@ -43,7 +43,13 @@ export default function AiApps() {
   useEffect(() => {
     void load()
     const reload = reloadAsked.on(() => void load()), access = accessChanged.on(() => { setItems(null); void load() })
-    return () => { reload(); access() }
+    // an app connected or a connection ended (here, in another window, or the app's own sign-in tab): read again
+    const changed = integrationsChanged.on(() => void load())
+    // ...and when the person comes back to this window (an older server sends no notice)
+    const back = () => { if (document.visibilityState === 'visible') void load() }
+    window.addEventListener('focus', back)
+    document.addEventListener('visibilitychange', back)
+    return () => { reload(); access(); changed(); window.removeEventListener('focus', back); document.removeEventListener('visibilitychange', back) }
   }, [load])
   const disconnect = async (id: string) => {
     if (writing.current) return

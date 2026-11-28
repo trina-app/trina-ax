@@ -8,7 +8,7 @@ import { parseBrowserToolInput } from '../../shared/src/browser-tools'
 import { errorResult, resultBytes, toBrowserResult } from '../../desktop/src/common/browser-result'
 import { ToolError } from '../../desktop/src/common/input'
 import { live, refreshBadge } from './state'
-import { runFor } from './runs'
+import { allRuns, endRun, runFor } from './runs'
 import { takeNotices } from './tabs'
 import { runTool, type CallCtx, type ToolOut } from './tools'
 
@@ -27,8 +27,10 @@ type Send = (f: ChromeClientFrame) => void
 const running = new Map<string, CallCtx>()
 const kept = new Map<string, { result: BrowserResult; at: number; bytes: number }>()
 let keptBytes = 0
-/** runs the person stopped: their calls are refused until `until`, with that sentence */
-const stoppedRuns = new Map<string, { until: number; why: string }>()
+/** runs the person stopped: their calls are refused until `until`, with that sentence. `turns`: only the calls of the
+ * answers that were running then (the person's next message in that chat works at once); null: the whole run (an MCP
+ * app's, or a server that does not stop the chat's answer itself) */
+const stoppedRuns = new Map<string, { until: number; why: string; turns: Set<string> | null }>()
 /** calls the person stopped (not a deadline or the turn's own stop): their result says stopped, so an MCP app pauses */
 const stoppedCalls = new Set<string>()
 
@@ -61,14 +63,22 @@ export function setRunStoppedHandler(f: (runId: string) => void) { onStopped = f
 export function stopRun(runId: string, why = STOPPED): void {
   live.stoppedAt = Date.now()
   try { onStopped?.(runId) } catch { /* the server learns it from the next result */ }
-  stoppedRuns.set(runId, { until: Date.now() + STOP_HOLD_MS, why })
+  const turns = new Set([...running.values()].filter((c) => c.run.id === runId).map((c) => c.turnId))
+  // an MCP app's run, or a server that does not stop the chat's answer itself: the whole run waits; else the answers
+  // that ran (none: the server's answer stops on run.stopped, and the next message works)
+  stoppedRuns.set(runId, { until: Date.now() + STOP_HOLD_MS, why, turns: runId.startsWith('mcp:') || !live.link?.runStops ? null : turns })
   while (stoppedRuns.size > 200) stoppedRuns.delete(stoppedRuns.keys().next().value!)
   for (const c of running.values()) if (c.run.id === runId) { stoppedCalls.add(c.callId); cancel(c, why) }
+  // its window and tabs go, and with them Chrome's "debugging" bar (unless another task still holds a tab)
+  void endRun(runId).catch(() => {})
 }
 
-/** Chrome's debugging bar was closed: every run of this profile stops (the bar is the browser's, not one task's). */
+/** Chrome's debugging bar was closed: every run of this profile stops (the bar is the browser's, not one task's), the
+ * ones between calls too. */
 export function stopAllRuns(): void {
-  for (const id of new Set([...running.values()].map((c) => c.run.id))) stopRun(id)
+  const ids = new Set([...running.values()].map((c) => c.run.id))
+  for (const id of ids) stopRun(id)
+  void allRuns().then((rs) => { for (const r of rs) if (!ids.has(r.id)) stopRun(r.id) }, () => {})
 }
 
 /** The runs working now, for the popup: title and how many tabs their calls use. */
@@ -110,8 +120,8 @@ async function runOnce(call: BrowserCall): Promise<BrowserResult> {
   if (!call.run) return errorResult(call.callId, 'This browser call names no run (no run); nothing was done. The team server is older than this extension.')
   const runId = call.run.id
   const stopped = stoppedRuns.get(runId)
-  if (stopped && stopped.until > Date.now()) return { ...errorResult(call.callId, stopped.why), stopped: true }
-  if (stopped) stoppedRuns.delete(runId)
+  if (stopped && stopped.until > Date.now() && (stopped.turns === null || stopped.turns.has(call.turnId))) return { ...errorResult(call.callId, stopped.why), stopped: true }
+  if (stopped && stopped.until <= Date.now()) stoppedRuns.delete(runId)
   const remaining = call.deadline - (Date.now() + live.clockOffset)
   if (remaining <= 0) return errorResult(call.callId, 'The browser call arrived after its deadline; nothing was done.')
   const parsed = parseBrowserToolInput(call.tool, call.args)

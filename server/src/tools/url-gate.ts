@@ -805,6 +805,24 @@ export const TEXT = {
     es: "Si permite siempre el sitio, otras direcciones de {site} se abren sin preguntar en todos sus chats a partir de ahora. Las direcciones con cadenas largas difíciles de leer siguen preguntando. Puede quitarlo en Configuración › Permisos para Trina.",
     zh: "如果始终允许此网站，今后在你所有的对话中，{site} 上的其他地址都会不经询问直接打开。带有难以看懂的长字符串的地址仍会询问。可以在设置 › 允许Trina做的事中删除。",
   },
+  /** a call in the person's own Chrome: which of their browser profiles the address opens in */
+  inProfile: {
+    ko: "내 브라우저 프로필 '{profile}'에서 열어요.",
+    en: "It opens in your browser profile '{profile}'.",
+    id: "Alamat ini dibuka di profil browser Anda '{profile}'.",
+    ja: "あなたのブラウザープロフィール「{profile}」で開きます。",
+    es: "Se abre en su perfil de navegador «{profile}».",
+    zh: "将在你的浏览器配置文件“{profile}”中打开。",
+  },
+  /** "이 사이트 항상 허용" for a call in a browser profile: kept for that profile too (chat/tools.ts addLinkSite) */
+  siteAlwaysProfile: {
+    ko: "사이트를 항상 허용하면 브라우저 프로필 '{profile}'에 저장돼요. 앞으로 모든 대화에서 그 프로필은 {site}의 다른 주소도 묻지 않고 열어요(AI가 웹을 읽을 때도 마찬가지예요). 알아보기 어려운 긴 글자가 있는 주소는 계속 물어봐요. 설정 › 브라우저와 설정 › 트리나에게 허용한 것에서 지울 수 있어요.",
+    en: "If you always allow the site, it's saved for your browser profile '{profile}': other addresses on {site} open there without asking in all your chats from now on (and when the AI reads the web for you). Addresses with long hard-to-read strings still ask. Remove it in Settings › Browser and Settings › Allowed for Trina.",
+    id: "Jika situs selalu diizinkan, situs itu disimpan untuk profil browser Anda '{profile}': alamat lain di {site} dibuka di sana tanpa bertanya di semua obrolan Anda mulai sekarang (juga saat AI membaca web untuk Anda). Alamat dengan teks panjang yang sulit dibaca tetap ditanyakan. Hapus di Pengaturan › Browser dan Pengaturan › Diizinkan untuk Trina.",
+    ja: "サイトを常に許可すると、ブラウザープロフィール「{profile}」に保存されます。今後はすべての会話で、そのプロフィールでは{site}の他のアドレスも確認なしで開きます（AIがWebを読むときも同じです）。読み取りにくい長い文字列があるアドレスは引き続き確認します。設定 › ブラウザー と 設定 › トリナに許可したこと で削除できます。",
+    es: "Si permite siempre el sitio, se guarda para su perfil de navegador «{profile}»: a partir de ahora, otras direcciones de {site} se abren allí sin preguntar en todos sus chats (y cuando la IA lee la web por usted). Las direcciones con cadenas largas difíciles de leer siguen preguntando. Puede quitarlo en Configuración › Navegador y Configuración › Permisos para Trina.",
+    zh: "如果始终允许此网站，它会保存到你的浏览器配置文件“{profile}”：今后在你所有的对话中，该配置文件里 {site} 上的其他地址都会不经询问直接打开（AI 为你读取网页时也一样）。带有难以看懂的长字符串的地址仍会询问。可以在设置 › 浏览器和设置 › 允许Trina做的事中删除。",
+  },
   /** the line of the fourth answer; the risk sentence (shared WEB_ALLOW_ALL_RISK) follows it */
   all: {
     en: 'If you allow all websites, the AI opens public websites without asking when you ask it, in your chats and conversations, until you turn it off in Settings. Addresses with long hard-to-read strings still ask, but that only catches what is easy to spot.',
@@ -836,7 +854,7 @@ export type GateResult = 'seen' | 'site' | 'all' | 'docs' | 'confirmed'
  * person of the turn; the sites they allowed (①b: for good) and their "Allow all websites" (①d) count only for them
  * (none without it). `docs`: web_fetch, where a page of the app's own docs opens with no card (①e). Decides from the address text and the database alone: the caller looks the name up only after a yes.
  */
-export async function gateUrl(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null, o: { egressKnown?: boolean; turnId?: string | null; userId?: string | null; connection?: boolean; docs?: boolean } = {}): Promise<GateResult> {
+export async function gateUrl(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null, o: { egressKnown?: boolean; turnId?: string | null; userId?: string | null; connection?: boolean; docs?: boolean; profile?: { label: string; keepsSites: boolean } } = {}): Promise<GateResult> {
   const url = normUrl(rawUrl)
   if (!url) throw new ToolError('only http and https URLs can be fetched')
   const outOfScope = person?.scope?.(url)
@@ -930,6 +948,8 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
   // a function, so "$&" or "$`" in an address is shown as written (a string replacement would expand them)
   const shown = url.length > 2000 ? url.slice(0, 2000) + '…' : url
   const lines = [TEXT[why][L].replace('{turn}', String(LINK_BUDGET.turn)).replace('{chat}', String(LINK_BUDGET.chat)).replace('{url}', () => shown)]
+  // a call in the person's own Chrome: the card names the profile (the first card of a call, before any site card)
+  if (o.profile) lines.push(TEXT.inProfile[L].replace('{profile}', () => o.profile!.label))
   if (longName.length) lines.push(TEXT.longName[L])
   if (opaque.length) lines.push(TEXT.opaque[L])
   // "이 사이트 항상 허용": only where an allowance could ever apply (not while the exit address is
@@ -940,7 +960,9 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
   // For good in every chat (Rule A, B3), a shared chat with a guest too; not offered where it cannot be kept (the team's
   // switch off, a Slack question, a draft): there is no site for this chat only (docs/decisions/20261123-one-always-allow.md)
   const offerSite = !!(site && person.choose && why !== 'echo' && why !== 'echoWeb' && !noEgress && !marks.length && !userinfo && siteScope(db, chatId, o.userId)) && sitesForGood(db, person)
-  if (offerSite) lines.push(TEXT.siteAlways[L].replace('{site}', () => siteLabel(site!)))
+  if (offerSite) lines.push(o.profile?.keepsSites
+    ? TEXT.siteAlwaysProfile[L].replace(/\{(profile|site)\}/g, (_m, k: string) => (k === 'profile' ? o.profile!.label : siteLabel(site!)))
+    : TEXT.siteAlways[L].replace('{site}', () => siteLabel(site!)))
   // "Allow all websites (turn off in Settings)": on the first card already (the owner's call, 2026-11-11, as Claude's own
   // apps offer "always allow" at once), only where ①d could open this very address next time (a plain address, not an
   // echo, in a turn ①d applies to), while the team allows it and the person's switch is off. Picking it opens this
