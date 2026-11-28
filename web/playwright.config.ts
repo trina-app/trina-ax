@@ -23,8 +23,10 @@ export default defineConfig({
     viewport: { width: 1360, height: 860 },
     locale: 'ko-KR',
     // a computer's join pages open the desktop app first (lib/join-open-app.ts): every spec starts as a browser that
-    // chose the browser, so they keep testing the form; test/e2e/app-first.spec.ts clears it
-    storageState: { cookies: [], origins: [{ origin: `http://127.0.0.1:${PORT}`, localStorage: [{ name: 'mycel.joinInBrowser', value: '1' }] }] },
+    // chose the browser, so they keep testing the form; test/e2e/app-first.spec.ts clears it. The mock team is at
+    // 127.0.0.1, where the web offers no "open in the app" (the app refuses such links; lib/team-link.ts
+    // appLinkOffered): mycel.e2eAppLinks keeps the offers on so the specs test them
+    storageState: { cookies: [], origins: [{ origin: `http://127.0.0.1:${PORT}`, localStorage: [{ name: 'mycel.joinInBrowser', value: '1' }, { name: 'mycel.e2eAppLinks', value: '1' }] }] },
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1360, height: 860 }, locale: 'ko-KR' } },

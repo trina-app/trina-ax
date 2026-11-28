@@ -14,8 +14,12 @@ describe('when the join page tries the app', () => {
     expect(appFirst(base)).toBe(true)
     expect(appFirst({ ...base, platform: 'windows' })).toBe(true)
     expect(appFirst({ ...base, platform: 'linux' })).toBe(true)
-    // this machine (development and the tests), as lib/open-app.ts appComputer
-    expect(appFirst({ ...base, origin: 'http://localhost:5173' })).toBe(true)
+  })
+  // Windows WSL QA 2026-11-28: the server and the browser on one PC at http://127.0.0.1:47820. The app refuses a link to
+  // this computer's own address (docs/decisions/20261128-loopback-no-open-in-app.md), so nothing leads with it there
+  test('never at this computer\'s own address: the app refuses such a link', () => {
+    for (const origin of ['http://127.0.0.1:47820', 'http://localhost:5173', 'http://[::1]:47820', 'https://localhost', 'https://127.0.0.1:8443', 'http://acme.localhost:19100'])
+      expect({ origin, first: appFirst({ ...base, origin }) }).toEqual({ origin, first: false })
   })
   test('a guest keeps the browser first: someone from outside the team, usually joining once', () => {
     expect(appFirst({ ...base, guest: true })).toBe(false)

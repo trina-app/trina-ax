@@ -112,6 +112,19 @@ export function isLoopbackHost(hostname: string): boolean {
   return first === 127 || first === 0
 }
 
+/** Whether the desktop app opens a link from outside (`<scheme>://open?url=…`) to this team origin: https, and never
+ * this machine (a web page must not point the app, its team view and its bridge at a local port). The desktop reads
+ * links by it (desktop/src/common/address.ts readDesktopLink) and the web offers "Continue in the app" only where it
+ * holds (web/src/lib/team-link.ts appLinkOffered; docs/decisions/20261128-loopback-no-open-in-app.md). */
+export function appLinkOpens(origin: string): boolean {
+  try {
+    const u = new URL(origin)
+    return u.protocol === 'https:' && !isLoopbackHost(u.hostname)
+  } catch {
+    return false
+  }
+}
+
 const isIpHost = (h: string) => h.startsWith('[') || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(h)
 
 /** The address part of what was typed: the first invite or team link in a text, else its first http(s) address, else

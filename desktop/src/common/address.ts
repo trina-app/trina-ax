@@ -6,9 +6,9 @@ import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { PRODUCT } from '@mycel/shared/product'
 import { classifyHostStatic } from './netaddr'
 import { GOOGLE_APP_RETURN_PATH } from '@mycel/shared/api/auth'
-import { mayBeAsleep, parseTeamInput, readAppLink, relayAnswer, relayRename, wakeTeam, type RelayAnswer, type TeamInput, type TeamInputError, type TeamInputOptions, type WakeAnswer, type WakeSteps } from '@mycel/shared/team-link'
+import { appLinkOpens, mayBeAsleep, parseTeamInput, readAppLink, relayAnswer, relayRename, wakeTeam, type RelayAnswer, type TeamInput, type TeamInputError, type TeamInputOptions, type WakeAnswer, type WakeSteps } from '@mycel/shared/team-link'
 
-export { hostLineNow, hostLineShown, isLoopbackHost, isSignInPath } from '@mycel/shared/team-link'
+export { appLinkOpens, hostLineNow, hostLineShown, isLoopbackHost, isSignInPath } from '@mycel/shared/team-link'
 
 /** Hosted team addresses are <team>.TEAM_DOMAIN (design tab 6). */
 export const TEAM_DOMAIN: string = SERVICE_HOSTS.teamDomain
@@ -37,7 +37,7 @@ export const LINK_SCHEME: string = PRODUCT.linkScheme
  * of the sender's team (the create flow opens it itself, main/create-team.ts). null: not a link for this app. */
 export function readDesktopLink(raw: string): TeamInput | null {
   const p = readAppLink(raw, { ...DESKTOP_INPUT, loopbackHttp: false, scheme: LINK_SCHEME, universal: false, appSignIn: true })
-  return p?.ok && p.loopback ? { ok: false, error: 'insecure' } : p
+  return p?.ok && !appLinkOpens(p.origin) ? { ok: false, error: 'insecure' } : p
 }
 
 /** The page a link opens, as the first-run box may be given it again (the "renamed" answer's next address goes back

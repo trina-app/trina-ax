@@ -6,7 +6,7 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
-import { answersAgain, asksOutside, certTrouble, desktopPagePath, googleSignInCode, healthVerdict, officeCertPage, offlineRetryDelay, OFFLINE_RETRY_MS, linkFromArgv, LINK_SCHEME, readDesktopLink, retypablePath, startupLinkTarget, hostOf, isGatewayDown, isLoopbackHost, isSignInPath, onThisComputer, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
+import { appLinkOpens, answersAgain, asksOutside, certTrouble, desktopPagePath, googleSignInCode, healthVerdict, officeCertPage, offlineRetryDelay, OFFLINE_RETRY_MS, linkFromArgv, LINK_SCHEME, readDesktopLink, retypablePath, startupLinkTarget, hostOf, isGatewayDown, isLoopbackHost, isSignInPath, onThisComputer, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
 import { resumePage } from '../../desktop/src/common/update-guard'
 import { claimPage, consoleOrigin, createLinks, DEMO_URL, freePlanLines, noticeAction, noticeForError, offerFromProbe, oldSetupPage, PRICING_URL, startSteps, teamHost, CREATE_NOTICES } from '../../desktop/src/common/create-team'
 import { errorResult, MAX_ITEMS, toBrowserResult } from '../../desktop/src/common/browser-result'
@@ -308,6 +308,12 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
       'https://[::ffff:127.0.0.1]/', 'https://[::ffff:7f00:1]:8443/', 'https://[::127.0.0.1]/', 'https://[::]/', 'https://0.0.0.0/', 'https://0/', 'https://[::ffff:0.0.0.0]/'])
       expect(readDesktopLink(link(inner))).toEqual({ ok: false, error: 'insecure' })
     expect(parseTeamAddress('http://127.0.0.1:19100')).toMatchObject({ ok: true, dev: true })
+  })
+  // the web offers "Continue in the app" by the same shared rule (web/src/lib/team-link.ts appLinkOffered;
+  // docs/decisions/20261128-loopback-no-open-in-app.md): what the app opens is exactly what the web may offer
+  test('readDesktopLink opens a team link exactly where the shared appLinkOpens says the web may offer it', () => {
+    for (const origin of [`https://acme.${TEAM_DOMAIN}`, 'https://team.example.com', 'https://192.168.0.10:8443', 'http://team.example.com', 'http://127.0.0.1:47820', 'https://127.0.0.1:8443', 'http://localhost:5173', 'https://localhost', 'https://[::1]', 'https://[::ffff:127.0.0.1]', 'https://0.0.0.0', 'http://acme.localhost:19100'])
+      expect({ origin, opens: readDesktopLink(link(`${origin}/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk`))?.ok === true }).toEqual({ origin, opens: appLinkOpens(origin) })
   })
   test('a crafted link cannot load http to another machine, javascript:, file:, data:, user:password, or hide its host', () => {
     expect(readDesktopLink(link('http://evil.example'))).toEqual({ ok: false, error: 'insecure' })

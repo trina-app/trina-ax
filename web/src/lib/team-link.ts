@@ -2,6 +2,7 @@
 // without a browser: reading the token from the address's #fragment, the ready-made message a leader copies into a
 // chat app, and where a new member may be sent after joining.
 import { TEAM_LINK_FRAGMENT_KEY } from '@mycel/shared/api'
+import { appLinkOpens, isLoopbackHost } from '@mycel/shared/team-link'
 import type { MessageKey, Params } from '../i18n'
 import { namedProduct } from './tabs'
 import { desktopPlatform, type Platform } from './pwa'
@@ -84,6 +85,23 @@ export const afterJoinTarget = (): string => afterJoin ?? '/'
 export const afterJoinSet = (): boolean => afterJoin !== null
 export const clearAfterJoin = () => { afterJoin = null }
 
+/** The web e2e suite runs its mock team at http://127.0.0.1 (web/playwright.config.ts), where no offer is made; it
+ * sets this key so its specs keep testing the offers. Nothing else sets it, and it counts on a loopback page only. */
+export const E2E_APP_LINKS_KEY = 'mycel.e2eAppLinks'
+
+/** Whether this page may offer to continue in the desktop app: only where the app opens the link (shared appLinkOpens:
+ * https, never this computer's own address; docs/decisions/20261128-loopback-no-open-in-app.md). A page at
+ * 127.0.0.1, localhost or ::1 offers none: the app refuses such a link, so the button could never work there; the app
+ * connects when the address is pasted on its first screen instead. */
+export function appLinkOffered(origin: string): boolean {
+  if (appLinkOpens(origin)) return true
+  try {
+    return isLoopbackHost(new URL(origin).hostname) && localStorage.getItem(E2E_APP_LINKS_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
 /**
  * "앱에서 열기" on the join pages (docs/DECISIONS.md "First run, phase 2"): the same join page in the app, whose screen
  * ④ asks before anything loads. The link carries the invite or team-link token, so it goes only where our own app
@@ -91,7 +109,8 @@ export const clearAfterJoin = () => { afterJoin = null }
  * - Android: an `intent://` link naming our package (`package=`): no other app can take it, as one could take a bare
  *   custom scheme.
  * - macOS, Windows and Linux: `<scheme>://open?url=…`, answered by the installed desktop app (on Linux the .deb's menu
- *   entry registers the scheme; docs/decisions/20261119-linux-desktop-app.md "Links"). Another program installed on
+ *   entry registers the scheme; docs/decisions/20261119-linux-desktop-app.md "Links"), on a team the app opens from
+ *   a link (appLinkOffered: none at this computer's own address). Another program installed on
  *   the same computer could claim the scheme too (the residual risk, in DECISIONS).
  * - iPhone: none. iOS hands a custom scheme to whichever app claims it, and no package can be named; the verified
  *   universal link (the team link itself on `*.<team domain>`) opens the app there instead.
@@ -104,7 +123,7 @@ export function openInAppHref(o: { scheme: string; origin: string; path: string;
   // https address with nothing of this page in it), never the token
   const fallback = o.androidFallback && /^https:\/\//.test(o.androidFallback) ? `S.browser_fallback_url=${encodeURIComponent(o.androidFallback)};` : ''
   if (o.platform === 'android') return `intent://open?url=${url}#Intent;scheme=${o.scheme};package=${o.androidPackage};${fallback}end`
-  if (desktopPlatform(o.platform)) return `${o.scheme}://open?url=${url}`
+  if (desktopPlatform(o.platform)) return appLinkOffered(o.origin) ? `${o.scheme}://open?url=${url}` : null
   return null
 }
 /** Shown only in a web browser (inside the apps the page already is the app) with a link for this system. */

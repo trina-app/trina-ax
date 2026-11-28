@@ -185,6 +185,14 @@ describe('where the apps show the team address', () => {
         expect({ inner, r: m.parseTeamInput(inner, PHONE) }).toMatchObject({ inner, r: { ok: true, loopback: true, hosted: false } })
     }
   })
+  test('a link from outside opens the desktop app on https only, never this machine (appLinkOpens, the web\'s offers too)', () => {
+    for (const m of [shared, phone]) {
+      for (const o of ['https://acme.trina.app', 'https://team.example.com:8443', 'https://192.168.0.10:8443', 'https://[2001:db8::1]'])
+        expect({ o, opens: m.appLinkOpens(o) }).toEqual({ o, opens: true })
+      for (const o of ['http://acme.trina.app', 'http://127.0.0.1:47820', 'https://127.0.0.1', 'http://localhost:5173', 'https://localhost', 'https://acme.localhost', 'https://[::1]:8443', 'https://[::ffff:127.0.0.1]', 'https://0.0.0.0', 'trina-ax://open', 'null', '', 'not a url'])
+        expect({ o, opens: m.appLinkOpens(o) }).toEqual({ o, opens: false })
+    }
+  })
 })
 
 describe('Trina is updating (QA TC-2260)', () => {
