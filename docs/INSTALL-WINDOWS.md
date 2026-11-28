@@ -96,7 +96,7 @@ into the page's setup code field. (Not in the address: an address is on the brow
 programs on the PC can read.) To see the code yourself (keep it private):
 
 ```powershell
-wsl -d TrinaAX -u root -- cat /var/lib/mycel/setup/code
+wsl -d TrinaAX --cd / -u root -- cat /var/lib/mycel/setup/code
 ```
 
 Create the owner, the team name and the language; check the team's time zone. Then follow the Linux guide's
@@ -109,10 +109,10 @@ any self-hosted server: a tunnel or reverse proxy that reaches `127.0.0.1:47820`
 Set it up as in the Linux guide's [First run](INSTALL-LINUX.en.md#first-run) (step 3), from inside Linux:
 
 ```powershell
-wsl -d TrinaAX -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh repair --public-host team.example.com"
+wsl -d TrinaAX --cd / -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh repair --public-host team.example.com"
 ```
 
-A tunnel program can run inside Linux (`wsl -d TrinaAX -u root`) or on Windows (it reaches the server at
+A tunnel program can run inside Linux (`wsl -d TrinaAX --cd / -u root`) or on Windows (it reaches the server at
 `127.0.0.1:47820`). Opening the PC's port to the office network (WSL's mirrored networking, `netsh portproxy`) is not
 needed and not covered here: it gives no https.
 
@@ -124,7 +124,7 @@ needed and not covered here: it gives no https.
 |---|---|
 | `[boot] systemd=true` | The server's services run under systemd |
 | `[interop] enabled=false`, `appendWindowsPath=false` | Linux programs, the AI's commands included, cannot start Windows programs (`cmd.exe`, `powershell.exe`): they would run as your Windows account, outside the AI's sandbox |
-| `[automount] enabled=false`, `mountFsTab=false` | Drive C: and the other drives are not mounted in Linux (`/mnt/c`): nothing in Linux can read or change the PC's files |
+| `[automount] enabled=false`, `mountFsTab=false` | Drive C: and the other drives are not mounted in Linux (`/mnt/c`): nothing in Linux can read or change the PC's files. So the commands here start with `--cd /`: without it WSL warns that it cannot translate the current Windows folder |
 | `[user] default=root` | The commands here and File Explorer's `\\wsl.localhost\TrinaAX` use root; the distro has no other user |
 
 Windows still reaches Linux (`wsl.exe`, File Explorer, `127.0.0.1:47820`); only the way back is closed. The script
@@ -148,7 +148,7 @@ first.
 | GitHub | The shared GitHub app returns only to team addresses of Trina's domains; a server on an address of its own needs its own GitHub app |
 | Claude and ChatGPT sign-in | Work: Claude's code is pasted back, ChatGPT signs in with a device code (no return to this PC) |
 | Desktop app's LAN direct connection (`--tls-port`) | **Not on WSL.** Its certificate names WSL's internal address, not the PC's LAN address, and the office network cannot reach WSL in NAT mode. Use the https address instead |
-| Updates | The server updates itself in the team's update window (Admin › Team settings, 03:00–05:00 by default). A PC that is off or signed out at night never updates: set the window to hours the PC is on, or run `wsl -d TrinaAX -u root -- mycel-ctl update`. An update restarts the server's services, never Windows or WSL |
+| Updates | The server updates itself in the team's update window (Admin › Team settings, 03:00–05:00 by default). A PC that is off or signed out at night never updates: set the window to hours the PC is on, or run `wsl -d TrinaAX --cd / -u root -- mycel-ctl update`. An update restarts the server's services, never Windows or WSL |
 | Videos (HyperFrames) | Offered when Linux has at least 3.5 GB (the script's limit is 5 GB or more); one render takes about 1 GB. The server sizes its own limits from the memory Linux sees, which is the `.wslconfig` limit |
 | Backups | Inside the Linux disk on drive C:, like everything else ([Backups](#backups)) |
 | Free disk space | The server's free-space checks see the Linux disk (up to 1 TB), not drive C:. Watch C: yourself: when it is full, Linux cannot write either. The Linux disk does not shrink when files are deleted |
@@ -167,7 +167,7 @@ first.
   what closing the lid does › Do nothing, when plugged in).
 - **While it is stopped** nothing of the server runs: scheduled tasks, phone notifications and the relay wait, and the
   daily backup catches up when Linux runs again.
-- **Check**: `wsl -l -v` lists `TrinaAX` as `Running`; `wsl -d TrinaAX -u root -- mycel-ctl status` shows the server.
+- **Check**: `wsl -l -v` lists `TrinaAX` as `Running`; `wsl -d TrinaAX --cd / -u root -- mycel-ctl status` shows the server.
 - **Stop it for a while**: disable the task in Task Scheduler (folder TrinaAX), then `wsl --terminate TrinaAX`.
   Enable the task again (or sign out and in) to start it.
 
@@ -196,7 +196,7 @@ The in-app backups (Admin › System › Backups) are inside the same virtual di
 against a broken PC. Copy an encrypted archive off the PC regularly, as in [Backup and restore](BACKUP-RESTORE.md#make-a-backup-now):
 
 ```powershell
-wsl -d TrinaAX -u root
+wsl -d TrinaAX --cd / -u root
 ```
 
 Then, inside Linux, the Linux commands of that page (`trina_admin backup --scope full`, `trina_admin archive --out
@@ -221,7 +221,7 @@ makes a distro from it again.
 The server updates itself from the release feed, as on Linux ([Upgrade and rollback](INSTALL-LINUX.en.md#upgrade-and-rollback)).
 WSL updates with Windows Update (or `wsl --update`). Keep Debian's security updates on as the Linux guide says
 ([Requirements](INSTALL-LINUX.en.md#requirements)): for example
-`wsl -d TrinaAX -u root -- apt-get install -y unattended-upgrades`.
+`wsl -d TrinaAX --cd / -u root -- apt-get install -y unattended-upgrades`.
 
 ## Uninstall and roll back
 
@@ -231,7 +231,7 @@ installer ran starts again from a new download; one that stopped after it is rep
 Remove the server and **keep the data** (the Linux installer's uninstall; a later install finds the data again):
 
 ```powershell
-wsl -d TrinaAX -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh uninstall"
+wsl -d TrinaAX --cd / -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh uninstall"
 ```
 
 Remove **everything**, after you made and checked an off-PC backup:
@@ -258,10 +258,10 @@ Then, if you want them back as they were:
 | `0x80370102` or `0x8007019e` from WSL | Virtualization or the WSL feature is off: run the script again, restart when it asks |
 | `This window runs as ..., but ... is signed in` | Sign in to Windows with the administrator account that keeps the server; do not elevate with another account's password |
 | The install stops at a download | The PC needs internet to github.com, deb.debian.org, downloads.claude.ai, updates.trina.app. A company proxy: see [Behind an HTTP proxy](INSTALL-LINUX.en.md#behind-an-http-proxy) |
-| `wsl -d TrinaAX` asks for a user name | Debian's first start. Close it, or create a user; the server does not need one. Use `-u root` for the commands here |
+| `wsl -d TrinaAX --cd ~` asks for a user name | Debian's first start. Close it, or create a user; the server does not need one. Use `-u root` for the commands here |
 | The server stops after a while | Is the task running (Task Scheduler › TrinaAX)? Are you still signed in? Did the PC sleep? |
 | The installer warned `this kernel offers no Landlock` | Update WSL (`wsl --update`) and run the script again. (Up to 0.20 the installer read a file WSL does not have and warned even though Landlock worked) |
 | `mycel-ctl status` shows the Claude connection as a warning | The subscription waits for its usage limit to end; it comes back by itself |
 
-More: `wsl -d TrinaAX -u root -- mycel-ctl status`, Admin › System › Diagnostics, the Linux guide's
+More: `wsl -d TrinaAX --cd / -u root -- mycel-ctl status`, Admin › System › Diagnostics, the Linux guide's
 [Troubleshooting](INSTALL-LINUX.en.md#troubleshooting-and-faq) and [Troubleshooting](TROUBLESHOOTING.md).

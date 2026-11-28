@@ -93,7 +93,7 @@ systemd가 켜진 WSL2에는 Microsoft의 최신 WSL(2.4.4 이상)이 필요합�
 코드를 직접 보려면(남에게 보이지 마세요):
 
 ```powershell
-wsl -d TrinaAX -u root -- cat /var/lib/mycel/setup/code
+wsl -d TrinaAX --cd / -u root -- cat /var/lib/mycel/setup/code
 ```
 
 owner, 팀 이름, 언어를 만들고 팀 시간대를 확인합니다. 그다음은 리눅스 안내의 [첫 설정](INSTALL-LINUX.md#5-첫-설정)
@@ -106,10 +106,10 @@ owner, 팀 이름, 언어를 만들고 팀 시간대를 확인합니다. 그다�
 [첫 설정](INSTALL-LINUX.md#5-첫-설정) 3단계처럼, 리눅스 안에서 설정합니다.
 
 ```powershell
-wsl -d TrinaAX -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh repair --public-host team.example.com"
+wsl -d TrinaAX --cd / -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh repair --public-host team.example.com"
 ```
 
-터널 프로그램은 리눅스 안(`wsl -d TrinaAX -u root`)에서도, 윈도우에서도(`127.0.0.1:47820`으로 서버에 닿습니다) 돌릴
+터널 프로그램은 리눅스 안(`wsl -d TrinaAX --cd / -u root`)에서도, 윈도우에서도(`127.0.0.1:47820`으로 서버에 닿습니다) 돌릴
 수 있습니다. PC의 포트를 사무실 네트워크에 여는 방법(WSL 미러 네트워킹, `netsh portproxy`)은 필요 없고 여기서 다루지
 않습니다. https가 생기지 않습니다.
 
@@ -121,7 +121,7 @@ wsl -d TrinaAX -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh r
 |---|---|
 | `[boot] systemd=true` | 서버의 서비스가 systemd로 돕니다 |
 | `[interop] enabled=false`, `appendWindowsPath=false` | AI의 명령을 포함해 리눅스 프로그램이 윈도우 프로그램(`cmd.exe`, `powershell.exe`)을 실행할 수 없습니다. 실행되면 내 윈도우 계정으로, AI 샌드박스 밖에서 돌게 됩니다 |
-| `[automount] enabled=false`, `mountFsTab=false` | C: 드라이브와 다른 드라이브를 리눅스에 붙이지 않습니다(`/mnt/c` 없음). 리눅스의 어떤 것도 PC의 파일을 읽거나 바꿀 수 없습니다 |
+| `[automount] enabled=false`, `mountFsTab=false` | C: 드라이브와 다른 드라이브를 리눅스에 붙이지 않습니다(`/mnt/c` 없음). 리눅스의 어떤 것도 PC의 파일을 읽거나 바꿀 수 없습니다. 그래서 여기 명령은 `--cd /`로 시작합니다. 없으면 WSL이 지금 윈도우 폴더를 옮길 수 없다고 경고합니다 |
 | `[user] default=root` | 여기 명령과 파일 탐색기의 `\\wsl.localhost\TrinaAX`가 root를 씁니다. 배포판에 다른 사용자는 없습니다 |
 
 윈도우에서 리눅스로는 여전히 닿습니다(`wsl.exe`, 파일 탐색기, `127.0.0.1:47820`). 막힌 것은 반대 방향뿐입니다. 스크립트는
@@ -144,7 +144,7 @@ wsl -d TrinaAX -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh r
 | GitHub | 공용 GitHub 앱은 트리나 도메인의 팀 주소로만 돌아옵니다. 자기 주소의 서버는 자기 GitHub 앱이 필요합니다 |
 | Claude, ChatGPT 로그인 | 됩니다. Claude는 코드를 붙여 넣고, ChatGPT는 기기 코드로 로그인합니다(이 PC로 돌아오지 않음) |
 | 데스크톱 앱의 LAN 직접 연결(`--tls-port`) | **WSL에서는 안 됩니다.** 인증서에 PC의 LAN 주소가 아니라 WSL 내부 주소가 들어가고, NAT 모드에서는 사무실 네트워크가 WSL에 닿지 못합니다. https 주소를 쓰세요 |
-| 업데이트 | 서버는 팀의 업데이트 시간(관리자 › 팀 설정, 기본 03:00–05:00)에 스스로 업데이트합니다. 밤에 꺼져 있거나 로그아웃된 PC는 업데이트되지 않습니다. PC가 켜져 있는 시간으로 바꾸거나 `wsl -d TrinaAX -u root -- mycel-ctl update`를 실행하세요. 업데이트는 서버 서비스만 다시 시작하고, 윈도우나 WSL은 다시 시작하지 않습니다 |
+| 업데이트 | 서버는 팀의 업데이트 시간(관리자 › 팀 설정, 기본 03:00–05:00)에 스스로 업데이트합니다. 밤에 꺼져 있거나 로그아웃된 PC는 업데이트되지 않습니다. PC가 켜져 있는 시간으로 바꾸거나 `wsl -d TrinaAX --cd / -u root -- mycel-ctl update`를 실행하세요. 업데이트는 서버 서비스만 다시 시작하고, 윈도우나 WSL은 다시 시작하지 않습니다 |
 | 영상(HyperFrames) | 리눅스 메모리가 3.5 GB 이상이면 제공됩니다(스크립트 한도는 5 GB 이상). 렌더 하나에 약 1 GB. 서버는 리눅스가 보는 메모리, 곧 `.wslconfig` 한도로 자기 한도를 정합니다 |
 | 백업 | 다른 모든 것처럼 C: 드라이브의 리눅스 디스크 안에 있습니다([백업](#백업)) |
 | 디스크 여유 | 서버의 여유 공간 점검은 C: 드라이브가 아니라 리눅스 디스크(최대 1 TB)를 봅니다. C:는 직접 지켜보세요. C:가 차면 리눅스도 쓰지 못합니다. 리눅스 디스크는 파일을 지워도 줄어들지 않습니다 |
@@ -162,7 +162,7 @@ wsl -d TrinaAX -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh r
   선택 › 전원 연결 시 아무 것도 안 함).
 - **멈춰 있는 동안**에는 서버의 어떤 것도 돌지 않습니다. 예약 작업, 휴대폰 알림, 릴레이가 기다리고, 하루 백업은 리눅스가
   다시 돌면 따라잡습니다.
-- **확인**: `wsl -l -v`에 `TrinaAX`가 `Running`으로 보이고, `wsl -d TrinaAX -u root -- mycel-ctl status`가 서버 상태를
+- **확인**: `wsl -l -v`에 `TrinaAX`가 `Running`으로 보이고, `wsl -d TrinaAX --cd / -u root -- mycel-ctl status`가 서버 상태를
   보여 줍니다.
 - **잠시 멈추기**: 작업 스케줄러(TrinaAX 폴더)에서 작업을 사용 안 함으로 바꾸고 `wsl --terminate TrinaAX`를 실행합니다.
   다시 켜려면 작업을 사용으로 바꾸거나 로그아웃 후 다시 로그인합니다.
@@ -191,7 +191,7 @@ wsl -d TrinaAX -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh r
 [백업과 복원](BACKUP-RESTORE.md#make-a-backup-now)처럼, 암호화한 아카이브를 정기적으로 PC 밖에 복사하세요.
 
 ```powershell
-wsl -d TrinaAX -u root
+wsl -d TrinaAX --cd / -u root
 ```
 
 리눅스 안에서 그 문서의 Linux 명령(`trina_admin backup --scope full`, `trina_admin archive --out
@@ -216,7 +216,7 @@ rm /var/lib/mycel/data/off-host.tar.zst.age
 서버는 리눅스와 같이 릴리스 피드에서 스스로 업데이트합니다([업그레이드와 롤백](INSTALL-LINUX.en.md#upgrade-and-rollback)).
 WSL은 윈도우 업데이트(또는 `wsl --update`)로 업데이트됩니다. 리눅스 안내([요구 사항](INSTALL-LINUX.en.md#requirements))
 처럼 데비안 보안 업데이트를 켜 두세요. 예:
-`wsl -d TrinaAX -u root -- apt-get install -y unattended-upgrades`.
+`wsl -d TrinaAX --cd / -u root -- apt-get install -y unattended-upgrades`.
 
 ## 제거와 되돌리기
 
@@ -226,7 +226,7 @@ WSL은 윈도우 업데이트(또는 `wsl --update`)로 업데이트됩니다. �
 **데이터는 두고** 서버만 제거(리눅스 설치기의 uninstall, 나중에 다시 설치하면 데이터를 다시 찾습니다):
 
 ```powershell
-wsl -d TrinaAX -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh uninstall"
+wsl -d TrinaAX --cd / -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh uninstall"
 ```
 
 PC 밖 백업을 만들고 확인한 뒤 **전부** 제거:
@@ -253,10 +253,10 @@ Remove-Item -Recurse "$env:ProgramData\TrinaAX"
 | WSL의 `0x80370102` 또는 `0x8007019e` | 가상화나 WSL 기능이 꺼져 있습니다. 스크립트를 다시 실행하고 다시 시작하라고 하면 따릅니다 |
 | `This window runs as ..., but ... is signed in` | 서버를 맡을 관리자 계정으로 윈도우에 로그인하세요. 다른 계정의 비밀번호로 권한만 올리지 마세요 |
 | 다운로드에서 설치가 멈춤 | github.com, deb.debian.org, downloads.claude.ai, updates.trina.app에 인터넷으로 닿아야 합니다. 회사 프록시는 [HTTP 프록시 뒤에서](INSTALL-LINUX.en.md#behind-an-http-proxy)를 보세요 |
-| `wsl -d TrinaAX`가 사용자 이름을 물음 | 데비안의 첫 시작입니다. 닫거나 사용자를 만드세요. 서버에는 필요 없습니다. 여기 명령은 `-u root`로 실행합니다 |
+| `wsl -d TrinaAX --cd ~`가 사용자 이름을 물음 | 데비안의 첫 시작입니다. 닫거나 사용자를 만드세요. 서버에는 필요 없습니다. 여기 명령은 `-u root`로 실행합니다 |
 | 서버가 얼마 뒤 멈춤 | 작업이 돌고 있나요(작업 스케줄러 › TrinaAX)? 계속 로그인해 있나요? PC가 절전에 들어가지 않았나요? |
 | 설치기 경고 `this kernel offers no Landlock` | WSL을 업데이트(`wsl --update`)하고 스크립트를 다시 실행합니다. (0.20까지는 설치기가 WSL에 없는 파일을 읽어서 Landlock이 되는데도 경고했습니다) |
 | `mycel-ctl status`에서 Claude 연결이 경고 | 구독이 사용 한도가 풀리기를 기다리는 중입니다. 스스로 돌아옵니다 |
 
-더 보기: `wsl -d TrinaAX -u root -- mycel-ctl status`, 관리자 › 시스템 › 진단, 리눅스 안내의
+더 보기: `wsl -d TrinaAX --cd / -u root -- mycel-ctl status`, 관리자 › 시스템 › 진단, 리눅스 안내의
 [문제 해결](INSTALL-LINUX.en.md#troubleshooting-and-faq), [문제 해결](TROUBLESHOOTING.md).

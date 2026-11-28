@@ -141,6 +141,26 @@ describe('install-wsl-server.ps1', () => {
     expect(PS1).toMatch(/function Copy-ToDistro[\s\S]*RedirectStandardInput = \$true/)
     for (const f of ['docs/INSTALL-WINDOWS.md', 'docs/INSTALL-WINDOWS.ko.md']) expect(`${f}: ${/\bcp\b[^\n]*\/mnt\//.test(read(f))}`).toBe(`${f}: false`)
   })
+  test('every wsl.exe call into the distro starts in / (no C: drive to translate the Windows folder to); values are stdout only', () => {
+    // review of #716: with the drive mounts off, wsl.exe -d <distro> without --cd printed "Failed to translate ..." and
+    // that line, merged into the output, broke every value the script read
+    const calls = [...PS1.matchAll(/(?:'-d', \$Distro|-d \$Distro|-d '@DISTRO@'|-d TrinaAX)[^\n]*/g)].map((m) => m[0])
+    expect(calls.length).toBeGreaterThanOrEqual(5)
+    for (const c of calls) expect(`${c}: ${/^(?:'-d', \$Distro, '--cd', '\/'|-d \$Distro --cd \/ |-d '@DISTRO@' --cd \/ |-d TrinaAX --cd \/ )/.test(c)}`).toBe(`${c}: true`)
+    for (const f of ['docs/INSTALL-WINDOWS.md', 'docs/INSTALL-WINDOWS.ko.md'])
+      for (const m of read(f).matchAll(/wsl -d TrinaAX[^\n`]*/g)) expect(`${f}: ${m[0]}: ${m[0].startsWith('wsl -d TrinaAX --cd ')}`).toBe(`${f}: ${m[0]}: true`)
+    const inv = between(PS1, 'function Invoke-Wsl([string[]]$A) {', '\n}\n')
+    expect(inv).toContain('if ($line -is [System.Management.Automation.ErrorRecord]) { $se += "$line" } else { $so += "$line" }')
+    expect(inv).toContain('Out = (& $clean $so); Err = (& $clean $se)')
+    // Copy-ToDistro: a write that fails ends in the normal STOP message (an exit code and the reason), never a throw
+    const cp = between(PS1, 'function Copy-ToDistro(', '\n}\n')
+    expect(cp).toMatch(/\} catch \{\n\s+# the distro side ended early[^\n]*\n\s+\$failed = \$_\.Exception\.Message/)
+    expect(cp).toContain('if ($failed -and $code -eq 0) { $code = 1 }')
+    expect(cp).toContain('ReadToEndAsync()')
+    // a new -KitPath kit goes into an emptied folder
+    expect(PS1.indexOf('$cu = Invoke-Helper clearupload')).toBeLessThan(PS1.indexOf('$c = Copy-ToDistro -LinuxPath $pair[1] -From $pair[0]'))
+    expect(between(PS1, "$HelperScript = @'\n", "\n'@")).toContain('  clearupload)\n    # an earlier -KitPath copy that stopped half-way: an empty folder for the next one\n    rm -rf -- "$UPLOAD"\n')
+  })
   test('a re-run after a half install repairs (installed = the server answers); the kit stays once the installer ran', () => {
     const helper = between(PS1, "$HelperScript = @'\n", "\n'@")
     expect(helper).toContain('if healthy; then echo "ok $v"; else echo "broken $v"; fi')
@@ -173,7 +193,7 @@ describe('install-wsl-server.ps1', () => {
   test('keep-alive: a sign-in task of this user, never stopped by a time limit, that attaches again after WSL stops', () => {
     expect(PS1).toContain('New-ScheduledTaskTrigger -AtLogOn -User $userName')
     expect(PS1).toContain('-ExecutionTimeLimit ([TimeSpan]::Zero)')
-    expect(PS1).toMatch(/while \(\$true\) \{\n {4}& wsl\.exe -d '@DISTRO@' -u root --exec \/usr\/bin\/sleep infinity\n {4}Start-Sleep -Seconds 10\n\}/)
+    expect(PS1).toMatch(/while \(\$true\) \{\n {4}& wsl\.exe -d '@DISTRO@' --cd \/ -u root --exec \/usr\/bin\/sleep infinity\n {4}Start-Sleep -Seconds 10\n\}/)
     // sleep is changed only after a yes (or -KeepAwake Yes)
     expect(PS1).toMatch(/if \(Read-YesNo -Question 'Stop this PC from going to sleep[^\n]*-Answer \$KeepAwake[^\n]*\{\n\s+if \(Test-Change 'Power options'/)
   })

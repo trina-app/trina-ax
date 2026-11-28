@@ -134,20 +134,25 @@ function Test-Change {
     return $script:Cmd.ShouldProcess($Target, $Action)
 }
 
-# ---- wsl.exe: UTF-8 output (it prints UTF-16 otherwise), stderr kept, exit code returned ----
+# ---- wsl.exe: UTF-8 output (it prints UTF-16 otherwise), exit code returned. Out is standard output only, the value
+# the script reads; Err is what wsl.exe and the command said on standard error (a warning there must never become
+# part of a value: "Failed to translate ..." once broke every answer, review of #716) ----
 # (arguments as one array: a function's own parameter binding would take "-d" for -Debug)
 function Invoke-Wsl([string[]]$A) {
     $env:WSL_UTF8 = '1'
     $old = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
+    $so = @(); $se = @()
     try {
-        $out = & wsl.exe @A 2>&1 | ForEach-Object { "$_" }
+        foreach ($line in @(& wsl.exe @A 2>&1)) {
+            if ($line -is [System.Management.Automation.ErrorRecord]) { $se += "$line" } else { $so += "$line" }
+        }
         $code = $LASTEXITCODE
     } catch {
-        $out = @("$_"); $code = 1
+        $se = @("$_"); $code = 1
     } finally { $ErrorActionPreference = $old }
-    $text = (($out | ForEach-Object { $_ -replace "`0", '' }) -join "`n").Trim()
-    return [pscustomobject]@{ Code = $code; Out = $text }
+    $clean = { param($l) (($l | ForEach-Object { $_ -replace "`0", '' }) -join "`n").Trim() }
+    return [pscustomobject]@{ Code = $code; Out = (& $clean $so); Err = (& $clean $se) }
 }
 # a long step inside the distro: its output goes straight to this window
 function Invoke-WslLive([string[]]$A) {
@@ -190,23 +195,36 @@ function Get-DistroWslVersion([string]$Name) {
 function Copy-ToDistro([string]$LinuxPath, [string]$From = '', [string]$Text = $null) {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = 'wsl.exe'
-    $psi.Arguments = "-d $Distro -u root --exec /bin/sh -c `"umask 077 && mkdir -p -- `$(dirname -- `$1) && cat > `$1`" sh $LinuxPath"
+    $psi.Arguments = "-d $Distro --cd / -u root --exec /bin/sh -c `"umask 077 && mkdir -p -- `$(dirname -- `$1) && cat > `$1`" sh $LinuxPath"
     $psi.UseShellExecute = $false
     $psi.RedirectStandardInput = $true
     $psi.RedirectStandardError = $true
-    $p = [System.Diagnostics.Process]::Start($psi)
+    $psi.EnvironmentVariables['WSL_UTF8'] = '1'
+    $failed = ''
+    try {
+        $p = [System.Diagnostics.Process]::Start($psi)
+    } catch { return [pscustomobject]@{ Code = 1; Out = "wsl.exe did not start: $($_.Exception.Message)" } }
+    # (stderr read while stdin is written: a full stderr pipe must not stall the copy)
+    $errTask = $p.StandardError.ReadToEndAsync()
     try {
         if ($From) { $in = [IO.File]::OpenRead($From); try { $in.CopyTo($p.StandardInput.BaseStream) } finally { $in.Dispose() } }
         else { $b = (New-Object System.Text.UTF8Encoding($false)).GetBytes(($Text -replace "`r`n", "`n")); $p.StandardInput.BaseStream.Write($b, 0, $b.Length) }
-    } finally { $p.StandardInput.Close() }
-    $err = $p.StandardError.ReadToEnd()
+    } catch {
+        # the distro side ended early (it did not start, the disk is full): the copy stopped
+        $failed = $_.Exception.Message
+    } finally {
+        try { $p.StandardInput.Close() } catch { if (-not $failed) { $failed = $_.Exception.Message } }
+    }
     $p.WaitForExit()
-    return [pscustomobject]@{ Code = $p.ExitCode; Out = ($err -replace "`0", '').Trim() }
+    $err = ($errTask.Result -replace "`0", '').Trim()
+    $code = $p.ExitCode
+    if ($failed -and $code -eq 0) { $code = 1 }
+    return [pscustomobject]@{ Code = $code; Out = (@($err, $failed) | Where-Object { $_ }) -join ' ' }
 }
 # run a command of the setup helper (below) in the distro as root
 $HelperLinux = '/root/.trina-wsl-setup.sh'
 function Invoke-Helper([string]$Step, [string[]]$More = @(), [switch]$Live) {
-    $a = @('-d', $Distro, '-u', 'root', '--exec', '/bin/bash', $HelperLinux, $Step) + @($More | Where-Object { $_ })
+    $a = @('-d', $Distro, '--cd', '/', '-u', 'root', '--exec', '/bin/bash', $HelperLinux, $Step) + @($More | Where-Object { $_ })
     if ($Live) { return Invoke-WslLive $a }
     return Invoke-Wsl $a
 }
@@ -280,6 +298,10 @@ user default root'
     if [ ! -f "$BASE/root/install.json" ] || [ ! -L "$BASE/app/current" ]; then echo none; exit 0; fi
     v=$(basename "$(readlink -f "$BASE/app/current")")
     if healthy; then echo "ok $v"; else echo "broken $v"; fi
+    ;;
+  clearupload)
+    # an earlier -KitPath copy that stopped half-way: an empty folder for the next one
+    rm -rf -- "$UPLOAD"
     ;;
   haskit)
     if [ -x /root/trina-ax-kit/install-linux.sh ]; then echo yes; else echo no; fi
@@ -370,7 +392,7 @@ $KeepAliveScript = @'
 # starts it at sign-in. To stop the server for a while: disable that task, then run  wsl --terminate @DISTRO@
 $env:WSL_UTF8 = '1'
 while ($true) {
-    & wsl.exe -d '@DISTRO@' -u root --exec /usr/bin/sleep infinity
+    & wsl.exe -d '@DISTRO@' --cd / -u root --exec /usr/bin/sleep infinity
     Start-Sleep -Seconds 10
 }
 '@
@@ -664,7 +686,7 @@ if ($ready) {
     Write-Ok "Debian $($osr -replace '^debian ', '')"
     # /etc/wsl.conf: systemd on, Windows interop off, no C: drive inside Linux, root as the default user
     $sd = Invoke-Helper wslconf
-    if ($sd.Code -ne 0) { Exit-Setup "Could not read or change /etc/wsl.conf: $($sd.Out)" }
+    if ($sd.Code -ne 0) { Exit-Setup "Could not read or change /etc/wsl.conf: $($sd.Err) $($sd.Out)" }
     if ($sd.Out -match 'set$') {
         if (Test-Change $Distro 'start the distro again with its new /etc/wsl.conf (wsl --terminate)') {
             $null = Invoke-Wsl @('--terminate', $Distro)
@@ -703,7 +725,9 @@ if ($state -match '^ok (.+)$') {
         else {
             $src = $Version
             if ($KitPath) {
-                # a kit from this PC: copied in, then checked exactly like a download
+                # a kit from this PC: copied into an empty folder, then checked exactly like a download
+                $cu = Invoke-Helper clearupload
+                if ($cu.Code -ne 0) { Exit-Setup "Could not empty /root/.trina-upload in the distro ($($cu.Err))." }
                 foreach ($pair in @(@($KitPath, "/root/.trina-upload/$(Split-Path -Leaf $KitPath)"), @($SumsPath, '/root/.trina-upload/SHA256SUMS'))) {
                     $c = Copy-ToDistro -LinuxPath $pair[1] -From $pair[0]
                     if ($c.Code -ne 0) { Exit-Setup "Copying $($pair[0]) into the distro failed ($($c.Out))." }
@@ -714,7 +738,7 @@ if ($state -match '^ok (.+)$') {
         }
         if ($code -ne 0) { Exit-Setup "The server install stopped (exit code $code; the reason is above). Run this again after fixing it: finished steps are skipped." }
         $state = (Invoke-Helper state).Out
-        if ($state -notmatch '^ok (.+)$') { Exit-Setup "The server is installed but does not answer ($state). See  wsl -d $Distro -u root -- mycel-ctl status , then run this again." }
+        if ($state -notmatch '^ok (.+)$') { Exit-Setup "The server is installed but does not answer ($state). See  wsl -d $Distro --cd / -u root -- mycel-ctl status , then run this again." }
         $installed = $Matches[1]
         Write-Ok "$ProductName $installed installed"
     }
@@ -764,13 +788,13 @@ if ($ready -and $installed) {
         } catch { Start-Sleep -Seconds 5 }
     }
     if ($ok) { Write-Ok "The server answers at $url" }
-    else { Write-Note "The server does not answer at $url yet. Check it with:  wsl -d $Distro -u root -- mycel-ctl status" }
+    else { Write-Note "The server does not answer at $url yet. Check it with:  wsl -d $Distro --cd / -u root -- mycel-ctl status" }
 
     $code = (Invoke-Helper setupcode).Out
     Write-Host ''
     if ($code) {
         Write-Host "   Next: open $url/setup on this PC and create the owner account and the team." -ForegroundColor White
-        Write-Info "The setup page asks for the one-time setup code. To see it:  wsl -d $Distro -u root -- cat $LinuxBase/setup/code"
+        Write-Info "The setup page asks for the one-time setup code. To see it:  wsl -d $Distro --cd / -u root -- cat $LinuxBase/setup/code"
         if ($ok -and (Read-YesNo -Question 'Open the setup page in the browser now? The setup code goes to the clipboard: paste it there.' -Answer $OpenSetup -Default $true)) {
             # (on the clipboard, not in the address: an address is on the browser's command line, which other
             # programs on this PC can read)
@@ -783,7 +807,7 @@ if ($ready -and $installed) {
     }
     Write-Info "The Trina AX desktop app on this PC: paste $url as the team address on its first screen."
     Write-Info 'Other computers and phones reach it once you give it an https address: see "Reach it from other computers" in docs/INSTALL-WINDOWS.md.'
-    Write-Info "Status:  wsl -d $Distro -u root -- mycel-ctl status"
+    Write-Info "Status:  wsl -d $Distro --cd / -u root -- mycel-ctl status"
 } elseif ($script:DryRun) {
     Write-Info 'Dry run: nothing was changed. Run it without -WhatIf to install.'
 }
