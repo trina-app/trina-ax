@@ -58,6 +58,9 @@ const Event = z.discriminatedUnion('type', [
   /** the person presses "Send to thread" / "Send to room" under the latest answer of a chat (threadOf: the room message
    * whose thread it goes to); a warning in that dialog is a prompt the person sees (counted), then it is sent */
   z.object({ type: z.literal('share_answer'), as: z.string(), chat: z.string(), threadOf: z.string().optional() }),
+  /** the person does something on the mock browser's page themselves (mock-services/browser.ts): open an address, or
+   * one of the page's own person steps (attach a file, fill fields) with its arguments */
+  z.object({ type: z.literal('page_act'), as: z.string(), action: z.string(), url: z.string().optional(), args: z.array(z.unknown()).default([]) }),
   /** a guest joins one place through an invite link */
   z.object({ type: z.literal('guest_join'), username: z.string(), name: z.string(), place: z.enum(['project', 'room']) }),
 ])
@@ -208,6 +211,13 @@ async function doEvent(env: Env, e: z.infer<typeof Event>, chats: Map<string, { 
       const address = await appAddress(env, e.app)
       const res = await fetch(address.startsWith('http') ? address : `${env.base}${address}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: e.text }) })
       if (!res.ok) throw new Error(`the room app answered ${res.status}`)
+      return []
+    }
+    case 'page_act': {
+      if (!env.mockPort || !env.mockKey) throw new Error('page_act needs the mock services (mocked: true)')
+      const res = await fetch(`http://127.0.0.1:${env.mockPort}/browser/act`, { method: 'POST', headers: { authorization: `Bearer ${env.mockKey}`, 'content-type': 'application/json' }, body: JSON.stringify({ action: e.action, url: e.url, args: e.args }) })
+      const out = await res.json() as { ok: boolean; error?: string }
+      if (!out.ok) throw new Error(`page_act ${e.action}: ${out.error}`)
       return []
     }
     case 'guest_join': {

@@ -289,7 +289,7 @@ async function runFlows(): Promise<string> {
   // the mock services are needed by the mocked flows; their data starts fresh for each run
   const mocks = flows.some((f) => f.mocked || JSON.stringify(f.steps).includes('{{mock:')) ? await mocksUp({ home: HOME, base: BASE, log: say }) : readMocks(HOME)
   if (mocks) mocksReset(HOME)
-  const env = { base: BASE, dataDir: DATA, teamRoot: TEAM, fixture, runId: id, commit: commit(), log: say, mockState: mocks?.state, mockUrl: mocks?.url, cardMode: always ? 'always' as const : 'once' as const }
+  const env = { base: BASE, dataDir: DATA, teamRoot: TEAM, fixture, runId: id, commit: commit(), log: say, mockState: mocks?.state, mockUrl: mocks?.url, mockKey: mocks?.key, mockPort: mocks?.port, cardMode: always ? 'always' as const : 'once' as const }
   say(`flows ${id}: ${flows.length} flows (cards: ${env.cardMode}), results in ${dir}`)
   // The mock services keep ONE state file (a mailbox, Notion pages, ...), so the flows that use them run one after another
   // in a single lane, each starting from the mock data as made (FL-08's judge once saw a mail that FL-12 drafted in the

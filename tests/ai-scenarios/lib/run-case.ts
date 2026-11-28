@@ -12,7 +12,7 @@ import { PASSWORD, TEAM_ZONE, type FixtureState } from '../fixture/seed'
 import { runChecks } from './checks'
 import type { Case, CaseResult, CardSeen, ToolCall, TurnRecord } from './types'
 
-export interface Env { base: string; dataDir: string; teamRoot: string; fixture: FixtureState; runId: string; commit: string; log: (s: string) => void; mockState?: string; mockUrl?: string }
+export interface Env { base: string; dataDir: string; teamRoot: string; fixture: FixtureState; runId: string; commit: string; log: (s: string) => void; mockState?: string; mockUrl?: string; mockKey?: string; mockPort?: number }
 
 /** Every file under the team folder (team path -> size:mtime); hidden folders (versions, trash) left out. */
 export function snapshot(root: string): Map<string, string> {
