@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 09:17
 - Branch: `fix/app-create-google-owner-recovery`
-- Status: in progress
+- Status: done
 - Where: shared/src/cloud-protocol (MIT contract), desktop/, web/, server/src/auth. Why: the recovery is one flow
   across the app, the team server and the console (see docs/REPOSITORY-RULES.md)
 - Version impact: patch (a new deep link the app answers, a new sign-in refusal word, screen text; no migration, no
@@ -64,4 +64,5 @@ Out: the console side (trina-cloud), which lands separately and re-pins this con
 
 ## Result
 
-(filled in at the end)
+Built as planned. The no_owner refusal covers the web return and the desktop app's browser return page
+(`googleAppNoOwner`). The console side is the trina-cloud PR of the same day, which pins this contract at this branch.
