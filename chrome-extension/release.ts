@@ -75,8 +75,12 @@ export function writeProtocol(version: string): string {
   return file
 }
 
-/** true: the tag chrome-v<version> is on origin; null: could not tell (offline) */
+/** versions in the store without a tag: uploaded by hand before the release workflow */
+export const HAND_RELEASED = ['0.1.0']
+
+/** true: in the store (the tag chrome-v<version> is on origin, or uploaded by hand); null: could not tell (offline) */
 function released(version: string): boolean | null {
+  if (HAND_RELEASED.includes(version)) return true
   const r = spawnSync('git', ['ls-remote', '--tags', 'origin', `refs/tags/${TAG_PREFIX}${version}`], { cwd: ROOT, encoding: 'utf8', timeout: 20_000 })
   return r.status === 0 ? r.stdout.trim() !== '' : null
 }
@@ -124,7 +128,7 @@ if (import.meta.main) {
     const listed = atBase('ls-tree', '--name-only', `${ref}:${PROTOCOL_DIR}`)
     for (const f of listed && listed.status === 0 ? listed.stdout.split('\n').filter((l) => l.endsWith('.json')) : []) {
       const v = f.replace(/\.json$/, '')
-      if (!existsSync(join(ROOT, PROTOCOL_DIR, f)) && released(v) !== false) gone.push(`${protocolFile(v)} was removed but ${TAG_PREFIX}${v} is released (or origin could not tell): put it back`)
+      if (!existsSync(join(ROOT, PROTOCOL_DIR, f)) && released(v) !== false) gone.push(`${protocolFile(v)} was removed but ${v} is in the store (or origin could not tell): put it back, later servers must keep working with it`)
     }
     const bad = [...problems({ version: EXTENSION_VERSION, fingerprint: extensionFingerprint(), shipped: readShipped(), base }), ...gone]
     for (const b of bad) console.error(b)
