@@ -201,15 +201,21 @@ describe('install-wsl-server.ps1', () => {
     expect(live).not.toMatch(/Redirect/)
     // the modules load before anything with WhatIf off
     // (WhatIf off by the preference in a child scope: Import-Module has no -WhatIf on Windows PowerShell 5.1)
-    expect(PS1).toMatch(/& \{\n {4}\$WhatIfPreference = \$false\n[^\n]*\n {8}Import-Module \$m -Global -ErrorAction SilentlyContinue\n/)
+    // and the global one while they load (a module's own Set-Alias reads it), put back after
+    expect(PS1).toMatch(/& \{\n {4}\$WhatIfPreference = \$false\n {4}\$globalWhatIf = \$global:WhatIfPreference\n {4}\$global:WhatIfPreference = \$false\n {4}try \{\n[^\n]*\n {12}Import-Module \$m -Global -ErrorAction SilentlyContinue\n {8}\}\n {4}\} finally \{ \$global:WhatIfPreference = \$globalWhatIf \}\n/)
     expect(PS1.indexOf("Import-Module $m -Global -ErrorAction SilentlyContinue")).toBeLessThan(PS1.indexOf("# ---- 1. this PC ----"))
     for (const m of ['CimCmdlets', 'Dism', 'ScheduledTasks']) expect(PS1).toContain(`'${m}'`)
     // the AC sleep values before the first change are kept (never overwritten) and the uninstall puts them back
-    expect(PS1).toMatch(/if \(\(Initialize-DataDir\) -and -not \(Test-Path -LiteralPath \$before\)\) \{[\s\S]*?standbyAcSeconds = \$standby; hibernateAcSeconds = \$hibernate[\s\S]*?& powercfg\.exe \/change standby-timeout-ac 0/)
+    expect(PS1).toMatch(/if \(\(Initialize-DataDir\) -and -not \(Test-Path -LiteralPath \$before\)\) \{[\s\S]*?standbyAcSeconds = \$standbyKept; hibernateAcSeconds = \$hibernateKept[\s\S]*?& powercfg\.exe \/change standby-timeout-ac 0/)
     expect(PS1).toContain("if (($standby -eq 0) -and ($hibernate -eq 0)) {")
+    // a value powercfg did not show is kept as "unknown", never -1, and the uninstall skips it
+    expect(PS1).toContain("$standbyKept = if ($standby -ge 0) { $standby } else { 'unknown' }")
+    expect(PS1).toContain("$hibernateKept = if ($hibernate -ge 0) { $hibernate } else { 'unknown' }")
     for (const f of ['docs/INSTALL-WINDOWS.md', 'docs/INSTALL-WINDOWS.ko.md']) {
       const g = read(f)
       expect(`${f}: ${g.includes('standby-timeout-ac 30')}`).toBe(`${f}: false`)
+      expect(g).toContain(`if ("$($p.standbyAcSeconds)" -match '^\\d+$') { powercfg /setacvalueindex`)
+      expect(g).toContain(`if ("$($p.hibernateAcSeconds)" -match '^\\d+$') { powercfg /setacvalueindex`)
       for (const s of ['power-before.json', 'powercfg /setacvalueindex $p.scheme SUB_SLEEP STANDBYIDLE $p.standbyAcSeconds', 'mycel-ctl update --check']) expect(`${f}: ${s}: ${g.includes(s)}`).toBe(`${f}: ${s}: ${s !== 'mycel-ctl update --check'}`)
     }
   })

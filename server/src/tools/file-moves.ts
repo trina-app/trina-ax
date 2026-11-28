@@ -16,6 +16,7 @@
 // target folder"); the card says it is new.
 // Skill folders (skills/, a group's, a project's: what people's AI follows) are out of reach here: a skill changes only
 // through write / edit with the person's approval on the card, and moves to another level with move_skill.
+import { internalWhy } from './internal-error'
 import path from 'node:path'
 import { renameProblem } from '../files/office-exit'
 import { readThisAnswer } from '../files/service'
@@ -183,7 +184,7 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     // admins are not named: roles stay hidden (policy/refusal.ts)
     if (e instanceof FileError && e.key === 'ruleFolder') return `${e.message} The user is not an admin; an admin can do it on ${SCREEN.files(L)}.`
     if (e instanceof Denied) return [e.message, readOnly(e.message, L, tc)].filter(Boolean).join('. ')
-    return e instanceof ToolError || e instanceof FileError ? e.message : 'internal error'
+    return e instanceof ToolError || e instanceof FileError ? e.message : internalWhy('move_files/copy_files', e, { turnId: tc.turnId, userId: tc.user.id })
   }
 
   /** The file `to` when the person can read it and it holds exactly what `from` holds (both files, same size, same

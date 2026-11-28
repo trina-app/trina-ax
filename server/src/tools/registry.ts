@@ -2,6 +2,7 @@
 // remember / forget / ask_user / browser_* (component B) register here. The MCP handler (mcp/protocol.ts) lists
 // them after the six file tools and routes tools/call to them. A registry belongs to one FileService (= one
 // server instance), so tests with several apps in one process don't mix tools.
+import { internalErrorText } from './internal-error'
 import { z } from 'zod'
 import type { FileService, ToolCtx, ToolOutput } from '../files/service'
 import { Denied, ToolError } from '../policy/errors'
@@ -89,7 +90,7 @@ export class ToolRegistry {
       const moved = (m: string) => this.files ? this.files.withMovedNote(ctx.user, m, ctx.turnId) : m
       if (e instanceof Denied) return { text: 'Access denied: ' + moved(e.message), isError: true, summary: `${what} -> denied: ${e.message}`.slice(0, 1000) }
       if (e instanceof ToolError) return { text: 'Error: ' + moved(this.files?toolErrorText(this.files.db,ctx.user.id,e):e.message), isError: true, summary: `${what} -> error: ${e.message}`.slice(0, 1000) }
-      return { text: 'Error: internal error', isError: true, summary: `${what} -> internal: ${String((e as Error)?.message ?? e).slice(0, 200)}` }
+      return { text: internalErrorText(name, e, { turnId: ctx.turnId, userId: ctx.user.id }), isError: true, summary: `${what} -> internal: ${String((e as Error)?.message ?? e).slice(0, 200)}` }
     }
   }
 }

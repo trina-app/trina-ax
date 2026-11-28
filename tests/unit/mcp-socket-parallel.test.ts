@@ -246,7 +246,10 @@ describe('one connection, several calls', () => {
     tools.get(4).finish({ isError: true, text: 'Nothing found' })
     tools.get(3).finish()
     const [r1, r3, r4] = [await c.reply(1), await c.reply(3), await c.reply(4)]
-    expect(r1.result).toEqual({ content: [{ type: 'text', text: 'Error: internal error' }], isError: true })
+    // the AI is told it was the server's error, with a reference in the server log (tools/internal-error.ts)
+    expect(r1.result).toMatchObject({ isError: true })
+    expect(r1.result.content).toHaveLength(1)
+    expect(r1.result.content[0].text).toMatch(/^Error: internal error: an unexpected error on the server, ref [0-9a-f]{8}\./)
     expect(r3.result).toEqual({ content: [{ type: 'text', text: 'read 3 done' }] })
     expect(r4.result).toEqual({ content: [{ type: 'text', text: 'Nothing found' }], isError: true })
     const rows = audit(turn.id)

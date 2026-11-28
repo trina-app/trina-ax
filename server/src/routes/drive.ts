@@ -75,7 +75,9 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.cancelDriveFlow, ({ auth, params }) => safe(() => googleDriveOf(ctx).cancel(auth.user.id, auth.session.id, params.id)))
   kit.handle(API.disconnectDrive, ({ auth }) => safe(() => googleDriveOf(ctx).disconnect(auth.user.id)))
   // Admin › App connectors: set up Google Drive here instead of in the installer (integrations/google-drive/admin-setup.ts)
-  kit.handle(API.driveAdminStatus, () => safe(() => driveAdminStatus(ctx)))
+  // with the hosting service's answer fresh, as the company's app row and the Google apps' list read it (oauth.ts
+  // brokerFresh): every Google status of the admin page says the same
+  kit.handle(API.driveAdminStatus, () => safe(async () => { try { await googleDriveOf(ctx).brokerFresh() } catch {} return driveAdminStatus(ctx) }))
   // a member's ask for Google Drive closes once members can connect it (integrations/service-requests.ts)
   // another client in place of the one people without a password sign in with: refused (auth/google-login-admin.ts)
   kit.handle(API.setDriveClient, ({ c, auth, body }) => safe(() => refuseClientInUse(c.get('locale'), () => { const st = setDriveClient(ctx, auth.user.id, body); afterServiceSetup(ctx, 'google-drive'); return st })))
