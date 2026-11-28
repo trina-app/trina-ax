@@ -13,8 +13,7 @@ export const CHROME_SPECS: Record<string, Spec> = {
   chromeRedeem: { skipPositive: true, build: (c) => c.post('/api/chrome/redeem', { code: 'A'.repeat(43), verifier: 'B'.repeat(43), label: 'x', version: '1' }), scope: 'byLevel',
     check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a made-up Chrome code made a link: ${r.text}`) } },
   // a made-up ticket without a link token: 404 for anyone
-  chromeUpload: { skipPositive: true, build: (c) => c.get(`/api/chrome/uploads/${'A'.repeat(43)}`), scope: 'byLevel',
-    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a Chrome upload ticket was served without its link: ${r.text}`) } },
+  chromeUpload: { build: (c) => c.get(`/api/chrome/uploads/${'A'.repeat(43)}`), scope: 'nobody' },
 }
 /** the extension's socket: tests/unit/chrome-link.test.ts (an unknown token, a page's origin, no auth frame) */
 export const CHROME_RAW_COVERED = ['RAW GET CHROME_WS_PATH']
