@@ -98,10 +98,35 @@ export const ChromeClientFrame = z.discriminatedUnion('type', [
   z.object({ type: z.literal('label'), label: ChromeLinkLabel }),
   /** the person pressed Disconnect in the extension: the link ends */
   z.object({ type: z.literal('unlink') }),
+  /** the person stopped a run of one of their MCP apps (`mcp:` run ids only, which only a server that knows this frame
+   * sends): that app's connection pauses its browser calls (docs/decisions/20261128-mcp-browser-tools.md) */
+  z.object({ type: z.literal('run.stopped'), runId: z.string().min(1).max(100) }),
 ])
 export type ChromeClientFrame = z.infer<typeof ChromeClientFrame>
 /** close codes: the token is unknown or revoked (the extension forgets it), replaced by a newer connection of the same link */
 export const ChromeWsClose = { revoked: 4401, replaced: 4409, badRequest: 4400 } as const
+
+/** A question a person's own MCP app (Claude Code, Codex, Claude) needs them to answer for their browser profiles
+ * (docs/decisions/20261128-mcp-browser-tools.md): the page /browser-ask/:id shows it; the app never decides. */
+export const BROWSER_ASK_PATH = '/browser-ask'
+export const BrowserAskView = z.object({
+  id: z.string(),
+  /** the app as Settings › <app> MCP shows it */
+  client: z.object({ name: z.string(), connectedAt: z.string(), connectionId: z.string() }),
+  profile: z.string(),
+  host: z.string(),
+  /** the full address */
+  url: z.string(),
+  /** site: a site nobody allowed in that profile; address: an address that is not plain (a long query, random-looking
+   * parts, a user name); office: an office-network address */
+  kind: z.enum(['site', 'address', 'office']),
+  /** Always allow is offered (it keeps this site for that profile) */
+  always: z.boolean(),
+  site: z.string().nullable(),
+  expiresAt: z.string(),
+})
+export type BrowserAskView = z.infer<typeof BrowserAskView>
+export const BrowserAskDecision = z.enum(['once', 'always', 'no'])
 
 export const CHROME = {
   chromeLinks: endpoint({ method: 'GET', path: '/api/chrome/links', auth: 'user', owner: 'B', response: z.object({ links: z.array(ChromeLink), target: BrowserTarget }), summary: 'The browser profiles (Chrome, Edge, Brave) this person linked to the team, each with its name, state and site rules, and where a desktop-app turn\'s browser runs.' }),
@@ -110,6 +135,8 @@ export const CHROME = {
   chromeTarget: endpoint({ method: 'PUT', path: '/api/chrome/target', auth: 'user', owner: 'B', body: z.strictObject({ target: BrowserTarget }), response: empty, status: 204, summary: 'Where a desktop-app turn\'s browser runs: the app\'s own browser (app) or the person\'s Chrome (chrome).' }),
   chromePair: endpoint({ method: 'POST', path: '/api/chrome/pair', auth: 'user', owner: 'B', body: z.strictObject({ challenge: ChromeSecret }), response: z.object({ code: ChromeSecret, expiresAt: z.string() }), summary: 'The signed-in team page in Chrome (/connect-chrome) makes a one-time code for the extension that opened it (bound to its challenge, 5 minutes); the page puts it only in the fragment of /connect-chrome/done. Cookie sessions only; a guest: 403.' }),
   chromeRedeem: endpoint({ method: 'POST', path: '/api/chrome/redeem', auth: 'public', owner: 'B', body: ChromeRedeemBody, response: ChromeRedeemed, summary: 'The extension spends a code with its verifier for a link token (only its sha256 is kept): one more browser profile of the person (`previous`: the one this install held is replaced). Past CHROME_LINKS_MAX: 409 links_full, nothing removed. Wrong, used or expired: 410; failures are counted per address.' }),
+  browserAsk: endpoint({ method: 'GET', path: '/api/chrome/asks/:id', auth: 'user', owner: 'B', response: BrowserAskView, summary: 'A question one of this person\'s own MCP apps needs answered in their browser profile (a site, an address, an office address). Only the person it is for; another person\'s, an answered or an expired one: 404.' }),
+  browserAskDecide: endpoint({ method: 'POST', path: '/api/chrome/asks/:id', auth: 'user', owner: 'B', body: z.strictObject({ decision: BrowserAskDecision }), response: empty, status: 204, summary: 'Answer it: once (this app, 10 minutes), always (kept for that profile, as the site card\'s Always) or no. 404 as for GET.' }),
   chromeUpload: endpoint({ method: 'GET', path: '/api/chrome/uploads/:ticket', auth: 'public', owner: 'B', response: stream(false), summary: 'One file of a file_upload call for the person\'s linked Chrome (Authorization: Bearer <link token>; single use, the person\'s own ticket; every failure is 404).' }),
 } as const
 

@@ -174,7 +174,7 @@ test('through the app: an app that asks for mcp:read only gets write when ticked
   }
   const ask = async (decision: Record<string, unknown>) => {
     const url = await request()
-    expect(await (await f.api('GET', url)).json() as any).toMatchObject({ scopes: ['mcp:read'], optional: ['mcp:write', 'mcp:rooms', 'mcp:rooms.write'], admin: true })
+    expect(await (await f.api('GET', url)).json() as any).toMatchObject({ scopes: ['mcp:read'], optional: ['mcp:write', 'mcp:rooms', 'mcp:rooms.write', 'mcp:browser'], admin: true })
     const code = new URL((await (await f.api('POST', url, decision)).json() as any).redirectUrl).searchParams.get('code')!
     return await (await f.post('/oauth/token', { client_id: f.client.client_id, code, grant_type: 'authorization_code', code_verifier: verifier, redirect_uri: redirect, resource: base + '/mcp' })).json() as any
   }
@@ -198,7 +198,7 @@ test('Codex CLI and ChatGPT as clients: iss support advertised, their registrati
   const meta = await (await f.fetch('/.well-known/oauth-authorization-server')).json() as any
   // with this, Codex keeps its plain loopback /callback and ChatGPT uses its stable callback (both check iss)
   expect(meta.authorization_response_iss_parameter_supported).toBe(true)
-  expect(meta.scopes_supported).toEqual(['mcp:read', 'mcp:write', 'mcp:rooms', 'mcp:rooms.write', 'mcp:admin', 'offline_access'])
+  expect(meta.scopes_supported).toEqual(['mcp:read', 'mcp:write', 'mcp:rooms', 'mcp:rooms.write', 'mcp:browser', 'mcp:admin', 'offline_access'])
   const flow = async (redirectUri: string, register: Record<string, unknown>, scope: string, decision: Record<string, unknown>) => {
     const reg = await f.post('/oauth/register', { redirect_uris: [redirectUri], ...register })
     expect(reg.status).toBe(201)

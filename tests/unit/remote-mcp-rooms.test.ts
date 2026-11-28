@@ -72,7 +72,7 @@ test('the consent offers reading conversations and writing in them; an older pag
   expect(f.oauth.metadata().scopes_supported).toEqual(expect.arrayContaining(['mcp:rooms', 'mcp:rooms.write']))
   // a page from before (no conversation boxes) or an app that asks for them: the person's boxes decide, never the app
   const old = await f.connect(f.reader.client.cookie!, {}, 'mcp:read mcp:rooms mcp:rooms.write offline_access')
-  expect(old.optional).toEqual(['mcp:write', 'mcp:rooms', 'mcp:rooms.write'])
+  expect(old.optional).toEqual(['mcp:write', 'mcp:rooms', 'mcp:rooms.write', 'mcp:browser'])
   expect(old.scope).toBe('mcp:read offline_access')
   expect(f.names(old.token).filter(n => ROOM_TOOLS.has(n))).toEqual([])
   for (const n of [...READS, 'room_send']) expect(text(await f.call(old.token, n, { room: 'x', text: 'x', file: 'x' }))).toContain('no permission')

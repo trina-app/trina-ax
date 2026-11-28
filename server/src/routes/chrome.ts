@@ -18,6 +18,8 @@ import { chromeWindowOf } from '../chrome/links'
 import { addLinkSite, browserTarget, linkByToken, linkOf, linkSites, linksOf, mintCode, redeemCode, removeLinkSite, setBrowserTarget, unlink, updateLink, type LinkRow } from '../chrome/store'
 import { siteToKeep } from '@mycel/shared/web-site'
 import { coversTeam, teamHosts } from '../chrome/team-hosts'
+import { keepAsk, remoteBrowserOf } from '../connectors/remote-mcp/browser'
+import { teamAllowsAlways } from '../chat/always-allow'
 
 interface WsData {
   events: {
@@ -66,6 +68,23 @@ export const chromeRoutes: RouteModule = {
       if (!unlink(ctx.db, auth.user.id, params.id)) fail('not_found')
       rt.chrome.drop(params.id)
       audit(ctx.db, { actor: auth.user.id, action: 'chrome.unlink', target: params.id })
+    })
+
+    // a question of the person's own MCP app (connectors/remote-mcp/browser.ts): only the person it is for, from their
+    // own signed-in page (a cookie session; never an app's token, which must not answer its own ask); another
+    // person's, an answered or an expired one: the same 404
+    const asks = () => remoteBrowserOf(ctx).asks
+    kit.handle(API.browserAsk, ({ auth, params }) => {
+      if (auth.via !== 'cookie') fail('not_found')
+      const a = asks().view(params.id, auth.user.id)
+      if (!a) return fail('not_found')
+      return { id: a.id, client: { name: a.client.name, connectedAt: a.client.connectedAt, connectionId: a.grantId }, profile: a.profile, host: a.host, url: a.url, kind: a.kind, always: a.kind === 'office' ? teamAllowsAlways(ctx.db) : !!a.site, site: a.site, expiresAt: new Date(a.expiresAt).toISOString() }
+    })
+    kit.handle(API.browserAskDecide, ({ auth, params, body }) => {
+      if (auth.via !== 'cookie') fail('not_found')
+      const a = asks().decide(params.id, auth.user.id, body.decision, (x) => { if (body.decision !== 'no') keepAsk(ctx, x, body.decision) })
+      if (!a) return fail('not_found')
+      audit(ctx.db, { actor: auth.user.id, action: 'remote_mcp.browser_ask', target: a.grantId, detail: { decision: body.decision, kind: a.kind, host: a.host, profile: a.linkId } })
     })
 
     kit.handle(API.chromeTarget, ({ auth, body }) => {

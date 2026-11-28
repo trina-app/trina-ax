@@ -90,6 +90,7 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 
 - **Every change is kept.** By a person or their AI; bring back any version.
 - **In-app browser.** In the desktop app, Trina opens websites in a pane beside your chat, reads them, clicks and fills in forms while you watch; Stop ends it. It asks before a new site unless you allow all websites.
+- **Your AI apps, in your own browser.** Link your Chrome, Edge or Brave profiles to Trina once; then Trina's AI, Claude Code, Codex and Claude can all work in them, signed in as you. Pick the account for each step, run several sessions side by side (each in its own window), and approve a new site once for every app. [How](docs/site/agents/mcp-connector.md#your-browser-profiles)
 - **Apps post into rooms.** Sentry, GitHub, Stripe, Jira and HubSpot updates arrive as cards.
 - **Find work files.** The desktop app finds recent work files on your computer and adds the ones you pick.
 - **Documents.** Reads Hangul (HWP/HWPX) text; previews PDF and PowerPoint.

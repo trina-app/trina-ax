@@ -41,6 +41,7 @@ The sign-in page lets you choose, whatever the app asked for:
 | **Write files** | `mcp:write` | ticked only if the app asked for it |
 | **Read conversations** | `mcp:rooms` | ticked |
 | **Write in conversations** (only with reading) | `mcp:rooms.write` | unticked |
+| **Use my browser profiles** (Chrome, Edge, Brave you linked in Settings › Browser) | `mcp:browser` | unticked |
 | Managing the team's groups (owners and admins) | `mcp:admin` | always granted, no box |
 
 Claude and Claude Code ask for reading only, so tick **Write files** if Claude should create, edit or upload files. The app is told exactly what you allowed. To change it later, disconnect in **Settings › Trina AX MCP** and connect again.
@@ -51,6 +52,38 @@ The sign-in accepts Claude's own callback (Claude on the web, desktop and phone)
 
 Admins see whether this server's connector is on in **Admin › Trina AX MCP**. The other direction, apps Trina's AI uses with
 your own account such as **Google Drive**, is **Settings › Connectors** ([Google Drive setup](https://github.com/trina-app/trina-ax/blob/main/docs/GOOGLE-DRIVE.md)).
+
+## Your browser profiles
+
+With **Use my browser profiles** ticked, the app can work in the Chrome, Edge and Brave profiles you linked to Trina
+(Settings › Browser), signed in as you: open pages, read them, click, type, fill forms, take screenshots and attach
+team files. It is the same browser Trina's own AI uses, with the same rules.
+
+- **A profile for each step.** The app lists your profiles (`list_browser_profiles`) and names one in each call
+  (`profile`: its name, its account or its id), so one session can use your work account in one profile and your
+  personal one in another. Without a name it stays in the profile it used last. A profile that is closed is never
+  swapped for another.
+- **Parallel sessions.** Each Claude Code or Codex session gets its own window and tab group in the profile, named
+  after the app ("Claude Code · 7f3a"). One app can run up to 3 tasks in a profile at once.
+- **Sites ask once.** A site you have not allowed in that profile, or an address with a long or random-looking part,
+  waits for you on a Trina page. Claude Code offers to open it for you; in other apps the AI gives you the link, and
+  your open Trina window shows a notice. **Always allow** keeps the site for that profile, for Trina's AI and every
+  app. The app itself can never approve a site.
+- **Stop.** Stop a task in the extension's popup (or close its window). That app's browser work pauses until you press
+  **Resume** in Settings › Trina AX MCP (or 30 minutes pass). Other apps and Trina's own chats go on.
+- **What it never does:** type passwords or card numbers, run its own scripts, read cookies or saved data, open your
+  account-security pages or Trina itself. Sites' own terms on automation are yours to follow.
+
+Set up:
+
+| App | Steps |
+|---|---|
+| Claude Code | `claude mcp add --transport http --scope user trina <address>`, then `/mcp` to sign in. Tick **Use my browser profiles** on the Trina page. |
+| Codex | `codex mcp add trina --url <address>`, then `codex mcp login trina` if the sign-in does not open. Tick the box. |
+| Claude (desktop and web) | Claude's Settings › Connectors › Add custom connector with the address. Tick the box. |
+
+`<address>` is the connection address in **Settings › Trina AX MCP** (it ends in `/mcp`). A connection made before
+this needs to be disconnected and connected again to get the box.
 
 ## Protocol
 

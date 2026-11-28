@@ -18,6 +18,8 @@ import { createDownloadLink, downloadLinkTool } from './download-link'
 import { shareSkills, shareSkillsTool } from './share'
 import { GROUP_TOOLS, groupTool, groupTools } from './groups'
 import { mergeSources, ROOM_SEND, ROOM_TOOLS, roomReadTools, roomSendTool, roomTool } from './rooms'
+import { BROWSER_TOOL_NAMES, remoteBrowserOf, type BrowserOut, type Elicit } from './browser'
+import { grantApp } from './oauth'
 
 const WRITE = new Set(['write', 'edit', 'upload_file', 'create_upload_link', 'share_skills'])
 // the connector's own tools (not FILE_TOOLS); create_download_link is read-scope (not in WRITE)
@@ -48,7 +50,9 @@ export class RemoteTools {
     const admin = scopes.includes(ADMIN_SCOPE) && isTeamAdmin(this.ctx.db, g.user_id)
     const rooms = scopes.includes(ROOMS_SCOPE), roomsWrite = rooms && scopes.includes(ROOMS_WRITE_SCOPE)
     return [...[...toolList, uploadTool, uploadLinkTool, downloadLinkTool].filter(t => !WRITE.has(t.name) || scopes.includes('mcp:write')), skillTool,
-      ...(scopes.includes('mcp:write') ? [shareSkillsTool] : []), ...(rooms ? roomReadTools : []), ...(roomsWrite ? [roomSendTool] : []), ...(admin ? groupTools : [])]
+      ...(scopes.includes('mcp:write') ? [shareSkillsTool] : []), ...(rooms ? roomReadTools : []), ...(roomsWrite ? [roomSendTool] : []), ...(admin ? groupTools : []),
+      // the person's own browser profiles (mcp:browser, browser.ts)
+      ...remoteBrowserOf(this.ctx).list(g)]
   }
   private policy(user: string) {
     return hash(JSON.stringify({
@@ -63,8 +67,16 @@ export class RemoteTools {
    * edit, the write counters) stay the connection's: a client can send any id, and one per call must not give it more
    * calls at once, more memory slots or a fresh write budget.
    */
+  /** A browser tool (BROWSER_TOOL_NAMES): its own queues and limits per session and person (browser.ts), not this
+   * connection's file queue. `elicit`: the session's client opens URL elicitations (transport.ts). */
+  browser(token: string, name: string, args: unknown, signal?: AbortSignal, session: string | null = null, elicit?: Elicit): Promise<BrowserOut> {
+    const oauth = this.oauth(), grant = oauth.authenticate(token)
+    const scope = openScope(this.ctx.db, grant.id, session, oauth.now())
+    return remoteBrowserOf(this.ctx).call({ oauth, token, grant, clientName: grantApp(this.ctx.db, grant.id) ?? 'An app', name, args, session, scope, signal, elicit })
+  }
   async call(token: string, name: string, args: unknown, signal?: AbortSignal, session: string | null = null) {
     const oauth = this.oauth(), grant = oauth.authenticate(token)
+    if (BROWSER_TOOL_NAMES.has(name)) return this.browser(token, name, args, signal, session) as unknown as ReturnType<typeof result>
     oauth.rate('tool-user', grant.user_id, 120)
     if (name !== 'skills_list' && name !== 'share_skills' && !CONNECTOR_ONLY.has(name) && !GROUP_TOOLS.has(name) && !ROOM_TOOLS.has(name) && !Object.hasOwn(FILE_TOOLS, name)) return result('Unknown tool.', true)
     // Bound idle memory; read sources survive eviction/restart in remote_mcp_scopes.

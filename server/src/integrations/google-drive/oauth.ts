@@ -17,6 +17,7 @@ import type { CallbackOutcome } from './callback-page'
 import { CLAIM_MS, GO_PATH, appReturnKey, appReturnPort, heldProofOk, newToken, tokenHash, tokenMatches } from './app-return'
 import type { ClientKind } from '@mycel/shared/api'
 import { googleLoginHint } from '../../auth/login-identities'
+import { personLocale } from '../../files/media-text'
 
 /** `broker`: sign in through the hosting service (broker.ts); left out, driveBrokerFor decides (no own client; broker URL set, or a hosted server). */
 export interface DriveDeps { config?: DriveConfig | null; fetch?: DriveFetch; now?: () => number; broker?: BrokerOptions | null }
@@ -211,7 +212,7 @@ export class GoogleDrive {
     if (!this.viaBroker) return this.fromApp(this.authorize(user, session, share, client), client)
     const p = this.prepare(user, session, share, client)
     try {
-      const urls = await this.broker!.start(share ? 'share' : 'personal', p.state, challengeOf(p.verifier))
+      const urls = await this.broker!.start(share ? 'share' : 'personal', p.state, challengeOf(p.verifier), undefined, personLocale(this.ctx.db, user))
       return this.fromApp({ flowId: p.id, ...urls, expiresAt: p.expiresAt }, client)
     } catch (e) {
       const reason = e instanceof DriveError ? e.reason : 'broker_unavailable'

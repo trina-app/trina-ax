@@ -1,11 +1,12 @@
 import type { Database } from 'bun:sqlite'
+import { browserPausedUntil } from './browser-pause'
 import { PRODUCT } from '@mycel/shared'
 import { REMOTE_CONSENT_EXPIRED } from '@mycel/shared/api'
 import type { AppConfig } from '../../app-config'
 import type { AppContext } from '../../context'
 import type { AuthInfo } from '../../services'
 import { audit } from '../../admin/audit'
-import { ACCESS_MS, ADMIN_SCOPE, CODE_MS, ROOMS_SCOPE, ROOMS_WRITE_SCOPE, GRANT_MS, MCP_PATH, OAuthError, OPTIONAL_SCOPES, REFRESH_REUSE_MS, REQUEST_MS, SCOPES, challenge, hash, redirectAllowed, redirectMatches, resourceMatches, scopes, secret, validOrigin } from './policy'
+import { ACCESS_MS, ADMIN_SCOPE, CODE_MS, ROOMS_SCOPE, ROOMS_WRITE_SCOPE, GRANT_MS, MCP_PATH, OAuthError, OPTIONAL_SCOPES, REFRESH_REUSE_MS, REQUEST_MS, SCOPES, challenge, hash, redirectAllowed, redirectMatches, resourceMatches, scopes, secret, validOrigin, BROWSER_SCOPE } from './policy'
 import { pruneScopes } from './scope'
 
 type Client = { id: string; name: string; redirects: string }
@@ -108,6 +109,10 @@ export function isTeamAdmin(db: Database, userId: string): boolean {
  */
 /** The name an outside app registered (`client_name`, at most 80 characters), for the activity log: an admin reads
  * which app it was, not the grant's id (QA TC-204). null when the grant or its app is gone. */
+/** told when a connection is revoked (Disconnect, too many, a reused refresh token) */
+const grantEnded = new Set<(grantId: string) => void>()
+export function onGrantEnded(l: (grantId: string) => void): () => void { grantEnded.add(l); return () => { grantEnded.delete(l) } }
+
 export function grantApp(db: Database, grantId: string): string | null {
   const r = db.query('SELECT c.name FROM remote_mcp_grants g JOIN remote_mcp_clients c ON c.id=g.client_id WHERE g.id=?').get(grantId) as { name: string } | null
   return r?.name ?? null
@@ -299,7 +304,7 @@ export class RemoteOAuth {
    */
   consent(id: string, auth: AuthInfo) {
     const r = this.pending(id, auth), c = this.client(r.client_id)
-    return { id, clientName: c.name, redirectOrigin: new URL(r.redirect_uri).origin, scopes: this.offered(JSON.parse(r.scopes), auth.user.id), optional: [...OPTIONAL_SCOPES] as string[], admin: isTeamAdmin(this.db, auth.user.id), resource: r.resource, expiresAt: iso(r.expires_at) }
+    return { id, clientName: c.name, redirectOrigin: new URL(r.redirect_uri).origin, scopes: this.offered(JSON.parse(r.scopes), auth.user.id), optional: [...OPTIONAL_SCOPES] as string[], admin: isTeamAdmin(this.db, auth.user.id), resource: r.resource, expiresAt: iso(r.expires_at), browserProfiles: (this.db.query('SELECT COUNT(*) AS n FROM chrome_links WHERE user_id=?').get(auth.user.id) as { n: number }).n }
   }
   /**
    * The grant: mcp:read, plus mcp:write when `write` (left out: when the app asked for it), plus mcp:rooms when
@@ -310,7 +315,7 @@ export class RemoteOAuth {
    * did not ask for; the token answer's `scope` names exactly what was granted (RFC 6749 3.3), and a refresh can only
    * narrow it.
    */
-  decide(id: string, auth: AuthInfo, allow: boolean, o: { write?: boolean; rooms?: boolean; roomsWrite?: boolean } = {}) {
+  decide(id: string, auth: AuthInfo, allow: boolean, o: { write?: boolean; rooms?: boolean; roomsWrite?: boolean; browser?: boolean } = {}) {
     return this.db.transaction(() => {
       const r = this.pending(id, auth), url = new URL(r.redirect_uri)
       this.db.query('DELETE FROM remote_mcp_requests WHERE id=?').run(id)
@@ -335,6 +340,8 @@ export class RemoteOAuth {
       if (o.write ?? asked.includes('mcp:write')) chosen.add('mcp:write')
       if (o.rooms === true) chosen.add(ROOMS_SCOPE)
       if (o.rooms === true && o.roomsWrite === true) chosen.add(ROOMS_WRITE_SCOPE)
+      // the person's browser profiles: only when ticked (an app's request never ticks it), never a guest (none signs in here)
+      if (o.browser === true) chosen.add(BROWSER_SCOPE)
       if (isTeamAdmin(this.db, auth.user.id)) chosen.add(ADMIN_SCOPE)
       chosen.add('offline_access')
       const selected = SCOPES.filter(s => chosen.has(s))
@@ -354,6 +361,8 @@ export class RemoteOAuth {
   }
   revokeGrant(id: string) {
     this.db.query('UPDATE remote_mcp_grants SET revoked_at=COALESCE(revoked_at,?) WHERE id=?').run(this.now(), id)
+    // what lives in memory for it (the browser's asks, once-answers, sessions: remote-mcp/browser.ts) goes now
+    for (const l of grantEnded) try { l(id) } catch { /* a listener that throws changes nothing */ }
     // its own session row ends now: the session sweep removes it, and the grant, its codes and tokens cascade away
     // with it (until then a replay finds the grant revoked; after, finds nothing: invalid_grant either way)
     this.db.query('UPDATE sessions SET expires_at=? WHERE id=(SELECT session_id FROM remote_mcp_grants WHERE id=?) AND connector=1').run(iso(this.now()), id)
@@ -468,7 +477,15 @@ export class RemoteOAuth {
     this.browser(auth)
     const rows = this.db.query(`SELECT g.*,c.name FROM remote_mcp_grants g JOIN remote_mcp_clients c ON c.id=g.client_id
       JOIN sessions s ON s.id=g.session_id WHERE g.user_id=? AND g.revoked_at IS NULL AND g.expires_at>? AND s.expires_at>? ORDER BY g.created_at DESC LIMIT 100`).all(auth.user.id, this.now(), iso(this.now())) as (Grant & { name: string })[]
-    return { configured: !!this.origin, resource: this.origin ? this.resource() : null, items: rows.map(g => ({ id: g.id, clientName: g.name, scopes: JSON.parse(g.scopes) as string[], createdAt: iso(g.created_at), expiresAt: iso(g.expires_at) })) }
+    return { configured: !!this.origin, resource: this.origin ? this.resource() : null, items: rows.map(g => ({ id: g.id, clientName: g.name, scopes: JSON.parse(g.scopes) as string[], createdAt: iso(g.created_at), expiresAt: iso(g.expires_at), browserPausedUntil: browserPausedUntil(this.db, g.id, this.now()) })) }
+  }
+  /** The person lets one of their connections use the browser again after a Stop (remote-mcp/browser.ts). */
+  resumeBrowser(id: string, auth: AuthInfo) {
+    this.browser(auth)
+    const g = this.db.query('SELECT user_id FROM remote_mcp_grants WHERE id=? AND revoked_at IS NULL').get(id) as { user_id: string } | null
+    if (!g || g.user_id !== auth.user.id) throw new OAuthError('invalid_request', 404)
+    this.db.query('DELETE FROM remote_mcp_browser_pauses WHERE grant_id=?').run(id)
+    audit(this.db, { actor: auth.user.id, action: 'remote_mcp.browser_resumed', target: id, detail: { app: grantApp(this.db, id) } })
   }
   disconnect(id: string, auth: AuthInfo) {
     this.browser(auth)

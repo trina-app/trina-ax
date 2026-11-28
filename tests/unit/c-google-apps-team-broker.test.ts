@@ -68,12 +68,24 @@ test('the team\'s Gmail signs in as "share" and connects; a personal one stays "
 test('a control plane from before team app sign-ins refuses "share": the team sign-in starts again as "personal"', async () => {
   broker.shareAppsSupported = false
   const f = await apps.authorize('carol', 'carol-session', 'gmail', 'team')
-  expect(starts().map((s) => s.purpose)).toEqual(['share', 'personal'])
+  // the refusal could also be of the person's language (an older control plane does not know `locale` either): "share"
+  // is asked once more without it, then "personal" (with it: this control plane takes the language)
+  expect(starts().map((s) => [s.purpose, s.locale ?? null])).toEqual([['share', 'ko'], ['share', null], ['personal', 'ko']])
   expect(apps.view('carol', 'gmail')).toMatchObject({ available: true })
   expect(await apps.callbackOutcome(broker.browserReturn(f.authorizationUrl, 'teambox'), browser('carol'))).toEqual({ ok: true })
   // a control plane without apps at all: still "not available yet", after both tries
   broker.appsSupported = false
   await expect(apps.authorize('carol', 'carol-session', 'calendar', 'team')).rejects.toMatchObject({ reason: 'service_limited' })
+})
+
+test("an app sign-in names the person's language; a control plane without the field signs in without it", async () => {
+  A.ctx.db.query("UPDATE users SET locale = 'ja', locale_follows_team = 0 WHERE id = 'alice'").run()
+  await apps.authorize('alice', 'alice-session', 'gmail')
+  expect(starts()).toEqual([expect.objectContaining({ purpose: 'personal', app: 'gmail', locale: 'ja' })])
+  broker.localeSupported = false
+  const f = await apps.authorize('alice', 'alice-session', 'calendar')
+  expect(starts().slice(1).map((s) => s.locale ?? null)).toEqual(['ja', null])
+  expect(await apps.callbackOutcome(broker.browserReturn(f.authorizationUrl, 'alice'), browser('alice'))).toEqual({ ok: true })
 })
 
 test('an app the hosting service closed (app_unavailable) is final: no second start as "personal"', async () => {

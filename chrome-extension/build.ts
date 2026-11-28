@@ -7,14 +7,23 @@ import { join } from 'node:path'
 import { PRODUCT } from '../shared/src/product'
 import { chromeMessages, LOCALES } from './src/messages'
 
-/** The extension's own version (semver; the Web Store wants plain numbers). Bump it with each store upload. */
-export const EXTENSION_VERSION = '0.1.0'
+/** The extension's own version (semver; the Web Store wants plain numbers). Never edit it by hand: `bun run chrome:bump
+ * patch|minor|major` sets it and records chrome-extension/shipped.json (the store never gets one version twice;
+ * docs/RELEASE-CI.md "Chrome extension releases"). */
+export const EXTENSION_VERSION = '0.3.0'
 
 const HERE = import.meta.dir
 const ROOT = join(HERE, '..')
 const DIST = join(HERE, 'dist')
-const ICONS = join(ROOT, 'editions/trina/branding/chrome')
-const PAGE_SCRIPT = join(ROOT, 'desktop/src/main/pane/page-script.js')
+// What the zip is built from, besides the code the entry points import (chrome-extension/inputs.ts fingerprints the same
+// lists, repository-relative)
+export const ENTRYPOINTS = ['chrome-extension/src/worker.ts', 'chrome-extension/src/popup.ts', 'chrome-extension/src/pair.ts'] as const
+export const PAGES = ['popup.html', 'popup.css', 'pair.html'] as const
+export const ICON_SIZES = [16, 32, 48, 128] as const
+export const ICONS_DIR = 'editions/trina/branding/chrome'
+export const PAGE_SCRIPT_FILE = 'desktop/src/main/pane/page-script.js'
+const ICONS = join(ROOT, ICONS_DIR)
+const PAGE_SCRIPT = join(ROOT, PAGE_SCRIPT_FILE)
 
 /** The public key of unpacked builds (chrome-extension/dev-key.pub): their id is fixed (CHROME_EXTENSION_IDS.dev), so
  * the desktop app's native helper can name it in a development run. Never in the store zip (the store gives its own). */
@@ -49,7 +58,7 @@ async function build(dev: boolean) {
   rmSync(DIST, { recursive: true, force: true })
   mkdirSync(join(DIST, 'icons'), { recursive: true })
   const r = await Bun.build({
-    entrypoints: [join(HERE, 'src/worker.ts'), join(HERE, 'src/popup.ts'), join(HERE, 'src/pair.ts')],
+    entrypoints: ENTRYPOINTS.map((f) => join(ROOT, f)),
     outdir: DIST,
     target: 'browser',
     format: 'esm',
@@ -62,8 +71,8 @@ async function build(dev: boolean) {
     for (const l of r.logs) console.error(l)
     throw new Error('extension build failed')
   }
-  for (const f of ['popup.html', 'popup.css', 'pair.html']) cpSync(join(HERE, 'src', f), join(DIST, f))
-  for (const s of [16, 32, 48, 128]) {
+  for (const f of PAGES) cpSync(join(HERE, 'src', f), join(DIST, f))
+  for (const s of ICON_SIZES) {
     const icon = join(ICONS, `icon-${s}.png`)
     if (!existsSync(icon)) throw new Error(`missing ${icon}`)
     cpSync(icon, join(DIST, 'icons', `icon-${s}.png`))

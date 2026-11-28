@@ -62,6 +62,10 @@ export const BrowserResult = z.object({
    * person on its site card and sends the call again (docs/decisions/20261128-trina-in-chrome.md). `office`: an
    * office-network address. */
   needSite: z.object({ host: BrowserSiteKey, office: z.boolean().optional() }).optional(),
+  /** the person stopped this call's run in their Chrome (the popup's Stop, closing its window or the debugging bar): an
+   * MCP app's connection pauses its browser calls (docs/decisions/20261128-mcp-browser-tools.md). An older extension
+   * leaves it out. */
+  stopped: z.boolean().optional(),
 })
 export type BrowserResult = z.infer<typeof BrowserResult>
 

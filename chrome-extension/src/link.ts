@@ -2,7 +2,11 @@
 // the first frame, never in the address or a header. A ping every 20 s keeps the MV3 worker awake while Chrome runs;
 // an alarm reconnects within a minute after Chrome put the worker to sleep. A revoked link (close 4401) is forgotten.
 import { CHROME_WS_PATH, CHROME_WS_PROTOCOL, ChromeServerFrame, ChromeWsClose, type ChromeClientFrame } from '../../shared/src/api/chrome'
-import { cancelCall, handleCall } from './calls'
+import { cancelCall, handleCall, setRunStoppedHandler } from './calls'
+
+// a person's own MCP app's run (its ids start with mcp:, made only by a server that knows run.stopped): the server
+// pauses that app's browser calls at once, also when the app starts a new session
+setRunStoppedHandler((runId) => { if (runId.startsWith('mcp:')) send({ type: 'run.stopped', runId }) })
 import { forgetLink, live, loadLink, refreshBadge, saveLink } from './state'
 import { detachAll } from './tabs'
 

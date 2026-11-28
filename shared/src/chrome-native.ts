@@ -14,11 +14,12 @@ export const CHROME_NATIVE_HOST = 'com.mycel.chrome_host'
 
 /**
  * The extension ids the helper lets in (allowed_origins; never a wildcard). `chromeStore` / `edgeStore`: the Chrome Web
- * Store and Edge Add-ons items, filled in once each store gave its id (empty until then). `dev`: an unpacked build
+ * Store and Edge Add-ons items, filled in once each store gave its id (empty until then; the Chrome Web Store item,
+ * unlisted, since 2026-11-28). `dev`: an unpacked build
  * (build.ts puts chrome-extension/dev-key.pub in its manifest, so its id is fixed). The dev id is public, so anyone could
  * load an unpacked extension with it: the desktop app allows it only in a development run (chromeExtensionIds(true)).
  */
-export const CHROME_EXTENSION_IDS = { chromeStore: '', edgeStore: '', dev: 'mjajhjlbdnncdbjdmlncmhdpcombjjgk' } as const
+export const CHROME_EXTENSION_IDS = { chromeStore: 'pfalalpmbomdafcmobbjlgekhdfjepmc', edgeStore: '', dev: 'mjajhjlbdnncdbjdmlncmhdpcombjjgk' } as const
 const isId = (s: string) => /^[a-p]{32}$/.test(s)
 export const chromeExtensionIds = (dev = false): string[] =>
   [CHROME_EXTENSION_IDS.chromeStore, CHROME_EXTENSION_IDS.edgeStore, ...(dev ? [CHROME_EXTENSION_IDS.dev] : [])].filter(isId)

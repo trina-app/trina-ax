@@ -11,6 +11,9 @@ import { useMe } from '../store/session'
  * management (mcp:admin) is no choice: an owner's or admin's connection gets it (`request.admin`). Reading the
  * person's conversations starts ticked; sending in them as the person starts unticked and needs reading. */
 const WRITE_SCOPE = 'mcp:write', ROOMS_SCOPE = 'mcp:rooms', ROOMS_WRITE_SCOPE = 'mcp:rooms.write'
+/** the person's linked browser profiles (Chrome, Edge, Brave): the strongest box, unticked at first; tickable without a
+ * linked profile too (the line then says to link one first) */
+const BROWSER_SCOPE = 'mcp:browser'
 /** where a decision may send the browser: Claude's and ChatGPT's own callbacks (server policy.ts HOSTED), or an app on
  * this computer */
 const HOSTED_CALLBACKS = ['https://claude.ai/api/mcp/auth_callback', 'https://chatgpt.com/connector_platform_oauth_redirect']
@@ -46,11 +49,11 @@ function ConnectorConsentForm() {
   const [request, setRequest] = useState<RemoteConsentInfo | null>(null), [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false)
   // Reading files is always granted. Writing starts ticked only when the app asked for it; reading conversations
   // starts ticked, writing in them unticked
-  const [write, setWrite] = useState(false), [rooms, setRooms] = useState(true), [roomsWrite, setRoomsWrite] = useState(false)
+  const [write, setWrite] = useState(false), [rooms, setRooms] = useState(true), [roomsWrite, setRoomsWrite] = useState(false), [browser, setBrowser] = useState(false)
   const life = useRef(0), writing = useRef(false)
   useEffect(() => {
     const generation = ++life.current
-    setRequest(null); setError(null); setBusy(false); setWrite(false); setRooms(true); setRoomsWrite(false); writing.current = false
+    setRequest(null); setError(null); setBusy(false); setWrite(false); setRooms(true); setRoomsWrite(false); setBrowser(false); writing.current = false
     if (!/^[A-Za-z0-9_-]{43}$/.test(id)) { setError(t('connectors.expired')); return () => { life.current++ } }
     void api.call(REMOTE_MCP.getRemoteConnectorConsent, { params: { id } }).then(value => {
       if (generation === life.current) { setRequest(value); setWrite(value.scopes.includes(WRITE_SCOPE)) }
@@ -67,7 +70,9 @@ function ConnectorConsentForm() {
     try {
       // the conversation boxes only when the server offers them (an older server's body has no such fields)
       const talk = offers(ROOMS_SCOPE) ? { rooms, roomsWrite: rooms && offers(ROOMS_WRITE_SCOPE) && roomsWrite } : {}
-      const body = allow ? { allow, write: offers(WRITE_SCOPE) && write, ...talk } : { allow }
+      // the browser box likewise only when offered
+      const drive = offers(BROWSER_SCOPE) ? { browser } : {}
+      const body = allow ? { allow, write: offers(WRITE_SCOPE) && write, ...talk, ...drive } : { allow }
       const result = await api.call(REMOTE_MCP.decideRemoteConnectorConsent, { params: { id }, body })
       if (generation !== life.current) return
       const target = new URL(result.redirectUrl)
@@ -106,6 +111,7 @@ function ConnectorConsentForm() {
         {offers(WRITE_SCOPE) && <Choice testId="connector-write" checked={write} disabled={busy} onChange={setWrite} title={t('connectors.writeOptIn')} hint={t('connectors.write')} />}
         {offers(ROOMS_SCOPE) && <Choice testId="connector-rooms" checked={rooms} disabled={busy} onChange={(v) => { setRooms(v); if (!v) setRoomsWrite(false) }} title={t('connectors.roomsOptIn')} hint={t('connectors.rooms')} />}
         {offers(ROOMS_SCOPE) && offers(ROOMS_WRITE_SCOPE) && <Choice testId="connector-rooms-write" checked={rooms && roomsWrite} disabled={busy || !rooms} onChange={setRoomsWrite} title={t('connectors.roomsWriteOptIn')} hint={t('connectors.roomsWrite')} />}
+        {offers(BROWSER_SCOPE) && <Choice testId="connector-browser" checked={browser} disabled={busy} onChange={setBrowser} title={t('connectors.browserOptIn')} hint={request.browserProfiles === 0 ? `${t('connectors.browser')} ${t('connectors.browserNoProfile')}` : t('connectors.browser')} />}
       </fieldset>}
       {request.admin && <p className="text-sm" data-testid="connector-admin">{t('connectors.adminIncluded')}</p>}
       <p className="text-sm text-muted">{t('connectors.sessionBound')}</p><p className="text-sm text-muted">{t('connectors.scopeLimit')}</p>
