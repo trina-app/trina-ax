@@ -12,7 +12,9 @@ export interface Account { subject: string; name: string | null; email: string |
 export interface Tokens { accessToken: string; refreshToken: string; expiresAt: number }
 /** `go`: the desktop app's page before Google (its key's hash, the sign-in page); `claim`: the one-time code that lets the
  * app's own session finish a sign-in Google answered in a browser without a session (app-return.ts) */
-export interface FlowSecret { verifier: string; tokens?: Tokens; account?: Account; scopes?: string[]; go?: { hash: string; url: string }; claim?: { hash: string; until: number } }
+/** `desktop`: started in the desktop app (the page said so at the start), whatever the session's own kind says: its
+ * Google return in a browser without a session is held for the app's one-time code (app-return.ts) */
+export interface FlowSecret { verifier: string; tokens?: Tokens; account?: Account; scopes?: string[]; go?: { hash: string; url: string }; claim?: { hash: string; until: number; key?: string | null }; desktop?: true; appKey?: string }
 export interface ConnectionRow { id: string; user_id: string; config_key: string; account: string; scopes: string; secret_enc: string; key_version: number; status: 'connected' | 'needs_reconnect'; version: number; expires_at: string; updated_at: string }
 export interface FlowRow { id: string; user_id: string; session_id: string; state_hash: string; config_key: string; state: DriveFlow['state']; secret_enc: string | null; key_version: number; account: string | null; reason: string | null; expires_at: string; purpose: 'personal' | 'share'; share_id: string | null; created_at?: string }
 

@@ -43,6 +43,7 @@
 // files line is one row that opens the project's files on a screen of the 프로젝트 tab (ProjectFiles below,
 // /projects/:id/files, with no folder path line), so Back returns to the project.
 import { ArchiveRestore, ChevronLeft, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Import, Lock, Pin, Plus, ScrollText, UserPlus, X } from 'lucide-react'
+import { forkRows, type TreeRow } from '../lib/forkTree'
 import { foldRuns, runsUnread, TaskRunsIcon, TaskRunsMark, taskRunsAttrs, taskRunsPath, type Run } from '../components/nav/TaskRunsRow'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { scheduleName } from '../lib/scheduleText'
@@ -375,7 +376,8 @@ function ProjectRowEnd({ at, children }: { at: string; children?: ReactNode }) {
  * MentionPill) before the time and the title bold, as on that panel's chat row; opening the chat reads them (pages/Chat.tsx).
  * Its "···" holds the history row's items by the same rules
  * (components/chat/chatMenuItems.tsx): pin, 링크 복사, rename, move, delete; a bottom sheet on a phone. */
-export function ProjectChatRow({ chat: listed, project, mention, onMove, onChanged, onRemoved }: { chat: Chat; project?: Project | null; mention?: ChatMention; onMove?: (c: Chat) => void; onChanged?: (c: Chat) => void; onRemoved?: (c: Chat) => void }) {
+/** `tree`: a continuation's place under the chat it came from (lib/forkTree.ts; index.css .tree-row) */
+export function ProjectChatRow({ chat: listed, project, mention, onMove, onChanged, onRemoved, tree }: { chat: Chat; project?: Project | null; mention?: ChatMention; onMove?: (c: Chat) => void; onChanged?: (c: Chat) => void; onRemoved?: (c: Chat) => void; tree?: TreeRow }) {
   const t = useT()
   // the live copy: a project's shared chat counts my unread messages (chat/message-notices.ts), as the Trina list does
   const c = useLiveChat(listed)
@@ -417,6 +419,7 @@ export function ProjectChatRow({ chat: listed, project, mention, onMove, onChang
       rowMenu={{ items, label: t('rooms.menu.rowLabel', { name }), tip: t('rooms.menu.label'), sheetTitle: name, buttonRef: more, testId: 'project-chat-menu' }}
       testId="project-chat"
       link={{ 'data-shared': c.shared ? 'true' : undefined }}
+      {...(tree?.depth ? { li: { className: 'tree-row', 'data-tree-depth': '1' } } : {})}
     />
   )
 }
@@ -503,6 +506,13 @@ function ProjectPage() {
   shownChats.current = chats
   // my unread mentions by chat: the same counts as the 프로젝트 panel's chat rows (store/chatMentions.ts)
   const { byChat: mentions } = useMentions()
+  // the list's rows: my pins first and flat (a pin is one chat), then my continuations right under the chat they came
+  // from, each tree at that chat's place (lib/forkTree.ts; only my own chats carry Chat.forkParents)
+  const tree = useMemo(() => {
+    if (!chats) return null
+    const rows = forkRows(chats.filter((c) => !c.pinnedAt))
+    return { chats: [...chats.filter((c) => c.pinnedAt), ...rows.map((r) => r.chat)], of: new Map(rows.map((r) => [r.chat.id, r])) }
+  }, [chats])
   // failed: the folder could not be read (a network error); the line then says no count rather than a wrong one
   const [files, setFiles] = useState<PageFiles | null>(() => keptPage(projectId).files)
   const [editing, setEditing] = useState(false)
@@ -1147,8 +1157,9 @@ function ProjectPage() {
             {chats && !outside && !p.inTrash && <PrivateChatsNotice project={p} chats={chats} />}
             <ul className="divide-y divide-line">
               {/* the runs of one scheduled task started here: one row of this list that opens the task (nav/TaskRunsRow.tsx) */}
-              {chats && foldRuns(chats, (c) => (
-                <ProjectChatRow chat={c} project={p} mention={mentions.get(c.id)} onMove={setMoving} onChanged={chatHere} onRemoved={(x) => changeChats((cur) => cur.filter((y) => y.id !== x.id))} />
+              {/* my continuations right under the chat they came from (lib/forkTree.ts), pinned rows first and flat */}
+              {tree && foldRuns(tree.chats, (c) => (
+                <ProjectChatRow chat={c} project={p} mention={mentions.get(c.id)} onMove={setMoving} onChanged={chatHere} onRemoved={(x) => changeChats((cur) => cur.filter((y) => y.id !== x.id))} tree={tree.of.get(c.id)} />
               ), { task: (runs) => <ProjectTaskRow runs={runs} /> })}
             </ul>
           </section>

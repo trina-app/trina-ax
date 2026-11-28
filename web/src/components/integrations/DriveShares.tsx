@@ -12,7 +12,7 @@ import { useEffect, useRef, useState } from 'react'
 import { API, type DriveAdminStatus, type DriveFlow, type DriveShare, type DriveShareFolder, type IntegrationAccess } from '@mycel/shared/api'
 import { api, ApiError } from '../../lib/api'
 import { openExternal } from '../../lib/mobile'
-import { desktopOpenUrl, driveSignInUrl, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
+import { desktopOpenUrl, driveSignInUrl, googleStartBody, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
 import { isEmptyAccess } from '../../lib/integrations'
 import { useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
@@ -34,6 +34,8 @@ const NOBODY: IntegrationAccess = { everyone: false, groups: [], users: [] }
 function useShareFlow() {
   const [flow, setFlow] = useState<DriveFlow | null>(null)
   const [url, setUrl] = useState<string | null>(null)
+  // the address the desktop app opened in the system browser (Copy link: CopySignInLink)
+  const [opened, setOpened] = useState<string | null>(null)
   const [busy, setBusy] = useState(false), [error, setError] = useState(false)
   // the browser refused the window: Google's page as a link; the wait ran out (useWaitLimit): said so
   const [popupBlocked, setPopupBlocked] = useState(false), [timedOut, setTimedOut] = useState(false)
@@ -58,18 +60,22 @@ function useShareFlow() {
   }, [flow?.flowId, flow?.state])
   const start = async (shareId?: string) => {
     const g = ++generation.current
-    setBusy(true); setError(false); setTimedOut(false); setFlow(null); setUrl(null)
+    setBusy(true); setError(false); setTimedOut(false); setFlow(null); setUrl(null); setOpened(null)
     const place = signInPlace()
     popup.current = reserveSignInWindow(place)
     setPopupBlocked(place === 'browser' && !popup.current)
     try {
-      const r = await api.call(API.authorizeDriveShare, { body: shareId ? { shareId } : {} })
+      const r = await api.call(API.authorizeDriveShare, { body: { ...googleStartBody(), ...(shareId ? { shareId } : {}) } })
       if (g !== generation.current) return
       const href = driveSignInUrl(r, place === 'phone')
       setUrl(href)
       setFlow({ flowId: r.flowId, state: 'pending', account: null, expiresAt: r.expiresAt, reason: null })
       if (place === 'phone') await openExternal(href, { purpose: 'google-oauth' })
-      else openSignInWindow(place, popup.current, (place === 'desktop' && desktopOpenUrl(r, globalThis.location?.origin)) || href)
+      else {
+        const to = (place === 'desktop' && desktopOpenUrl(r, globalThis.location?.origin)) || href
+        if (place === 'desktop') setOpened(to)
+        openSignInWindow(place, popup.current, to)
+      }
     } catch { if (g === generation.current) { setError(true); popup.current?.close() } }
     finally { if (g === generation.current) setBusy(false) }
   }
@@ -95,7 +101,7 @@ function useShareFlow() {
   }
   // the window was closed before Google answered: the wait ends, the flow is cancelled there (QA TC-1417)
   useWaitLimit(!!flow && ['pending', 'exchanging'].includes(flow.state), flow?.flowId, () => { void cancel().then(() => { setError(true); setTimedOut(true) }) })
-  return { flow, url, busy, error, timedOut, popupBlocked, start, cancel, complete, inProgress: !!flow && ['pending', 'exchanging', 'ready'].includes(flow.state) }
+  return { flow, url, opened, busy, error, timedOut, popupBlocked, start, cancel, complete, inProgress: !!flow && ['pending', 'exchanging', 'ready'].includes(flow.state) }
 }
 
 /** "Finance, Q3" or "Whole Drive" */
@@ -225,7 +231,7 @@ export function DriveShareDialog({ share, reconnect, groups, users, onClose, onS
           {!f.inProgress && <Button variant="primary" busy={f.busy} onClick={() => void f.start(share?.id)} data-testid="drive-share-google">{t('drive.openGoogle')}</Button>}
           {f.flow && f.flow.state !== 'ready' && f.inProgress && (
             <BrowserWait google text={t('drive.waitingShort')} testId="drive-share-waiting" retryTestId="drive-share-retry-flow" cancelTestId="drive-share-cancel-flow" busy={f.busy}
-              onRetry={() => void f.start(share?.id)} link={googleLink({ popupBlocked: f.popupBlocked, authorizationUrl: f.url }, t('drive.openGoogle'))} />
+              onRetry={() => void f.start(share?.id)} link={googleLink({ popupBlocked: f.popupBlocked, authorizationUrl: f.url }, t('drive.openGoogle'))} copyLink={f.opened} />
           )}
           {f.flow?.state === 'ready' && (
             <div className="space-y-2" data-testid="drive-share-confirm-step">

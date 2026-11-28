@@ -258,6 +258,9 @@ export const SetupBody = z.object({
    * step starts from it on any device, the desktop app too. Not an http(s) address, or too long: dropped, never an
    * error (a setup never fails over it) */
   site: z.string().max(300).optional().catch(undefined),
+  /** the app the setup page runs in: a team made in the desktop app gets a desktop session (Google connect's hand-off
+   * back to the app needs one: server google-drive/app-return.ts) */
+  client: ClientKind.default('web'),
 })
 
 /** One-time reset link (admin-issued, 24 h; or owner recovery from the server Mac). Web page: /reset-password/<token>. */
@@ -312,6 +315,9 @@ export const ConsoleSetupBody = z.object({
   /** the owner's name as they wrote it on the page (prefilled from the preview); absent or not a valid name: the
    * preview's */
   name: z.string().max(200).optional(),
+  /** the language the page showed (the desktop app's, or the one picked there): the team's language, as on /setup.
+   * Absent (an older page): the language the team was made in on the hosting console */
+  locale: Locale.optional(),
   client: z.literal('desktop').default('desktop'),
   tokenMode: z.enum(['cookie']).default('cookie'),
 })

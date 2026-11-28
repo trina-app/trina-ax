@@ -730,7 +730,7 @@ export function Setup() {
     void run(async () => {
       // the team's time zone starts as this browser's (Admin > Settings changes it)
       const timeZone = browserTimeZone()
-      const r = await api.call(API.setup, { body: { setupToken: form.setupToken.trim(), teamName: (fixed?.team ?? form.teamName).trim(), locale: fixedLang ?? locale, ...(timeZone ? { timeZone } : {}), owner: { username: form.username.trim(), name: form.name.trim(), password: form.password }, ...(link.site ? { site: link.site } : {}) } })
+      const r = await api.call(API.setup, { body: { setupToken: form.setupToken.trim(), teamName: (fixed?.team ?? form.teamName).trim(), locale: fixedLang ?? locale, ...(timeZone ? { timeZone } : {}), owner: { username: form.username.trim(), name: form.name.trim(), password: form.password }, ...(link.site ? { site: link.site } : {}), client: clientKind() } })
       // the company website from the link: the server keeps it with the welcome steps (the desktop app reads it there);
       // this tab keeps a copy for an older server that does not
       rememberSetupSite(link.site)

@@ -8,7 +8,7 @@ import { markTeamShares } from '../chat/team-shares'
 import { redactorFor } from '../integrations/connections/redact'
 import { searchForms, searchWords } from '@mycel/shared'
 import { formsWhere } from '../search-forms'
-import { ACCESS_TARGET_ID, API, CHAT_FILE_EDIT_MAX, WINDOW_HEADER, type Attachment, type Chat, type Effort, type EngineId, type Locale, type Message, type UserRef } from '@mycel/shared/api'
+import { ACCESS_TARGET_ID, API, CHAT_FILE_EDIT_MAX, DEFAULT_LOCALE, WINDOW_HEADER, type Attachment, type Chat, type Effort, type EngineId, type Locale, type Message, type UserRef } from '@mycel/shared/api'
 import type { Context } from 'hono'
 import type { RouteModule } from './module'
 import type { AppContext } from '../context'
@@ -63,7 +63,7 @@ import { AttachCopyError, copyTeamAttachments, discardCopies } from '../chat/att
 import { editState, restoreTo, saveText, tellChatOnAiVersions } from '../chat/chat-file-edit'
 import { streamFile } from '../team-files/download'
 import { SAFE_OPS_TEXT } from '../safe-ops/strings'
-import { Audiences, accountSeesProject, chatFor, memberWhileTrashed, chatPeople, chatView, isSharedRow, messageFor, messageView, projectCanShare, projectShare, rulesInPlace, severalAuthors, sharesNewChats, type ChatAccess, type ChatPeople } from '../chat/shared'
+import { Audiences, accountSeesProject, chatFor, memberWhileTrashed, chatPeople, chatView, isSharedRow, liveChat, messageFor, messageView, projectCanShare, projectShare, rulesInPlace, severalAuthors, sharesNewChats, type ChatAccess, type ChatPeople } from '../chat/shared'
 import { AnswerSight, type ChatHit } from '../chat/shared-answers'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { deleteProjectForGood } from '../chat/project-delete'
@@ -159,7 +159,7 @@ function notifyInstructionsChanged(ctx: AppContext, r: ProjectRowT, by: AuthInfo
     try { who = ctx.files.principal(u.id) } catch { continue }
     if (!canSeeProject(ctx.files, who, r)) continue
     try {
-      ctx.services.realtime.publish(u.id, { type: 'notice', data: { level: 'info', code: 'project_instructions_changed', message: tr('projectInstructionsChanged', u.locale ?? 'ko', { name: r.name, by: by.name }) } })
+      ctx.services.realtime.publish(u.id, { type: 'notice', data: { level: 'info', code: 'project_instructions_changed', message: tr('projectInstructionsChanged', u.locale ?? DEFAULT_LOCALE, { name: r.name, by: by.name }) } })
     } catch (e) { ctx.log.warn('project notice failed', { err: e }) }
   }
 }
@@ -372,14 +372,14 @@ export const chatsRoutes: RouteModule = {
       const limit = query.limit ?? 50
       // the Trina list's other chats, their next pages (chat/chat-groups.ts: the same set as the groups' `other`)
       if (query.other) {
-        if (query.q || query.projectId || query.folderId || query.sideRoomId || query.trash) fail('validation', undefined, { fields: { 'query.other': 'alone' } })
+        if (query.q || query.projectId || query.folderId || query.sideRoomId || query.trash || query.ids) fail('validation', undefined, { fields: { 'query.other': 'alone' } })
         return otherChats(rt, me, query.cursor, limit)
       }
       // the chats shared with people with messages I have not read (chat/message-notices.ts), for the app icon and the
       // desktop notice after a reload; a project's shared chat has no unread messages (docs/decisions/
       // 20261126-project-chat-mention-only.md: an older row there is not listed)
       if (query.unread) {
-        if (query.q || query.projectId || query.folderId || query.sideRoomId || query.trash || query.cursor || query.other) fail('validation', undefined, { fields: { 'query.unread': 'alone' } })
+        if (query.q || query.projectId || query.folderId || query.sideRoomId || query.trash || query.cursor || query.other || query.ids) fail('validation', undefined, { fields: { 'query.unread': 'alone' } })
         // every such chat is read (one indexed read of my unread notices), then only the ones I see now are kept, then
         // the page: a chat I lost (its notices stay until read) never pushes one I see out of it
         const rows = ctx.db.query(`SELECT ${CHAT_COLS} FROM chats WHERE room_id IS NULL AND deleted_at IS NULL AND ${notInternalChat(ctx.db)}
@@ -389,6 +389,10 @@ export const chatsRoutes: RouteModule = {
         const people = chatPeople(ctx.db, seen.map((r) => r.id), me)
         return { items: seen.map((r) => chatOut(rt, me, r, { aud, people })), nextCursor: null }
       }
+      // the chats my list's continuations came from that no page has brought yet (docs/decisions/20261127-fork-in-history.md):
+      // my history's own rule below (historyWhere and visible()), only these ids, one answer, pins not first
+      const byIds = query.ids
+      if (byIds && (query.q || query.projectId || query.folderId || query.sideRoomId || query.trash || query.cursor || query.limit !== undefined)) fail('validation', undefined, { fields: { 'query.ids': 'alone' } })
       // a room's AI session (rooms/ai.ts) and the server's own draft chats (the company profile, a team skill) are not
       // the person's conversations: never listed or found by a search (chat/internal-chats.ts)
       const where: string[] = ['room_id IS NULL', notInternalChat(ctx.db)]
@@ -414,6 +418,7 @@ export const chatsRoutes: RouteModule = {
         // history (chat/history-list.ts), with visible() below as its per-row part
         const h = historyWhere(ctx.db, me, { hidden: !!query.q?.trim() })
         where.push(h.sql); args.push(...h.args)
+        if (byIds) { where.push('id IN (SELECT value FROM json_each(?))'); args.push(JSON.stringify(byIds)) }
       }
       // a room's side panel (✦ Trina): my own chats opened from it (never a shared chat)
       if (query.sideRoomId) { where.push('side_room_id = ?', 'user_id = ?'); args.push(query.sideRoomId, me) }
@@ -462,7 +467,7 @@ export const chatsRoutes: RouteModule = {
       // my pinned chats first (chat/pins.ts): the first page of my list, and of a project's page, starts with the ones of
       // that list, the most recently pinned first; every page leaves them out of the rest. Not in a search or the trash
       // (a chat in the trash has no pin). My list's first page also drops my pins of chats I can no longer see.
-      const pinsFirst = !q && !query.trash
+      const pinsFirst = !q && !query.trash && !byIds
       const pinWhere = [...where], pinArgs = [...args]
       if (pinsFirst) { where.push('id NOT IN (SELECT chat_id FROM chat_pins WHERE user_id = ?)'); args.push(me) }
       if (pinsFirst && !cur && !query.projectId) dropUnseenPins(rt, me)
@@ -612,11 +617,11 @@ export const chatsRoutes: RouteModule = {
       // a chat shared with me that I hid from my list: opening it brings it back ("Hide from my list")
       if (a.kind === 'people' && !a.creator && unhideOnOpen(ctx, auth.user.id, chat.id)) {
         const back = chatOut(rt, auth.user.id, chat)
-        rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat: back } })
+        rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat: liveChat(auth.user.id, chat, back) } })
       }
       // a chat shared with people or a project's shared chat: my unread messages there are read (chat/message-notices.ts);
       // my windows hear it
-      if (a.shared && readChatNotices(ctx, auth.user.id, chat.id)) rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat: chatOut(rt, auth.user.id, chat) } })
+      if (a.shared && readChatNotices(ctx, auth.user.id, chat.id)) rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat: liveChat(auth.user.id, chat, chatOut(rt, auth.user.id, chat)) } })
       if (a.shared && !a.creator) return chatOut(rt, auth.user.id, chat)
       const was = rt.store.unseen(chat)
       rt.store.markSeen(chat.id)
@@ -724,8 +729,9 @@ export const chatsRoutes: RouteModule = {
     // chat's other people never learn of my pin). Not the server's own drafts: they are in no list (chat/internal-chats.ts)
     const notDraft = (a: ChatAccess) => { if (isInternalChat(ctx.db, a.row.id)) fail('not_found') }
     const pinned = (me: string, id: string) => {
-      const chat = chatOut(rt, me, rt.store.chatRow(id)!)
-      rt.hub.publish(me, { type: 'chat.updated', data: { chatId: id, change: 'updated', chat } })
+      const row = rt.store.chatRow(id)!
+      const chat = chatOut(rt, me, row)
+      rt.hub.publish(me, { type: 'chat.updated', data: { chatId: id, change: 'updated', chat: liveChat(me, row, chat) } })
       return chat
     }
     kit.handle(API.pinChat, ({ c, params, auth }) => {
@@ -826,7 +832,7 @@ export const chatsRoutes: RouteModule = {
       hideChat(ctx, auth.user.id, a, hide, c.get('locale'))
       const out = chatOut(rt, auth.user.id, rt.store.chatRow(a.row.id)!)
       // my other windows: hidden, it leaves their lists (by its id alone); back, it returns
-      rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: a.row.id, change: hide ? 'deleted' : 'updated', chat: hide ? null : out } })
+      rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: a.row.id, change: hide ? 'deleted' : 'updated', chat: hide ? null : liveChat(auth.user.id, a.row, out) } })
       return out
     }
     // the delete-account dialog's count (admins): the chats this person shared with people that someone else sees
@@ -843,7 +849,7 @@ export const chatsRoutes: RouteModule = {
       if (!a.shared) fail('validation', undefined, { params: { reason: 'chat_mute_people_only' } })
       setMuted(ctx, auth.user.id, a.row.id, mute)
       const out = chatOut(rt, auth.user.id, rt.store.chatRow(a.row.id)!)
-      rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: a.row.id, change: 'updated', chat: out } })
+      rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: a.row.id, change: 'updated', chat: liveChat(auth.user.id, a.row, out) } })
       return out
     }
     kit.handle(API.muteChat, ({ c, params, auth }) => muted(auth, chatOf(rt, c, auth, params.id, 'view'), true))

@@ -10,6 +10,9 @@
 #   qcow2 (here)            after build-ami: the AMI's root snapshot as a signed qcow2 beside the AMI manifest, for the
 #                           control plane's Proxmox hosts (scripts/image/snapshot-to-qcow2.ts, publish-qcow2.ts). Its
 #                           failure never fails the AMI
+#   lightsail (here)        after build-ami: the same image as a Lightsail instance snapshot in Seoul, built on Lightsail
+#                           (scripts/image/build-lightsail.sh), its signed .lightsail.json beside the AMI manifest, for
+#                           the hostd lightsail driver of the paid team servers. Its failure never fails the AMI
 #
 # Its own workflow, not a job of release.yml: an image takes up to three hours, and release.yml's concurrency group is
 # also the one of feed.yml (hold, promote). A hold must never wait for an image. GitHub keeps one pending run per
@@ -402,3 +405,169 @@ jobs:
         run: |
           m=$(bun scripts/release/publish-qcow2.ts manifest --version "$VERSION" --qcow2 "dist/image/teamax-$TEMPLATE.qcow2" --snapshot "$AMI_REGION=$SNAPSHOT")
           bun scripts/release/publish-qcow2.ts publish --version "$VERSION" --manifest "$m"
+
+  # The Lightsail twin of the AMI (trina-cloud docs/research/lightsail-paid-teams.md §6.2): Lightsail cannot import an
+  # AMI, so scripts/image/build-lightsail.sh makes the image again on a Lightsail builder from the same stage and the
+  # same customize.sh, as an instance snapshot teamax-<templateVersion> in LIGHTSAIL_REGION, and writes its manifest
+  # teamax-<templateVersion>.lightsail.json; it is signed here and put on the feed beside the AMI manifest. The template
+  # version is the AMI's (team-image.json), so hostd and the control plane see one version per release. Its own job: a
+  # failure here never fails the AMI or the qcow2, and a re-run of a failed lightsail job makes only the Lightsail image.
+  # Settings: as build-ami, and the CI role needs the managed policy docs/runbooks/team-image-lightsail-iam-policy.json (its
+  # own policy: the inline one of the role is near the IAM limit of 10,240 characters for all inline policies of a role).
+  lightsail:
+    name: Lightsail image (instance snapshot)
+    needs: build-ami
+    if: ${{ !cancelled() && needs.build-ami.result == 'success' }}
+    runs-on: ubuntu-24.04
+    environment: release
+    # stage ~5 min, builder up to LIGHTSAIL_WAIT_MIN (a new instance starts at about 0 % CPU burst, design R3), the
+    # snapshot up to 90 min. The AWS session below lasts 4 hours (the role's MaxSessionDuration).
+    timeout-minutes: 270
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ inputs.tag }}
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+      LIGHTSAIL_REGION: ap-northeast-2
+      LIGHTSAIL_WAIT_MIN: "140"
+    steps:
+      - name: Settings
+        id: go
+        env:
+          HAVE_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+          HAVE_KEY: ${{ secrets.RELEASE_SIGNING_KEY != '' }}
+        run: |
+          missing=()
+          [ -n "$AWS_ROLE_ARN" ] || missing+=("repository variable AWS_ROLE_ARN")
+          [ "$HAVE_TOKEN" = true ] || missing+=("secret CLOUDFLARE_API_TOKEN")
+          [ "$HAVE_KEY" = true ] || missing+=("secret RELEASE_SIGNING_KEY")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::notice::no Lightsail image for $TAG: not set up ($(IFS=,; echo "${missing[*]}")); docs/RELEASE-CI.md"
+            echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if ! [[ "$AWS_ROLE_ARN" =~ ^arn:aws:iam::([0-9]{12}):role/[A-Za-z0-9+=,.@_/-]+$ ]]; then echo "::error::AWS_ROLE_ARN is not an IAM role ARN"; exit 1; fi
+          echo "account=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+          echo "run=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: steps.go.outputs.run == 'true'
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        if: steps.go.outputs.run == 'true'
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      # no package's install script runs in the job that holds the key
+      - if: steps.go.outputs.run == 'true'
+        run: bun install --frozen-lockfile --ignore-scripts
+      # the template version of the release's AMI; a Lightsail manifest on the feed already ends the run
+      - name: The template version and the Lightsail image on the feed
+        id: feed
+        if: steps.go.outputs.run == 'true'
+        run: |
+          out=$(bun scripts/release/release-ci.ts tag "$TAG")
+          version=$(sed -n 's/^version=//p' <<<"$out")
+          feed=$(bun -e 'import { RELEASE_CHANNEL } from "./shared/src/release-channel"; console.log(RELEASE_CHANNEL.feed)')
+          dir="$feed/server/$version"
+          if ! ptr=$(curl -sf "$dir/team-image.json?t=$(date +%s)"); then echo "::notice::$version has no team image on the feed: no Lightsail image"; echo "build=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          tv=$(jq -r .templateVersion <<<"$ptr")
+          [[ "$tv" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?-d13-[0-9]{8}$ && "$tv" == "$version"-d13-* ]] || { echo "::error::team-image.json names template $tv"; exit 1; }
+          if curl -sf -o /dev/null "$dir/teamax-$tv.lightsail.json?t=$(date +%s)"; then echo "::notice::teamax-$tv.lightsail.json is on the feed already"; echo "build=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          { echo "build=true"; echo "version=$version"; echo "template=$tv"; } | tee -a "$GITHUB_OUTPUT"
+      - name: The release's signed linux-amd64 kit
+        if: steps.feed.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p kit
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*-linux-amd64.tar.gz' --pattern 'SHA256SUMS' --pattern 'SHA256SUMS.sig' --dir kit
+          bun scripts/release/release-ci.ts verify-sums kit/SHA256SUMS
+          k=$(ls kit/*-linux-amd64.tar.gz)
+          grep -q "  $(basename "$k")\$" kit/SHA256SUMS || { echo "::error::$(basename "$k") is not in the release's SHA256SUMS"; exit 1; }
+          (cd kit && sha256sum -c --ignore-missing --status SHA256SUMS) || { echo "::error::$(basename "$k") does not match SHA256SUMS"; exit 1; }
+          echo "KIT=$k" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        if: steps.feed.outputs.build == 'true'
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: mycel-enroll and mycel-link (linux amd64)
+        if: steps.feed.outputs.build == 'true'
+        run: ARCHS=amd64 bash native/build.sh
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        if: steps.feed.outputs.build == 'true'
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.LIGHTSAIL_REGION }}
+          role-session-name: team-image-lightsail-${{ github.run_id }}
+          role-duration-seconds: 14400
+      # a re-run reuses the snapshot an earlier attempt made (available, with the right tags) and writes only the manifest
+      - name: Build the Lightsail image (${{ env.LIGHTSAIL_REGION }})
+        if: steps.feed.outputs.build == 'true'
+        env:
+          # the stage and the builder's result go through R2 (ci/lightsail-build/, not served by the feed)
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT: ${{ steps.go.outputs.account }}
+          TEMPLATE: ${{ steps.feed.outputs.template }}
+        run: |
+          scripts/image/build-lightsail.sh --yes --account "$ACCOUNT" --region "$LIGHTSAIL_REGION" --template-version "$TEMPLATE" \
+            --kit "$KIT" --enroll-bin native/bin/linux-amd64/mycel-enroll --link-bin native/bin/linux-amd64/mycel-link \
+            --wait-minutes "$LIGHTSAIL_WAIT_MIN" --out dist/image
+      # the message of the AMI manifest and of hostd: "ax-template-v1\n<templateVersion>\n<sha256 hex>", base64 Ed25519
+      - name: Sign the manifest
+        if: steps.feed.outputs.build == 'true'
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          TEMPLATE: ${{ steps.feed.outputs.template }}
+        run: |
+          key="$RUNNER_TEMP/release-key.pem"
+          trap 'rm -f "$key"' EXIT
+          m="dist/image/teamax-$TEMPLATE.lightsail.json"
+          sha=$(sha256sum "$m" | cut -d' ' -f1)
+          [ "$(cat "$m.sha256")" = "$sha  $(basename "$m")" ] || { echo "::error::$m.sha256 does not match"; exit 1; }
+          umask 077
+          printf '%s\n' "$RELEASE_SIGNING_KEY" > "$key"
+          bun scripts/release/release-ci.ts check-key "$key"
+          printf 'ax-template-v1\n%s\n%s' "$TEMPLATE" "$sha" > "$RUNNER_TEMP/sigmsg"
+          openssl pkeyutl -sign -inkey "$key" -rawin -in "$RUNNER_TEMP/sigmsg" -out "$RUNNER_TEMP/sig.bin"
+          rm -f "$key"
+          umask 022
+          base64 -w0 < "$RUNNER_TEMP/sig.bin" > "$m.sig"
+          rm -f "$RUNNER_TEMP/sigmsg" "$RUNNER_TEMP/sig.bin"
+      - name: Remove the release key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release-key.pem"
+      # lightsail-feed.ts checks the manifest and its signature against this product's keys before anything goes up;
+      # the manifest goes last
+      - name: Publish the manifest on the feed
+        if: steps.feed.outputs.build == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          VERSION: ${{ steps.feed.outputs.version }}
+          TEMPLATE: ${{ steps.feed.outputs.template }}
+        run: bun scripts/image/lightsail-feed.ts publish --version "$VERSION" --manifest "dist/image/teamax-$TEMPLATE.lightsail.json"
+      - name: Remove old Lightsail images (keep the newest ${{ env.AMI_KEEP }} releases, younger than ${{ env.AMI_MIN_AGE_DAYS }} days, in use)
+        if: steps.feed.outputs.build == 'true'
+        env:
+          ACCOUNT: ${{ steps.go.outputs.account }}
+          TEMPLATE: ${{ steps.feed.outputs.template }}
+        run: scripts/image/build-lightsail.sh --prune --account "$ACCOUNT" --region "$LIGHTSAIL_REGION" --keep "$AMI_KEEP" --min-age-days "$AMI_MIN_AGE_DAYS" --protect-template "$TEMPLATE"
+      # a cancel or a time-out can stop build-lightsail.sh before its own clean-up: remove exactly what its state file names
+      - name: Remove what an interrupted build left behind
+        if: (cancelled() || failure()) && steps.feed.outputs.build == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT: ${{ steps.go.outputs.account }}
+        run: |
+          for s in dist/image/lightsail-build-*.state; do
+            [ -s "$s" ] || continue
+            scripts/image/build-lightsail.sh --cleanup "$s" --account "$ACCOUNT" --region "$LIGHTSAIL_REGION" || echo "::warning::clean-up of $s did not finish: see the lightsail-build-state artifact"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ !success() && steps.feed.outputs.build == 'true' }}
+        with:
+          name: lightsail-build-state
+          path: dist/image/lightsail-build-*.state
+          if-no-files-found: ignore
+          retention-days: 7

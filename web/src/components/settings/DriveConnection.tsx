@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import type { DriveConnection as Connection, DriveFlow } from '@mycel/shared/api'
 import { api, API, ApiError } from '../../lib/api'
 import { mobileApp, openExternal } from '../../lib/mobile'
-import { desktopOpenUrl, driveSignInUrl, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
+import { desktopOpenUrl, driveSignInUrl, googleStartBody, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
 import { useT } from '../../i18n'
 import { SIGN_IN_WAIT_MINUTES, useWaitLimit } from '../../lib/signInWait'
 import { peekCached, rememberCached } from '../../store/listCache'
 import { Button, LinkButton, WaitLine, confirmDialog } from '../ui'
 import { GoogleAccountBlock } from '../integrations/GoogleAccount'
+import { CopySignInLink } from '../integrations/CopySignInLink'
 
 /** What a sign-in flow calls on the server: Google Drive's (useDriveFlow) and each Google app's (Gmail, Calendar, Docs,
  * Sheets: integrations/GoogleAppConnector.tsx) are the same steps on their own addresses. `current`: the connection once
@@ -31,6 +32,8 @@ export interface SignInOps<C> {
 export function useSignInFlow<C>(ops: SignInOps<C>, onConnected: (c: C) => void) {
   const [flow, setFlow] = useState<DriveFlow | null>(null)
   const [authorizationUrl, setAuthorizationUrl] = useState<string | null>(null)
+  // the address the desktop app opened in the system browser ("Copy link" beside the wait: CopySignInLink)
+  const [openedUrl, setOpenedUrl] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(false)
   const [reason, setReason] = useState<string | null>(null)
@@ -55,7 +58,7 @@ export function useSignInFlow<C>(ops: SignInOps<C>, onConnected: (c: C) => void)
         if (next.state === 'ready') popup.current?.close()
         if (next.state === 'completed') {
           const r = await calls.current.current()
-          if (active && g === generation.current) { setFlow(null); setAuthorizationUrl(null); connected.current(r) }
+          if (active && g === generation.current) { setFlow(null); setAuthorizationUrl(null); setOpenedUrl(null); connected.current(r) }
         }
         if (['failed', 'expired'].includes(next.state)) { setError(true); setReason(next.reason ?? next.state) }
       } catch { if (active && g === generation.current) setError(true) }
@@ -66,7 +69,7 @@ export function useSignInFlow<C>(ops: SignInOps<C>, onConnected: (c: C) => void)
   }, [flow?.flowId, flow?.state])
   const start = async () => {
     const g = ++generation.current
-    setBusy(true); setError(false); setReason(null); setFlow(null); setAuthorizationUrl(null)
+    setBusy(true); setError(false); setReason(null); setFlow(null); setAuthorizationUrl(null); setOpenedUrl(null)
     // A browser reserves its window during the click; if it was blocked, the page shows the same checked URL as a
     // normal link. The desktop app reserves none and opens the address once it is known (lib/driveSignIn.ts).
     const place = signInPlace()
@@ -81,7 +84,11 @@ export function useSignInFlow<C>(ops: SignInOps<C>, onConnected: (c: C) => void)
       if (place === 'phone') await openExternal(url, { purpose: 'google-oauth' })
       // the desktop app: the server's one-time address first, so the system browser can finish without a sign-in
       // (Drive only; the link beside the wait stays the sign-in page)
-      else openSignInWindow(place, popup.current, (place === 'desktop' && desktopOpenUrl(result, globalThis.location?.origin)) || url)
+      else {
+        const opened = (place === 'desktop' && desktopOpenUrl(result, globalThis.location?.origin)) || url
+        if (place === 'desktop') setOpenedUrl(opened)
+        openSignInWindow(place, popup.current, opened)
+      }
     } catch (e) { if (g === generation.current) { setError(true); setReason(e instanceof ApiError ? e.message : null); popup.current?.close() } }
     finally { if (g === generation.current) setBusy(false) }
   }
@@ -96,7 +103,7 @@ export function useSignInFlow<C>(ops: SignInOps<C>, onConnected: (c: C) => void)
   const cancel = async () => {
     if (!flow) return
     const id = flow.flowId, g = ++generation.current
-    setBusy(true); setFlow(null); setAuthorizationUrl(null); popup.current?.close()
+    setBusy(true); setFlow(null); setAuthorizationUrl(null); setOpenedUrl(null); popup.current?.close()
     try { await calls.current.cancel(id) }
     catch { if (g === generation.current) setError(true) }
     finally { if (g === generation.current) setBusy(false) }
@@ -108,7 +115,7 @@ export function useSignInFlow<C>(ops: SignInOps<C>, onConnected: (c: C) => void)
     try {
       const r = await calls.current.complete(flow.flowId)
       if (g !== generation.current) return
-      setFlow(null); setAuthorizationUrl(null); popup.current?.close(); connected.current(r)
+      setFlow(null); setAuthorizationUrl(null); setOpenedUrl(null); popup.current?.close(); connected.current(r)
     } catch (e) { if (g === generation.current) { setError(true); setReason(e instanceof ApiError ? e.message : null) } }
     finally { if (g === generation.current) setBusy(false) }
   }
@@ -118,17 +125,17 @@ export function useSignInFlow<C>(ops: SignInOps<C>, onConnected: (c: C) => void)
     if (!flow) return
     const id = flow.flowId
     generation.current++
-    setFlow(null); setAuthorizationUrl(null); popup.current?.close()
+    setFlow(null); setAuthorizationUrl(null); setOpenedUrl(null); popup.current?.close()
     setError(true); setReason('timeout')
     void calls.current.cancel(id).catch(() => { /* it expires there by itself */ })
   })
   const inProgress = !!flow && ['pending', 'exchanging', 'ready'].includes(flow.state)
-  return { flow, authorizationUrl, busy, setBusy, error, setError, reason, popupBlocked, generation, start, resume, cancel, complete, inProgress }
+  return { flow, authorizationUrl, openedUrl, busy, setBusy, error, setError, reason, popupBlocked, generation, start, resume, cancel, complete, inProgress }
 }
 export type SignInFlowState = ReturnType<typeof useSignInFlow>
 
 const DRIVE_OPS: SignInOps<Connection> = {
-  authorize: () => api.call(API.authorizeDrive, { body: {} }),
+  authorize: () => api.call(API.authorizeDrive, { body: googleStartBody() }),
   poll: (id) => api.call(API.driveFlow, { params: { id } }),
   complete: (id) => api.call(API.completeDriveFlow, { params: { id }, body: {} }),
   cancel: (id) => api.call(API.cancelDriveFlow, { params: { id } }),
@@ -147,7 +154,7 @@ export function DriveFlowPanel({ d, flow }: { d: DriveFlowState; flow: DriveFlow
   const t = useT()
   return <div className="space-y-3 rounded-xl border border-line p-4">
     {flow.state === 'ready' ? <p role="status">{t('drive.confirmAccount')}</p>
-      : <WaitLine text={t('drive.waiting')} hint={t('connect.wait.google', { n: SIGN_IN_WAIT_MINUTES })} testId="drive-flow-wait" />}
+      : <WaitLine text={t('drive.waiting')} hint={<>{t('connect.wait.google', { n: SIGN_IN_WAIT_MINUTES })}<CopySignInLink url={d.openedUrl} testId="drive-flow-wait-copy-link" /></>} testId="drive-flow-wait" />}
     {flow.state === 'ready' && <>
       <GoogleAccountBlock account={flow.account} testId="drive-account" />
       <Button variant="primary" busy={d.busy} onClick={() => void d.complete()} data-testid="drive-confirm">{t('drive.confirm')}</Button>

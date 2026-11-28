@@ -26,9 +26,10 @@ import { AppDetail } from './AppDetail'
 import { AskAdminAction, type AskState } from './AskAdmin'
 import { GoogleUnverifiedNote } from './GoogleUnverifiedNote'
 import { GoogleAccountBlock } from './GoogleAccount'
+import { googleStartBody } from '../../lib/driveSignIn'
 
 const opsFor = (app: GoogleAppId, current: () => Promise<GoogleAppView>): SignInOps<GoogleAppView> => ({
-  authorize: () => api.call(API.authorizeGoogleApp, { params: { app }, body: {} }),
+  authorize: () => api.call(API.authorizeGoogleApp, { params: { app }, body: googleStartBody() }),
   poll: (id) => api.call(API.googleAppFlow, { params: { app, id } }),
   complete: (id) => api.call(API.completeGoogleAppFlow, { params: { app, id }, body: {} }),
   cancel: (id) => api.call(API.cancelGoogleAppFlow, { params: { app, id } }),
@@ -117,7 +118,7 @@ export function SignInSteps({ d, testId, failed, inDialog, question }: { d: Goog
     <>
       {flow && flow.state !== 'ready' && (
         <BrowserWait google framed text={t('drive.waitingShort')} testId={`${testId}-waiting`} retryTestId={`${testId}-retry-wait`} cancelTestId={`${testId}-cancel`} busy={d.busy}
-          onRetry={() => void d.start()} onCancel={inDialog ? undefined : () => void d.cancel()} link={googleLink(d, t('drive.openGoogle'))} />
+          onRetry={() => void d.start()} onCancel={inDialog ? undefined : () => void d.cancel()} link={googleLink(d, t('drive.openGoogle'))} copyLink={d.openedUrl} />
       )}
       {flow?.state === 'ready' && (
         <div className="space-y-2" data-testid={`${testId}-confirm-step`}>

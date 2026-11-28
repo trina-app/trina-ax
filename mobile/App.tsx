@@ -18,14 +18,14 @@ import { PhotoPicks } from './src/photos'
 import { httpFailure, probeAnswer, Reconnect } from './src/reconnect'
 import { SheetGate } from './src/sheet'
 import { clearPickCache, photoPickIO } from './src/photo-io'
-import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, DICTATION_CAPABILITY, GOOGLE_SIGNIN_CAPABILITY, googleSignInReturn, readGoogleSignInReturn, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig, PUSH_SYNC_CAPABILITY, PUSH_CLEAR_CAPABILITY } from './src/protocol'
+import { APPEARANCE_CAPABILITY, LANGUAGE_CAPABILITY, type PageLocale, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, DICTATION_CAPABILITY, GOOGLE_SIGNIN_CAPABILITY, googleSignInReturn, readGoogleSignInReturn, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig, PUSH_SYNC_CAPABILITY, PUSH_CLEAR_CAPABILITY } from './src/protocol'
 import { accentInk, installGuide, mobileProduct, mobileService } from './src/product'
 import { appBadge, devicePushToken, devices, forgetDelivered, labels, notificationPermission, onNotificationTap, openAppSettings, pushSyncNative, quietForeground } from './src/push'
 import { takesClear, takesSync } from './src/badge'
 import { DARK, LIGHT, frame, insetScript, isDark, padding, pageInsets, type Insets, type Padding, type Palette } from './src/look'
 import { currentDevice, leaveTeam, rememberDevice, startRemovals } from './src/device'
-import { fill, inputError, offlineError, stringsFor } from './src/strings'
-import { checkTeam, leftSessions, readTeamInput, rememberSelfPadded, savedTeamSince, savedTeamUrl, saveTeamUrl, selfPaddedTeam } from './src/team'
+import { fill, inputError, offlineError, stringsFor, type Strings } from './src/strings'
+import { checkTeam, leftSessions, pageLanguageOf, readTeamInput, rememberPageLanguage, rememberSelfPadded, savedTeamSince, savedTeamUrl, saveTeamUrl, selfPaddedTeam } from './src/team'
 import { LinkGate, readAppLink, type LinkOffer } from './src/team-link'
 import { ReinstallSignOut, reinstallDone, wasReinstalled } from './src/install'
 import { reinstallDeps } from './src/files'
@@ -41,7 +41,9 @@ const VERSION = Constants.expoConfig?.version ?? '1.0.0'
 /** the installed build (CFBundleVersion / versionCode): Settings › About shows it next to VERSION (QA TC-8071) */
 const BUILD = Application.nativeBuildVersion
 const language = getLocales()[0]?.languageCode
-const t = stringsFor(language)
+/** The words of the app's own screens: the page's language once the team's page said (language-v1, kept for the team),
+ * the phone's before (App). */
+const Words = createContext<Strings>(stringsFor(language))
 /** ③'s "install it yourself" page: the repository's guide, which links no paid plan (App Review 3.1.1, Google Play
  * payments); phones have no "create a team" button for the same reason */
 const INSTALL_GUIDE = installGuide(service.repository, language?.toLowerCase().startsWith('ko') ?? false)
@@ -129,6 +131,10 @@ const bootstrap = (config: MobileConfig, ready = false, document?: string) => `i
 
 export default function App() {
   const [team, setTeam] = useState<TeamAddress | null | undefined>()
+  // the page's language (language-v1): the native screens use it; null until this team's page said (then the phone's)
+  const [pageLanguage, setPageLanguage] = useState<PageLocale | null>(null)
+  const t = stringsFor(pageLanguage ?? language), words = useRef(t)
+  words.current = t
   // the first-run box over the team that is still connected ("다른 팀에 연결"): the team stays until another one answered
   // and the person said yes
   const [adding, setAdding] = useState(false)
@@ -140,7 +146,7 @@ export default function App() {
       if (!url) return
       const p = readAppLink(url, LINKS)
       if (!p) return
-      if (!p.ok) { Alert.alert(product.name, t.linkBad); return }
+      if (!p.ok) { Alert.alert(product.name, words.current.linkBad); return }
       setLink(gate.current.put(p))
     }
     void Linking.getInitialURL().then(take, () => {})
@@ -183,6 +189,7 @@ export default function App() {
       // what the extension may use belongs to this team and this device, or it goes (not when the device could not be read)
       if (deviceRead) await labels?.tidy(origin, device.current).catch(() => {})
       if (origin) await owedSignOut(origin)
+      if (origin) setPageLanguage(await pageLanguageOf(origin))
       setTeam(origin ? { origin, entryPath: '/' } : null)
       off = onNotificationTap(() => since.current, () => device.current, path => { if (hasTeam.current) setOpened(o => ({ path, n: (o?.n ?? 0) + 1 })) })
     })
@@ -223,16 +230,19 @@ export default function App() {
       if (old) await leave(old)
       await owedSignOut(address.origin)
       // the new team's page starts at the link's page (TeamWeb's first address)
+      // another team's own screens: its page's language once it said, the phone's until then
+      setPageLanguage(await pageLanguageOf(address.origin).catch(() => null))
       setOpened(null); setPage(null); setAdding(false); setTeam(address)
     })
   }
   // Android: the status bar icons and the three-button bar's contrast scrim follow the look (React Native set the scrim
   // once, from the phone's look at launch)
-  return <SafeAreaProvider><Look.Provider value={dark ? DARK : LIGHT}>{Platform.OS === 'android' && <><StatusBar style={dark ? 'light' : 'dark'} /><NavigationBar style={dark ? 'light' : 'dark'} /></>}
+  return <SafeAreaProvider><Words.Provider value={t}><Look.Provider value={dark ? DARK : LIGHT}>{Platform.OS === 'android' && <><StatusBar style={dark ? 'light' : 'dark'} /><NavigationBar style={dark ? 'light' : 'dark'} /></>}
     {team === undefined ? <Center><ActivityIndicator color={product.accent} /></Center>
       : team === null ? <Setup current={null} onDone={connect} />
       : <>
         <TeamWeb key={team.origin} address={team} hidden={adding || !!link} pads={padsAtLaunch.current === team.origin} signOut={owed.current?.origin === team.origin ? owed.current : signOut.current} leaving={leaving} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
+          onLanguage={setPageLanguage}
           onChangeTeam={() => setAdding(true)} />
         {adding && <View style={StyleSheet.absoluteFill}><Setup current={team.origin} onBack={closeAdding}
           // the same team again: its page opens there (a link's join page, or its start)
@@ -245,7 +255,7 @@ export default function App() {
       onClose={() => { if (linkRef.current?.id === link.id) setLink(null) }}
       onSame={path => { if (linkRef.current?.id !== link.id) return; setLink(null); setAdding(false); setOpened(o => ({ path, n: (o?.n ?? 0) + 1 })) }}
       onDone={async address => { if (linkRef.current?.id !== link.id) return false; const ok = await connect(address); if (ok) setLink(l => l?.id === link.id ? null : l); return ok }} /></View>}
-  </Look.Provider></SafeAreaProvider>
+  </Look.Provider></Words.Provider></SafeAreaProvider>
 }
 // Insets as explicit padding on every native screen: with edge-to-edge (Android, targetSdk 36) the app draws under the
 // status bar and the gesture bar, and buttons must stay clear of both.
@@ -256,7 +266,7 @@ function Center({ children }: { children: ReactNode }) {
 /** A sleeping free trial team is starting while it is added (about a minute): a calm wait, not an error; the add goes
  * on by itself when it answers (src/team-check.ts, QA wake gap 1). */
 function WakingNote() {
-  const c = useContext(Look)
+  const c = useContext(Look), t = useContext(Words)
   return <View style={s.waking} accessibilityRole="progressbar" accessibilityLiveRegion="polite" testID="team-waking">
     <View style={s.wakingRow}><ActivityIndicator color={c.muted} /><Text style={[s.wakingTitle, { color: c.ink }]}>{t.waking}</Text></View>
     <Text style={[s.hint, { color: c.muted }]}>{t.wakingDetail}</Text>
@@ -271,6 +281,7 @@ type Ask = { kind: 'outside' | 'renamed' | 'switch'; address: TeamAddress; host:
  * over it ([{team}(으)로 돌아가기]); it is left only when the new address answered and the person said yes.
  */
 function Setup({ current, onDone, onBack, onSame }: { current: string | null; onDone: (address: TeamAddress) => Promise<boolean>; onBack?: () => void; onSame?: (address: TeamAddress) => void }) {
+  const t = useContext(Words)
   const [value, setValue] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState(''), [waking, setWaking] = useState(false)
   const [view, setView] = useState<'main' | 'unknown' | 'none'>('main'), [ask, setAsk] = useState<Ask | null>(null)
   const cancelRef = useRef<ComponentRef<typeof Pressable>>(null)
@@ -388,6 +399,7 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
  * [바꾸기]) only then checks the address and connects: the same path as the box, leaving the old team only now.
  */
 function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: LinkOffer; gate: LinkGate; current: string | null; onClose: () => void; onSame: (path: string) => void; onDone: (address: TeamAddress) => Promise<boolean> }) {
+  const t = useContext(Words)
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), busyRef = useRef(false), [waking, setWaking] = useState(false)
   busyRef.current = busy
   // while a starting team is waited for, Back is Cancel too
@@ -463,7 +475,8 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
   </View>
 }
 type Failure = 'offline' | 'unreachable' | 'updating'
-function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, onAppearance, onChangeTeam }: { address: TeamAddress; hidden: boolean; pads: boolean; signOut: ReinstallSignOut | null; leaving: { current: Leaving | null }; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onChangeTeam: () => void }) {
+function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, onAppearance, onLanguage, onChangeTeam }: { address: TeamAddress; hidden: boolean; pads: boolean; signOut: ReinstallSignOut | null; leaving: { current: Leaving | null }; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onLanguage: (locale: PageLocale) => void; onChangeTeam: () => void }) {
+  const t = useContext(Words)
   const web = useRef<WebHandle>(null), navigation = useRef(0), loadFailed = useRef(false), cleanup = useRef(Promise.resolve()), ready = useRef(false)
   const [canBack, setCanBack] = useState(false), [pathname, setPathname] = useState(address.entryPath), [failed, setFailed] = useState<Failure | null>(null)
   // a sleeping hosted team (QA TC-1952): 'check' while the app asks the team after its page answered 503 (a spinner),
@@ -506,7 +519,7 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   const receiver = useRef<MobileReceiver | null>(null)
   if (!receiver.current) {
     // push-label-v1 only where the notification extension can read the label key (an iPhone build with the extension)
-    const config: MobileConfig = { protocol: 1, appVersion: VERSION, ...(BUILD ? { appBuild: BUILD } : {}), platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_PERMISSION_CAPABILITY, APPEARANCE_CAPABILITY, NAV_CAPABILITY, SHARE_TEXT_CAPABILITY, PHOTO_PICK_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, GOOGLE_SIGNIN_CAPABILITY, ...(labels ? [PUSH_LABEL_CAPABILITY] : []), ...(takesSync(Platform.OS, !!labels) ? [PUSH_SYNC_CAPABILITY] : []), ...(takesClear(Platform.OS, pushSyncNative) ? [PUSH_CLEAR_CAPABILITY] : []), ...(dictationNative ? [DICTATION_CAPABILITY] : [])] }
+    const config: MobileConfig = { protocol: 1, appVersion: VERSION, ...(BUILD ? { appBuild: BUILD } : {}), platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_PERMISSION_CAPABILITY, APPEARANCE_CAPABILITY, NAV_CAPABILITY, SHARE_TEXT_CAPABILITY, PHOTO_PICK_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, GOOGLE_SIGNIN_CAPABILITY, LANGUAGE_CAPABILITY, ...(labels ? [PUSH_LABEL_CAPABILITY] : []), ...(takesSync(Platform.OS, !!labels) ? [PUSH_SYNC_CAPABILITY] : []), ...(takesClear(Platform.OS, pushSyncNative) ? [PUSH_CLEAR_CAPABILITY] : []), ...(dictationNative ? [DICTATION_CAPABILITY] : [])] }
     // the photo picker and the share sheet: one at a time, and not again right after one closed (src/sheet.ts)
     const sheets = new SheetGate()
     receiver.current = new MobileReceiver(address.origin, config, new FileTransfers(fileTransferIO()), async url => { await Linking.openURL(url) }, {
@@ -544,7 +557,9 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
     async url => {
       const r = await WebBrowser.openAuthSessionAsync(url, googleSignInReturn(product.scheme))
       return r.type === 'success' ? readGoogleSignInReturn(r.url, product.scheme) : null
-    })
+    },
+    // language-v1: the app's own screens in the page's language, kept for this team (src/team.ts)
+    locale => { onLanguage(locale); void rememberPageLanguage(address.origin, locale) })
     void receiver.current.disable()
   }
   const r = receiver.current

@@ -9,7 +9,7 @@ import { BottomTabs } from '../../src/components/BottomTabs'
 import { Rail } from '../../src/components/rail/Rail'
 import { activityMark, aiMark, chatsMark, projectsMark, unreadRooms } from '../../src/components/rail/railBadges'
 import { readChatMentions, resetChatMentions } from '../../src/store/chatMentions'
-import { PANEL_ALWAYS_BOTH_PX, panelState } from '../../src/components/rail/railPanel'
+import { PANEL_ALWAYS_BOTH_PX, panelAlwaysBothPx, panelState } from '../../src/components/rail/railPanel'
 import { THREE_MIN } from '../../src/lib/roomColumns'
 import { useInbox } from '../../src/store/inbox'
 import { useChats } from '../../src/store/chats'
@@ -68,8 +68,14 @@ describe('panel', () => {
     expect(panelState({ wide: false, crowded: true, hidden: false, both: true })).toBe('folded')
     expect(panelState({ wide: false, crowded: true, hidden: true, both: true })).toBe('hidden')
     expect(panelState({ wide: true, crowded: true, hidden: false, both: false })).toBe('shown')
-    // the rail at its widest, the list at its widest and the three columns
+    // the rail at its widest, the list at its widest default and the three columns
     expect(PANEL_ALWAYS_BOTH_PX).toBe(88 + 300 + THREE_MIN)
+    expect(PANEL_ALWAYS_BOTH_PX).toBe(1448)
+  })
+  test('a list the person dragged wider (or narrower) moves the fold line with its real width', () => {
+    expect(panelAlwaysBothPx(null)).toBe(1448)
+    expect(panelAlwaysBothPx(400)).toBe(88 + 400 + THREE_MIN)
+    expect(panelAlwaysBothPx(240)).toBe(88 + 240 + THREE_MIN)
   })
 })
 

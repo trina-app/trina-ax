@@ -9,6 +9,7 @@ import { create } from 'zustand'
 import type { Chat, Project, ProjectPeople } from '@mycel/shared/api'
 import { accessChanged, chatChanged, filesChanged, reloadAsked } from './live'
 import { keepFaces } from '../lib/sharedChat'
+import { withForkParents } from '../lib/forkTree'
 
 /** how many project pages stay (the one seen longest ago goes first) */
 const KEPT_PAGES = 12
@@ -28,7 +29,7 @@ export function withChatEvent(cur: Chat[], projectId: string, e: { chatId: strin
   const old = cur.find((c) => c.id === e.chatId)
   const rest = cur.filter((c) => c.id !== e.chatId)
   if (e.change === 'deleted' || e.change === 'purged' || !e.chat || e.chat.deletedAt || e.chat.projectId !== projectId) return old ? rest : cur
-  return [keepFaces(old, e.chat), ...rest].sort(chatOrder)
+  return [keepFaces(old, withForkParents(old, e.chat)), ...rest].sort(chatOrder)
 }
 
 export interface KeptProjectPage {

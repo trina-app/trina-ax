@@ -25,7 +25,7 @@ import { ArrowLeft, Check, CircleAlert, ExternalLink, Loader2, Paperclip } from 
 import { useEffect, useRef, useState, type DragEvent, type ReactNode, type RefObject } from 'react'
 import { Navigate, parsePath, useLocation, useNavigate } from 'react-router-dom'
 import { WELCOME_BRAND_FILES_MAX, SLACK, teamHome, WELCOME_COUNTED, skillLabel, uuidv7, type CompanyProfile, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
-import { api, API, errorText } from '../lib/api'
+import { api, API, ApiError, errorText } from '../lib/api'
 import { useGoBack } from '../lib/back'
 import { markBusy } from '../lib/busy'
 import { joinPath } from '../lib/paths'
@@ -41,7 +41,7 @@ import { slackView } from '../lib/slackState'
 import { countedSteps, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, putOffSteps, resumeStep, setupReturnStep, skillNameOf, stepAfter, stepDone, stepPosition, wantsTeam } from '../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAiAccess } from '../store/aiAccess'
-import { isOwner, useMeStrict } from '../store/session'
+import { isOwner, useMeStrict, useSession } from '../store/session'
 import { toast } from '../store/ui'
 import { useWelcome } from '../store/welcome'
 import { ConnectAiButton, ConnectAiPanel } from '../components/onboarding/ConnectAi'
@@ -526,6 +526,24 @@ const quietLink = 'font-medium text-ink underline decoration-line-strong underli
  * brand materials (POST …/welcome/brand, no AI); when they fail the profile is still saved and the steps go on, saying
  * so once on 내 스킬. A 고치기 save puts in what is missing again.
  */
+/**
+ * The website's icon became the team logo with this press (the team had none; docs/decisions/20261128-team-icon-from-site.md):
+ * the rail shows it at once (the server's notice), and one toast says so with 되돌리기, which removes only that logo
+ * (a newer one stays: "다른 로고로 이미 바뀌었어요").
+ */
+function siteIconToast(version: string, t: ReturnType<typeof useT>) {
+  const undo = async () => {
+    try {
+      await api.call(API.deleteTeamIcon, { query: { version } })
+      await useSession.getState().refreshMe()
+      toast({ level: 'success', text: t('teamIcon.removed') })
+    } catch (e) {
+      toast({ level: e instanceof ApiError && e.code === 'conflict' ? 'info' : 'error', text: e instanceof ApiError && e.code === 'conflict' ? t('teamIcon.undoStale') : t('error.network') })
+    }
+  }
+  toast({ level: 'success', text: t('teamIcon.fromSiteSet'), ms: 8000, action: { label: t('teamIcon.undo'), run: () => void undo() } })
+}
+
 function ProfileWizardStep({ progress, busy: stepBusy, onContinue, onSkip }: { progress: WelcomeProgress; busy: boolean; onContinue: (brandFailed: boolean) => void; onSkip: () => void }) {
   const t = useT()
   const [saved, setSaved] = useState<CompanyProfile | null | undefined>(undefined)
@@ -545,6 +563,7 @@ function ProfileWizardStep({ progress, busy: stepBusy, onContinue, onSkip }: { p
     try {
       const r = await api.call(API.welcomeBrand, { body: { files: filesRef.current } })
       useWelcome.setState({ loaded: true, progress: r.progress })
+      if (r.teamIcon) siteIconToast(r.teamIcon.version, t)
       return true
     } catch {
       return false

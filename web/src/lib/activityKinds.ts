@@ -1,5 +1,8 @@
-// The chips of the computer's 활동 list (panels/ActivityPanel.tsx): 전체 · DM · 멘션 · 스레드 · 트리나 · 요청. 활동 is the
-// one Activity, with every notice (docs/decisions/20261126-one-activity.md), as Slack's is:
+// The filters of the computer's 활동 list (panels/ActivityPanel.tsx; docs/decisions/20261127-activity-lean.md): one line
+// that never wraps, 전체 · 멘션 · 스레드 as chips (VISIBLE_CHIPS) and the others in its "⋯" menu (MORE_CHIPS: DM, 트리나,
+// 요청), as Slack keeps most of its filters under "Filters". A filter picked from the menu shows as its own chip before
+// "⋯"; a chip the line has no room for moves into the menu (fitChips). 활동 is the one Activity, with every notice
+// (docs/decisions/20261126-one-activity.md), as Slack's is:
 // - DM, 멘션, 스레드: the conversation rows, by the shared tab rule (activityTabHas), so "Mark all as read" on the server
 //   reads the same rows. DM is a direct or group chat's rows (its mentions and its followed threads' replies: a plain
 //   message is no notice).
@@ -22,6 +25,11 @@ const REQUESTS: readonly string[] = ['skill.suggested', 'integration.request', '
  * TC-4186): their 요청 chip shows while one is listed */
 const EVERYONE_REQUESTS: readonly string[] = ['file.access_requested', 'access.requested']
 
+/** the chips always on the line (전체 never moves; 멘션 and 스레드 move into "⋯" only when the line has no room) */
+export const VISIBLE_CHIPS: readonly ActivityChip[] = ['all', 'mentions', 'threads']
+/** the filters in the "⋯" menu, for those who have them (chipsFor) */
+export const MORE_CHIPS: readonly ActivityChip[] = ['dms', 'trina', 'requests']
+
 /** the chip of the app's own notice besides 전체 (null: 전체 only, or a conversation row's: activityTabHas) */
 export function chipOf(item: Pick<InboxNotification, 'code' | 'templateLeft'>): Exclude<ActivityChip, 'all'> | null {
   if (TRINA.includes(item.code)) return 'trina'
@@ -43,9 +51,21 @@ export const chipOfParam = (v: string | null): ActivityChip | null =>
 export const inChip = (item: Pick<InboxNotification, 'code' | 'templateLeft' | 'room' | 'chatThread'>, chip: ActivityChip) =>
   isServerChip(chip) ? activityTabHas(item, chip) : chipOf(item) === chip
 
-/** Unread first (newest first among them), then the read ones (newest first): the list's order. `unread`: whether a
- * row counts as unread here (the list keeps a row read since it showed among the unread ones). */
-export function unreadFirst<I extends Pick<InboxNotification, 'readAt' | 'createdAt'>>(items: readonly I[], unread: (item: I) => boolean = (x) => !x.readAt): { unread: I[]; read: I[] } {
-  const newest = (a: I, b: I) => b.createdAt.localeCompare(a.createdAt)
-  return { unread: items.filter(unread).sort(newest), read: items.filter((x) => !unread(x)).sort(newest) }
+/** Newest first, read and unread together (the list's order, as the phone's and Slack's). */
+export function newestFirst<I extends Pick<InboxNotification, 'createdAt'>>(items: readonly I[]): I[] {
+  return [...items].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+}
+
+/** Which chips stay on the line: `line` the chips in their order (전체, 멘션, 스레드, then a filter picked from the menu),
+ * `width` each one's px, `room` the px the line has for them (the "⋯" and its gap already taken off), `gap` the px
+ * between two. The last movable one goes first (스레드, then 멘션); 전체 and `keep` (the picked chip) never move. */
+export function fitChips(line: readonly ActivityChip[], width: (c: ActivityChip) => number, room: number, gap: number, keep: ActivityChip): ActivityChip[] {
+  const on = [...line]
+  const used = () => on.reduce((sum, c, i) => sum + width(c) + (i ? gap : 0), 0)
+  for (let i = on.length - 1; i >= 0 && used() > room; i--) {
+    const c = on[i]!
+    if (c === 'all' || c === keep) continue
+    on.splice(i, 1)
+  }
+  return on
 }

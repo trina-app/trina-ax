@@ -28,6 +28,7 @@ import { which } from '../config'
 import { imageSize } from '../uploads/image'
 import { makeWorkDir, runIsolated } from '../tools/isolate'
 import { decode, decodeEntities, htmlToText, pinnedGet, resolveTarget, type ResolveOptions } from '../tools/web-fetch'
+import { pickSiteIcon, type SiteIcon } from './site-icon'
 
 /** Images kept aside per draft chat (the logo among them): the hero, the OG image and the largest pictures, so the intro
  * deck has wide pictures for its cover and opening (docs/DECISIONS.md "D2", round 2). */
@@ -59,7 +60,7 @@ export interface ColorHit { hex: string; weight: number }
 export interface PageAssets { logos: Candidate[]; images: Candidate[]; colors: ColorHit[]; stylesheets: string[] }
 
 /** The tags looked at (the rest are skipped). */
-const TAGS = new Set(['img', 'meta', 'link', 'source', 'body', 'header', 'section', 'div', 'a', 'figure'])
+const TAGS = new Set(['img', 'meta', 'link', 'source', 'body', 'header', 'section', 'div', 'a', 'figure', 'base'])
 /** Attributes of one tag looked at, at most (a tag that never ends is cut here). */
 const TAG_ATTRS_MAX = 4000
 const nameChar = (c: number) => (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c === 45
@@ -441,8 +442,8 @@ export function imageKind(b: Buffer): 'png' | 'jpg' | 'webp' | null {
 
 /** GET with web_fetch's network rules (public addresses, this server's exit address refused, pinned, every redirect hop
  * checked again, at most 3), at most `max` bytes. Throws on anything else. */
-export async function fetchBytes(raw: string, max: number, o: ResolveOptions & { insecureTlsForTests?: boolean; hop?: (url: string) => boolean } = {}): Promise<{ body: Buffer; url: string; type: string }> {
-  const deadline = Date.now() + FETCH_TIMEOUT_MS
+export async function fetchBytes(raw: string, max: number, o: ResolveOptions & { insecureTlsForTests?: boolean; hop?: (url: string) => boolean; timeoutMs?: number } = {}): Promise<{ body: Buffer; url: string; type: string }> {
+  const deadline = Date.now() + Math.min(o.timeoutMs ?? FETCH_TIMEOUT_MS, FETCH_TIMEOUT_MS)
   let current = raw
   for (let hop = 0; hop <= 3; hop++) {
     if (hop > 0 && o.hop && !o.hop(current)) throw new Error('redirect outside')
@@ -472,7 +473,7 @@ export function acceptImage(b: Buffer, kind: Candidate['kind']): { ext: 'png' | 
 }
 
 /** Run the isolated ffmpeg on `bytes` and return what it writes to stdout (null without ffmpeg or on failure). */
-async function ffmpegPipe(bytes: Buffer, ext: string, args: string[], maxStdout: number, ffmpeg = which('ffmpeg'), input: string[] = []): Promise<Buffer | null> {
+export async function ffmpegPipe(bytes: Buffer, ext: string, args: string[], maxStdout: number, ffmpeg = which('ffmpeg'), input: string[] = []): Promise<Buffer | null> {
   if (!ffmpeg) return null
   const work = makeWorkDir()
   try {
@@ -571,6 +572,9 @@ export interface CollectorOptions {
   log: Pick<Logger, 'warn'>
   /** is this address on the site the draft reads (style sheets only come from there) */
   inScope: (url: string) => boolean
+  /** look for the team logo's square icon on the first page (site-icon.ts); false on a shared platform's page (a Naver
+   * blog, a smartstore): the icon there is the platform's, not the company's */
+  siteIcon?: boolean
 }
 
 const ASSETS_DIR = 'onboarding-assets'
@@ -588,6 +592,7 @@ export class BrandCollector {
   private seen = new Set<string>()
   private hashes = new Set<string>()
   private pages = new Set<string>()
+  private iconTried = false
   constructor(private db: Database, private chatId: string, private o: CollectorOptions) {
     try {
       const rows = db.query("SELECT url, sha256 FROM onboarding_brand_assets WHERE chat_id = ? AND kind IN ('logo', 'image')").all(chatId) as { url: string; sha256: string | null }[]
@@ -612,6 +617,17 @@ export class BrandCollector {
     let found: PageAssets
     try { found = extractPageAssets(r.html, new URL(r.url)) } catch { return }
     this.queue = this.queue.then(() => this.collect(r.url, found, net)).catch((err) => this.o.log.warn('brand assets not collected', { err }))
+    // the team logo's square icon: once, from the first page with markup (the address the owner typed), after its pictures
+    if (this.o.siteIcon && !this.iconTried) {
+      this.iconTried = true
+      const html = r.html
+      if (!stagedSiteIcon(this.o.dataDir, this.chatId)) this.queue = this.queue.then(() => this.icon(html, r.url, net)).catch((err) => this.o.log.warn('site icon not staged', { err }))
+    }
+  }
+
+  private async icon(html: string, pageUrl: string, net: NetOptions): Promise<void> {
+    const got = await pickSiteIcon(html, pageUrl, net)
+    if (got) stageSiteIcon(this.o.dataDir, this.chatId, got)
   }
 
   private count(kind: 'logo' | 'image'): number {
@@ -686,16 +702,53 @@ export class BrandCollector {
   }
 }
 
-/** What a draft chat collected so far (GET draft): images kept, whether a logo is among them, and the colours. */
-export function brandAssetsOf(db: Database, chatId: string): { images: number; logo: boolean; colors: string[] } {
+/** What a draft chat collected so far (GET draft): images kept, whether a logo is among them, the colours, and (with
+ * the data folder) `icon: true` when a square icon for the team logo is staged. */
+export function brandAssetsOf(db: Database, chatId: string, dataDir?: string): { images: number; logo: boolean; colors: string[]; icon?: boolean } {
+  // only when there is one (a field that is absent reads as none)
+  const icon = dataDir && stagedSiteIcon(dataDir, chatId) ? { icon: true } : {}
   try {
     const rows = db.query("SELECT kind, url, weight FROM onboarding_brand_assets WHERE chat_id = ? AND (kind = 'color' OR file IS NOT NULL)").all(chatId) as { kind: string; url: string; weight: number }[]
     return {
       images: rows.filter((r) => r.kind === 'logo' || r.kind === 'image').length,
       logo: rows.some((r) => r.kind === 'logo'),
       colors: rankColors(rows.filter((r) => r.kind === 'color').map((r) => ({ hex: r.url, weight: r.weight }))),
+      ...icon,
     }
-  } catch { return { images: 0, logo: false, colors: [] } }
+  } catch { return { images: 0, logo: false, colors: [], ...icon } }
+}
+
+// ---------------- the staged square icon (site-icon.ts) ----------------
+// A file beside the staged pictures, not a table row (the table's kind CHECK would need a rebuild): <chat>/site-icon.json
+// names the picture file and where it came from. sweepStagedAssets removes the folder as before.
+const ICON_META = 'site-icon.json'
+const ICON_FILES: Record<string, string> = { 'image/png': 'site-icon.png', 'image/jpeg': 'site-icon.jpg', 'image/webp': 'site-icon.webp' }
+
+export function stageSiteIcon(dataDir: string, chatId: string, icon: SiteIcon): void {
+  const dir = assetDir(dataDir, chatId)
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
+  const file = ICON_FILES[icon.type]!
+  fs.writeFileSync(path.join(dir, file), icon.bytes, { mode: 0o600 })
+  fs.writeFileSync(path.join(dir, ICON_META), JSON.stringify({ file, url: icon.url.slice(0, 2000), source: icon.source, width: icon.width, height: icon.height }), { mode: 0o600 })
+}
+
+/** The staged icon of a draft chat (its bytes and source address), or null. */
+export function stagedSiteIcon(dataDir: string, chatId: string): { bytes: Uint8Array<ArrayBuffer>; url: string; source: string } | null {
+  const dir = assetDir(dataDir, chatId)
+  try {
+    const meta = JSON.parse(fs.readFileSync(path.join(dir, ICON_META), 'utf8')) as { file?: unknown; url?: unknown; source?: unknown }
+    const file = Object.values(ICON_FILES).find((f) => f === meta.file)
+    if (!file) return null
+    const st = fs.lstatSync(path.join(dir, file))
+    if (!st.isFile() || st.size > 1024 * 1024) return null
+    return { bytes: new Uint8Array(fs.readFileSync(path.join(dir, file))), url: typeof meta.url === 'string' ? meta.url : '', source: typeof meta.source === 'string' ? meta.source : '' }
+  } catch { return null }
+}
+
+/** The staged icon is used (or passed over) once: removed. */
+export function dropStagedSiteIcon(dataDir: string, chatId: string): void {
+  const dir = assetDir(dataDir, chatId)
+  for (const f of [ICON_META, ...Object.values(ICON_FILES)]) fs.rmSync(path.join(dir, f), { force: true })
 }
 
 /** The kept images of a draft chat (logo first, then by weight) and the pages it read, for placing them. */

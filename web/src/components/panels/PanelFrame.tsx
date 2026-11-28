@@ -1,7 +1,10 @@
 // The list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1): one list at a time, the place's
-// name on top with its own buttons, then the list in its own scroll. 288 px at 1440, 256 px at 1280, 240 px at 1200 and
-// below, never more than 300 px at a large text size (wider than before for the 15 px rows: docs/DECISIONS.md "Panels:
-// Slack-sized type"). Below 1052 px its header has "목록 숨기기" (rail/railPanel.ts); the rail then
+// name on top with its own buttons, then the list in its own scroll. By default 288 px at 1440, 256 px at 1280, 240 px at
+// 1200 and below, never more than 300 px at a large text size (wider than before for the 15 px rows: docs/DECISIONS.md
+// "Panels: Slack-sized type"). The divider on its right edge resizes it, one width for all five places, 240 to 400 px
+// with 740 px kept for the main area, remembered in this browser in px; a double-click gives the default back
+// (components/PanelDivider.tsx, lib/panelWidth.ts LIST_PANEL; docs/decisions/20261127-list-panel-resize.md).
+// Below 1052 px its header has "목록 숨기기" (rail/railPanel.ts); the rail then
 // shows the button that brings it back. A <nav> named by its title; the skip link "목록으로" lands on it (Layout.tsx).
 import clsx from 'clsx'
 import { PanelLeftClose } from 'lucide-react'
@@ -10,6 +13,8 @@ import { useT } from '../../i18n'
 import { IconButton, useMediaQuery } from '../ui'
 import { PANEL_ALWAYS_PX, useRailPanel } from '../rail/railPanel'
 import { rowBox } from '../list/List'
+import { LIST_PANEL } from '../../lib/panelWidth'
+import { PanelDivider } from '../PanelDivider'
 
 export const PANEL_ID = 'rail-panel'
 
@@ -18,10 +23,11 @@ export function PanelFrame({ title, actions, top, children, bottom, onScroll, te
   const t = useT()
   const id = useId()
   const wide = useMediaQuery(`(min-width: ${PANEL_ALWAYS_PX}px)`)
+  const setWidth = useRailPanel((s) => s.setWidth)
   // the list is scrolled away from its top: a hairline under the rows above it
   const [scrolled, setScrolled] = useState(false)
   return (
-    <nav id={PANEL_ID} tabIndex={-1} aria-labelledby={id} className="flex h-full w-[clamp(240px,min(18rem,20vw),300px)] shrink-0 flex-col border-r border-line bg-subtle outline-none" data-testid={testId}>
+    <nav id={PANEL_ID} tabIndex={-1} aria-labelledby={id} className="relative flex h-full w-[var(--panel-w,clamp(240px,min(18rem,20vw),300px))] shrink-0 flex-col border-r border-line bg-subtle outline-none" data-testid={testId}>
       {/* a touch screen (a tablet across, a touch laptop): the header's buttons are 44 px to tap, as the rail's */}
       <div className="flex h-12 shrink-0 items-center gap-1 pr-2 pl-4 pointer-coarse:[&_:is(a,button)]:min-h-11 pointer-coarse:[&_:is(a,button)]:min-w-11">
         <h2 id={id} className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight text-ink" data-testid="panel-title">
@@ -47,6 +53,7 @@ export function PanelFrame({ title, actions, top, children, bottom, onScroll, te
         {children}
       </div>
       {bottom && <div className="shrink-0 space-y-0.5 border-t border-line px-2 py-2">{bottom}</div>}
+      <PanelDivider sizing={LIST_PANEL} label={t('rail.resizeList')} testId="list-panel-divider" overlayTestId="list-panel-drag-overlay" onRemember={setWidth} />
     </nav>
   )
 }

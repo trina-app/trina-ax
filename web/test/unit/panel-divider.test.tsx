@@ -6,7 +6,7 @@
 import { act } from 'react'
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 import { PanelDivider } from '../../src/components/PanelDivider'
-import { THREAD_PANEL } from '../../src/lib/panelWidth'
+import { LIST_PANEL, THREAD_PANEL } from '../../src/lib/panelWidth'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement, type Mounted } from './dom-host'
 
 beforeAll(() => { installDom() })
@@ -111,5 +111,102 @@ test('a remembered width comes back, kept within the window there is now', async
   await resize()
   expect(width()).toBe(696)
   expect(localStorage.getItem(THREAD_PANEL.key)).toBe('0.6')
+  await m.unmount()
+})
+
+// The list panel beside the rail (components/panels/PanelFrame.tsx): the divider on its right edge, <main> its NEXT
+// sibling, the width kept in px. The window less the rail: 1368 px (1440) shared by the panel (288 by default) and <main>.
+async function openList(kept?: (v: number | null) => void) {
+  const m = await mount(
+    <div data-testid="row">
+      <div data-testid="box">
+        <PanelDivider sizing={LIST_PANEL} label="Resize the list" testId="divider" overlayTestId="overlay" onRemember={kept} />
+      </div>
+      <div data-testid="col" />
+    </div>,
+  )
+  const box = m.get('box'), col = m.get('col')
+  const w = () => { const v = (box.style as Record<string, string>)['--panel-w']; return v ? parseInt(v, 10) : 288 }
+  Object.defineProperty(box, 'offsetWidth', { configurable: true, get: w })
+  Object.defineProperty(col, 'offsetWidth', { configurable: true, get: () => row - w() })
+  Object.defineProperty(box, 'nextElementSibling', { configurable: true, value: col })
+  Object.defineProperty(box, 'previousElementSibling', { configurable: true, value: null })
+  const resize = () => act(async () => { window.dispatchEvent(new FakeEvent('resize') as unknown as Event) })
+  await resize()
+  return { m, width: w, resize, divider: m.get('divider') }
+}
+
+test('the list panel: Right widens and Left narrows, in px, 240 to 400, the main area keeps 740', async () => {
+  row = 1368
+  const told: (number | null)[] = []
+  const { m, divider, width, resize } = await openList((v) => told.push(v))
+  expect(divider.getAttribute('aria-valuenow')).toBe('288')
+  expect(divider.getAttribute('aria-valuemin')).toBe('240')
+  expect(divider.getAttribute('aria-valuemax')).toBe('400')
+  await press(divider, 'ArrowRight')
+  expect(width()).toBe(312)
+  expect(localStorage.getItem(LIST_PANEL.key)).toBe('312')
+  await press(divider, 'ArrowLeft', true)
+  expect(width()).toBe(240)
+  await press(divider, 'End')
+  expect(width()).toBe(400)
+  expect(told.at(-1)).toBe(400)
+  // a narrower window (1100: 1028 shared) clamps it for now; the 400 stays remembered and comes back
+  row = 1028
+  await resize()
+  expect(width()).toBe(288)
+  expect(localStorage.getItem(LIST_PANEL.key)).toBe('400')
+  row = 1368
+  await resize()
+  expect(width()).toBe(400)
+  // a double-click: the default again, forgotten
+  await act(async () => { divider.dispatchEvent(new FakeEvent('dblclick', { bubbles: true })) })
+  expect(width()).toBe(288)
+  expect(localStorage.getItem(LIST_PANEL.key)).toBeNull()
+  expect(told.at(-1)).toBeNull()
+  await m.unmount()
+})
+
+test('the list panel: a remembered px width comes back as it is', async () => {
+  row = 1368
+  localStorage.setItem(LIST_PANEL.key, '352')
+  const { m, width } = await openList()
+  expect(width()).toBe(352)
+  await m.unmount()
+})
+
+test('the list panel counts a right-hand panel beside the page: a preview opening, or expanded over the page, keeps its width', async () => {
+  row = 1368
+  localStorage.setItem(LIST_PANEL.key, '400')
+  const m = await mount(
+    <div data-testid="row">
+      <div data-testid="box">
+        <PanelDivider sizing={LIST_PANEL} label="Resize the list" testId="divider" overlayTestId="overlay" />
+      </div>
+      <div data-testid="col" />
+      <div data-testid="side" />
+    </div>,
+  )
+  const box = m.get('box'), col = m.get('col'), side = m.get('side')
+  let preview = 0, expanded = false
+  const w = () => { const v = (box.style as Record<string, string>)['--panel-w']; return v ? parseInt(v, 10) : 288 }
+  Object.defineProperty(box, 'offsetWidth', { configurable: true, get: w })
+  Object.defineProperty(col, 'offsetWidth', { configurable: true, get: () => (expanded ? 0 : row - w() - preview) })
+  Object.defineProperty(side, 'offsetWidth', { configurable: true, get: () => (expanded ? row - w() : preview) })
+  Object.defineProperty(box, 'nextElementSibling', { configurable: true, value: col })
+  Object.defineProperty(col, 'nextElementSibling', { configurable: true, value: side })
+  Object.defineProperty(side, 'nextElementSibling', { configurable: true, value: null })
+  const resize = () => act(async () => { window.dispatchEvent(new FakeEvent('resize') as unknown as Event) })
+  await resize()
+  expect(w()).toBe(400)
+  // a file preview of 400 px beside the page: the page is 568, but the list and the preview share the rest with it
+  preview = 400
+  await resize()
+  expect(w()).toBe(400)
+  expect(m.get('divider').getAttribute('aria-valuemax')).toBe('400')
+  // the preview expanded over the page (the page hidden): still 400, not squeezed to 240
+  expanded = true
+  await resize()
+  expect(w()).toBe(400)
   await m.unmount()
 })

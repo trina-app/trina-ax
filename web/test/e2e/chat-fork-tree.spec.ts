@@ -2,7 +2,9 @@
 // the title menu's item (never "포크") opens "<제목> (이어서)" with the line back at the top and, under the box, "🔒 나만
 // 보는 채팅 · ‘<제목>’에서 이어 왔어요. 원래 채팅은 그대로예요." (the title a link); in the list it sits one level under its
 // chat, and so does a continuation of a continuation (from the row's "···"); no arrows; the older chat keeps its place;
-// "목록에서 따로 두기" makes it a row of its own (its line stays); a deleted chat's continuation stays, on its own. At
+// "목록에서 따로 두기" makes it a row of its own (its line stays); a deleted chat's continuation stays, on its own; a
+// continuation used today sits under its original of 3 days ago, in that chat's date (docs/decisions/
+// 20261127-fork-in-history.md), and a project's page nests it too. At
 // 1440 and 390 px wide, light and dark, with axe on the list. The mock: test/mock/server.ts forkChat, updateChat.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
@@ -103,6 +105,111 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
         await chatList(page)
         await expect(navChatRow(page, { id: g })).toBeVisible()
         await expect(navChatRow(page, { id: g })).not.toHaveAttribute('data-tree-depth', /./)
+      })
+
+      // QA 11-27: a live update (a reply, a rename with "···", the same from another tab, a new continuation) moved a
+      // continuation to the top as a row of its own until a reload. No reload here: every change comes in live.
+      test('the "└" stays through a reply, a rename and changes from another window; a detach there moves it out', async ({ page }) => {
+        await reset(page)
+        await signIn(page)
+        const root = await chatWithAnswer(page, '출시 계획')
+        await chatWithAnswer(page, '예산 정리')
+        const f = await forkOf(page, root)
+        // a computer: the continuation on screen with the history beside it; a phone: the history on Home
+        await page.goto(vp.name === '1440' ? `/c/${f}` : '/')
+        await showList(page)
+        const row = navChatRow(page, { id: f })
+        await expect(row).toHaveAttribute('data-tree-depth', '1')
+
+        if (vp.name === '1440') {
+          // a reply sent here
+          await page.getByTestId('composer-input').fill('일정도 정리해 줘')
+          await page.getByTestId('composer-input').press('Enter')
+          await expect(page.getByTestId('assistant-message')).toHaveCount(2)
+          await idle(page, f)
+          await expect(row).toHaveAttribute('data-tree-depth', '1')
+        }
+        // a rename from the row's "···"
+        if (vp.name === '1440') await row.hover()
+        await row.getByTestId('chat-row-menu').click()
+        await page.getByTestId('chat-row-rename').click()
+        await page.getByTestId('dialog-input').fill('출시 일정')
+        await page.getByTestId('dialog-confirm').click()
+        await expect(row).toContainText('출시 일정')
+        await expect(row).toHaveAttribute('data-tree-depth', '1')
+        // a reply from another window
+        expect((await post(page, `/api/chats/${f}/messages`, { content: '다른 탭에서 보낸 질문', clientMessageId: uuidv7() })).status()).toBe(202)
+        await idle(page, f)
+        await expect(row).toHaveAttribute('data-tree-depth', '1')
+        // a rename from another window whose event says nothing of the parents (an older server): still under its chat
+        expect((await post(page, '/__test/chat-updated-bare', { chatId: f, title: '출시 일정 v2' })).ok()).toBeTruthy()
+        await expect(row).toContainText('출시 일정 v2')
+        await expect(row).toHaveAttribute('data-tree-depth', '1')
+        // a new continuation from another window: under the first chat at once
+        const g = await forkOf(page, f)
+        await expect(navChatRow(page, { id: g })).toHaveAttribute('data-tree-depth', '1')
+        if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/fork-live-${vp.name}-${scheme}.png` })
+        // a detach from another window: a row of its own, its continuation under it
+        expect((await page.request.patch(`/api/chats/${f}`, { headers: { [CSRF_HEADER]: '1' }, data: { forkParent: null } })).ok()).toBeTruthy()
+        await expect(row).not.toHaveAttribute('data-tree-depth', /./)
+        await expect(navChatRow(page, { id: g })).toHaveAttribute('data-tree-depth', '1')
+        await expect(navChatRow(page, { id: root })).not.toHaveAttribute('data-tree-depth', /./)
+      })
+
+      // like the Claude app's session list (docs/decisions/20261127-fork-in-history.md): a continuation used today sits
+      // right under its original from 3 days ago, in the original's date group, with its "└"; the original stays put
+      test('a continuation used today sits under its original of 3 days ago, at the original\'s place', async ({ page }) => {
+        await reset(page)
+        await signIn(page)
+        const day = 86_400_000
+        const at = (ms: number) => { const d = new Date(Date.now() - ms); d.setHours(12, 0, 0, 0); return d.toISOString() }
+        const old = await chatWithAnswer(page, '보고서 초안')
+        const mid = await chatWithAnswer(page, '견적 비교')
+        expect((await post(page, '/__test/chat-at', { chatId: old, at: at(3 * day) })).ok()).toBeTruthy()
+        expect((await post(page, '/__test/chat-at', { chatId: mid, at: at(day) })).ok()).toBeTruthy()
+        const cont = await forkOf(page, old)
+        const today = await chatWithAnswer(page, '회의록 정리')
+        await page.goto(`/c/${today}`)
+        const list = await chatList(page)
+        await expect(navChatRow(page, { id: cont })).toBeVisible()
+        if (process.env.SHOT_DIR) await list.screenshot({ path: `${process.env.SHOT_DIR}/history-${vp.name}-${scheme}.png` })
+        const ids = await list.locator('li[data-chat-id]').evaluateAll((els) => els.map((e) => e.getAttribute('data-chat-id')))
+        expect(ids.filter((id) => [old, mid, cont, today].includes(id!))).toEqual([today, mid, old, cont])
+        await expect(navChatRow(page, { id: cont })).toHaveAttribute('data-tree-depth', '1')
+        const group = (id: string) => list.locator('[data-testid="history-date"]', { has: page.locator(`li[data-chat-id="${id}"]`) })
+        await expect(group(cont)).toHaveAttribute('data-bucket', 'week')
+        await expect(group(old)).toHaveAttribute('data-bucket', 'week')
+        // the elbow: drawn in front of the row, 28 px in
+        const inset = await navChatRow(page, { id: cont }).evaluate((li) => li.getBoundingClientRect().left - li.parentElement!.getBoundingClientRect().left)
+        expect(inset).toBe(28)
+        expect(await navChatRow(page, { id: cont }).evaluate((li) => getComputedStyle(li, '::before').content)).not.toBe('none')
+        await audit(page, `cross-date ${vp.name} ${scheme}`)
+      })
+
+      test("a project's chat list nests my continuation under its chat", async ({ page }) => {
+        await reset(page)
+        await signIn(page)
+        const projectId = ((await (await post(page, '/api/projects', { name: '내 메모', scope: 'personal', participants: [], instructions: '' })).json()) as { id: string }).id
+        const made = async (title: string) => {
+          const id = ((await (await post(page, '/api/chats', { title, projectId })).json()) as { id: string }).id
+          expect((await post(page, `/api/chats/${id}/messages`, { content: `${title} 시작`, clientMessageId: uuidv7() })).status()).toBe(202)
+          await idle(page, id)
+          return id
+        }
+        const a = await made('분기 보고')
+        const b = await made('채용 공고')
+        expect((await post(page, '/__test/chat-at', { chatId: a, at: new Date(Date.now() - 3 * 86_400_000).toISOString() })).ok()).toBeTruthy()
+        const cont = await forkOf(page, a)
+        await page.goto(`/projects/${projectId}`)
+        const rows = page.getByTestId('project-chats').locator('li')
+        await expect(rows).toHaveCount(3)
+        if (process.env.SHOT_DIR) await page.getByTestId('project-chats').screenshot({ path: `${process.env.SHOT_DIR}/project-${vp.name}-${scheme}.png` })
+        await expect(rows.nth(0)).toContainText('채용 공고')
+        await expect(rows.nth(1)).toContainText('분기 보고')
+        await expect(rows.nth(2)).toContainText('분기 보고 (이어서)')
+        await expect(rows.nth(2)).toHaveAttribute('data-tree-depth', '1')
+        void b
+        void cont
       })
     })
   }

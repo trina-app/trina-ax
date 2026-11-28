@@ -18,6 +18,9 @@ import { SLACK } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { nextTs, startFakeSlack, type FakeSlack } from '../lib/fake-slack'
 import { waitFor } from '../lib/wait'
+import { CodeReturn } from '../../desktop/src/common/code-return'
+import { forgetAppReturns } from '../../server/src/integrations/google-drive/app-return'
+import { APP_RETURN_KEY_HEADER, APP_RETURN_PROOF_HEADER } from '../../shared/src/desktop-bridge'
 
 setDefaultTimeout(60_000)
 let h: Harness
@@ -506,6 +509,29 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
     expect(h.ctx.db.query('SELECT state, reason, verifier_enc FROM slack_signin_flows WHERE id = ?').get(heldId)).toEqual({ state: 'failed', reason: 'superseded', verifier_enc: null })
     expect((await h.req('erin', '/api/slack/signin/flow', { method: 'DELETE', client: 'desktop' })).status).toBe(204)
     expect(h.ctx.db.query("SELECT 1 FROM slack_links WHERE user_id = 'erin'").get()).toBeNull()
+  })
+
+  test('held with the desktop app\'s key: the code alone, or with a wrong proof, is refused; the app\'s proof finishes it (docs/decisions/20261128-held-sign-in-app-key.md)', async () => {
+    const ret = new CodeReturn({ deliver: () => false, page: () => '' }), team = new URL(h.url).origin
+    // carol (erin's sign-ins this hour are counted by the tests after this one), linked by an earlier test: not yet here;
+    // she ends linked to the same Slack account again
+    expect((await call('carol', 'DELETE', '/api/slack/me')).status).toBe(200)
+    const key = { [APP_RETURN_KEY_HEADER]: ret.key(team)! }
+    const p = params((await h.req('carol', '/api/slack/signin', { method: 'POST', headers: { 'content-type': 'application/json', ...key }, body: '{}', client: 'desktop' }).then((r) => r.json()) as { authorizationUrl: string }).authorizationUrl)
+    fake.codes['code-carol-key'] = { user: 'U0CAROL', nonce: p.nonce! }
+    const html = await (await h.req(null, `/api/integrations/slack/oauth/callback?${new URLSearchParams({ state: p.state!, code: 'code-carol-key' })}`, { redirect: 'manual' })).text()
+    const code = /href="trina-ax:\/\/open\?url=[^"#]+#code=([A-Za-z0-9_-]{43})"/.exec(html)?.[1]!
+    expect(code).toBeTruthy()
+    const claim = (proof?: string) => h.req('carol', '/api/integrations/google-drive/claim', { ...json('POST', { code }), headers: { 'content-type': 'application/json', ...(proof ? { [APP_RETURN_PROOF_HEADER]: proof } : {}) }, client: 'desktop' })
+    // the page's own script (the session, no proof) and another app's proof: refused, nothing linked, the code still good
+    expect((await claim()).status).toBe(400)
+    expect((await claim(new CodeReturn({ deliver: () => false, page: () => '' }).proof(team)!)).status).toBe(400)
+    expect(h.ctx.db.query("SELECT 1 FROM slack_links WHERE user_id = 'carol'").get()).toBeNull()
+    const ok = await claim(ret.proof(team)!)
+    expect(ok.status).toBe(200)
+    expect(h.ctx.db.query("SELECT slack_user_id FROM slack_links WHERE user_id = 'carol'").get()).toEqual({ slack_user_id: 'U0CAROL' })
+    // the key said for carol's session stays in this process otherwise (other files reuse the session ids)
+    forgetAppReturns()
   })
 
   test('signed in as somebody else, or too late after signing in: refused; a code that is not one goes nowhere', async () => {
@@ -1550,6 +1576,92 @@ describe('no new connect link now: why, in words', () => {
       expect(s).toContain('10')
       expect(s).not.toMatch(/\{(n|at)\}/)
     }
+  })
+})
+
+describe('the Home tab (Slack Marketplace: help, support, the AI-accuracy note)', () => {
+  const home = (user: string, o: { tab?: string; team?: string; appId?: string } = {}) =>
+    fake.event({ type: 'app_home_opened', user, channel: `D${user.slice(1)}`, tab: o.tab ?? 'home', event_ts: nextTs() }, { ...(o.team ? { team: o.team } : {}), ...(o.appId ? { appId: o.appId } : {}) })
+  const publishedTo = (user: string) => fake.of('views.publish').filter((c) => c.args.user_id === user)
+  const viewOf = (c: { args: Record<string, string> }) => JSON.parse(c.args.view!) as { type: string; blocks: any[] }
+
+  test('opening it publishes the help view: what it does, how to ask, the link state, help, the disclaimer; Messages tab, another workspace or app: nothing', async () => {
+    expect((await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())).status).toBe(200)
+    expect((await call('dana', 'POST', '/api/admin/slack/enabled', { enabled: true })).json.enabled).toBe(true)
+    await waitFor(async () => (await call('dana', 'GET', '/api/admin/slack')).json.state === 'connected')
+    h.ctx.db.query("DELETE FROM slack_links WHERE slack_user_id IN ('U0ALICE', 'U0NOMAIL')").run()
+    h.ctx.db.query("DELETE FROM slack_links WHERE user_id = 'alice'").run()
+    h.ctx.db.query("INSERT INTO slack_links (id, user_id, team_id, slack_user_id, slack_name, created_at) VALUES ('l-home', 'alice', 'T0ACME', 'U0ALICE', 'alice.slack', '2026-11-27T00:00:00.000Z')").run()
+    // a linked person: in their language, which account it is
+    home('U0ALICE')
+    const c = await waitFor(() => publishedTo('U0ALICE').at(-1))
+    expect(c!.token).toBe(fake.botToken)
+    const v = viewOf(c!)
+    expect(v.type).toBe('home')
+    const text = JSON.stringify(v.blocks)
+    expect(text).toContain('AI answers can be wrong. Check important ones before you rely on them.')
+    // the bot's name as Slack has it now (users.info), as everywhere the app names itself
+    expect(text).toContain(`/invite @${(h.ctx.db.query('SELECT bot_name FROM slack_config').get() as { bot_name: string }).bot_name}`)
+    expect(text).toContain('Alice Kim')
+    expect(text).toContain(`${h.url}/settings/connectors`)
+    // the team's own app: help is the team's owner or admins (no hosting service's page)
+    expect(text).toContain('owner or an admin')
+    expect(text).not.toContain('/help')
+    // nothing of Slack's own text or of another person in it; no mention markup
+    expect(text).not.toMatch(/<!(here|channel|everyone)>|<@U/)
+    // not linked: how to link
+    home('U0NOMAIL')
+    const u = viewOf((await waitFor(() => publishedTo('U0NOMAIL').at(-1)))!)
+    expect(JSON.stringify(u.blocks)).toContain('not linked to a')
+    expect(JSON.stringify(u.blocks)).not.toContain('Alice Kim')
+    // the Messages tab, another workspace, another app: nothing published
+    const n = fake.of('views.publish').length
+    home('U0BOB', { tab: 'messages' })
+    home('U0BOB', { team: 'T0OTHER' })
+    home('U0BOB', { appId: 'A0OTHER' })
+    await Bun.sleep(300)
+    expect(fake.of('views.publish').length).toBe(n)
+  })
+
+  test('the manifest turns the Home tab on and subscribes to app_home_opened (no new scope)', () => {
+    const m = slackManifest()
+    expect(m.features.app_home).toEqual({ home_tab_enabled: true, messages_tab_enabled: true, messages_tab_read_only_enabled: false })
+    expect(m.settings.event_subscriptions.bot_events).toEqual(['app_mention', 'message.im', 'app_home_opened'])
+    expect(m.oauth_config.scopes.bot).toEqual(['app_mentions:read', 'channels:history', 'channels:read', 'chat:write', 'groups:history', 'groups:read', 'im:history', 'im:write', 'users:read', 'users:read.email'])
+  })
+
+  test('every language has every Home text, with the disclaimer', async () => {
+    const { HOME_TEXT, homeView } = await import('../../server/src/integrations/slack/home')
+    for (const [k, v] of Object.entries(HOME_TEXT)) for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect([k, l, !!v[l]]).toEqual([k, l, true])
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
+      const s = JSON.stringify(homeView({ locale: l, bot: 'trina-ax', linkedAs: null, origin: null, official: true }).blocks)
+      expect(s).toContain(HOME_TEXT.disclaimer[l])
+      expect(s).not.toMatch(/\{(product|bot|name|url)\}/)
+    }
+    // the official app: the hosting service's help page; a name with markup stays plain
+    const s = JSON.stringify(homeView({ locale: 'en', bot: 'trina-ax', linkedAs: '<!channel> *x*', origin: 'https://t.example', official: true }).blocks)
+    expect(s).toContain('/help|')
+    expect(s).not.toContain('<!channel>')
+  })
+})
+
+describe('removed while Slack is asked (a question in flight)', () => {
+  test('nothing of the workspace is written again after Remove deleted it: no one-time link, no chat, no request', async () => {
+    expect((await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())).status).toBe(200)
+    expect((await call('dana', 'POST', '/api/admin/slack/enabled', { enabled: true })).json.enabled).toBe(true)
+    await waitFor(async () => (await call('dana', 'GET', '/api/admin/slack')).json.state === 'connected')
+    const count = (t: string) => (h.ctx.db.query(`SELECT count(*) n FROM ${t}`).get() as { n: number }).n
+    // an unlinked person asks; Slack answers who they are only after Remove ran
+    h.ctx.db.query("DELETE FROM slack_links WHERE slack_user_id = 'U0NOMAIL'").run()
+    h.ctx.db.query("DELETE FROM slack_link_tokens WHERE slack_user_id = 'U0NOMAIL'").run()
+    fake.failNext['users.info'] = { delayMs: 600, match: (a) => a.user === 'U0NOMAIL' }
+    const sent = linksTo('U0NOMAIL').length
+    mention('U0NOMAIL', 'hello')
+    await waitFor(() => fake.of('users.info').some((c) => c.args.user === 'U0NOMAIL'))
+    expect((await call('dana', 'DELETE', '/api/admin/slack')).status).toBe(200)
+    await Bun.sleep(900)
+    for (const t of ['slack_link_tokens', 'slack_threads', 'slack_requests', 'slack_links']) expect([t, count(t)]).toEqual([t, 0])
+    expect(linksTo('U0NOMAIL').length).toBe(sent)
   })
 })
 

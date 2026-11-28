@@ -13,6 +13,7 @@ import { closeSignInReturn, desktop, openSignInReturn } from '../../lib/desktop'
 import { mobileApp } from '../../lib/mobile'
 import { audienceOf, authorizationUrl, awayFromComputer, flowReasonKey, signInReturnHost } from '../../lib/integrations'
 import { openSignInWindow, reserveSignInWindow as reserveWindow, signInPlace } from '../../lib/driveSignIn'
+import { CopySignInLink } from './CopySignInLink'
 import { useLocale, useT } from '../../i18n'
 import { SIGN_IN_WAIT_MINUTES, useWaitLimit } from '../../lib/signInWait'
 import { optimistic, optimisticPending, optimisticPendingKeys } from '../../lib/optimistic'
@@ -352,7 +353,7 @@ export function SignInPanel({ flow, onRetry, onCancel, name, url, phone = !!mobi
         </p>
       ) : (
         // a spinner and how long it can take (QA TC-2132): the wait ends by itself (useWaitLimit)
-        <WaitLine text={t(flow.away ? 'integrations.signIn.notFinished' : 'integrations.signIn.waiting')} hint={t('connect.wait.limit', { n: SIGN_IN_WAIT_MINUTES })} testId="integration-signin-wait" />
+        <WaitLine text={t(flow.away ? 'integrations.signIn.notFinished' : 'integrations.signIn.waiting')} hint={<>{t('connect.wait.limit', { n: SIGN_IN_WAIT_MINUTES })}<CopySignInLink url={flow.url} testId="integration-signin-copy-link" /></>} testId="integration-signin-wait" />
       )}
       {!failed && name && url && adminAllowsDomains(url) && <p className="text-xs break-words text-faint" data-testid="integration-signin-domains">{t('integrations.signIn.domainBlocked', { name, host: signInReturnHost(flow.url) })}</p>}
       <div className="flex flex-wrap items-center gap-2">

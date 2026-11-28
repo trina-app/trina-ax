@@ -116,7 +116,10 @@ test("the chat's name opens its link, rename and delete, after the project it is
   // the chat is in a project: "Change project" sits between Rename and Delete
   await expect(page.getByTestId('chat-project-move')).toBeFocused()
   await expect(page.getByTestId('chat-project-move')).toHaveText(/Change project|프로젝트 바꾸기/)
-  // no Share in the menu: a chat only I see in a team project is shared with the header's Share
+  // no Share in the menu: a chat only I see in a team project is shared with the header's Share; "Continue in a new
+  // chat" (components/chat/forkItems.tsx) comes before Delete
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByTestId('chat-fork')).toBeFocused()
   await page.keyboard.press('ArrowDown')
   await expect(page.getByTestId('chat-delete')).toBeFocused()
   await audit(page, 'chat menu')
@@ -144,7 +147,7 @@ test("the chat's name opens its link, rename and delete, after the project it is
   await expect(page.getByText('채팅을 삭제했어요.')).toBeVisible()
 })
 
-test('the message box is one frame: the text on top, +, the engine, the mic and a quiet send key in a row under it, on every page with the box', async ({ page }) => {
+test('the message box is one frame: the text on top, +, the engine, the mic and a round send key in a row under it, on every page with the box', async ({ page }) => {
   await reset(page)
   await signIn(page)
   // the new-chat page and a project's page use the same box
@@ -154,15 +157,17 @@ test('the message box is one frame: the text on top, +, the engine, the mic and 
   await expectBoxLikeClaude(page)
   await chatWithTwoAnswers(page)
   await expectBoxLikeClaude(page)
-  // the send key: dim and off while the box is empty, on with text in it
+  // the send key: dim and off while the box is empty, the round accent key with text in it (components/composer/
+  // ComposerButtons.tsx SendButton, the same in every box since the composer shell)
   const send = page.getByTestId('send')
   await expect(send).toBeDisabled()
   await expect(send).toHaveClass(/text-faint/)
   await page.getByTestId('composer-input').fill('one more thing')
   await expect(send).toBeEnabled()
-  await expect(send).toHaveClass(/text-ink/)
-  // the note is the one thing under the box, and says who sees the chat after it
-  await expect(page.getByTestId('composer-controls').getByTestId('composer-footer')).toHaveText(`${NOTE} ${ONLY_ME}`)
+  await expect(send).toHaveClass(/bg-accent/)
+  // the note is the one thing under the box (components/composer/ComposerShell.tsx footer), and says who sees the chat
+  // after it
+  await expect(page.getByTestId('composer-footer')).toHaveText(`${NOTE} ${ONLY_ME}`)
   await expect(page.getByText(NOTE)).toHaveCount(1)
   // while an answer runs, Stop takes the send key's place in the box
   await page.getByTestId('composer-input').fill('slow answer please, slow slow slow slow slow slow slow slow slow slow')

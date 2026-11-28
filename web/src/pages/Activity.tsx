@@ -1,5 +1,6 @@
 // Activity (what used to be the Inbox, in Settings › Notifications): a page of its own, read like Slack's Activity. The
-// title and its tabs (All · DMs · Mentions · Threads, a dot on a tab with something unread); under them "Unreads" and a
+// title and its tabs (All · DMs · Mentions · Threads, a dot on a tab with something unread); under them "Unreads" (one
+// switch with the computer's list, remembered: lib/unreadsOnly.ts) and a
 // search that narrow what is loaded; the notices grouped under their day (Today, Yesterday, a date), newest first. A row
 // is the writer's photo (a bell for a notice of the app's own), who and the time, the line, and underneath where it was
 // (a DM, #room › Thread) or what it is about. The unread count sits on the right. The whole row opens the place and reads
@@ -28,6 +29,7 @@ import { peekCached, rememberCached, useListCache } from '../store/listCache'
 import { FEED_KEY, type KeptFeed } from '../components/panels/ActivityPanel'
 import { useRooms } from '../store/rooms'
 import { unreadRooms } from '../components/rail/railBadges'
+import { useUnreadsOnly } from '../lib/unreadsOnly'
 import { Button, EmptyState, ErrorNote, IconButton, Skeleton, inputCls, pageColumn, stickyCls, useMediaQuery } from '../components/ui'
 import { PhoneBarAction } from '../components/phone/PhoneBarAction'
 import { Face, isRoomRow, roomNoticeLink, roomRowText, RoomRowFile, type RoomNotice } from '../components/settings/RoomNoticeRow'
@@ -98,7 +100,8 @@ export default function Activity() {
   return <ActivityPage />
 }
 
-/** The main area beside 활동's list: the notice opened from it (read as it opens), or what the list is for. */
+/** The main area beside 활동's list: the notice opened from it (read as it opens), or what the list is for and a quiet
+ * link to the notification settings. */
 function ActivityOpened({ id }: { id: string | null }) {
   const t = useT(), locale = useLocale()
   const unread = useActivityUnread()
@@ -141,6 +144,11 @@ function ActivityOpened({ id }: { id: string | null }) {
         <Bell size={28} className="text-faint" aria-hidden />
         {unread > 0 ? <p className="text-sm font-semibold text-ink">{t('notifications.unread', { count: unread })}</p> : empty && <p className="text-sm font-semibold text-ink">{t('notifications.empty')}</p>}
         {!empty && <p className="max-w-sm text-sm text-muted" data-testid="activity-pick-hint">{t('activity.pick')}</p>}
+        {/* the list's settings, quietly, where there is room (its panel has no gear: docs/decisions/20261127-activity-lean.md) */}
+        <Link to="/settings/notifications" className="mt-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted hover:bg-hover hover:text-ink" data-testid="activity-pick-settings">
+          <Settings size={14} aria-hidden />
+          {t('feed.settings')}
+        </Link>
       </div>
     )
   return (
@@ -171,7 +179,8 @@ function ActivityPage() {
   const shows = (item: InboxNotification, f: Filter) => inFilter(item, f)
   const title = t('inbox.title')
   const setFilter = (f: Filter) => setParams((p) => { const n = new URLSearchParams(p); if (f === 'all') n.delete('tab'); else n.set('tab', f); return n }, { replace: true })
-  const [unreadOnly, setUnreadOnly] = useState(false)
+  // one switch with the computer's list, remembered in this browser (lib/unreadsOnly.ts)
+  const unreadOnly = useUnreadsOnly((s) => s.on)
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
   // the list as this window last showed it (store/listCache.ts): a visit after the first shows it at once and reads
@@ -380,7 +389,7 @@ function ActivityPage() {
       <div className={clsx(pageColumn, 'flex-1 px-4 pb-6 sm:px-6')}>
         {/* the tools: unread only, and a search of what is loaded */}
         <div className="flex flex-wrap items-center gap-2 py-3" data-testid="activity-tools">
-          <button type="button" aria-pressed={unreadOnly} onClick={() => setUnreadOnly((v) => !v)} className={clsx(toolBtn, unreadOnly ? 'border-accent bg-accent-soft text-accent-text max-md:bg-accent-soft' : 'max-md:bg-subtle')} data-testid="activity-unreads">
+          <button type="button" aria-pressed={unreadOnly} onClick={() => useUnreadsOnly.getState().set(!unreadOnly)} className={clsx(toolBtn, unreadOnly ? 'border-accent bg-accent-soft text-accent-text max-md:bg-accent-soft' : 'max-md:bg-subtle')} data-testid="activity-unreads">
             <BellRing size={15} aria-hidden /> {t('feed.unreads')}
           </button>
           {searching

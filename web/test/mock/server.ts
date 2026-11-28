@@ -20,7 +20,7 @@
 // files asked for go as room files. "share files" answers with a quote in my folder, a shared file and one nobody opens.
 // The rooms answer their own reads (the room, its messages, members, AI, read) from what was sent.
 // Test-only controls: POST /__test/file {path, text | base64} (a team file and its folders), POST /__test/rmdir {path} (a folder gone from disk; its rule rows stay), POST /__test/download-only {path} (a generated, quarantined file: FileEntry.downloadOnly), POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
-// boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password), withAdmin?: boolean (admins dana / 'dana password 1' and eve)}, POST /__test/drop-ws, POST /__test/presence {people: [{id, state}]} (who is online or away: a change to every socket; GET it for the frames the pages sent), POST /__test/server-version, POST /__test/upload-delay {ms} (an upload's answer comes that late, until the next reset), POST /__test/file-rank {ai, delayMs} (팀 파일's AI picks answer that way; GET lists what each pick was sent),
+// boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password), withAdmin?: boolean (admins dana / 'dana password 1' and eve)}, POST /__test/drop-ws, POST /__test/chat-at {chatId, at} (a chat made and last used at that instant), POST /__test/presence {people: [{id, state}]} (who is online or away: a change to every socket; GET it for the frames the pages sent), POST /__test/server-version, POST /__test/upload-delay {ms} (an upload's answer comes that late, until the next reset), POST /__test/file-rank {ai, delayMs} (팀 파일's AI picks answer that way; GET lists what each pick was sent),
 // POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice), POST /__test/skills
 // {files: [{path, name, description}]} (skill files; skills/임원/ is for admins only),
 // POST /__test/schedule-review (the owner gets a scheduled task nobody confirmed, paused for review; "siteask" with
@@ -91,7 +91,7 @@ const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m 
 import {
   AiAllowance, type MyAutoMode, ApiErrorResponse, CSRF_HEADER, sideQuoteOf, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, PresenceFrame, RoomTypingFrame, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
-  SetStatusBody, type MyStatus, type StatusClear,
+  SetStatusBody, type MyStatus, type StatusClear, NAV_FOLDER_ITEMS_MAX,
   MemberEngineChoice, CARD_NEWS_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, PROMO_STYLES, DECK_ARTIFACT_KEY, NOTES_FOLDER, BRAND_FOLDER, BRAND_IMAGES_FOLDER, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule, type DeckBuild,
 } from '@mycel/shared/api'
 import fs from 'node:fs'
@@ -99,7 +99,7 @@ import zlib from 'node:zlib'
 import * as XLSX from 'xlsx'
 import { CCITT_SCAN, JPX_SCAN, makeCidPdf, makeImagePdf, makePagedPdf, makePdf } from '../../../tests/lib/pdf'
 import { serveWeb } from '../../../server/src/routes/web-static'
-import { TEXT as TEAM_ICON_TEXT } from '../../../server/src/admin/team-icon'
+import { SITE_ICON_TEXT, TEXT as TEAM_ICON_TEXT } from '../../../server/src/admin/team-icon'
 import { msg as serverMsg } from '../../../server/src/auth/messages'
 import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../../server/src/admin/folder-keep'
 import { checkTeamIcon, CHAT_FILES_FOLDER, FROM_COMPUTER_DIR, offersFolderShare, stepLabel, stepText, TEAM_ICON_MAX_BYTES, WEB_ALLOW_ALL_WARNING_VERSION, type TeamIconFile } from '@mycel/shared'
@@ -681,6 +681,8 @@ export class MockServer {
    * {ai: 'none' | 'failed' | 'timeout', delayMs} answers otherwise until the next reset; GET /__test/file-rank lists
    * the entries each pick was sent (names and metadata only) */
   fileRank: { ai: 'done' | 'none' | 'failed' | 'timeout'; delayMs: number } = { ai: 'done', delayMs: 0 }
+  /** the website's square icon the reading staged (server/src/onboarding/site-icon.ts), set by /__test/site-icon */
+  siteIcon: Uint8Array<ArrayBuffer> | null = null
   fileRankCalls: { entries: unknown[]; own?: boolean }[] = []
   /** the setup's folder plan (server/src/onboarding/files-organize.ts, short): `ai` as the AI would answer (done: the
    * name rules plus a project of the files whose names match `project.match`), each status call reads one more file */
@@ -706,6 +708,7 @@ export class MockServer {
     this.statusClock = null
     this.uploadDelayMs = 0
     this.fileRank = { ai: 'done', delayMs: 0 }
+    this.siteIcon = null
     this.fileRankCalls = []
     this.moveRecent = new Map()
     this.moveDismissed = new Set()
@@ -3116,6 +3119,8 @@ export class MockServer {
       if (c.query.projectId) list = list.filter((x) => x.projectId === c.query.projectId)
       if (c.query.sideRoomId) list = list.filter((x) => x.sideRoomId === c.query.sideRoomId)
       if (q) list = list.filter((x) => x.title.toLowerCase().includes(q) || this.messages.some((m) => m.chatId === x.id && m.content.toLowerCase().includes(q)))
+      // ids: only these chats of my list (the originals of continuations no page brought), pins not first
+      if (c.query.ids) { const ids = String(c.query.ids).split(','); return { items: list.filter((x) => ids.includes(x.id)).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)), nextCursor: null } }
       const newest = [...list].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
       // pinned chats first (server/src/routes/chats.ts listChats), not in a search or the trash
       if (q || trash) return { items: newest, nextCursor: null }
@@ -4678,7 +4683,18 @@ export class MockServer {
         if (!this.files.has(intro)) this.putFile(intro, `# 회사 소개\n\n${this.settings.teamName}${p.site ? ` · ${p.site}` : ''}\n`)
       }
       p.updatedAt = at
-      return { progress: p, brandFolder: g.brandFolder!, imagesFolder, images: [], intro }
+      // the website's icon as the team logo when the team has none (welcome-result.ts applySiteIcon): used once
+      let teamIcon: { version: string } | null = null
+      if (this.siteIcon && !this.teamIcon) {
+        const r = checkTeamIcon(this.siteIcon, 'image/png')
+        if (r.ok) {
+          this.teamIcon = { bytes: this.siteIcon, type: r.type, width: r.width, height: r.height, version: sha256Hex(this.siteIcon).slice(0, 16) }
+          teamIcon = { version: this.teamIcon.version }
+          this.publish(TEAM_ICON_CHANGED)
+        }
+      }
+      this.siteIcon = null
+      return { progress: p, brandFolder: g.brandFolder!, imagesFolder, images: [], intro, teamIcon }
     },
     // 팀 파일's AI picks (server/src/onboarding/file-rank.ts, short): a file whose name says what it is, best first;
     // owners and admins only
@@ -5085,10 +5101,22 @@ export class MockServer {
       this.publish(TEAM_ICON_CHANGED)
       return { version: this.teamIcon.version, type: r.type, width: r.width, height: r.height, size: bytes.byteLength }
     },
-    deleteTeamIcon: () => {
+    deleteTeamIcon: (c) => {
+      // with a version (the undo of a logo from the website): never a newer one
+      const version = (c.query as { version?: string }).version
+      if (version && this.teamIcon && this.teamIcon.version !== version) fail('conflict', 409, undefined, undefined, { reason: 'stale' })
       if (this.teamIcon) this.publish(TEAM_ICON_CHANGED)
       this.teamIcon = null
       return undefined
+    },
+    // like server/src/admin/team-icon-site.ts: the saved profile's website, the staged test icon or "not found"
+    teamIconFromSite: () => {
+      if (!this.companyProfile?.website?.trim()) fail('conflict', 409, SITE_ICON_TEXT.noWebsite.ko, undefined, { reason: 'no_website' })
+      const r = this.siteIcon ? checkTeamIcon(this.siteIcon, 'image/png') : null
+      if (!this.siteIcon || !r?.ok) return fail('not_found', 404, SITE_ICON_TEXT.notFound.ko, undefined, { reason: 'not_found' })
+      this.teamIcon = { bytes: this.siteIcon, type: r.type, width: r.width, height: r.height, version: sha256Hex(this.siteIcon).slice(0, 16) }
+      this.publish(TEAM_ICON_CHANGED)
+      return { version: this.teamIcon.version, type: r.type, width: r.width, height: r.height, size: this.siteIcon.byteLength }
     },
     // like server/src/admin/budgets.ts usage: made-up rows per Group by; with series=1 the same rows spread over the
     // last three days of the range (tokens per day by key, adding up to the rows), with facets=1 the filter choices.
@@ -6529,6 +6557,7 @@ export class MockServer {
     else if (p === '/__test/file-rank' && req.method === 'GET') return Response.json(this.fileRankCalls)
     else if (p === '/__test/organize' && req.method === 'GET') return Response.json({ calls: this.organizeCalls, organized: this.filesOrganized, formSkills: this.formSkillCalls })
     else if (p === '/__test/organize') this.organize = { ai: (body.ai as typeof this.organize.ai | undefined) ?? 'done', project: (body.project as typeof this.organize.project | undefined) ?? null }
+    else if (p === '/__test/site-icon') this.siteIcon = typeof body.png === 'string' ? new Uint8Array(Buffer.from(body.png, 'base64')) : null
     else if (p === '/__test/file-rank') this.fileRank = { ai: (body.ai as typeof this.fileRank.ai | undefined) ?? 'done', delayMs: Number(body.delayMs ?? 0) }
     else if (p === '/__test/deck-pace') {
       this.deckPaceMs = Number(body.ms ?? 40)
@@ -6646,6 +6675,23 @@ export class MockServer {
       this.publish({ type: 'queue.position', data: { chatId, messageId: assistant.id, turnId: assistant.turnId, position, epoch: this.epoch, revision: ++this.queueRevision } })
     }
     else if (p === '/__test/confidential') this.allConfidential = body.all === true
+    // a chat made and last used at another time (`at`, an ISO instant), for the history's date groups
+    // a chat.updated of a chat as it is, without Chat.forkParents (an older server's event, QA 11-27): the list keeps
+    // the parents it knows (lib/forkTree.ts withForkParents). `title`: a rename in it.
+    else if (p === '/__test/chat-updated-bare') {
+      const chat = this.chats.find((x) => x.id === String(body.chatId))
+      if (!chat) return Response.json({ ok: false }, { status: 404 })
+      if (typeof body.title === 'string') chat.title = body.title
+      const { forkParents: _p, ...bare } = chat
+      const owner = this.chatOwners.get(chat.id)
+      this.sharedSend((uid) => (!owner || uid === owner ? { type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat: bare } } : null))
+    }
+    else if (p === '/__test/chat-at') {
+      const chat = this.chats.find((x) => x.id === String(body.chatId))
+      if (!chat || typeof body.at !== 'string') return Response.json({ ok: false }, { status: 404 })
+      chat.createdAt = body.at
+      chat.updatedAt = body.at
+    }
     else if (p === '/__test/people-chat') {
       const chat = this.chats.find((x) => x.id === String(body.chatId))
       if (!chat) return Response.json({ ok: false }, { status: 404 })
@@ -8728,6 +8774,16 @@ export class MockServer {
       if (c.query.folderId) items = items.filter((x) => x.folderId === c.query.folderId)
       return { ...r, items }
     })
+    // a continuation of a chat in one of my sections starts there too, while it has room (server chat/fork.ts)
+    over('forkChat', (c, base) => {
+      const out = base(c) as { status: number; body: Chat }
+      const f = this.navItems.get(key(c.user.id, c.params.id!))
+      if (f && [...this.navItems.values()].filter((v) => v === f).length < NAV_FOLDER_ITEMS_MAX) {
+        this.navItems.set(key(c.user.id, out.body.id), f)
+        changed(c, 'chats')
+      }
+      return { ...out, body: withFolder(c.user.id, out.body) }
+    })
     over('listChatGroups', (c, base) => {
       const g = base(c) as { pinned: Chat[]; other: { items: Chat[]; nextCursor: string | null }; projects: unknown[] }
       const filed = (x: Chat) => !!this.navItems.get(key(c.user.id, x.id))
@@ -9107,7 +9163,13 @@ export class MockServer {
     })
     over('updateChat', (c, base) => {
       const s = shared(c.params.id)
-      if (!s) return base(c)
+      if (!s) {
+        // my chat: my windows hear it (routes/chats.ts updateChat: publishChat), saying where it rows in my history
+        // (forkParents [] for a top-level row: chat/shared.ts liveChat)
+        const out = base(c) as Chat
+        this.sharedSend((userId) => (userId === c.user.id ? { type: 'chat.updated', data: { chatId: out.id, change: 'updated', chat: { ...out, forkParents: out.forkParents ?? [] } } } : null))
+        return out
+      }
       const chat = view(chatOf(c.params.id!), c.user)
       if (s.by.id !== c.user.id) fail('forbidden', 403, '공유 채팅의 이름과 엔진은 만든 사람만 바꿀 수 있어요.', undefined, { reason: 'shared_chat_creator' })
       if (c.body.projectId !== undefined && c.body.projectId !== chat.projectId) fail('conflict', 409, '공유 채팅은 다른 프로젝트로 옮길 수 없어요.', { 'body.projectId': 'shared_chat_move' }, { reason: 'shared_chat_move' })

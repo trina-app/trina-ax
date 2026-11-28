@@ -44,7 +44,7 @@ import { isConversationRow, noteSharedMessage, unreadByUser, type Ring } from '.
 import { isInternalChat } from './internal-chats'
 import { unsharePeopleChecked } from './people-guard'
 import { emptyAnswerText } from './step-record'
-import { Audiences, chatView, chatWriters, isSharedRow, labelName, labelledTranscript, peopleFor, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
+import { Audiences, chatView, chatWriters, liveChat, isSharedRow, labelName, labelledTranscript, peopleFor, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
 import { publishDoneToOthers } from './live-answer'
 import { newAnswerRecord } from './shared-answers'
 import { OutsideText } from './auto-memory'
@@ -1311,7 +1311,7 @@ export class ChatRuntime {
         // `notice`: a person's message here gave them a notice that may ring (chat/message-notices.ts): the desktop app
         // tells it and rings, as for a room's message
         const notice = o.notices?.get(uid)
-        const ev = { type: 'chat.updated' as const, data: { chatId, change, chat: chatView(this, uid, r, { aud, hide, ...(people ? { people } : {}), ...(unread ? { unread } : {}) }), ...(o.notify && uid === userId ? { notify: o.notify } : {}), ...(notice ? { notice } : {}) } }
+        const ev = { type: 'chat.updated' as const, data: { chatId, change, chat: liveChat(uid, r, chatView(this, uid, r, { aud, hide, ...(people ? { people } : {}), ...(unread ? { unread } : {}) })), ...(o.notify && uid === userId ? { notify: o.notify } : {}), ...(notice ? { notice } : {}) } }
         if (o.window) this.hub.publishTo(uid, o.window, ev)
         else this.hub.publish(uid, ev)
       }
@@ -1326,10 +1326,11 @@ export class ChatRuntime {
       userId = r.user_id
       o = {}
     }
-    // a chat that stopped being shared after others wrote in it: its marker and last outcome are its creator's answers'
-    const chat = r ? this.store.toChat(r, this.runState(chatId), this.waitsForPerson(chatId), { ...(severalAuthors(this.db, chatId) ? { answersOf: r.user_id } : {}), viewer: r.user_id, ending: this.endingUnconfirmed(chatId), waitingForPlace: this.waitsForPlace(chatId) }) : null
-    // never a stored connection secret of the person in the title (QA B-W5-1)
-    if (chat) chat.title = redactorFor(this.ctx, r!.user_id).hide(chat.title)
+    // the chat as its person's list has it (chat/shared.ts chatView, as GET /api/chats): its marker and last outcome
+    // its creator's answers' after others wrote in it, never a stored connection secret in the title (QA B-W5-1), and
+    // its fork line (Chat.forkedFrom, Chat.forkParents): without them a live update moved a continuation out from under
+    // the chat it came from until a reload (QA 11-27)
+    const chat = r ? liveChat(r.user_id, r, chatView(this, r.user_id, r)) : null
     const ev = { type: 'chat.updated' as const, data: { chatId, change, chat, ...(o.notify ? { notify: o.notify } : {}) } }
     if (o.window) this.hub.publishTo(userId, o.window, ev)
     else this.hub.publish(userId, ev)

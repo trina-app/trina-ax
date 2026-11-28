@@ -1,9 +1,10 @@
 // The one API client of the web app: same-origin (served by the team server), cookie session, CSRF + window headers
 // added by ApiClient. Every call goes through the shared contract (`API.x`), so request and response shapes are the
 // server's own zod schemas.
-import { API, ApiClient, ApiError, ERROR_MESSAGES, LOCALE_HEADER, type ErrorCode, type Locale } from '@mycel/shared/api'
+import { API, ApiClient, ApiError, ERROR_MESSAGES, LOCALE_HEADER, isDefaultErrorMessage, type ErrorCode, type Locale } from '@mycel/shared/api'
+import { APP_RETURN_HEADER, APP_RETURN_KEY_HEADER, appReturnKeyOf, appReturnPortOf } from '@mycel/shared/desktop-bridge'
 import { currentLocale, t } from '../i18n'
-import { noPurchaseLinks } from './desktop'
+import { desktop, noPurchaseLinks } from './desktop'
 import { downloadToApp, mobileApp, reportMobileError, sendFileToApp } from './mobile'
 import { xhrFetch } from './xhr'
 import { noteAnswer } from './serverUpdating'
@@ -45,12 +46,36 @@ export function renewWindowId(): string {
 let windowIdValue = typeof window === 'undefined' ? randomId() : loadWindowId()
 export const windowId = () => windowIdValue
 
+/** The desktop app's return address for sign-in codes (DesktopBridge.codeReturn): its port goes with every call, so
+ * the server can send a sign-in's browser back to this app on its computer, whatever the browser (an app link needs a
+ * browser that opens apps). Asked once; an app from before, or none open: no header, the app link as before. */
+let appReturnPort: number | null = null
+/** and the app's key for this team (DesktopBridge.codeReturn.key: the sha256 of a secret only the app's main process
+ * sends, on its claim): a result the server holds for the app's code is then redeemed only by this app (server
+ * google-drive/app-return.ts). An app from before has none. */
+let appReturnKey: string | null = null
+/** settled once both are known (at most 1.5 s): the page's calls wait for it, so a Connect pressed right after the
+ * page opened already carries the key (a start without it would be held without the app's proof) */
+let appReturnReady: Promise<unknown> | null = null
+try {
+  const back = desktop()?.codeReturn
+  if (back) {
+    const both = Promise.allSettled([
+      back.port().then((p) => { appReturnPort = appReturnPortOf(p) }),
+      back.key ? back.key().then((k) => { appReturnKey = appReturnKeyOf(k) }) : null,
+    ])
+    appReturnReady = Promise.race([both, new Promise((r) => setTimeout(r, 1500))]).then(() => { appReturnReady = null })
+  }
+} catch { /* no bridge */ }
+
 /** A request that always carries the current window id (ApiClient reads it once, so wrap) and the language on screen
  * (the server uses it only without a session, so messages before sign-in match the page). */
 const inWindow = (init?: RequestInit): RequestInit => {
   const headers = new Headers(init?.headers)
   headers.set('x-mycel-window', windowIdValue)
   headers.set(LOCALE_HEADER, currentLocale())
+  if (appReturnPort) headers.set(APP_RETURN_HEADER, String(appReturnPort))
+  if (appReturnKey) headers.set(APP_RETURN_KEY_HEADER, appReturnKey)
   return { ...init, headers, credentials: 'same-origin' }
 }
 /** A store app (lib/desktop.ts noPurchaseLinks) says "the plan's seats are full" without the server's "change the plan:
@@ -102,6 +127,9 @@ function noteDemoLimit(res: Response) {
 // uploads (fetchWithProgress below) are not wrapped: no seat refusal comes that way
 // (an answer that says Trina is updating starts the window's wait for it: lib/serverUpdating.ts)
 const fetchWithWindow = (async (input: RequestInfo | URL, init?: RequestInit) => afterWrite(init, async () => {
+  // only in the desktop app, only until the bridge answered: no extra tick for any other call (a browser's sends
+  // keep their order)
+  if (appReturnReady) await appReturnReady
   const res = await fetch(input, inWindow(init))
   noteAnswer(res)
   noteDemoLimit(res)
@@ -143,8 +171,9 @@ export function errorText(e: unknown, locale: Locale, networkText: string): stri
     if (e.body.params?.reason === 'demo_busy') return t('demo.free.busy')
     if (e.body.params?.reason === 'demo_rest') return t('demo.free.rest')
     const known = ERROR_MESSAGES[e.code]
-    // handler-specific messages (e.g. "Someone else saved first.") are kept; default ones follow the UI language
-    const isDefault = known && Object.values(known).includes(e.message)
+    // handler-specific messages (e.g. "Someone else saved first.") are kept; default ones, older wordings included
+    // (a Korean default saved with an answer before 0.2.16), follow the UI language
+    const isDefault = !!known && isDefaultErrorMessage(e.code, e.message)
     if (e.code === 'validation' && e.body.fields) {
       // a specific message is already in the person's language; the field detail is for developers (English)
       if (e.message && !isDefault) return e.message

@@ -110,4 +110,17 @@ grep -q '"state":"ok"' /run/ax/enroll-status.json || die "status: $(cat /run/ax/
 [ "$(grep -c '"mode":"reattach"' /tmp/fakecp-requests.jsonl || true)" = 0 ] || die "reattach called the CP"
 ok "reattach mounted the existing data disk, no CP call, data intact"
 
+echo "-- reattach with a late data disk (Lightsail attaches it after boot): enroll waits for it"
+umount /var/lib/mycel
+losetup -d "$D"
+enroll_json reattach null
+/t/mycel-enroll --no-start >/tmp/late.log 2>&1 &
+LATE=$!
+sleep 7
+D=$(losetup -f --show /disk-data.img); LOOPS+=("$D")
+wait "$LATE" || die "late reattach failed: $(cat /tmp/late.log)"
+grep -q 'waiting up to' /tmp/late.log && grep -q 'the data disk is here after' /tmp/late.log || die "late reattach log: $(cat /tmp/late.log)"
+mountpoint -q /var/lib/mycel && [ "$(cat /var/lib/mycel/data/setup-token)" = stp_dockertest_0123456789abcdef ] || die "late disk not mounted"
+ok "late disk (attached 7 s after start) found and mounted: $(grep -o 'here after [0-9a-z]*' /tmp/late.log)"
+
 echo "PASS $pass checks"

@@ -100,7 +100,7 @@ export function useDriveParts(s: DriveConnectionState) {
     <>
       {flow && flow.state !== 'ready' && (
         <BrowserWait google text={t('drive.waitingShort')} testId="drive-waiting" retryTestId="drive-retry-wait" cancelTestId="drive-cancel" busy={d.busy}
-          onRetry={s.start} onCancel={() => void d.cancel()} link={googleLink(d, t('drive.openGoogle'))} />
+          onRetry={s.start} onCancel={() => void d.cancel()} link={googleLink(d, t('drive.openGoogle'))} copyLink={d.openedUrl} />
       )}
       {flow?.state === 'ready' && (
         <div className="space-y-2" data-testid="drive-confirm-step">

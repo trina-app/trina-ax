@@ -23,7 +23,7 @@
 import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ExternalLink, Loader2, RotateCcw, Upload } from 'lucide-react'
+import { ExternalLink, Globe, Loader2, RotateCcw, Upload } from 'lucide-react'
 import { teamIconUrl, TEAM_ICON_TYPES, WEB_ALLOW_ALL_RISK } from '@mycel/shared'
 import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, SPEECH_MODEL_SUGGESTIONS, mediaTranscriptsDefault, mediaTranscriptsOffSmall, TeamSettings, type SpeechHost, type SpeechProvider, DEFAULT_DECK_TIER } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
@@ -337,10 +337,31 @@ export function TeamIconRow() {
   const me = useMeStrict()
   const refreshMe = useSession((s) => s.refreshMe)
   const version = me.team.iconVersion ?? null
-  const [busy, setBusy] = useState<'upload' | 'remove' | null>(null)
+  const [busy, setBusy] = useState<'upload' | 'remove' | 'site' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [previews, setPreviews] = useState(false)
   const input = useRef<HTMLInputElement>(null)
+  // "Get from the website": only when the saved company profile has a website (the server reads that one, never an
+  // address from here: docs/decisions/20261128-team-icon-from-site.md)
+  const [website, setWebsite] = useState(false)
+  useEffect(() => {
+    let live = true
+    api.call(API.getCompanyProfile).then((r) => { if (live) setWebsite(!!r.profile?.website?.trim()) }, () => {})
+    return () => { live = false }
+  }, [])
+  const fromSite = async () => {
+    setError(null)
+    setBusy('site')
+    try {
+      await api.call(API.teamIconFromSite)
+      await refreshMe()
+      toast({ level: 'success', text: t('teamIcon.fromSiteDone') })
+    } catch (e) {
+      setError(errorText(e, locale, t('error.network')))
+    } finally {
+      setBusy(null)
+    }
+  }
   // a phone: where the logo shows, in a phone's words (the previews are a computer's)
   const phone = useMediaQuery('(max-width: 767.98px)')
 
@@ -406,6 +427,7 @@ export function TeamIconRow() {
             <ul className="-mx-4 flex-1 border-y border-line" data-testid="team-icon-rows">
               <PhoneListRow icon={<Upload size={16} />} title={version ? t('teamIcon.replace') : t('teamIcon.upload')} onClick={() => setSheet((n) => n + 1)} disabled={busy !== null} testId="team-icon-upload"
                 end={busy === 'upload' ? spinner : <img src={logoSrc} alt="" width={32} height={32} className="size-8 shrink-0 rounded-lg border border-line object-cover" />} />
+              {website && <PhoneListRow icon={<Globe size={16} />} title={t('teamIcon.fromSite')} onClick={() => void fromSite()} disabled={busy !== null} testId="team-icon-from-site" end={busy === 'site' ? spinner : undefined} />}
               {version && <PhoneListRow icon={<RotateCcw size={16} />} title={t('teamIcon.remove')} onClick={() => void remove()} disabled={busy !== null} testId="team-icon-remove" end={busy === 'remove' ? spinner : undefined} />}
             </ul>
             {fileInput}
@@ -417,6 +439,11 @@ export function TeamIconRow() {
             <Button size="sm" busy={busy === 'upload'} disabled={busy !== null} onClick={() => input.current?.click()} data-testid="team-icon-upload">
               <Upload size={14} aria-hidden /> {version ? t('teamIcon.replace') : t('teamIcon.upload')}
             </Button>
+            {website && (
+              <Button size="sm" busy={busy === 'site'} disabled={busy !== null} onClick={() => void fromSite()} data-testid="team-icon-from-site">
+                <Globe size={14} aria-hidden /> {t('teamIcon.fromSite')}
+              </Button>
+            )}
             {version && (
               <Button size="sm" variant="ghost" busy={busy === 'remove'} disabled={busy !== null} onClick={() => void remove()} data-testid="team-icon-remove">
                 <RotateCcw size={14} aria-hidden /> {t('teamIcon.remove')}

@@ -235,7 +235,7 @@ export async function setup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Se
   const id = await bootstrapOwner(ctx, { username: b.owner.username, name: b.owner.name, credential: { password: b.owner.password }, email: b.owner.email ?? null, teamName: b.teamName, locale: b.locale, timeZone: b.timeZone ?? null })
   // the owner's welcome steps start now, with the link's website: the desktop app resumes them too (/open-app)
   startWelcomeAtSetup(ctx, b.site)
-  return authOf(ctx).signIn(c, id, 'web', 'cookie')
+  return authOf(ctx).signIn(c, id, b.client, 'cookie')
 }
 
 // ---------------- sign-in ----------------
@@ -718,7 +718,7 @@ async function acceptGuestInvite(c: Context<AppEnv>, ctx: AppContext, r: InviteR
     }
     else {
       const folder = ensureFolderRow(ctx.db, projectFolder(ctx.db, place!.id)!)
-      writeFolderAccess(ctx.db, folder.id, { rules: [...rulesOf(ctx.db, folder.id).filter((x) => !(x.subjectType === 'user' && x.subjectId === id)), { subjectType: 'user', subjectId: id, access: 'write' }] }, r.created_by)
+      writeFolderAccess(ctx.db, folder.id, { rules: [...rulesOf(ctx.db, folder.id).filter((x) => !(x.subjectType === 'user' && x.subjectId === id)), { subjectType: 'user', subjectId: id, access: 'write' }] }, r.created_by, getUser(ctx.db, id)?.locale)
     }
     audit(ctx.db, { actor: id, action: 'invite.accept', target: r.id, detail: { userId: id, role: 'guest', place, ai: ai.mode } })
     return 'ok'

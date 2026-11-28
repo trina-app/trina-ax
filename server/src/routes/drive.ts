@@ -1,4 +1,5 @@
-import { API, type Locale } from '@mycel/shared/api'
+import { API, type ClientKind, type Locale } from '@mycel/shared/api'
+import { APP_RETURN_PROOF_HEADER } from '@mycel/shared/desktop-bridge'
 import { msg } from '../auth/messages'
 import { refuseClientInUse } from '../auth/google-login-admin'
 import type { AppContext } from '../context'
@@ -32,11 +33,17 @@ async function safe<T>(fn: () => T | Promise<T>, locale?: Locale): Promise<T> {
     throw new HttpError('internal')
   }
 }
+/** Who starts a Google sign-in: the desktop app when its page says so (a session it signed in can be recorded as 'web'),
+ * else the session's kind. Saying 'desktop' only decides how a return without a session ends (held for the app's
+ * one-time code, which only this session redeems), never who may finish it. A phone app's session stays the phone's. */
+export const startedFrom = (session: ClientKind, said?: 'desktop'): ClientKind => (said === 'desktop' && session !== 'mobile' ? 'desktop' : session)
+
 export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.myDriveConnection, ({ auth }) => safe(() => googleDriveOf(ctx).status(auth.user.id)))
   // the session's kind: a sign-in from the desktop or phone app ends on a page that sends the person back to the app,
   // and the desktop app first opens a page that names whose Trina gets the Drive (google-drive/app-return.ts)
-  kit.handle(API.authorizeDrive, ({ auth }) => safe(() => googleDriveOf(ctx).begin(auth.user.id, auth.session.id, undefined, auth.session.client)))
+  // (`client`: the desktop app's page says it is one, for a session recorded as another kind; app-return.ts)
+  kit.handle(API.authorizeDrive, ({ auth, body }) => safe(() => googleDriveOf(ctx).begin(auth.user.id, auth.session.id, undefined, startedFrom(auth.session.client, body.client))))
   kit.handle(API.driveFlow, ({ auth, params }) => safe(() => googleDriveOf(ctx).flow(auth.user.id, auth.session.id, params.id)))
   kit.handle(API.completeDriveFlow, ({ auth, params, body }) => safe(() => googleDriveOf(ctx).complete(auth.user.id, auth.session.id, params.id)))
   // the desktop app's one-time code for a sign-in Google answered in a browser without a session: this session's flow
@@ -45,18 +52,21 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   // An app connection's sign-in (MCP, GitHub, an own app: integrations/connections/service.ts claim) is tried last, so
   // every desktop app since the claim address existed finishes those too, with no update of its own. Its answer has the
   // claim's shape (no account: a connection is not confirmed).
+  // The app's proof (APP_RETURN_PROOF_HEADER, its main process only): a result held with the app's key is redeemed only
+  // with it (google-drive/app-return.ts heldProofOk); a wrong or missing one is the same refusal as an unknown code.
   kit.handle(API.claimDriveFlow, ({ c, auth, body }) => safe(async () => {
-    try { return googleDriveOf(ctx).claim(auth.user.id, auth.session.id, body.code) } catch (e) {
+    const proof = c.req.header(APP_RETURN_PROOF_HEADER) ?? null
+    try { return googleDriveOf(ctx).claim(auth.user.id, auth.session.id, body.code, proof) } catch (e) {
       if (!(e instanceof DriveError) || e.reason !== 'invalid_code') throw e
-      try { return googleAppsOf(ctx).claim(auth.user.id, auth.session.id, body.code) } catch (g) {
+      try { return googleAppsOf(ctx).claim(auth.user.id, auth.session.id, body.code, proof) } catch (g) {
         // a Google app's refusal (no longer an owner or admin for a team sign-in, the person or session gone): the same
         // shape as the Google apps routes' (routes/google-apps.ts), never a 500
         if (g instanceof GoogleAppError) throw new HttpError(g.status === 401 ? 'unauthorized' : g.status === 403 ? 'forbidden' : g.status === 404 ? 'not_found' : g.status === 409 ? 'conflict' : g.status >= 500 ? 'unavailable' : 'bad_request', g.message, { status: g.status, params: { reason: g.reason } })
         if (!(g instanceof DriveError) || g.reason !== 'invalid_code') throw g
-        const f = await integrationsOf(ctx).claim(auth.user.id, auth.session.id, body.code)
+        const f = await integrationsOf(ctx).claim(auth.user.id, auth.session.id, body.code, proof)
         if (f) return { ...f, account: null }
         // then Slack's sign-ins and "Add to Slack" (integrations/slack/service.ts claim)
-        const sl = await slackOf(ctx).claim(auth.user.id, auth.session.id, body.code)
+        const sl = await slackOf(ctx).claim(auth.user.id, auth.session.id, body.code, proof)
         if (!sl) throw g
         return { ...sl, account: null }
       }
@@ -73,7 +83,7 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   // service checks the caller is an active admin again
   kit.handle(API.setDriveMembers, ({ auth, body }) => safe(() => { setMembersCanConnect(ctx, auth.user.id, body.on); afterServiceSetup(ctx, 'google-drive'); return driveAdminStatus(ctx) }))
   kit.handle(API.listDriveShares, ({ auth }) => safe(() => ({ items: listShares(ctx, auth.user.id) })))
-  kit.handle(API.authorizeDriveShare, ({ auth, body }) => safe(() => googleDriveOf(ctx).begin(auth.user.id, auth.session.id, { shareId: body.shareId }, auth.session.client)))
+  kit.handle(API.authorizeDriveShare, ({ auth, body }) => safe(() => googleDriveOf(ctx).begin(auth.user.id, auth.session.id, { shareId: body.shareId }, startedFrom(auth.session.client, body.client))))
   kit.handle(API.completeDriveShareFlow, ({ auth, params, body }) => safe(() => { const svc = googleDriveOf(ctx); return shareView(ctx.db, svc.completeShare(auth.user.id, auth.session.id, params.id, body.name), svc.key) }))
   kit.handle(API.driveShareFolders, ({ auth, params, query }) => safe(async () => ({ items: await shareFolders(ctx, auth.user.id, params.id, query.q) })))
   kit.handle(API.updateDriveShare, ({ auth, params, body }) => safe(() => updateShare(ctx, auth.user.id, params.id, body)))
@@ -119,7 +129,7 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
     // in the person's language, with why it did not work (google-drive/callback-page.ts); static words and same-origin
     // links only (a sign-in started in an app: the app's own link to this team, a desktop one with its one-time code in
     // the fragment): never carry Google's code or the state into a link
-    const page = googleReturnPage(googleReturnOf(r, !!auth), cc.get('locale'), { app: r.app, origin: new URL(c.req.url).origin, connector: '/settings/connectors/google-drive', code: r.ok ? r.code : undefined, who: r.ok ? r.who : undefined, google: r.ok ? r.google : undefined })
+    const page = googleReturnPage(googleReturnOf(r, !!auth), cc.get('locale'), { app: r.app, origin: new URL(c.req.url).origin, connector: '/settings/connectors/google-drive', code: r.ok ? r.code : undefined, who: r.ok ? r.who : undefined, google: r.ok ? r.google : undefined, returnPort: r.ok ? r.returnPort : undefined })
     return c.html(page.html, page.status)
   })
 }
