@@ -13,7 +13,7 @@ import { ExternalLink, Loader2 } from 'lucide-react'
 import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
 import type { ConsoleSetupPreview, LoginResponse, Me } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
-import { useLocale, useT } from '../i18n'
+import { signedOutPick, useLocale, useT } from '../i18n'
 import { useSession } from '../store/session'
 import { clientKind, desktop, storeApp } from '../lib/desktop'
 import { platform } from '../lib/pwa'
@@ -293,8 +293,10 @@ export function AppSetup() {
       setBusy(true)
       setFieldError(null)
       try {
-        // the language on screen becomes the team's (as on /setup): the app's, or the one picked here
-        const r = await api.call(API.setupConsole, { body: { claim: claim!, ...(p.google ? {} : { password, name: (name ?? p.name).trim() }), locale, client: 'desktop', tokenMode: 'cookie' } })
+        // the language on screen becomes the team's (as on /setup), but only when someone chose it (picked here, or the
+        // app's): else the screen shows the team default, and the console's language for the team stays
+        const chosen = signedOutPick() ? { locale } : {}
+        const r = await api.call(API.setupConsole, { body: { claim: claim!, ...(p.google ? {} : { password, name: (name ?? p.name).trim() }), ...chosen, client: 'desktop', tokenMode: 'cookie' } })
         claimStore.remove()
         landing = true
         signedIn(r.me)

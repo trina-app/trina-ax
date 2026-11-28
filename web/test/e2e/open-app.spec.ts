@@ -336,6 +336,8 @@ test.describe('/app-setup (a team made from the desktop app)', () => {
     await p.getByTestId('app-setup-continue').click()
     await expect(p.getByText('Please choose a stronger password.', { exact: false })).toBeVisible()
     expect(setups[0]).toMatchObject({ claim: CLAIM, password: 'password1', name: 'Alex K.' })
+    // no language chosen (no pick here, an app without one): none sent, so the console's language for the team stays
+    expect(setups[0]).not.toHaveProperty('locale')
     // still on the welcome: the claim stays usable
     await expect(p.getByRole('heading', { name: 'Welcome to Acme Studio, Alex Kim' })).toBeVisible()
     await ctx.close()
