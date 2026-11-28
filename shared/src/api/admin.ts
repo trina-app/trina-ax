@@ -603,6 +603,20 @@ export const TeamIconInfo = z.object({
   size: z.number().int().positive(),
 })
 export type TeamIconInfo = z.infer<typeof TeamIconInfo>
+/** POST /api/admin/team-icon/from-site: the logo set now, or `pending` (the team's AI checks the website's icon and
+ * looks for the logo in the background: GET /api/admin/team-icon/from-site says how it ended). */
+export const TeamIconFromSite = z.union([TeamIconInfo, z.object({ pending: z.literal(true) })])
+export type TeamIconFromSite = z.infer<typeof TeamIconFromSite>
+/** GET /api/admin/team-icon/from-site: the caller's own last "from the website" run (theirs only; kept 10 minutes):
+ * running; set (the version, and what the AI did: checked the rules' pick, picked another, or the rules' result stood);
+ * none (nothing usable, in the caller's words); idle (no run). */
+export const TeamIconSiteRun = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('idle') }),
+  z.object({ status: z.literal('running') }),
+  z.object({ status: z.literal('set'), version: z.string().regex(TEAM_ICON_VERSION_RE), ai: z.enum(['checked', 'picked', 'rejected', 'rules']) }),
+  z.object({ status: z.literal('none'), message: z.string() }),
+])
+export type TeamIconSiteRun = z.infer<typeof TeamIconSiteRun>
 /** DELETE /api/admin/team-icon?version=<v>: remove only this logo (an undo never removes a newer one). */
 export const TeamIconRemoveQuery = z.object({ version: z.string().regex(TEAM_ICON_VERSION_RE).optional() })
 /** The team's OpenRouter key for voice input: never returned, only whether one is set and its last 4 characters. */
@@ -747,7 +761,8 @@ export const ADMIN = {
   tryGoogleSignIn: endpoint({ method: 'POST', path: '/api/admin/google-login/try', auth: 'admin', owner: 'A', response: z.object({ url: z.string() }), summary: 'Try it: Google\'s address for a test sign-in; its return shows which Google account answered and whether the domain list lets it in, and signs nobody in.' }),
   putTeamIcon: endpoint({ method: 'PUT', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', query: TeamIconQuery, body: binary(TEAM_ICON_MAX_BYTES), response: TeamIconInfo, summary: 'Set the team logo (shown at the top left on computers, with the team name; tab and app icons stay the product\'s): PNG, JPEG or WebP up to 1 MiB, 32–4096 px a side; audited.' }),
   deleteTeamIcon: endpoint({ method: 'DELETE', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', query: TeamIconRemoveQuery, response: empty, status: 204, summary: 'Remove the team logo: the product\'s mark shows again; audited. With `version` (the undo of a logo set from the website): only that logo, 409 when the logo is another one now.' }),
-  teamIconFromSite: endpoint({ method: 'POST', path: '/api/admin/team-icon/from-site', auth: 'admin', owner: 'A', response: TeamIconInfo, summary: 'Set the team logo from the saved company profile\'s website (its square app icon; never an address from the request), replacing the one there; audited (source site). 409 without a website, 503 while the server does not know its own public address, 404 when nothing usable was found, 409 busy while one runs.' }),
+  teamIconFromSite: endpoint({ method: 'POST', path: '/api/admin/team-icon/from-site', auth: 'admin', owner: 'A', response: TeamIconFromSite, summary: 'Set the team logo from the saved company profile\'s website (its square app icon; never an address from the request), replacing the one there; audited (source site). With the caller\'s Claude Code or Codex connection: `{ pending: true }` at once, the team\'s AI checks the icon and looks for the logo in the background (GET …/from-site). 409 without a website, 503 while the server does not know its own public address, 404 when nothing usable was found, 409 busy while one runs.' }),
+  teamIconSiteRun: endpoint({ method: 'GET', path: '/api/admin/team-icon/from-site', auth: 'admin', owner: 'A', response: TeamIconSiteRun, summary: 'The caller\'s own last "from the website" run: running, set (its version), none (why, in their words) or idle.' }),
   speechHost: endpoint({ method: 'GET', path: '/api/admin/speech-host', auth: 'admin', owner: 'A', response: SpeechHost, summary: 'How this server turns video and audio sound into text itself: its cores, piece length, measured speed, and the tools voice input lacks here.' }),
   speechKey: endpoint({ method: 'GET', path: '/api/admin/speech-key', auth: 'admin', owner: 'A', response: SpeechKeyStatus, summary: 'Whether the OpenRouter key for voice input is set (last 4 characters only, never the key).' }),
   setSpeechKey: endpoint({ method: 'PUT', path: '/api/admin/speech-key', auth: 'admin', owner: 'A', body: SetSpeechKeyBody, response: SpeechKeyStatus, summary: 'Set (sealed in the browser) or remove (null) the OpenRouter key for voice input; asks for the password again.' }),

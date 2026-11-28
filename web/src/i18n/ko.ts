@@ -4164,6 +4164,7 @@ export const ko = {
   'teamIcon.fromSite': '홈페이지에서 가져오기',
   'teamIcon.fromSiteDone': '홈페이지 아이콘을 팀 로고로 바꿨어요.',
   'teamIcon.fromSiteSet': '홈페이지 아이콘을 팀 로고로 썼어요',
+  'teamIcon.aiChecking': 'AI가 홈페이지 로고를 확인하고 있어요…',
   'teamIcon.undo': '되돌리기',
   'teamIcon.undoStale': '다른 로고로 이미 바뀌었어요.',
   'teamIcon.removeTitle': '팀 로고를 지울까요?',

@@ -4120,6 +4120,7 @@ export const es: Record<MessageKey, string> = {
   'teamIcon.fromSite': 'Tomar del sitio web',
   'teamIcon.fromSiteDone': 'El icono del sitio web es ahora el logo del equipo.',
   'teamIcon.fromSiteSet': 'Se usó el icono del sitio web como logo del equipo',
+  'teamIcon.aiChecking': 'La IA está revisando el logo del sitio web…',
   'teamIcon.undo': 'Deshacer',
   'teamIcon.undoStale': 'El logo ya se cambió por otro.',
   'teamIcon.removeTitle': "¿Eliminar el logo del equipo?",

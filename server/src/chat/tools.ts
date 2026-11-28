@@ -94,6 +94,7 @@ import { docsTool, docsToolOn } from '../docs-help/tool'
 import { hideUrls } from '../tools/audit-url'
 import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
 import { FILE_RANK_REFUSAL } from '../onboarding/file-rank'
+import { LOGO_LOOK, lookFor, TEAM_ICON_AI, TEAM_ICON_REFUSAL } from '../onboarding/site-icon-ai'
 import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
 import { deleteFilesTool } from './delete-files'
 import { BULK_CARD_MS, bulkCard, type BulkAsk, type BulkWho } from '../devenv/bulk'
@@ -210,6 +211,26 @@ const RUN_WRITES = { writeArgs: { ...WRITE_TARGET_ARGS, edit_hwp: ['output'], sa
   named: (tool: string, input: unknown) => namedPaths(tool, input).filter((n) => n.key !== 'replace_picture.image' && n.key !== 'insert_picture.image' && n.key !== 'change.image'),
   inPlace: new Set(['edit_office', 'comment_docx', 'edit_hwp', 'edit_files', 'edit_pdf']) } as const
 
+/**
+ * The team logo task's look (onboarding/site-icon-ai.ts lookFor): one public address through the brand fetch's guard; a
+ * picture comes back to the model as the team logo would show it (the team's image switch and the turn's image budget,
+ * as a screenshot: FileService.toolImage), a page as the list of the pictures it names. Only in that task's turn.
+ */
+function logoLookTool(exec: TurnExec): Tool {
+  return {
+    name: LOGO_LOOK,
+    description: `Open one public web address to find the company's logo. A picture (PNG, JPEG, WebP, ICO or SVG) comes back as the team logo would show it, square at 256 px, with an id ("L1") to answer with; a picture that cannot be a team logo is refused with the reason. A web page comes back as the list of the icon and logo pictures it names (never its text). At most ${TEAM_ICON_AI.looks} looks.`,
+    inputSchema: schema(z.object({ url: z.string().max(2000).describe('the web address of a picture or a page') }).strict()),
+    async call(args) {
+      const url = (args as { url?: unknown } | null)?.url
+      const r = await lookFor(exec.spec.chatId, url, (bytes) => exec.rt.files.toolImage({ user: { id: exec.spec.userId }, turnId: exec.spec.turnId, files: exec.files }, bytes))
+      const content: McpContent[] = [{ type: 'text', text: r.text }]
+      if (r.png) content.push({ type: 'image', data: r.png, mimeType: 'image/png' })
+      return { content, ...(r.isError ? { isError: true } : {}), summary: r.summary }
+    },
+  }
+}
+
 export function buildToolSet(exec: TurnExec): ChatToolSet {
   const confidential=confidentialChat(exec.rt.db,exec.spec.chatId)
   // a guest's turn: only the tools of chat/guest-tools.ts, and no connection provider at all
@@ -227,7 +248,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // a team skill draft (onboarding/skill-draft.ts), a skill share's judgement (skills/share-judge.ts) or its merge
     // (skills/share-merge.ts), 팀 파일's picks (onboarding/file-rank.ts): no tool at all besides the file tools (refused,
     // or for a merge only on its team skills)
-    if (exec.skillDraft || exec.shareJudge || exec.shareMerge || exec.fileRank) return false
+    // (the team logo's AI help, a file-rank marking of its own kind: logo_look alone, and the engine's own web search)
+    if (exec.teamIconAi && t.name !== LOGO_LOOK) return false
+    if (exec.skillDraft || exec.shareJudge || exec.shareMerge || (exec.fileRank && !exec.teamIconAi)) return false
     // a free-roam demo (demo/guard.ts): only the tools of its allow-list and a connected service's; no new connections,
     // no background work, nothing that fetches an address the visitor picks, no dev environment, no video render;
     // intro_deck without its site reader
@@ -257,6 +280,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     if (t.label) labels.set(t.name, t.label.bind(t))
     return true
   }
+  if (exec.teamIconAi) add(logoLookTool(exec))
   for (const t of bTools(exec)) add(t)
   // the app's own docs of this server's version (docs-help/tool.ts): a local read like the file tools, so also in shared and
   // confidential chats and for sub-agents; never a guest's (add(): GUEST_TURN_TOOLS), nor where the server has no docs
@@ -494,7 +518,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // a profile draft: the same site and at most 4 pages per answer, counted before the call starts
     if (exec.skillDraft) return { ...text(SKILL_DRAFT_FILE_REFUSAL, true), summary: `${name} -> refused: team skill draft (no tools)` }
     if (exec.shareJudge) return { ...text(SHARE_JUDGE_REFUSAL, true), summary: `${name} -> refused: skill share judgement (no tools)` }
-    if (exec.fileRank) return { ...text(FILE_RANK_REFUSAL, true), summary: `${name} -> refused: team file picks (no tools)` }
+    if (exec.teamIconAi && name !== LOGO_LOOK) return { ...text(TEAM_ICON_REFUSAL, true), summary: `${name} -> refused: team logo task (logo_look only)` }
+    if (exec.fileRank && !exec.teamIconAi) return { ...text(FILE_RANK_REFUSAL, true), summary: `${name} -> refused: team file picks (no tools)` }
     if (exec.shareMerge) return { ...text(SHARE_MERGE_REFUSAL, true), summary: `${name} -> refused: skill share merge (no tools)` }
     const draftNo = exec.profileDraft ? draftToolRefusal(exec.profileDraft, name, args) : null
     if (draftNo) return { ...text(draftNo, true), summary: `${name} -> refused: company profile draft (${draftNo.slice(0, 80)})` }
@@ -749,6 +774,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (exec.profileDraft) return { refusal: DRAFT_FILE_REFUSAL, summary: `${name} -> refused: company profile draft (no team files)` }
       if (exec.skillDraft) return { refusal: SKILL_DRAFT_FILE_REFUSAL, summary: `${name} -> refused: team skill draft (no team files)` }
       if (exec.shareJudge) return { refusal: SHARE_JUDGE_REFUSAL, summary: `${name} -> refused: skill share judgement (no team files)` }
+      if (exec.teamIconAi) return { refusal: TEAM_ICON_REFUSAL, summary: `${name} -> refused: team logo task (no team files)` }
       if (exec.fileRank) return { refusal: FILE_RANK_REFUSAL, summary: `${name} -> refused: team file picks (no team files)` }
       // a skill share's merge: read, write and edit of exactly the team skills it merges into; write and edit go on to the
       // skill-write card below like anywhere else

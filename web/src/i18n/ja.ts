@@ -4120,6 +4120,7 @@ export const ja: Record<MessageKey, string> = {
   'teamIcon.fromSite': 'ホームページから取り込む',
   'teamIcon.fromSiteDone': 'ホームページのアイコンをチームのロゴにしました。',
   'teamIcon.fromSiteSet': 'ホームページのアイコンをチームのロゴに使いました',
+  'teamIcon.aiChecking': 'AIがホームページのロゴを確認しています…',
   'teamIcon.undo': '元に戻す',
   'teamIcon.undoStale': 'ロゴはすでに別のものに変わっています。',
   'teamIcon.removeTitle': "チームのロゴを削除しますか？",

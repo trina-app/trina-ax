@@ -27,6 +27,7 @@ import { ExternalLink, Globe, Loader2, RotateCcw, Upload } from 'lucide-react'
 import { teamIconUrl, TEAM_ICON_TYPES, WEB_ALLOW_ALL_RISK } from '@mycel/shared'
 import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, SPEECH_MODEL_SUGGESTIONS, mediaTranscriptsDefault, mediaTranscriptsOffSmall, TeamSettings, type SpeechHost, type SpeechProvider, DEFAULT_DECK_TIER } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
+import { watchSiteRun } from '../../lib/teamIconSiteRun'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { LOCALES, useLocale, useT } from '../../i18n'
 import { isOwner, useMeStrict, useSession } from '../../store/session'
@@ -349,17 +350,33 @@ export function TeamIconRow() {
     api.call(API.getCompanyProfile).then((r) => { if (live) setWebsite(!!r.profile?.website?.trim()) }, () => {})
     return () => { live = false }
   }, [])
+  // with the team's AI the press answers at once and the logo lands a little later (lib/teamIconSiteRun.ts): the button
+  // stays busy with one line under it until then
+  const [checking, setChecking] = useState(false)
+  const stopWatch = useRef<(() => void) | null>(null)
+  useEffect(() => () => stopWatch.current?.(), [])
   const fromSite = async () => {
     setError(null)
     setBusy('site')
+    let pending = false
     try {
-      await api.call(API.teamIconFromSite)
+      const r = await api.call(API.teamIconFromSite)
+      if ('pending' in r) {
+        pending = true
+        setChecking(true)
+        stopWatch.current = watchSiteRun({
+          onSet: () => { void refreshMe(); toast({ level: 'success', text: t('teamIcon.fromSiteDone') }) },
+          onNone: (message) => setError(message),
+          onEnd: () => { setChecking(false); setBusy(null) },
+        })
+        return
+      }
       await refreshMe()
       toast({ level: 'success', text: t('teamIcon.fromSiteDone') })
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
     } finally {
-      setBusy(null)
+      if (!pending) setBusy(null)
     }
   }
   // a phone: where the logo shows, in a phone's words (the previews are a computer's)
@@ -454,6 +471,11 @@ export function TeamIconRow() {
         )}
         below={
           <>
+            {checking && (
+              <p role="status" className="mt-2 text-sm text-muted" data-testid="team-icon-checking">
+                {t('teamIcon.aiChecking')}
+              </p>
+            )}
             {error && (
               <p role="alert" className="mt-2 text-sm text-danger" data-testid="team-icon-error">
                 {error}

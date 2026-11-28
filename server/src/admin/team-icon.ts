@@ -126,6 +126,37 @@ export function saveTeamIconIfAbsent(dataDir: string, bytes: Uint8Array<ArrayBuf
   return { bytes, type: r.type, width: r.width, height: r.height, version: versionOf(bytes) }
 }
 
+/**
+ * Store checked bytes as the logo only if the logo is still `expected` (its version; null: none), for a result that lands
+ * a while after the press (the team logo's AI help, admin/team-icon-site.ts): a logo someone set meanwhile always wins.
+ * With a version it is not a check, then a write: the file is renamed aside, compared, and the new bytes are linked in
+ * only where nothing took the place meanwhile (else the old one is linked back unless a newer one is there). Null: the
+ * logo changed meanwhile (or the bytes are no logo).
+ */
+export function replaceTeamIconIf(dataDir: string, bytes: Uint8Array<ArrayBuffer>, type: string, expected: string | null): TeamIconFile | null {
+  if (expected === null) return saveTeamIconIfAbsent(dataDir, bytes, type)
+  const r = checkTeamIcon(bytes, type)
+  if (!r.ok) return null
+  cache.delete(dataDir)
+  const target = teamIconFile(dataDir)
+  const aside = `${target}.${crypto.randomBytes(6).toString('hex')}.swap`
+  try { fs.renameSync(target, aside) } catch { return null }
+  try {
+    let old: Uint8Array | null = null
+    try { old = new Uint8Array(fs.readFileSync(aside)) } catch { /* unreadable: put back */ }
+    if (!old || versionOf(old) !== expected) {
+      try { fs.linkSync(aside, target) } catch { /* a newer logo is there now: it stays */ }
+      return null
+    }
+    const set = saveTeamIconIfAbsent(dataDir, bytes, type)
+    // a logo that landed in the moment between: it stays, and so the old one is not put back
+    return set
+  } finally {
+    fs.rmSync(aside, { force: true })
+    cache.delete(dataDir)
+  }
+}
+
 /** Remove the logo (the default icon again). False when there was none; 'stale' when `version` is given and the logo
  * now is another one (an undo never removes a newer logo). With a version it is not a check, then a remove (an upload's
  * rename could land between the two): the file is renamed aside first, so the bytes compared are the bytes removed;

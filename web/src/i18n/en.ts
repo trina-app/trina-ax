@@ -4166,6 +4166,7 @@ export const en: Record<MessageKey, string> = {
   'teamIcon.fromSite': 'Get from the website',
   'teamIcon.fromSiteDone': "The website's icon is now the team logo.",
   'teamIcon.fromSiteSet': "Used the website's icon as the team logo",
+  'teamIcon.aiChecking': "Checking the website's logo with AI…",
   'teamIcon.undo': 'Undo',
   'teamIcon.undoStale': 'The logo has already been changed to another one.',
   'teamIcon.removeTitle': 'Remove the team logo?',

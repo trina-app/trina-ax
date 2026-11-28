@@ -44,6 +44,7 @@ import { useAiAccess } from '../store/aiAccess'
 import { isOwner, useMeStrict, useSession } from '../store/session'
 import { toast } from '../store/ui'
 import { useWelcome } from '../store/welcome'
+import { watchSiteRun } from '../lib/teamIconSiteRun'
 import { ConnectAiButton, ConnectAiPanel } from '../components/onboarding/ConnectAi'
 import { InviteStep, sharedForInvite } from '../components/onboarding/InviteStep'
 import ProfileStep, { shortUrl } from '../components/onboarding/ProfileStep'
@@ -564,6 +565,8 @@ function ProfileWizardStep({ progress, busy: stepBusy, onContinue, onSkip }: { p
       const r = await api.call(API.welcomeBrand, { body: { files: filesRef.current } })
       useWelcome.setState({ loaded: true, progress: r.progress })
       if (r.teamIcon) siteIconToast(r.teamIcon.version, t)
+      // the team's AI checks the icon or finds the logo meanwhile: the same toast when it lands (the steps go on)
+      else if (r.teamIconPending) watchSiteRun({ onSet: (version) => { void useSession.getState().refreshMe(); siteIconToast(version, t) } })
       return true
     } catch {
       return false

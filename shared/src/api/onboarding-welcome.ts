@@ -187,6 +187,9 @@ export const WelcomeBrandResult = z.object({
   /** the website's square icon became the team logo with this press (the team had none), else null or absent (older
    * servers). Its undo is DELETE /api/admin/team-icon?version=<version>. */
   teamIcon: z.object({ version: z.string().regex(TEAM_ICON_VERSION_RE) }).nullable().optional(),
+  /** true: the team's AI checks the website's icon and looks for the logo in the background (the team had none); how it
+   * ended is GET /api/admin/team-icon/from-site, and a logo it set has the same undo */
+  teamIconPending: z.boolean().optional(),
 })
 export type WelcomeBrandResult = z.infer<typeof WelcomeBrandResult>
 

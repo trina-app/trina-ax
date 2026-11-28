@@ -363,6 +363,18 @@ export class MockServer {
   /** people whose "Allow all websites" for the AI's web reads is on (PUT /api/me/web-access; server/src/tools/web-allow-all.ts) */
   webAccess = new Set<string>()
   /** the team lets members turn it on: both team keys, like the server */
+  /** the team's AI run of the website logo (short): running, then the icon set (onboarding: only when none) or none */
+  siteIconAiLater(png: Uint8Array<ArrayBuffer> | null, onlyIfNone: boolean) {
+    this.siteRun = { status: 'running' }
+    setTimeout(() => {
+      const r = png ? checkTeamIcon(png, 'image/png') : null
+      if (!png || !r?.ok || (onlyIfNone && this.teamIcon)) { this.siteRun = { status: 'none', message: SITE_ICON_TEXT.notFound.ko }; return }
+      this.teamIcon = { bytes: png, type: r.type, width: r.width, height: r.height, version: sha256Hex(png).slice(0, 16) }
+      this.siteRun = { status: 'set', version: this.teamIcon.version, ai: 'checked' }
+      this.publish(TEAM_ICON_CHANGED)
+    }, this.siteIconAiMs ?? 0)
+  }
+
   webTeam() { return this.settings.browserAllowAll && this.settings.webAllowAll }
   passwords = new Map<string, string>()
   /** last password reset by an admin, per user id (Me.passwordReset) */
@@ -683,6 +695,10 @@ export class MockServer {
   fileRank: { ai: 'done' | 'none' | 'failed' | 'timeout'; delayMs: number } = { ai: 'done', delayMs: 0 }
   /** the website's square icon the reading staged (server/src/onboarding/site-icon.ts), set by /__test/site-icon */
   siteIcon: Uint8Array<ArrayBuffer> | null = null
+  /** the team's AI helps (server/src/onboarding/site-icon-ai.ts, short): the press answers pending, and the staged icon
+   * (the AI's pick) lands after `siteIconAiMs`; null: no AI (the rules alone, as before) */
+  siteIconAiMs: number | null = null
+  siteRun: { status: 'idle' } | { status: 'running' } | { status: 'set'; version: string; ai: 'checked' } | { status: 'none'; message: string } = { status: 'idle' }
   fileRankCalls: { entries: unknown[]; own?: boolean }[] = []
   /** the setup's folder plan (server/src/onboarding/files-organize.ts, short): `ai` as the AI would answer (done: the
    * name rules plus a project of the files whose names match `project.match`), each status call reads one more file */
@@ -709,6 +725,8 @@ export class MockServer {
     this.uploadDelayMs = 0
     this.fileRank = { ai: 'done', delayMs: 0 }
     this.siteIcon = null
+    this.siteIconAiMs = null
+    this.siteRun = { status: 'idle' }
     this.fileRankCalls = []
     this.moveRecent = new Map()
     this.moveDismissed = new Set()
@@ -4685,6 +4703,12 @@ export class MockServer {
       p.updatedAt = at
       // the website's icon as the team logo when the team has none (welcome-result.ts applySiteIcon): used once
       let teamIcon: { version: string } | null = null
+      // with the team's AI (admin/team-icon-site.ts startOnboardingIconAi): pending, the icon lands a moment later
+      if (this.siteIconAiMs !== null && !this.teamIcon) {
+        this.siteIconAiLater(this.siteIcon, true)
+        this.siteIcon = null
+        return { progress: p, brandFolder: g.brandFolder!, imagesFolder, images: [], intro, teamIcon, teamIconPending: true }
+      }
       if (this.siteIcon && !this.teamIcon) {
         const r = checkTeamIcon(this.siteIcon, 'image/png')
         if (r.ok) {
@@ -5112,12 +5136,15 @@ export class MockServer {
     // like server/src/admin/team-icon-site.ts: the saved profile's website, the staged test icon or "not found"
     teamIconFromSite: () => {
       if (!this.companyProfile?.website?.trim()) fail('conflict', 409, SITE_ICON_TEXT.noWebsite.ko, undefined, { reason: 'no_website' })
+      if (this.siteRun.status === 'running') fail('busy', 409, SITE_ICON_TEXT.busy.ko, undefined, { reason: 'busy' })
+      if (this.siteIconAiMs !== null) { this.siteIconAiLater(this.siteIcon, false); return { pending: true as const } }
       const r = this.siteIcon ? checkTeamIcon(this.siteIcon, 'image/png') : null
       if (!this.siteIcon || !r?.ok) return fail('not_found', 404, SITE_ICON_TEXT.notFound.ko, undefined, { reason: 'not_found' })
       this.teamIcon = { bytes: this.siteIcon, type: r.type, width: r.width, height: r.height, version: sha256Hex(this.siteIcon).slice(0, 16) }
       this.publish(TEAM_ICON_CHANGED)
       return { version: this.teamIcon.version, type: r.type, width: r.width, height: r.height, size: this.siteIcon.byteLength }
     },
+    teamIconSiteRun: () => this.siteRun,
     // like server/src/admin/budgets.ts usage: made-up rows per Group by; with series=1 the same rows spread over the
     // last three days of the range (tokens per day by key, adding up to the rows), with facets=1 the filter choices.
     // A person filter (user=bob) keeps only that person's row and totals.
@@ -6557,7 +6584,10 @@ export class MockServer {
     else if (p === '/__test/file-rank' && req.method === 'GET') return Response.json(this.fileRankCalls)
     else if (p === '/__test/organize' && req.method === 'GET') return Response.json({ calls: this.organizeCalls, organized: this.filesOrganized, formSkills: this.formSkillCalls })
     else if (p === '/__test/organize') this.organize = { ai: (body.ai as typeof this.organize.ai | undefined) ?? 'done', project: (body.project as typeof this.organize.project | undefined) ?? null }
-    else if (p === '/__test/site-icon') this.siteIcon = typeof body.png === 'string' ? new Uint8Array(Buffer.from(body.png, 'base64')) : null
+    else if (p === '/__test/site-icon') {
+      this.siteIcon = typeof body.png === 'string' ? new Uint8Array(Buffer.from(body.png, 'base64')) : null
+      this.siteIconAiMs = typeof body.aiMs === 'number' ? body.aiMs : null
+    }
     else if (p === '/__test/file-rank') this.fileRank = { ai: (body.ai as typeof this.fileRank.ai | undefined) ?? 'done', delayMs: Number(body.delayMs ?? 0) }
     else if (p === '/__test/deck-pace') {
       this.deckPaceMs = Number(body.ms ?? 40)

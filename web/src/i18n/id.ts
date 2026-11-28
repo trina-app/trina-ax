@@ -4164,6 +4164,7 @@ export const id: Record<MessageKey, string> = {
   'teamIcon.fromSite': 'Ambil dari situs web',
   'teamIcon.fromSiteDone': 'Ikon situs web sekarang jadi logo tim.',
   'teamIcon.fromSiteSet': 'Ikon situs web dipakai sebagai logo tim',
+  'teamIcon.aiChecking': 'AI sedang memeriksa logo dari situs web…',
   'teamIcon.undo': 'Urungkan',
   'teamIcon.undoStale': 'Logo sudah diganti dengan yang lain.',
   'teamIcon.removeTitle': 'Hapus logo tim?',

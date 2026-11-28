@@ -553,6 +553,18 @@ export function markBrand(ctx: Pick<AppContext, 'db'>, key: typeof BRAND_AT | ty
   setSetting(ctx.db, WELCOME_SETTING, { ...s.raw, [key]: new Date().toISOString() })
 }
 
+/** The website the team's AI looked for the team logo on at the onboarding press (`teamIconAiSite`,
+ * docs/decisions/20261128-team-icon-ai-assist.md): once per website, so a logo undone stays undone on a later save. */
+export const TEAM_ICON_AI_SITE = 'teamIconAiSite'
+export function teamIconAiTried(ctx: Pick<AppContext, 'db'>, website: string): boolean {
+  return stored(ctx).raw?.[TEAM_ICON_AI_SITE] === website
+}
+export function markTeamIconAi(ctx: Pick<AppContext, 'db'>, website: string): void {
+  const s = stored(ctx)
+  if (!s.raw) return
+  setSetting(ctx.db, WELCOME_SETTING, { ...s.raw, [TEAM_ICON_AI_SITE]: website.slice(0, 2000) })
+}
+
 /** The owner gave intro files on 회사 소개 once (`brandOwnFiles`). */
 export function brandOwnFiles(ctx: Pick<AppContext, 'db'>): boolean {
   return typeof stored(ctx).raw?.[BRAND_OWN_FILES] === 'string'
