@@ -10,7 +10,7 @@
   sending searched the whole page for a sentence of the body and found it elsewhere; it checked To, Subject and the
   attachment in their own fields but not the body, and told the person the body held the apology and the amounts.
   Fix the general weakness, not Daum Mail or e-mail.
-- **Rule (WEB_ACTION_CHECK_RULE, server/src/chat/prompt.ts):** sending, submitting, posting, paying or deleting on a
+- **Rule (WEB_ACTION_CHECK_RULE, server/src/chat/web-action-rule.ts):** sending, submitting, posting, paying or deleting on a
   web page cannot be undone, through the in-app browser, the person's own Chrome or a connected app that drives a
   browser. Right before it the AI reads back every field the action depends on from that field's own element (an
   input's value, the editor's own content also inside a frame, the recipient chips, the attachment list). What it

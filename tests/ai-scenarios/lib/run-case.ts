@@ -118,9 +118,12 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
   // a flow's heavy step has a cap (about 3 minutes): past it the turn is stopped and marked slow
   const capMs = (c as { capMs?: number }).capMs ?? 15 * 60_000
   const until = Date.now() + capMs
-  let m: Message | undefined
-  while (Date.now() < until) {
-    await Bun.sleep(2000)
+  // a flow step may say no on the server's cards (the person declines); so does a case that expects a refusal (a person
+  // who wants it done would say yes, but a refusal case checks what the AI does on its own, not what a yes unlocks)
+  const mode: CardMode = (c as { cardMode?: CardMode }).cardMode ?? ((c as { declineCards?: boolean }).declineCards === true || c.expect?.outcome === 'refuse' ? 'decline' : 'once')
+  /** answer every open card or question of this chat once, as the person would (the same way while the answer runs and
+   * in the answer that follows the person's reply to the AI's own question) */
+  const answerOpen = async () => {
     let open: OpenTurnRequest[] = []
     try { open = (await api.call(API.listTurnRequests, { params: { id: chatId } })).items } catch {}
     for (const r of open) {
@@ -129,10 +132,6 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
       answered.add(req.requestId)
       if (req.kind === 'ask_user') {
         const server = req.origin === 'server'
-        // a flow step may say no on the server's cards (the person declines); a case always goes ahead
-        // a flow step may say no on the server's cards; so does a case that expects a refusal (a person who wants it
-        // done would say yes, but a refusal case checks what the AI does on its own, not what a yes unlocks)
-        const mode = (c as { cardMode?: CardMode }).cardMode ?? ((c as { declineCards?: boolean }).declineCards === true || c.expect?.outcome === 'refuse' ? 'decline' : 'once')
         const decline = mode === 'decline'
         const opts = req.options ?? []
         const answer = server ? pickCard(opts, mode) : decline ? null : req.options?.length && !req.allowText ? req.options[0]!.value : (c.reply ?? GO_ON[c.lang])
@@ -148,6 +147,11 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
         await api.call(API.connectTurn, { params: { id: r.turnId }, body: { action: 'skip', requestId: req.requestId } }).catch(() => {})
       }
     }
+  }
+  let m: Message | undefined
+  while (Date.now() < until) {
+    await Bun.sleep(2000)
+    await answerOpen()
     const page = await api.call(API.listMessages, { params: { id: chatId }, query: { limit: 50 } })
     m = page.items.find((x) => x.id === answerId)
     if (m && m.status !== 'streaming') break
@@ -170,20 +174,10 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
     const t0 = Date.now()
     while (Date.now() - t0 < Math.min(capMs, 10 * 60_000)) {
       await Bun.sleep(2000)
-      let open: OpenTurnRequest[] = []
-      try { open = (await api.call(API.listTurnRequests, { params: { id: chatId } })).items } catch {}
-      for (const r of open) {
-        const req = r.request
-        if (answered.has(req.requestId) || req.kind !== 'ask_user') continue
-        answered.add(req.requestId)
-        const server = req.origin === 'server', opts = req.options ?? []
-        const answer = server ? pickCard(opts, (c as { cardMode?: CardMode }).cardMode ?? 'once') : opts.length && !req.allowText ? opts[0]!.value : (c.reply ?? GO_ON[c.lang])
-        cards.push({ kind: server ? 'server-card' : 'ai-question', origin: server ? 'server' : 'ai', question: req.question.slice(0, 400), answer, options: opts.map((o) => o.label), hasAlways: opts.some(isAlways) })
-        await api.call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: req.requestId, answer } }).catch(() => {})
-      }
+      await answerOpen()
       const items = (await api.call(API.listMessages, { params: { id: chatId }, query: { limit: 50 } })).items
-      const at = items.findIndex((x) => x.id === answerId)
-      const after = items.filter((x, i) => x.role === 'assistant' && x.id !== answerId && (at < 0 || x.createdAt >= m!.createdAt) && i !== at)
+      // only answers that started after this one (never older ones when this answer fell out of the page)
+      const after = items.filter((x) => x.role === 'assistant' && x.id !== answerId && x.createdAt >= m!.createdAt)
       if (after.length && after.every((x) => x.status !== 'streaming')) { later.splice(0, later.length, ...after); break }
       if (!after.length && Date.now() - t0 > 30_000) break
     }
