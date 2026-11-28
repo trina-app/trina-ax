@@ -838,6 +838,7 @@ export const zh: Record<MessageKey, string> = {
   "steps.results": "{n, plural, one {#个结果} other {#个结果}}",
   'steps.retriedShort': "未成功",
   'steps.endDeclined': "已拒绝",
+  'steps.endMovedOn': "未回答就继续了，所以没有执行",
   'steps.cardWaiting': "等待你的回答",
   'steps.endUnanswered': "未回答",
   'steps.endSkipped': "已跳过",

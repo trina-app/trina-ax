@@ -78,6 +78,10 @@ describe('a team file attached to a mail', () => {
     // the recipient and the name the receiver sees are on the card too; the bytes are not (the handle is)
     expect(d!.fields).toContainEqual({ name: 'Recipient', value: 'office@saaja.example' })
     expect(d!.fields!.some((f) => f.value === '견적서.pdf')).toBe(true)
+    // the attachment's own line names the file and its place, as the first line does, never the raw handle (the owner,
+    // 11-28: "첨부 파일 1 › 내용: team-file:projects/…pdf"; docs/decisions/20261128-stale-approval-cards.md)
+    expect(d!.fields!.filter((f) => f.value.includes(TEAM_FILE_PREFIX))).toEqual([])
+    expect(d!.fields!.filter((f) => f.value === `견적서-사아자.pdf (3 KB)\nGroups › marketing › quotes`)).toHaveLength(2)
     expect(d!.text).toContain(`"content_base64": "${TEAM_FILE_PREFIX}${QUOTE}"`)
     expect(d!.text).not.toContain(quoteBytes.toString('base64').slice(0, 40))
     // what the service got

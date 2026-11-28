@@ -26,7 +26,7 @@ import { startRoomTyping } from '../rooms/typing'
 import { startLooking, type Looking } from '../realtime/looking'
 import { ChatStore, type ChatRow, type MessageRow } from './store'
 import { LocalEngines, safeModel, type EngineProvider } from './engines'
-import { STALL_TIMEOUT_MS, TurnExec, composeMessage, type LauncherStop, type TurnSpec } from './turn'
+import { STALL_TIMEOUT_MS, TurnExec, composeMessage, settleWaitingStep, type LauncherStop, type TurnSpec } from './turn'
 import { engineError, tr } from './i18n'
 import { forgetPurgedChats, launcherSockOf, retryPendingForgets } from './forget'
 import { effectiveConcurrency, memoryAdmission } from '../system/limits'
@@ -51,7 +51,7 @@ import { publishDoneToOthers } from './live-answer'
 import { newAnswerRecord } from './shared-answers'
 import { OutsideText } from './auto-memory'
 import { SharedWaiting } from './shared-waiting'
-import { answersToSave, answerWords, closeChatQuestions, pressParent, labelsHidden, hasOpenQuestion, openCardsIn, chatsWithCardsOf, readyAnswers, reopenAnswers, saveAnswered, type AnsweredQuestion } from './open-questions'
+import { answersToSave, answerWords, closeChatQuestions, questionsWaitInCall, pressParent, labelsHidden, hasOpenQuestion, openCardsIn, chatsWithCardsOf, readyAnswers, reopenAnswers, saveAnswered, type AnsweredQuestion } from './open-questions'
 
 export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
@@ -1130,8 +1130,13 @@ export class ChatRuntime {
           attachments: o.user.attachments, status: 'done', clientMessageId: o.user.clientMessageId, autoSent: !!o.scheduled })
         if (o.answered?.length) saveAnswered(this.db, userMessageId, o.answered)
       }
-      // the AI's questions still open here go: answered ones with this turn, the rest because the chat went on
-      closedQuestions = closeChatQuestions(this.db, chat.id, userMessageId || null)
+      // the AI's questions still open here go: answered ones with this turn, the rest because the chat went on. The
+      // person's own new message, typed in an app they watch, also closes their waiting approval cards as not done, as
+      // typing instead of answering a permission prompt does in Claude Code (docs/decisions/20261128-stale-approval-
+      // cards.md). Not an answer to a card (a press), a scheduled run, a question from Slack or a turn the server starts:
+      // nobody moved on there. Another person's message in a shared chat leaves them: only the asker decides their card
+      const movedOnBy = o.user && !o.scheduled && !o.answered?.length && !questionsWaitInCall(o.clientKind) ? o.userId : null
+      closedQuestions = closeChatQuestions(this.db, chat.id, userMessageId || null, movedOnBy)
       assistantId = this.store.insertMessage({ chatId: chat.id, parentId: userMessageId, role: 'assistant', authorId: null, content: '', status: 'streaming',
         turnId, engine, model })
       // a shared chat's answer is recorded from the moment it exists: what it reads, who saw the chat then (an answer
@@ -1167,6 +1172,9 @@ export class ChatRuntime {
     // Who asked, never the question's words: those are the asker's alone
     const closedOthers = isSharedRow(chat) && o.user && !o.scheduled ? closedQuestions.filter((q) => !q.answered && q.userId !== o.userId && q.question).map((q) => ({ name: labelName(this.store, q.userId) })) : []
     if (closedOthers.length) spec.closedOthers = closedOthers
+    // the person's own waiting cards this message went past: each call is declined for the AI (turn.ts movedOnNote)
+    const movedOn = closedQuestions.flatMap((q) => (q.movedOn ? [q.movedOn] : []))
+    if (movedOn.length) spec.movedOn = movedOn.map((m) => ({ tool: m.tool, args: m.args }))
     // what the sending window shows at this moment, for looking_at (realtime/looking.ts; never for a scheduled run)
     if (o.windowId && !o.scheduled) this.looking.snapshot(turnId, o.userId, o.windowId)
     // as the person who sent it sees them (a shared chat: chat/shared.ts messageFor)
@@ -1181,6 +1189,8 @@ export class ChatRuntime {
     this.enqueue(spec)
     try {
     for (const q of closedQuestions) this.hub.publish(q.userId, { type: 'turn.request.closed', data: { turnId: q.turnId, requestId: q.requestId, reason: q.answered ? 'answered' : 'turn_ended' } })
+    // the step under the asking answer stops waiting and says the person went past it ("답하지 않고 넘어가서 하지 않았어요")
+    for (const m of movedOn) settleWaitingStep(this, o.userId, m.messageId, m.tool, 'moved_on')
     if (o.scheduled) this.publishChat(o.userId, chat.id, 'created')
     if (userMessage) this.hub.publish(o.userId, { type: 'message.created', data: { chatId: chat.id, message: userMessage } })
     this.hub.publish(o.userId, { type: 'message.created', data: { chatId: chat.id, message: assistantMessage } })

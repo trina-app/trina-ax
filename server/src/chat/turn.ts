@@ -90,7 +90,7 @@ import { notificationsOf, notifyEngineStartFailed } from '../notifications/servi
 import { tellHeldJobs } from '../devenv/jobs'
 import { noteChatAnswer } from '../notifications/chat-answers'
 import { noteSharedAnswer, type Ring } from './message-notices'
-import { CARD_LATER_ARGS_MAX, takeAnsweredCalls, answeredNote, closedQuestionNote, CHANGED_MARK, declined, questionsWaitInCall, sameCard, saveQuestion, waitingCardsNote, waitingTwin, type AskedIn, type PriorAnswer, type WaitingCall } from './open-questions'
+import { CARD_LATER_ARGS_MAX, takeAnsweredCalls, answeredNote, closedQuestionNote, movedOnNote, CHANGED_MARK, declined, questionsWaitInCall, sameCard, saveQuestion, waitingCardsNote, waitingTwin, type AskedIn, type PriorAnswer, type WaitingCall } from './open-questions'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { TurnToolSet } from '../turns'
 import { isLookUpTool, scheduleRunOutcome } from './schedule-outcome'
@@ -259,6 +259,9 @@ export interface TurnSpec extends QueueTiming {
   /** a shared chat: other people's ask_user questions this turn's message closed unanswered (ChatRuntime.createTurn;
    * open-questions.ts closedQuestionNote). Kept in memory only: a turn rebuilt after a restart has none. */
   closedOthers?: { name: string }[]
+  /** the person's own waiting call cards this turn's message closed unanswered (ChatRuntime.createTurn; open-questions.ts
+   * movedOnNote, docs/decisions/20261128-stale-approval-cards.md): each call's result is a no. In memory only, as above. */
+  movedOn?: { tool: string; args: unknown }[]
 }
 
 /** Why a shared chat's read card refused: the person's no, no answer, nobody to ask, the answer stopped, or a check
@@ -425,6 +428,27 @@ export function batchKeyed(request: TurnRequest, tool: string | null): TurnReque
 
 /** Tools whose shared read card stays for the person's own folder in their own chat: copies into the chat's places */
 const NO_OWN_SKIP: ReadonlySet<string> = new Set(['copy_files', 'make_zip', 'move_files', 'save_work_file'])
+
+/** A card that waited after an earlier answer is settled (a press, or its person moving on: ChatRuntime.createTurn):
+ * that answer's step of the call stops waiting, and says how it ended (`end`: "Declined" for a no, "moved_on" when the
+ * person wrote a new message instead, docs/decisions/20261128-stale-approval-cards.md). The newest waiting step of the
+ * tool in that message; nothing when it is gone. Told to `userId` (the asker: a card's step is theirs). */
+export function settleWaitingStep(rt: Pick<ChatRuntime, 'db' | 'hub' | 'log'>, userId: string, messageId: string | undefined, tool: string, end: 'declined' | 'moved_on' | null): void {
+  if (!messageId) return
+  try {
+    const row = rt.db.query('SELECT chat_id, steps FROM messages WHERE id = ?').get(messageId) as { chat_id: string; steps: string | null } | null
+    if (!row?.steps) return
+    const steps = JSON.parse(row.steps) as StoredStep[]
+    const st = [...steps].reverse().find((x) => x.tool === tool && x.waiting)
+    if (!st) return
+    delete st.waiting
+    delete st.detail
+    if (end) st.outcome = { ...(st.outcome ?? {}), end }
+    rt.db.query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify(steps), messageId)
+    const step: Step = st.sv ? { ...publicStep(st), label: st.sv.label } : { ...st }
+    rt.hub.publish(userId, { type: 'message.step', data: { chatId: row.chat_id, messageId, step } })
+  } catch (e) { rt.log.warn('settling a waiting step failed', { err: e, messageId }) }
+}
 
 export class TurnExec {
   content = ''
@@ -1490,10 +1514,12 @@ export class TurnExec {
     if (this.stopReason) return
     // another person's question this message closed unanswered (QA S-125): their request is named, not dropped
     const closedQ = this.shared ? closedQuestionNote(spec.closedOthers ?? []) : ''
+    // the person's own waiting cards this message closed (they wrote instead of answering): each call declined
+    const movedQ = movedOnNote(spec.movedOn ?? [])
     // a waiting call's card of this person still open here (the person wrote instead of pressing it): the AI points to it
     let waitingQ = ''
     if (!this.restricted) { try { waitingQ = waitingCardsNote(rt.db, spec.chatId, spec.userId, this.id) } catch (e) { rt.log.warn('reading the waiting cards failed', { err: e, turn: this.id }) } }
-    const answered = (answeredQ ? `${answeredQ}\n\n` : '') + (ranAgain ? `${ranAgain}\n\n` : '') + (closedQ ? `${closedQ}\n\n` : '') + (waitingQ ? `${waitingQ}\n\n` : '')
+    const answered = (answeredQ ? `${answeredQ}\n\n` : '') + (ranAgain ? `${ranAgain}\n\n` : '') + (closedQ ? `${closedQ}\n\n` : '') + (movedQ ? `${movedQ}\n\n` : '') + (waitingQ ? `${waitingQ}\n\n` : '')
     // a message in another script than the one before it: answer in its language (chat/narration.ts, QA TC-7429)
     // ...or a quote above the person's own words (a ✦ side chat's room message): their words decide (QA TC-f1c-01)
     const switched = languageSwitchNote(userMsg.content, this.previousUserText(userMsg.parent_id)) ?? quoteLanguageNote(userMsg.content)
@@ -6102,20 +6128,7 @@ export class TurnExec {
    * waiting, and says "Declined" for a no (QA of #594: "파일 수정 ✓" while the card was still open). The newest waiting
    * step of the tool in that message; nothing when it is gone. */
   private settleWaitingStep(messageId: string | undefined, tool: string, declinedIt: boolean) {
-    if (!messageId) return
-    try {
-      const row = this.rt.db.query('SELECT chat_id, steps FROM messages WHERE id = ?').get(messageId) as { chat_id: string; steps: string | null } | null
-      if (!row?.steps) return
-      const steps = JSON.parse(row.steps) as StoredStep[]
-      const st = [...steps].reverse().find((x) => x.tool === tool && x.waiting)
-      if (!st) return
-      delete st.waiting
-      delete st.detail
-      if (declinedIt) st.outcome = { ...(st.outcome ?? {}), end: 'declined' }
-      this.rt.db.query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify(steps), messageId)
-      const step: Step = st.sv ? { ...publicStep(st), label: st.sv.label } : { ...st }
-      this.rt.hub.publish(this.spec.userId, { type: 'message.step', data: { chatId: row.chat_id, messageId, step } })
-    } catch (e) { this.rt.log.warn('settling a waiting step failed', { err: e, turn: this.id }) }
+    settleWaitingStep(this.rt, this.spec.userId, messageId, tool, declinedIt ? 'declined' : null)
   }
 
   /**

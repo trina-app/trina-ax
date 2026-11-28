@@ -116,7 +116,9 @@ export function stepMark(step: Step, o: MarkContext): StepMark {
   if (step.stopped) return 'stopped'
   // a card that waits after the answer ended: not done until the person answers (QA of #594)
   if (step.waiting && step.status !== 'error') return 'waiting'
-  if (step.status !== 'error') return unansweredStep(step) ? 'unanswered' : 'done'
+  // (a waiting card its person went past with a new message: not done either, the same quiet mark; docs/decisions/
+  // 20261128-stale-approval-cards.md)
+  if (step.status !== 'error') return unansweredStep(step) || step.outcome?.end === 'moved_on' ? 'unanswered' : 'done'
   if (step.devEnvRun?.state === 'expired') return 'failed'
   if (step.devEnvRun?.state === 'cancelled') return 'cancelled'
   if (o.gotPast.has(step.id) || o.live || (!o.answerFailed && lookedUp(step))) return 'retried'
@@ -294,7 +296,7 @@ export function outcomeWords(step: Step, mark: StepMark, t: TFunction): string {
   if (step.outcome?.count !== undefined && mark === 'done') return t('steps.results', { n: step.outcome.count })
   return ''
 }
-const END_KEY = { declined: 'steps.endDeclined', unanswered: 'steps.endUnanswered', skipped: 'steps.endSkipped', refused: 'steps.endRefused', failed: 'steps.failed' } as const
+const END_KEY = { declined: 'steps.endDeclined', unanswered: 'steps.endUnanswered', skipped: 'steps.endSkipped', refused: 'steps.endRefused', failed: 'steps.failed', moved_on: 'steps.endMovedOn' } as const
 
 /** A call's line inside a folded run: what is left after the run's shared start ("Bright Data · Search Engine"), the
  * whole line when nothing is. */

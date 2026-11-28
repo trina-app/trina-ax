@@ -857,6 +857,7 @@ export const id: Record<MessageKey, string> = {
   'steps.results': '{n} hasil',
   'steps.retriedShort': "Tidak berhasil",
   'steps.endDeclined': "Ditolak",
+  'steps.endMovedOn': "Tidak dilakukan: obrolan berlanjut tanpa jawaban",
   'steps.cardWaiting': "Menunggu jawaban Anda",
   'steps.endUnanswered': "Tidak dijawab",
   'steps.endSkipped': "Dilewati",

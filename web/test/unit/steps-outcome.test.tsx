@@ -5,7 +5,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Locale, Step } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
-import Steps, { foldRuns, outcomeWords, runHead, runRest } from '../../src/components/chat/Steps'
+import Steps, { foldRuns, outcomeWords, runHead, runRest, stepMark } from '../../src/components/chat/Steps'
 
 const step = (o: Partial<Step>): Step => ({ id: 's1', kind: 'tool', tool: 'my_bright__search_engine', label: 'Bright Data · Search Engine · "YC Korea founders 2025"', status: 'ok', startedAt: '2026-11-24T10:00:00.000Z', endedAt: '2026-11-24T10:00:02.000Z', ...o })
 const setLocale = (l: Locale) => Object.assign(useLocaleStore.getInitialState(), { locale: l })
@@ -19,6 +19,9 @@ describe('what a call came back with, in words', () => {
     expect(outcomeWords(step({ outcome: { count: 10 } }), 'done', t)).toBe('10 results')
     expect(outcomeWords(step({ status: 'error', outcome: { end: 'declined' } }), 'retried', t)).toBe('Declined')
     expect(outcomeWords(step({ status: 'error', outcome: { end: 'unanswered' } }), 'failed', t)).toBe('No answer')
+    // a waiting card its person went past with a new message (docs/decisions/20261128-stale-approval-cards.md)
+    expect(outcomeWords(step({ status: 'ok', outcome: { end: 'moved_on' } }), 'unanswered', t)).toBe('Not done: the chat moved on without an answer')
+    expect(stepMark(step({ status: 'ok', outcome: { end: 'moved_on' } }), { live: false, gotPast: new Set(), answerFailed: false })).toBe('unanswered')
     // a service error the AI got past: the quiet words, red "Failed" only for one nothing got past
     expect(outcomeWords(step({ status: 'error', outcome: { end: 'failed' } }), 'retried', t)).toBe("Didn't work")
     expect(outcomeWords(step({ status: 'error', outcome: { end: 'failed' } }), 'failed', t)).toBe('Failed')
