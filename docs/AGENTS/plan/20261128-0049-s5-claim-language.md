@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 00:49
 - Branch: `fix/s5-claim-language`
-- Status: in progress
+- Status: done
 - Where: web (`pages/OpenApp.tsx` AppSetup, `i18n`), server (`auth/setup-console.ts`), shared (`api/auth.ts`,
   `desktop-bridge.ts`, `cloud-protocol/owner-claim.ts`), desktop (`preload/app.ts`, `main/main.ts`). Why: the screen is
   the web page the team server serves; only the app knows its own language (docs/REPOSITORY-RULES.md).
@@ -69,4 +69,8 @@ None new; follows docs/decisions/20261126-desktop-create-team.md (the claim stay
 
 ## Result
 
-(at the end)
+Built as planned. Re-test on a real 0.20.2 team (QA 0203) before this change: the name and e-mail sign-in were fixed in
+0.20.2; S5 was still English in a Korean app, a reload still said "expired", and a reopen from the app while the
+window showed `/app-setup` sent a new claim the page never read (CP rows: issued, never reserved, revoked by the next).
+The page test `web/test/e2e/open-app.spec.ts` covers the language, the reload and the re-sent claim with a stand-in
+bridge. The console side (30 minutes) is a trina-cloud PR that re-pins its vendored `owner-claim.ts` to this branch.
