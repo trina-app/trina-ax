@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 08:54
 - Branch: `feat/chrome-profiles-easy`
-- Status: in progress (A building; B and C wait for the architecture review the coordinator started)
+- Status: done
 - Where: `chrome-extension/`, `server/src/chrome/`, `shared/src/api/chrome.ts`, `shared/src/chrome-native.ts`, the web
   app (Settings › Browser, `/connect-chrome/*`), the desktop app (native host, External Extensions). Why: the same
   feature as [Trina in Chrome](20261128-0526-trina-in-chrome.md); Chrome installs and links per profile.
@@ -98,6 +98,60 @@ both sides now show who and what before anything links.
 `tests/security/chrome-link.test.ts`, `web/test/unit/chrome-link.test.tsx`, web e2e `chrome-link.spec.ts`,
 `tests/e2e/chrome-extension.test.ts` with two profiles, `bun run check:prepush`.
 
+## Changed after review
+
+The architecture review (2026-11-28, "GO WITH CHANGES") replaced A–C above: no `identity.email`, no device code, no
+External Extensions. Built instead: app-led linking (decision
+[20261128-chrome-app-led-linking](../../decisions/20261128-chrome-app-led-linking.md)): the desktop app lists the
+profiles from each browser's Local State, opens a profile on the extension's pair page with a single-use nonce, a small
+signed Swift helper relays nonce + PKCE challenge to the app over native messaging, the app asks the signed-in page for
+a pair code, the extension redeems it. Names come from Local State; the account shows next to them. macOS only for the
+helper; Windows and Linux fall back to the in-profile Connect.
+
+## Test cases
+
+Every state and exit of app-led linking; QA sheet rows TC-9187..TC-9210. Automated = run in CI or by the command in
+the decision's Tests line; manual = run on the developer's Mac with throwaway Chromium profiles (screenshots in the
+session's scratchpad `trina-chrome/tc/`).
+
+| Key | QA | Steps | Expected | How |
+|---|---|---|---|---|
+| A01 | TC-9187 | Settings > Browser > On this computer > Connect on the profile | The profile opens on the extension's pair page, links with no click, the tab closes by itself; the row shows Connected; app shows the notice "Connected your Chrome on Mac profile \"X\"." with Undo | e2e (tests/e2e/chrome-app-link.test.ts) + manual |
+| A02 | TC-9188 | Press Connect all | Both profiles link with zero clicks, each named from the browser's profile name, with its Google email shown | e2e + manual |
+| A03 | TC-9189 | Press Connect all | All five link (five live pair codes at once, rate limit 10 per 15 min not hit) | unit (several live codes) + manual |
+| A04 | TC-9190 | Settings > Browser: the row's button | Button reads "Install"; pressing it opens that profile on the Web Store page; after install, Connect links it | unit (view) + manual |
+| A05 | TC-9191 | Open Settings > Browser | Edge and Brave profiles are listed with their own names; Edge store link for Edge | unit (Local State parsing) + manual where installed |
+| A06 | TC-9192 | Create a new Chrome profile, come back to the app | The new profile appears in the list by itself (next read or window focus) | unit + manual |
+| A07 | TC-9193 | Rename it in Settings > Browser (pencil) | The extension popup shows the new name at once | unit (server label frame) + manual |
+| A08 | TC-9194 | Popup > Rename > Save | Settings > Browser shows the new name; offline rename says it could not rename | unit + manual |
+| A09 | TC-9195 | Disconnect one in Settings | Only that link ends (its socket closes 4401); the other stays online | unit (existing) |
+| A10 | TC-9196 | Press Undo on the notice | That link is disconnected; the row shows Connect again | web e2e (chrome-link.spec.ts) |
+| A11 | TC-9197 | Open the pair page (or Connect from a stale window) | Pair page says the desktop app is not running and points to the in-profile Connect; the popup's Connect still works | unit (helper app_not_running) + manual |
+| A12 | TC-9198 | Pair with it | Refused (bad_nonce); pair page says the link expired, press Connect again | unit |
+| A13 | TC-9199 | Pair with it again | Refused (bad_nonce); no second code | unit |
+| A14 | TC-9200 | Present it from profile B | Single use: only one link is made, named after profile A; limitation documented (the app cannot see which profile asks) | unit |
+| A15 | TC-9201 | Send it to the app socket / helper | Refused; Chrome's allowed_origins also refuse other extensions | unit |
+| A16 | TC-9202 | Try to connect to the app's socket | Cannot (socket 0600 in the user's own data folder) | unit (permission check) |
+| A17 | TC-9203 | Settings > Browser | No "On this computer" list; how-to text, "Each browser profile connects once", Web Store link; in-profile Connect works | unit + web e2e + manual |
+| A18 | TC-9204 | Switch team on screen, Connect a profile | The profile links to the team on screen | manual |
+| A19 | TC-9205 | Connect a profile | Pair page says to open the team in the desktop app and sign in (no_team) | unit + manual |
+| A20 | TC-9206 | Look at Settings > Browser, popup, pair page in both languages | Plain wording, no jargon, no mixed languages, notices match reality | manual (screenshots) |
+| A21 | TC-9207 | View at 1440 px and 390 px width | No clipping or overflow; buttons aligned; dark and light | manual (screenshots) |
+| A22 | TC-9208 | OPTIONS/POST /api/chrome/redeem from an extension origin, a web origin, another path | CORS only for extension origins on redeem, never with credentials | unit |
+| A23 | TC-9209 | A turn in the person's Chrome | The AI's profile list names each profile's account (not in a shared chat); profile may be given by email | unit |
+| A24 | TC-9210 | App asks the page for a pair code | Refused (403), page answers null, pair page says the team did not allow it | unit (existing guest check) + unit |
+
 ## Result
 
-(at the end)
+Built app-led linking (see "Changed after review"). Independent security review: 2 medium, 4 low, 3 info; fixed: the
+nonce bound to the team on screen, the release helper checks that the socket's program is signed by our Developer ID
+team and ignores the dev socket override, a profile's name is never its email (shared-chat prompts), UTF-16-safe name
+cut, no control characters in names, Undo only for a link made in the last 5 minutes, no host manifest from a disk
+image or translocated app. Open for the owner: finding 1 (a program of the same OS user can rewrite the per-user host
+manifest and link a profile to its own server with no click; the cure is one click on the pair page for a new team
+address; decision "Residual risk"). UX review: 4 P1 and 6 P2 fixed (one list per state, row layout, wording, no red
+text for expected states, keep-all for Korean). Manual QA on this Mac (real desktop dev app, two local teams, up to 6
+throwaway Chromium profiles): A01–A24 Pass (A22/A23 unit only, A16 modes only: no second OS user; Edge/Brave from
+Local State fixtures). QA findings fixed: the manifests are written again at Connect, the "can't connect now" text
+says to try again in a few minutes. Not done: Windows/Linux helper, the store ids (filled in after the store upload).
+

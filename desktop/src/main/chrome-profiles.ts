@@ -108,6 +108,8 @@ export class ChromeProfilesHost {
     let url: string
     let nonce: string | null = null
     if (found.id) {
+      // the browser may have made its folder (or lost the manifest) since the app started: write the manifests again
+      if (!this.d.dev || this.env.env.MYCEL_CHROME_REGISTER_HOST === '1') try { this.register() } catch { /* the pair page falls back */ }
       // the team on screen now: the code must come from it (no team: the pair page says to open one)
       const team = this.d.team()
       if (!team) return 'failed'
