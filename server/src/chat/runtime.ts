@@ -1144,12 +1144,20 @@ export class ChatRuntime {
       this.db.query(`INSERT INTO turns (id, chat_id, user_id, engine, model, effort, status, started_at, queued_at, message_id, user_message_id, window_id, client_kind, queue_seq, schedule_id, scheduled_for, shared_checked, people_checked)
         VALUES (?,?,?,?,?,?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`).run(turnId, chat.id, o.userId, engine, model, effort, now, now, assistantId, userMessageId, o.windowId, o.clientKind, queueSeq, o.scheduled?.id ?? null, o.scheduled?.dueAt ?? null)
       // a chat without a title gets a placeholder from this message (title.ts); the AI may name it later (set_title)
-      // never a stored connection secret of this person in it (QA INT-13, B-W5-1)
-      const title = chat.title || (o.user ? placeholderTitle(o.user.content, o.user.attachments, redactorFor(this.ctx, o.userId).hide, !!chat.side_room_id) : '')
+      // never a stored connection secret of this person in it (QA INT-13, B-W5-1). A continuation's "<original>
+      // (이어서)" (title_source 'fork', chat/fork.ts) is replaced by its first new message's placeholder the same way and
+      // becomes automatic; nothing to make one of keeps it (docs/decisions/20261128-fork-retitle-first-message.md)
+      const placeholder = o.user && (!chat.title || chat.title_source === 'fork')
+        ? placeholderTitle(o.user.content, o.user.attachments, redactorFor(this.ctx, o.userId).hide, !!chat.side_room_id) : ''
+      // the title as the row has it now, never the one read before the send's awaits (a rename meanwhile wins); an empty
+      // one gets the placeholder
+      const title = chat.title ? null : placeholder
       // a shared chat keeps its creator's engine: another person's turn runs on theirs without changing the chat's
-      if (isSharedRow(chat) && chat.user_id !== o.userId) this.db.query('UPDATE chats SET active_leaf_id = ?, title = ?, updated_at = ? WHERE id = ?').run(assistantId, title, now, chat.id)
-      else this.db.query('UPDATE chats SET active_leaf_id = ?, title = ?, engine = ?, model = ?, effort = ?, updated_at = ? WHERE id = ?')
+      if (isSharedRow(chat) && chat.user_id !== o.userId) this.db.query("UPDATE chats SET active_leaf_id = ?, title = COALESCE(NULLIF(title, ''), ?, ''), updated_at = ? WHERE id = ?").run(assistantId, title, now, chat.id)
+      else this.db.query("UPDATE chats SET active_leaf_id = ?, title = COALESCE(NULLIF(title, ''), ?, ''), engine = ?, model = ?, effort = ?, updated_at = ? WHERE id = ?")
         .run(assistantId, title, engine, model, effort, now, chat.id)
+      // only while it is still the continuation's title (a rename by the person in the meantime wins)
+      if (chat.title_source === 'fork' && placeholder) this.db.query("UPDATE chats SET title = ?, title_source = 'auto' WHERE id = ? AND title_source = 'fork'").run(placeholder, chat.id)
       o.scheduled?.commit(chat.id)
     })()
     const spec: TurnSpec & QueueTiming = { turnId, chatId: chat.id, userId: o.userId, assistantId, userMessageId, windowId: o.windowId, clientKind: o.clientKind, engine, model, effort, locale: o.locale,

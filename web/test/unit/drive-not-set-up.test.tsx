@@ -25,7 +25,7 @@ const as = (role: 'owner' | 'admin' | 'member', deployment?: 'hosted') => {
 const ko = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) => translate('ko', key, params)
 const drive = { name: 'Google Drive' }
 const notSetUp = {
-  connection: { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null }, loadFailed: false, load: () => {}, revokeWarning: false, start: () => {}, disconnect: async () => {},
+  connection: { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null }, loadFailed: false, load: () => {}, revokeWarning: null, start: () => {}, disconnect: async () => {},
   d: { inProgress: false, flow: null, busy: false, error: false, authorizationUrl: null, cancel: () => {}, complete: async () => {}, setError: () => {} },
 } as unknown as DriveConnectionState
 /** what the page shows (rendered in the DOM host, where the stores' state is the test's), as text and markup */
@@ -70,6 +70,17 @@ describe('a hosted team: Google Drive not ready yet', () => {
       expect(html).toMatch(/disabled=""[^>]*data-testid="drive-connect"|data-testid="drive-connect"[^>]*disabled=""/)
     })
   }
+  // Windows QA 2026-11-28: a disconnect through the hosting service keeps the grant at Google (the person's other Trina
+  // servers use it); the line says so and links to Google's own page to remove it everywhere
+  test('after a disconnect that kept the grant: only this server let go, with Google’s third-party connections page', async () => {
+    as('member', 'hosted')
+    const kept = { ...notSetUp, connection: { configured: true, status: 'disconnected', account: null, scopes: [], expiresAt: null, hostedApp: true }, revokeWarning: 'kept' } as unknown as DriveConnectionState
+    const { text, html } = await shown(<DriveCard s={kept} />)
+    expect(text).toContain(ko('drive.keptAtGoogle'))
+    expect(html).toContain('data-testid="drive-remove-at-google"')
+    expect(html).toContain('href="https://myaccount.google.com/connections"')
+    expect(text).not.toContain(ko('drive.revokeWarning'))
+  })
   test('Discover\'s card: "not ready yet" for an owner too, never a Set up link to Admin (Drive and the Google apps)', async () => {
     as('owner', 'hosted')
     const c = { id: 'google-drive', name: 'Google Drive', line: 'x', logo: '/x.svg', state: 'off' as const, setUp: true, onOpen: () => {}, onAdd: () => {} }

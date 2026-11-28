@@ -716,7 +716,10 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
   // without the relay: the office network only, or the public address the server has (tunnel.host, its own domain;
   // the Health relay line says the same, server/src/system/ops.ts)
   const pub = state.data?.publicAddress ?? null
-  const modeName = (m: Mode) => t(m === 'direct-only' && pub ? 'system.mode.direct-public' : `system.mode.${m}`)
+  // a WSL server on a Windows PC: no office network reaches it, so without the relay or a public address only this PC
+  // opens the team (server/src/system/wsl.ts; Windows QA 2026-11-28)
+  const wsl = !!state.data?.wsl
+  const modeName = (m: Mode) => t(m === 'direct-only' && pub ? 'system.mode.direct-public' : m === 'direct-only' && wsl ? 'system.mode.this-pc' : `system.mode.${m}`)
   // the office network only: the address the team types, as Settings › 앱 shows it (GET /api/me team.address, the
   // office address with its port; QA TC-485)
   const me = useMeStrict()
@@ -770,6 +773,7 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
             {/* the server's own address has a country or network list, and an app posts in a room: services reach its
                 /in/ addresses anyway (docs/DECISIONS.md "Apps posting in rooms", owner decision 8) */}
             {c.appsAnywhere && <p className="mt-2 text-xs text-muted" data-testid="connection-apps-anywhere">{t('roomApps.connectionAnywhere')}</p>}
+            {wsl && c.mode === 'direct-only' && !pub && <p className="mt-2 text-xs text-muted" data-testid="connection-wsl-note">{t('system.wslNote')}</p>}
             <p className="mt-2 text-xs text-faint">{c.direct.enabled ? t('system.directOn', { port: c.direct.port }) : t('system.directOff')}</p>
             {c.direct.fingerprintSha256 && <p className="font-mono text-code-sm break-all text-faint">SHA-256 {c.direct.fingerprintSha256}</p>}
             {changes && phone && <OnComputer text={t('admin.onComputerConnection')} testId="connection-on-computer" />}
@@ -838,6 +842,7 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
                 />
               </Field>
             )}
+            {wsl && <p className="text-xs text-muted" data-testid="connection-mode-wsl-note">{t('system.wslNote')}</p>}
             <p className="text-xs text-warn">{t('system.modeWarning')}</p>
           </div>
         </Modal>
@@ -879,7 +884,9 @@ function ConnectedFolders() {
   const locale = useLocale()
   const act = useAction()
   const actOk = useActionOk()
-  const state = useLoad(async () => (await api.call(API.listConnected)).items)
+  // "this Mac" and Finder's examples only where the server is a Mac (older servers do not say: a Mac)
+  const [mac, setMac] = useState(true)
+  const state = useLoad(async () => { const r = await api.call(API.listConnected); setMac(r.mac !== false); return r.items })
   const [name, setName] = useState('')
   const [source, setSource] = useState('')
   const [asking, setAsking] = useState(false)
@@ -895,7 +902,7 @@ function ConnectedFolders() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncing])
   return (
-    <Card id="system-connected" title={t('connected.title')} desc={<LearnMore short={t('connected.descShort')} long={t('connected.desc')} />}>
+    <Card id="system-connected" title={t('connected.title')} desc={<LearnMore short={t('connected.descShort')} long={t(mac ? 'connected.desc' : 'connected.descOther')} />}>
       <Loadable state={state}>
         {(list) => (
           <>
@@ -940,8 +947,8 @@ function ConnectedFolders() {
               <Field label={t('connected.name')}>
                 <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={60} data-testid="connected-name" />
               </Field>
-              <Field label={t('connected.source')} hint={t('connected.sourceHint')}>
-                <input className={inputCls} value={source} onChange={(e) => setSource(e.target.value)} placeholder="/Volumes/…" data-testid="connected-source" />
+              <Field label={t(mac ? 'connected.source' : 'connected.sourceOther')} hint={t(mac ? 'connected.sourceHint' : 'connected.sourceHintOther')}>
+                <input className={inputCls} value={source} onChange={(e) => setSource(e.target.value)} placeholder={mac ? '/Volumes/…' : '/mnt/…'} data-testid="connected-source" />
               </Field>
               <div>
                 <span className="mb-1.5 hidden text-label sm:block" aria-hidden>&nbsp;</span>

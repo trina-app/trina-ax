@@ -39,8 +39,9 @@ misalnya "Read, compose and send emails". Sebagian baris punya kotak. Biarkan **
 tidak dicentang. Hubungkan lagi dan biarkan semua kotak tetap dicentang."
 
 #### Konfirmasi akunnya
-Kembali di Trina AX, periksa akun yang ditampilkan ("Hubungkan akun ini?") lalu pilih **Hubungkan akun ini**. Halaman
-sekarang menampilkan **Terhubung** di kanan atas dan **Terhubung sebagai** dengan alamat Anda di bawah namanya.
+Di browser, tab yang dibuka Google menampilkan **Terhubung**: tutup tab itu dan kembali ke tab sebelumnya. Di aplikasi
+desktop, periksa akun yang ditampilkan ("Hubungkan akun ini?") lalu pilih **Hubungkan akun ini**. Halaman sekarang
+menampilkan **Terhubung** di kanan atas dan **Terhubung sebagai** dengan alamat Anda di bawah namanya.
 
 ![Halaman Gmail setelah dihubungkan: Connected di kanan atas dengan menu ⋯, dan Connected as bob@acme.example.com di bawah namanya](../../images/connect/google-member-connected.webp "Gmail, terhubung")
 :::

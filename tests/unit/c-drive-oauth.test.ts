@@ -109,6 +109,7 @@ test('cancelling a refresh waiter returns promptly without cancelling other wait
   expect(fake.refreshCount).toBe(1)
 })
 test('callback rejects anonymous or other-person browsers, never reflects secrets, and another own session cannot complete it', async () => {
+  h.ctx.db.query("UPDATE users SET email='alice@example.test' WHERE username='olga'").run()
   const f = await c.call('POST', base + '/authorize', {}), cb = fake.authorize(f.authorizationUrl)
   const callbackUrl = base + '/callback?' + new URLSearchParams(cb)
   expect((await h.fetch(callbackUrl)).status).toBe(400)
@@ -121,7 +122,9 @@ test('callback rejects anonymous or other-person browsers, never reflects secret
   const second = h.client(); await second.login('olga', OWNER_PW)
   expect((await second.try('GET', `${base}/flows/${f.flowId}`)).status).toBe(404)
   expect((await second.try('POST', `${base}/flows/${f.flowId}/complete`, {})).status).toBe(404)
-  expect((await c.call('POST', `${base}/flows/${f.flowId}/complete`, {})).status).toBe('connected')
+  // the return in the browser of the session that started it connected it already (no second trip to confirm)
+  expect((await c.call('GET', `${base}/flows/${f.flowId}`)).state).toBe('completed')
+  expect((await c.call('GET', base)).status).toBe('connected')
   const csrf = await h.fetch(base + '/authorize', { method: 'POST', headers: { cookie: c.cookie!, 'content-type': 'application/json' }, body: '{}' })
   expect(csrf.status).toBe(403)
   const output = logs.join('\n')

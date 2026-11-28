@@ -17,8 +17,9 @@
     server refuses (a room's side chat, a scheduled run, a confidential chat or safe operations, the trash, a guest
     outside their project or without AI; the title menu also until an answer has finished there).
   - **The new chat says what it is:** its title is "<원래 제목> (이어서)" / "<title> (continued)" (once: a continuation of a
-    continuation keeps one), renamed as any chat. The line at the top stays ("‘제목’에서 이어 왔어요", a link), and the
-    line under the box says "🔒 나만 보는 채팅 · ‘<제목>’에서 이어 왔어요. 원래 채팅은 그대로예요." with the title a link
+    continuation keeps one), renamed as any chat; since 2026-11-28 its first new message names it as a new chat's first
+    question does ([Continued chat titles](20261128-fork-retitle-first-message.md)). The line at the top stays
+    ("‘제목’에서 이어 왔어요", a link), and the line under the box says "🔒 나만 보는 채팅 · ‘<제목>’에서 이어 왔어요. 원래 채팅은 그대로예요." with the title a link
     to the original (WhoSees.tsx; no new element). A project page's "나만 보는 채팅 N개 · 공유할 채팅 고르기" never counts
     these chats: they are private on purpose.
   - **What is copied:** `POST /api/chats/:id/fork` takes my own chat too (another person's chat of one person: 404).
