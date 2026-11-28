@@ -5,6 +5,11 @@ import { DriveId } from '../drive-tools'
 import { endpoint, empty } from './endpoint'
 import { CLAIM_DRIVE_FLOW_PATH } from './auth'
 import { IntegrationAccess } from './integrations'
+/** What a disconnect did at Google: revoked, could not be told (unavailable), not asked (another sign-in here uses the
+ * same grant: not_needed), or kept on purpose (kept: the hosting service's shared Google app, whose grant the same
+ * person's other Trina servers and teams use too; docs/decisions/20261128-google-broker-grant-kept.md). */
+export const Revocation = z.enum(['revoked', 'unavailable', 'not_needed', 'kept'])
+export type Revocation = z.infer<typeof Revocation>
 export const DriveAccount = z.object({ name: z.string().nullable(), email: z.string().nullable() })
 /** A folder (or a shared drive) a team share gives access to, with everything below it. */
 export const DriveShareFolder = z.object({ id: z.string(), name: z.string(), kind: z.enum(['folder', 'drive']) })
@@ -81,7 +86,7 @@ export const DRIVE = {
   completeDriveFlow: endpoint({ method: 'POST', path: '/api/integrations/google-drive/flows/:id/complete', auth: 'user', owner: 'C', body: CompleteDriveFlowBody, response: DriveConnection, summary: 'Confirm the Google account shown by this own authorization flow. membersOn is ignored (no members switch since 2026-11-12).' }),
   claimDriveFlow: endpoint({ method: 'POST', path: CLAIM_DRIVE_FLOW_PATH, auth: 'user', owner: 'C', body: z.object({ code: z.string().regex(/^[A-Za-z0-9_-]{43}$/) }).strict(), response: DriveFlow, summary: 'The desktop app finishes a sign-in Google answered in a browser without a session: the one-time code from the return page (link fragment). Only a flow of this same session; the person then confirms the account.' }),
   cancelDriveFlow: endpoint({ method: 'DELETE', path: '/api/integrations/google-drive/flows/:id', auth: 'user', owner: 'C', response: empty, status: 204, summary: 'Cancel this own authorization flow.' }),
-  disconnectDrive: endpoint({ method: 'DELETE', path: '/api/integrations/google-drive', auth: 'user', owner: 'C', response: z.object({ disconnected: z.literal(true), revocation: z.enum(['revoked', 'unavailable', 'not_needed']) }), summary: 'Immediately disable own Drive access, then attempt Google revocation.' }),
+  disconnectDrive: endpoint({ method: 'DELETE', path: '/api/integrations/google-drive', auth: 'user', owner: 'C', response: z.object({ disconnected: z.literal(true), revocation: Revocation }), summary: 'Immediately disable own Drive access, then attempt Google revocation.' }),
   driveAdminStatus: endpoint({ method: 'GET', path: '/api/admin/google-drive', auth: 'admin', owner: 'C', response: DriveAdminStatus, summary: 'Whether Google Drive is set up on this server, by whom, and how many members are connected; never the client.' }),
   setDriveClient: endpoint({ method: 'PUT', path: '/api/admin/google-drive/client', auth: 'admin', owner: 'C', body: SetDriveClientBody, response: DriveAdminStatus, summary: 'Set up Google Drive with a Google OAuth web client (stored as a private server file; members then connect their own account). Refused on hosted servers, without a public address, and when the operator set the client.' }),
   setDriveMembers: endpoint({ method: 'PUT', path: '/api/admin/google-drive/members', auth: 'admin', owner: 'C', body: z.object({ on: z.boolean() }).strict(), response: DriveAdminStatus, summary: 'The old members switch, kept for older apps: admin-only, changes nothing (every member may connect their own once Google Drive is set up).' }),
@@ -90,5 +95,5 @@ export const DRIVE = {
   completeDriveShareFlow: endpoint({ method: 'POST', path: '/api/admin/google-drive/shares/flows/:id/complete', auth: 'admin', owner: 'C', body: z.object({ name: DriveShareName.optional() }).strict(), response: DriveShare, summary: 'Confirm the Google account: a new share (no folders and nobody yet), or the new sign-in of a share.' }),
   driveShareFolders: endpoint({ method: 'GET', path: '/api/admin/google-drive/shares/:id/folders', auth: 'admin', owner: 'C', query: z.object({ q: z.string().trim().max(100).optional() }), response: z.object({ items: z.array(DriveShareFolder) }), summary: "The share account's top-level folders and shared drives, or folders whose name has q." }),
   updateDriveShare: endpoint({ method: 'PATCH', path: '/api/admin/google-drive/shares/:id', auth: 'admin', owner: 'C', body: UpdateDriveShareBody, response: DriveShare, summary: 'Change a share: its name, folders (checked with Google), the whole Drive, who may use it.' }),
-  stopDriveShare: endpoint({ method: 'DELETE', path: '/api/admin/google-drive/shares/:id', auth: 'admin', owner: 'C', response: z.object({ stopped: z.literal(true), revocation: z.enum(['revoked', 'unavailable', 'not_needed']) }), summary: 'Stop sharing: the tokens are deleted at once, then Google revocation is attempted.' }),
+  stopDriveShare: endpoint({ method: 'DELETE', path: '/api/admin/google-drive/shares/:id', auth: 'admin', owner: 'C', response: z.object({ stopped: z.literal(true), revocation: Revocation }), summary: 'Stop sharing: the tokens are deleted at once, then Google revocation is attempted.' }),
 } as const

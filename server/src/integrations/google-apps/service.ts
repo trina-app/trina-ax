@@ -25,7 +25,7 @@
 // Nothing here returns, logs or audits a token, a client secret or the person's Google address.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
-import type { GoogleAppAdminStatus, GoogleAppFlow, GoogleAppId, GoogleAppTeam, GoogleAppView, IntegrationAccess } from '@mycel/shared/api'
+import type { GoogleAppAdminStatus, GoogleAppFlow, GoogleAppId, GoogleAppTeam, GoogleAppView, IntegrationAccess, Revocation } from '@mycel/shared/api'
 import { GOOGLE_APP_BROKER_SCOPES, googleScopesCover } from '@mycel/shared/cloud-protocol'
 import type { AppContext } from '../../context'
 import { newId } from '../../db'
@@ -35,7 +35,7 @@ import { isHosted } from '../../system/deployment'
 import { GOOGLE_AUTH, GOOGLE_REVOKE, GOOGLE_TOKEN, GOOGLE_USERINFO, type DriveFetch } from '../google-drive/client'
 import { googleDriveOf, ownsLiveDriveShare } from '../google-drive/oauth'
 import { DriveError } from '../google-drive/store'
-import { BrokerRequestRefused } from '../google-drive/broker'
+import { BrokerRequestRefused, isBrokerToken } from '../google-drive/broker'
 import { integrationsOf } from '../connections/service'
 import { memberAllows } from '../connections/tools'
 import { accessOf, activeUser, connectionAad, getRow, isAdmin, mayUse, savedTools, selectRows, setAccess, signsTeamGoogleApp, googleAccountInUse, googleEmailOf, usersOf, type Row } from '../connections/store'
@@ -43,10 +43,13 @@ import { APIS, APP_IDS, APP_NAMES, APP_SLUGS, catalog, placeholderUrl } from './
 import { clientFromBody, clientSettingKey, driveAppAvailable, redirectUriOf, safeAppsDir, appsSecretsDir, readAppClient, setupOf, writeClientFile, type AppSetup } from './config'
 import { googleTransport, isGoogleAppSecret, setGoogleFetch, tokensOf, type GoogleAppSecret } from './tokens'
 import { workspaceLibraryOf } from './library'
-import { googleLoginHint } from '../../auth/login-identities'
+import { googleLoginHint, isExpectedGoogleEmail } from '../../auth/login-identities'
 import { personLocale } from '../../files/media-text'
 import type { AppClient, CallbackOutcome } from '../google-drive/callback-page'
 import { CLAIM_MS, appReturnKey, appReturnPort, heldProofOk, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
+
+/** The sign-in was made with the hosting service's shared Google app (its grant is never revoked from here). */
+const viaBroker = (secret: GoogleAppSecret, token: string) => secret.google.mode === 'broker' || isBrokerToken(token)
 
 /** The key of a Google app connection the demo's snapshot builder makes (routes/demo-builder.ts): no Google app made it. */
 export const DEMO_GOOGLE_KEY = 'demo'
@@ -327,8 +330,10 @@ export class GoogleApps {
    * A browser without a session, for a flow the desktop app started, finishes it only as far as a one-time code for the
    * app on this computer (as Google Drive's, google-drive/app-return.ts): the system browser the desktop app opens has
    * no session, and the page always said "This browser can't finish it" (owner 2026-11-21). A return to a sign-in that
-   * is already answered says how it ended, never "expired or already used" for one that worked (answered()). */
-  async callbackOutcome(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<CallbackOutcome> {
+   * is already answered says how it ended, never "expired or already used" for one that worked (answered()). `finish`
+   * (the return page, routes/google-apps.ts): a personal sign-in whose browser holds its very session is connected at
+   * once (finish()), done 'connected'. */
+  async callbackOutcome(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }, o: { finish?: boolean } = {}): Promise<CallbackOutcome> {
     this.sweep()
     const no = (reason: string, app?: AppClient | null): CallbackOutcome => ({ ok: false, reason, ...(app ? { app } : {}) })
     if (!input.state || !/^[A-Za-z0-9_-]{43}$/.test(input.state)) return no('invalid_flow')
@@ -372,6 +377,7 @@ export class GoogleApps {
       if (held) return this.hold(f, result, cur.expires_at)
       const sealed = this.box.seal(flowAad(f), result)
       this.db.query("UPDATE google_app_flows SET state='ready', secret_enc=?, key_version=?, account=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, JSON.stringify(account), f.id)
+      if (o.finish && !app && isExpectedGoogleEmail(this.db, f.user_id, account.email) && await this.finish(f, browser)) return { ok: true, done: 'connected', ...(app ? { app } : {}) }
       return { ok: true, ...(app ? { app } : {}) }
     } catch (e) {
       return failed(e instanceof DriveError && e.reason === 'needs_reconnect' ? 'exchange' : e instanceof DriveError ? e.reason : 'provider_unavailable')
@@ -479,9 +485,19 @@ export class GoogleApps {
     }
   }
 
+  /** A browser sign-in finishes in the tab Google came back to, as Google Drive's (google-drive/oauth.ts finish): the
+   * person's own sign-in, when that browser holds the very session that started it and Google came back with the
+   * person's own address (isExpectedGoogleEmail; another one keeps the confirm card). The team account keeps its confirm
+   * (an admin's choice); a sign-in the desktop or phone app started is confirmed in the app. A refusal leaves it ready,
+   * confirmed as before. */
+  private async finish(f: FlowRow, browser?: { userId: string; sessionId: string }): Promise<boolean> {
+    if ((f.scope ?? 'personal') !== 'personal' || !browser || browser.userId !== f.user_id || browser.sessionId !== f.session_id) return false
+    try { await this.complete(f.user_id, f.session_id, f.app, f.id, { waitForTools: false }); return true } catch { return false }
+  }
   /** The person confirms the Google account shown: the app is connected (their earlier sign-in for it, if any, is
-   * replaced; its Always allow and tool switches stay). */
-  async complete(user: string, session: string, app: GoogleAppId, id: string): Promise<GoogleAppView> {
+   * replaced; its Always allow and tool switches stay). `waitForTools: false` (the return page): its tools are read in
+   * the background, the page does not wait for them. */
+  async complete(user: string, session: string, app: GoogleAppId, id: string, o: { waitForTools?: boolean } = {}): Promise<GoogleAppView> {
     const f = this.ownFlow(user, session, app, id)
     const { setup, s } = this.ready(f, app)
     const now = new Date(this.now()).toISOString()
@@ -510,7 +526,8 @@ export class GoogleApps {
     // its tools are read from the library now when it runs (else by the sweep, once it does)
     if (this.library().state() === 'ready') {
       const row = getRow(this.db, rowId)
-      if (row) await Promise.race([integrationsOf(this.ctx).check(row).catch(() => row), Bun.sleep(15_000)])
+      const check = row ? integrationsOf(this.ctx).check(row).catch(() => row) : null
+      if (check && o.waitForTools !== false) await Promise.race([check, Bun.sleep(15_000)])
     }
     return this.view(user, app)
   }
@@ -535,7 +552,7 @@ export class GoogleApps {
   }
 
   /** Remove this app's sign-in at once; revoke at Google only when no other Google sign-in of the person is left here. */
-  async disconnect(user: string, app: GoogleAppId): Promise<{ disconnected: true; revocation: 'revoked' | 'unavailable' | 'not_needed' }> {
+  async disconnect(user: string, app: GoogleAppId): Promise<{ disconnected: true; revocation: Revocation }> {
     this.active(user)
     const row = this.row(user, app)
     const secret = row ? this.secretOf(row) : null
@@ -550,6 +567,8 @@ export class GoogleApps {
     }
     const token = secret?.tokens.refreshToken ?? null
     if (!token) return { disconnected: true, revocation: 'not_needed' }
+    // the hosting service's shared Google app: its grant serves this person's other Trina servers too, never revoked
+    if (viaBroker(secret!, token)) return { disconnected: true, revocation: await this.revoke(secret!, token) }
     // another sign-in of this person, or anyone's sign-in here with the same Google account (a shared one too)
     if (this.otherSignIns(user) || googleAccountInUse(this.db, googleEmailOf(row?.account), { integration: row?.id })) return { disconnected: true, revocation: 'not_needed' }
     return { disconnected: true, revocation: await this.revoke(secret!, token) }
@@ -564,8 +583,9 @@ export class GoogleApps {
       try { s = this.box.open<FlowSecret>(flowAad(f), f.secret_enc, f.key_version) } catch { continue }
       const token = s.tokens?.refreshToken
       if (!token) continue
-      if (this.otherSignIns(f.user_id) || googleAccountInUse(this.db, s.account?.email?.toLowerCase() ?? null)) continue
-      void this.revokeToken(setupOf(this.ctx, f.app).mode === 'broker', token).catch(() => 'unavailable')
+      // the hosting service's shared Google app: never revoked from here (revokeToken)
+      if (!isBrokerToken(token) && (this.otherSignIns(f.user_id) || googleAccountInUse(this.db, s.account?.email?.toLowerCase() ?? null))) continue
+      void this.revokeToken(isBrokerToken(token), token).catch(() => 'unavailable')
     }
   }
   /** Another Google sign-in of this person is left here (their own apps, their Drive, a Drive they share with the team, an
@@ -576,14 +596,18 @@ export class GoogleApps {
       || ownsLiveDriveShare(this.db, user)
       || signsTeamGoogleApp(this.db, user, exceptTeamRow)
   }
-  private async revoke(secret: GoogleAppSecret, token: string): Promise<'revoked' | 'unavailable'> {
+  private async revoke(secret: GoogleAppSecret, token: string): Promise<Revocation> {
     return this.revokeToken(secret.google.mode === 'broker', token)
   }
-  private async revokeToken(viaBroker: boolean, token: string): Promise<'revoked' | 'unavailable'> {
-    // a token the hosting service sealed is revoked there: this server cannot open it
-    if (viaBroker || token.startsWith('ev1.')) {
+  /** Revoke at Google, only for the company's own Google app (direct mode). A token the hosting service sealed is kept:
+   * Google would end the person's whole grant of its one shared app, which their other Trina servers and teams use
+   * too (docs/decisions/20261128-google-broker-grant-kept.md); the hosting service only forgets that one token. */
+  private async revokeToken(broker: boolean, token: string): Promise<Revocation> {
+    if (broker || isBrokerToken(token)) {
+      // the hosting service forgets that one token (never refreshes it again); the grant at Google stays
       const b = googleDriveOf(this.ctx).broker
-      return b ? b.revoke(token) : 'unavailable'
+      if (b) await b.forget(token)
+      return 'kept'
     }
     try {
       const r = await googleTransport(this.ctx).request(GOOGLE_REVOKE, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token }) }, 16_384)
@@ -676,7 +700,7 @@ export class GoogleApps {
    * revoke only when the admin who signed it in has no other Google sign-in here. Members' own connections stay. */
   /** `onlyId`: remove it only when it is this connection (a dialog that made it, and closes before saving its people,
    * never removes one another admin made or replaced meanwhile). */
-  async removeTeam(user: string, app: GoogleAppId, onlyId?: string): Promise<{ removed: boolean; revocation: 'revoked' | 'unavailable' | 'not_needed' }> {
+  async removeTeam(user: string, app: GoogleAppId, onlyId?: string): Promise<{ removed: boolean; revocation: Revocation }> {
     this.admin(user)
     const found = this.teamRow(app)
     // a dialog removing what it made: nothing else, not even another admin's sign-in under way
@@ -695,6 +719,7 @@ export class GoogleApps {
     integrationsOf(this.ctx).forget(row.id)
     audit(this.db, { actor: user, action: 'google_app.team_removed', target: row.id, detail: { app } })
     const token = secret?.tokens.refreshToken ?? null
+    if (token && viaBroker(secret!, token)) return { removed: true, revocation: await this.revoke(secret!, token) }
     // whose grant it is, is known only from who signed it in; unknown: Google is not asked (fail safe for other sign-ins)
     if (!token || !signer || this.otherSignIns(signer, row.id) || googleAccountInUse(this.db, googleEmailOf(row.account), { integration: row.id })) return { removed: true, revocation: 'not_needed' }
     return { removed: true, revocation: await this.revoke(secret!, token) }
