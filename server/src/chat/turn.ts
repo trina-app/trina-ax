@@ -144,13 +144,8 @@ import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, SOON_MS, type CredEngine } from '../credentials/resolve'
 import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
-<<<<<<< HEAD
 import { linkSites, linksOf } from '../chrome/store'
-import { APP_PROFILE_ID, type ChromeProfile } from '../chrome/profiles'
-=======
-import { browserTarget, linkSites, linksOf } from '../chrome/store'
-import { sharedChatLabel } from '../chrome/profiles'
->>>>>>> origin/dev
+import { APP_PROFILE_ID, sharedChatLabel, type ChromeProfile } from '../chrome/profiles'
 import { mayAttachChatFile, mayWriteChatVersion, resolvePlace } from '../files/places'
 import { chatPlaces } from './place-ctx'
 import { situationOf } from './situation'
@@ -1009,11 +1004,11 @@ export class TurnExec {
       && (spec.clientKind === 'schedule' || (!!spec.windowId && (spec.clientKind === 'web' || spec.clientKind === 'desktop')
         // a live window of the person's own (an app's or a script's token posting a message has none): security review
         && rt.hub.isWindowOpen(spec.userId, spec.windowId)))
-<<<<<<< HEAD
     const links = chromeWanted ? linksOf(rt.db, spec.userId) : []
     const online = links.length ? rt.chrome.onlineLinks(spec.userId) : []
     const up = new Set(online.map((o) => o.linkId))
-    this.chromeProfiles = links.map((l) => ({ linkId: l.id, label: l.label, email: l.email, online: up.has(l.id), sites: linkSites(rt.db, l.id), onlyListed: l.only_listed === 1 }))
+    // a shared chat: a name that is an email address shows only its part before the @ (its members see the cards)
+    this.chromeProfiles = links.map((l) => ({ linkId: l.id, label: this.shared ? sharedChatLabel(l.label) : l.label, email: l.email, online: up.has(l.id), sites: linkSites(rt.db, l.id), onlyListed: l.only_listed === 1 }))
     // profiles are offered when one is open now, or in the desktop app (its own browser is open; a closed profile is
     // listed as not open, and a call naming it is refused with how to open it)
     const viaProfiles = this.chromeProfiles.length > 0 && (online.length > 0 || this.desktop)
@@ -1021,17 +1016,6 @@ export class TurnExec {
     this.appWindow = this.desktop ? spec.windowId! : null
     this.browserWindow = this.appWindow ?? (viaProfiles ? online[0]!.windowId : null)
     this.browserVia = viaProfiles ? 'chrome' : this.desktop ? 'app' : null
-=======
-    const online = chromeWanted ? rt.chrome.onlineLinks(spec.userId) : []
-    if (online.length) {
-      const up = new Set(online.map((o) => o.linkId))
-      // a shared chat: a name that is an email address shows only its part before the @ (its members see the cards)
-      this.chromeProfiles = linksOf(rt.db, spec.userId).map((l) => ({ linkId: l.id, label: this.shared ? sharedChatLabel(l.label) : l.label, email: l.email, online: up.has(l.id), sites: linkSites(rt.db, l.id), onlyListed: l.only_listed === 1 }))
-    }
-    const chrome = online[0]?.windowId ?? null
-    this.browserWindow = chrome ?? (this.desktop ? spec.windowId! : null)
-    this.browserVia = chrome ? 'chrome' : this.desktop ? 'app' : null
->>>>>>> origin/dev
     this.browser = !!this.browserWindow
     // file_upload where any of this turn's browsers runs it (an older desktop app's own browser refuses it per call)
     this.browserUpload = this.browser && [this.browserWindow, ...online.map((o) => o.windowId)].some((w) => rt.relay.paneVersion(spec.userId, w) >= BROWSER_BRIDGE_VERSION)

@@ -5,12 +5,8 @@
 // its own name and site rules. Pure database code; the routes are routes/chrome.ts, the live connections chrome/links.ts.
 import type { Database } from 'bun:sqlite'
 import crypto from 'node:crypto'
-<<<<<<< HEAD
 import { CHROME_CODE_TTL_MS, CHROME_LINK_IDLE_DAYS, CHROME_LINKS_MAX } from '@mycel/shared/api'
-=======
-import { CHROME_CODE_TTL_MS, CHROME_LINK_IDLE_DAYS, CHROME_LINKS_MAX, type BrowserTarget } from '@mycel/shared/api'
 import { cutLabel } from '@mycel/shared/chrome-native'
->>>>>>> origin/dev
 import { newId } from '../db'
 
 const sha256hex = (s: string) => crypto.createHash('sha256').update(s).digest('hex')
