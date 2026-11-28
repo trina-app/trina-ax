@@ -127,7 +127,7 @@ function ReadScopes({ s, owner, onChange, onBack }: { s: SlackAdmin; owner: bool
       {still && <p role="status" className="mt-2 text-warn" data-testid="slack-read-still">{t('slack.admin.readStill')}</p>}
       {away.timedOut && <p role="status" className="mt-2 text-warn" data-testid="slack-read-timeout">{t('connect.wait.timedOut')}</p>}
       {official && away.waiting ? (
-        <BrowserWait className="mt-2" text={t('slack.wait.install')} testId="slack-read-waiting" busy={busy} onRetry={() => void approve()} onCancel={away.cancel} />
+        <BrowserWait className="mt-2" text={t('slack.wait.install')} testId="slack-read-waiting" busy={busy} onRetry={() => void approve()} onCancel={away.cancel} copyLink={away.url} />
       ) : (
       <div className="mt-2 flex flex-wrap gap-3">
         {official
@@ -167,7 +167,7 @@ function OfficialFix({ text, onBack }: { text: string; onBack: () => void }) {
       <p className="mt-2 text-sm text-danger" data-testid="slack-error"><FixText text={text} onClick={busy ? undefined : () => void add()} /></p>
       {error && <p role="alert" className="mt-2 text-sm text-danger" data-testid="slack-fix-add-error">{error}</p>}
       {away.timedOut && <p role="status" className="mt-2 text-sm text-warn" data-testid="slack-fix-add-timeout">{t('connect.wait.timedOut')}</p>}
-      {away.waiting && <BrowserWait className="mt-2" text={t('slack.wait.install')} testId="slack-fix-add-waiting" busy={busy} onRetry={() => void add()} onCancel={away.cancel} />}
+      {away.waiting && <BrowserWait className="mt-2" text={t('slack.wait.install')} testId="slack-fix-add-waiting" busy={busy} onRetry={() => void add()} onCancel={away.cancel} copyLink={away.url} />}
     </>
   )
 }
@@ -351,7 +351,7 @@ function OfficialAdd({ removed, onOwnApp, onRemove, onBack }: { removed: boolean
       {away.timedOut && <p role="status" className="mt-2 text-sm text-warn" data-testid="slack-add-timeout">{t('connect.wait.timedOut')}</p>}
       {away.waiting ? (
         // a new press replaces the earlier one at the server (one waiting install, 10 minutes, used once)
-        <BrowserWait framed className="mt-3" text={t('slack.wait.install')} testId="slack-add-waiting" busy={busy} onRetry={() => void add()} onCancel={away.cancel} />
+        <BrowserWait framed className="mt-3" text={t('slack.wait.install')} testId="slack-add-waiting" busy={busy} onRetry={() => void add()} onCancel={away.cancel} copyLink={away.url} />
       ) : (
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
         <Button variant="primary" className="max-md:h-11" busy={busy} disabled={busy} onClick={() => void add()} data-testid="slack-add">{t('slack.official.add')}</Button>

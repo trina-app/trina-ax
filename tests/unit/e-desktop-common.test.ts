@@ -933,6 +933,20 @@ describe('bridge senders', () => {
     const preload = readFileSync(join(import.meta.dir, '../../desktop/src/preload/app.ts'), 'utf8')
     expect(preload).toContain('store: info?.store === true')
   })
+
+  // QA 0202: a new team's first screen (/app-setup) was English in a Korean app (the page knew only its own choice)
+  test("the team page hears the app's language when someone chose one, never the default English as a choice", () => {
+    const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
+    const info = main.slice(main.indexOf("ipcMain.on('bridge:info'"), main.indexOf("ipcMain.handle('bridge:browser-run'"))
+    expect(info).toContain('locale: chosenLocale()')
+    const chosen = main.slice(main.indexOf('const chosenLocale = '), main.indexOf('function setUiLocale('))
+    expect(chosen).toContain('uiPicked ? locale() : store?.loadLocale() ?? kit.locale ?? null')
+    expect(chosen).not.toContain('DEFAULT_UI_LOCALE')
+    const set = main.slice(main.indexOf('function setUiLocale('), main.indexOf('// ----------------------------------------------------------- own screens'))
+    expect(set.indexOf('uiPicked = true')).toBeLessThan(set.indexOf('if (next === locale()) return'))
+    const preload = readFileSync(join(import.meta.dir, '../../desktop/src/preload/app.ts'), 'utf8')
+    expect(preload).toContain("...(typeof info?.locale === 'string' ? { locale: info.locale } : {})")
+  })
 })
 
 describe('UI strings', () => {

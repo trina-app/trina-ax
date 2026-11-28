@@ -202,7 +202,7 @@ export const ListChatsQuery = PageQuery.extend({
    * (Chat.forkParents) that no page has brought yet, so each continuation sits under its own (docs/decisions/
    * 20261127-fork-in-history.md). The list's own rule: never a chat in the trash, one I hid from my list, one I can no
    * longer open, or a shared chat that is not in my list; an id that is none of mine is left out without a word. One
-   * answer, no next page. Not with q, projectId, folderId, sideRoomId, trash, other, unread or cursor. */
+   * answer, no next page. Not with q, projectId, folderId, sideRoomId, trash, other, unread, cursor or limit (400). */
   ids: z.string().max(50 * 37).transform((v) => v.split(',').filter(Boolean)).pipe(z.array(Uuid7).min(1).max(50)).optional(),
 })
 

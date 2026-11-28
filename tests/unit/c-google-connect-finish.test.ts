@@ -23,6 +23,8 @@ import { FakeGoogleDrive, DRIVE_CONFIG, membersMayConnect } from '../lib/fake-go
 import { APP_CLIENT, FakeGoogle, FakeLibrary } from '../lib/fake-google-apps'
 import { LOCALE_ORDER as LOCALES } from '../../shared/src/api'
 import { notOwnEmail } from '../../web/src/lib/googleAccount'
+import { CodeReturn } from '../../desktop/src/common/code-return'
+import { APP_RETURN_KEY_HEADER, APP_RETURN_PROOF_HEADER } from '../../shared/src/desktop-bridge'
 
 setDefaultTimeout(30_000)
 
@@ -60,7 +62,12 @@ function codeOf(html: string): string | null {
   const m = /href="trina-ax:\/\/open\?url=[^"#]+#code=([A-Za-z0-9_-]{43})"/.exec(html)
   return m ? m[1]! : null
 }
-const claim = (c: Client, code: string) => c.try('POST', drive + '/claim', { code })
+const claim = (c: Client, code: string, proof?: string | null) => c.try('POST', drive + '/claim', { code }, proof ? { [APP_RETURN_PROOF_HEADER]: proof } : {})
+/** a desktop app's key and proof (desktop/src/common/code-return.ts; docs/decisions/20261128-held-sign-in-app-key.md) */
+function appKey(team = 'http://team.localhost') {
+  const r = new CodeReturn({ deliver: () => false, page: () => '' })
+  return { header: { [APP_RETURN_KEY_HEADER]: r.key(team)! }, proof: r.proof(team)! }
+}
 const exchanges = () => fake.calls.filter((c) => c.url === GOOGLE_TOKEN).length
 async function setUpGmail() {
   const r = await owner.try('PUT', '/api/admin/google-apps/gmail/client', { clientId: APP_CLIENT.clientId, clientSecret: APP_CLIENT.clientSecret })
@@ -223,7 +230,7 @@ test('ATTACK: a "desktop" login made with curl phishes a victim into Gmail\'s co
 test('REPRO (QA 2026-11-27): the desktop app with a session recorded as "web": its page says desktop at the start, so Gmail and Drive are handed back to the app, not "not signed in"', async () => {
   await setUpGmail()
   // a desktop app's session the server recorded as a browser's (made before the app said so, or by a page that did not)
-  const desk = await login('olga', OWNER_PW, 'web')
+  const desk = await login('olga', OWNER_PW, 'web'), app = appKey()
   // before: the start said nothing, the return in the system browser was "This browser is not signed in" and the app
   // waited until its wait ran out
   const before = await desk.call('POST', gmail + '/authorize', {})
@@ -235,7 +242,8 @@ test('REPRO (QA 2026-11-27): the desktop app with a session recorded as "web": i
     [gmail, gmailReturn, (u: string) => google.authorize(u, 'olga')],
     [drive, (q: { state: string; code: string }) => cb(drive, q), (u: string) => fake.authorize(u)],
   ] as const) {
-    const f = await desk.call('POST', base + '/authorize', { client: 'desktop' })
+    // with the app's key, as every call of the desktop app's page (web lib/api.ts; 2026-11-28: a word without it is not held)
+    const f = await desk.call('POST', base + '/authorize', { client: 'desktop' }, app.header)
     const page = await bare(ret(auth(f.authorizationUrl)))
     const html = await page.text()
     expect(page.status).toBe(200)
@@ -243,8 +251,10 @@ test('REPRO (QA 2026-11-27): the desktop app with a session recorded as "web": i
     expect(code).toBeTruthy()
     expect((await desk.call('GET', `${base}/flows/${f.flowId}`)).state).toBe('pending')
     // only this session redeems it, as for a session recorded as the desktop app's
-    expect((await claim(await login('olga', OWNER_PW, 'desktop'), code)).status).toBe(400)
-    const r = await claim(desk, code)
+    expect((await claim(await login('olga', OWNER_PW, 'desktop'), code, app.proof)).status).toBe(400)
+    // and only with the app's proof (the page's script, or whoever got the code, has none)
+    expect((await claim(desk, code)).status).toBe(400)
+    const r = await claim(desk, code, app.proof)
     expect(r.status).toBe(200); expect(r.body.state).toBe('ready')
     // the held page opened again: go back to the app, no second code
     const again = await (await bare(ret(auth(f.authorizationUrl)))).text()
@@ -262,15 +272,20 @@ test('REPRO (QA 2026-11-27): the desktop app with a session recorded as "web": i
 
 test('ATTACK: a browser session that says "desktop" at the start phishes a victim into Gmail\'s consent: nothing connects to the attacker', async () => {
   await setUpGmail()
-  // saying "desktop" is no more than a curl "desktop" login already gives anyone
-  const f = await bob.call('POST', gmail + '/authorize', { client: 'desktop' })
+  // the word alone (no app key: a browser's page): not held since 2026-11-28, the browser without a session is refused
+  const f0 = await bob.call('POST', gmail + '/authorize', { client: 'desktop' })
+  const p0 = await bare(gmailReturn(google.authorize(f0.authorizationUrl, 'olga')))
+  expect(p0.status).toBe(400); expect(codeOf(await p0.text())).toBeNull()
+  // with a key of his own (curl can send one): held, which is no more than a curl "desktop" login already gives anyone
+  const own = appKey()
+  const f = await bob.call('POST', gmail + '/authorize', { client: 'desktop' }, own.header)
   const html = await (await bare(gmailReturn(google.authorize(f.authorizationUrl, 'olga')))).text()
   const code = codeOf(html)!
   expect(html).toContain('(@bob)')
   expect((await bob.call('GET', `${gmail}/flows/${f.flowId}`)).account).toBeNull()
-  // the code reaches the victim's own app, whose session is the victim's: refused
-  expect((await claim(await login('olga', OWNER_PW, 'desktop'), code)).status).toBe(400)
-  expect((await claim(bob, 'B'.repeat(43))).status).toBe(400)
+  // the code reaches the victim's own app, whose session and proof are the victim's: refused
+  expect((await claim(await login('olga', OWNER_PW, 'desktop'), code, appKey().proof)).status).toBe(400)
+  expect((await claim(bob, 'B'.repeat(43), own.proof)).status).toBe(400)
   expect((await bob.try('POST', `${gmail}/flows/${f.flowId}/complete`, {})).status).toBe(409)
 })
 

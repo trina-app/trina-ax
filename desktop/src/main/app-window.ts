@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { applyMePolicy } from '../common/me-policy'
 import { PRODUCT } from '@mycel/shared/product'
 import { WEB_ALLOW_ALL_RISK } from '@mycel/shared/web-allow-all'
-import type { DesktopConnection, DesktopPaneState } from '@mycel/shared/desktop-bridge'
+import { APP_RETURN_PROOF_HEADER, type DesktopConnection, type DesktopPaneState } from '@mycel/shared/desktop-bridge'
 import { CSRF_HEADER } from '@mycel/shared/api/common'
 import { CLAIM_DRIVE_FLOW_PATH, GOOGLE_APP_RETURN_PATH, Me } from '@mycel/shared/api/auth'
 import { Health } from '@mycel/shared/api/system'
@@ -107,6 +107,8 @@ export interface AppWindowOptions {
   /** the create screens now, and whether the console offers them (main/create-team.ts, main/console-signin.ts) */
   createView?: () => CreateView
   createOffer?: () => CreateOffer | 'checking'
+  /** this app's proof for a team's held sign-in codes (common/code-return.ts proof): sent on that team's claim only */
+  signInProof?: (origin: string) => string | null
   /** the computer's Downloads folder, where the team page's downloads go with no save window (main/downloads.ts);
    * null keeps the save window (the Mac App Store build) */
   downloadsDir?: () => string | null
@@ -486,9 +488,12 @@ export class AppWindow {
       post: async (o, c) => {
         // the team was closed or switched meanwhile: its session is not the one that started the sign-in any more
         if (this.team?.id !== teamId || app.webContents.isDestroyed()) return 409
+        // the app's proof for this team (APP_RETURN_PROOF_HEADER): a code held with the app's key is redeemed only with
+        // it. A header, not the body: a server from before keeps its strict body and ignores the header
+        const proof = this.o.signInProof?.(o) ?? null
         const res = await ses.fetch(o + CLAIM_DRIVE_FLOW_PATH, {
           method: 'POST',
-          headers: { 'content-type': 'application/json', [CSRF_HEADER]: '1' },
+          headers: { 'content-type': 'application/json', [CSRF_HEADER]: '1', ...(proof ? { [APP_RETURN_PROOF_HEADER]: proof } : {}) },
           body: JSON.stringify({ code: c }),
           signal: AbortSignal.timeout(10_000),
           // the claim address never redirects: a redirect (a captive portal, a proxy) is not followed with the code,

@@ -234,6 +234,20 @@ describe('setup from the hosting console', () => {
     expect(ownerName({ name: 'Kim Lee', email: 'kim+x@example.com' })).toBe('Kim Lee')
     expect(nameFromEmail('a+b+c@example.com')).toBe('a')
   })
+  test("the team's language: the one the page showed (the desktop app's), else the console's; never a made-up one", async () => {
+    // the console made the team in English (the app was English then); the page showed Korean (the app is Korean now)
+    const claim = cp.add({ ...OWNER, locale: 'en' })
+    const r = await h.client().call('POST', SETUP, { claim, password: 'owner horse battery 42', locale: 'ko' })
+    expect(r.me.team.defaultLocale).toBe('ko')
+    expect(getTeamSettings(h.ctx.db).defaultLocale).toBe('ko')
+  })
+  test("an older page sends no language: the console's stays; a language we do not have is refused", async () => {
+    const claim = cp.add({ ...OWNER, locale: 'ja' })
+    expect((await h.client().try('POST', SETUP, { claim, password: 'owner horse battery 42', locale: 'xx' })).status).toBe(400)
+    expect(users()).toBe(0)
+    const r = await h.client().call('POST', SETUP, { claim, password: 'owner horse battery 42' })
+    expect(r.me.team.defaultLocale).toBe('ja')
+  })
   test('a name typed that is not a name falls back to the preview', async () => {
     const claim = cp.add()
     const r = await h.client().call('POST', SETUP, { claim, password: 'owner horse battery 42', name: '   ' })

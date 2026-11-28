@@ -40,7 +40,7 @@ import type { ChatRow } from '../../chat/store'
 import { HttpError } from '../../http/errors'
 import { resolveLayout } from '../../system/layout'
 import { SecretBox } from '../connections/store'
-import { CLAIM_MS, appReturnPort, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
+import { CLAIM_MS, appReturnKey, appReturnPort, heldProofOk, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
 import { redactorFor } from '../connections/redact'
 import { SlackApi, SlackApiError, type SlackDeps } from './api'
 import { AppHomeOpened, AppMention, BlockActions, EventCallback, ImMessage, type Envelope } from './envelope'
@@ -176,7 +176,8 @@ const CANCELLED_HERE = 'cancelled_here'
  * service's handoff sealed in the flow with the hash of the app's one-time code (holdFor, claim) */
 const HELD = 'held'
 /** what a held flow keeps, sealed with its verifier (if any) under the flow's own name */
-interface Held { code?: string; handoff?: string; claim: string; until: number }
+/** `key`: the app's key its session said (google-drive/app-return.ts appReturnKey): its claim must then bring the proof */
+interface Held { code?: string; handoff?: string; claim: string; until: number; key?: string | null }
 /** the answer to a browser coming back: a result word (the page's ?slack=…) and where the flow started; `held`: the
  * one-time code for the desktop app's link (routes/slack.ts shows the shared held page) */
 export interface SlackReturn { result: string; client: string; held?: { code: string; who: { name: string; username: string }; name: string; returnPort?: number | null } }
@@ -820,11 +821,15 @@ export class SlackConnector {
     if (recent >= 20) throw new SlackError('ratelimited', 'rate_limited')
     const state = crypto.randomBytes(32).toString('base64url'), nonce = crypto.randomBytes(32).toString('base64url')
     const replaced = this.heldRows('signin', 'user_id = ?', [userId])
+    // the app's key its session said at this start, sealed now (google-drive/app-return.ts appReturnKey; holdFor)
+    const flowId = newId(), appKey = appReturnKey(sessionId)
+    let keyed: { enc: string; keyVersion: number } | null = null
+    if (appKey) { try { keyed = this.box.seal(`slack:signin-flow:${flowId}`, { appKey }) } catch { throw new SlackError('key_unsafe', 'unavailable') } }
     this.db.transaction(() => {
       // only the newest flow of this person works
       this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = 'superseded' WHERE user_id = ? AND state = 'pending'").run(userId)
-      this.db.query("INSERT INTO slack_signin_flows (id, user_id, session_id, state_hash, nonce_hash, redirect_uri, client, state, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)")
-        .run(newId(), userId, sessionId, sha(state), sha(nonce), redirect, client === 'desktop' || client === 'mobile' ? client : 'web', iso(now), iso(now + LINK_TTL_MS))
+      this.db.query("INSERT INTO slack_signin_flows (id, user_id, session_id, state_hash, nonce_hash, redirect_uri, client, state, created_at, expires_at, verifier_enc, verifier_key_version) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)")
+        .run(flowId, userId, sessionId, sha(state), sha(nonce), redirect, client === 'desktop' || client === 'mobile' ? client : 'web', iso(now), iso(now + LINK_TTL_MS), keyed?.enc ?? null, keyed?.keyVersion ?? null)
     })()
     this.unhold('signin', replaced)
     const u = new URL(SLACK_AUTHORIZE)
@@ -926,7 +931,8 @@ export class SlackConnector {
     if (recent >= 20) throw new SlackError('ratelimited', 'rate_limited')
     const id = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
     let sealed: { enc: string; keyVersion: number }
-    try { sealed = this.box.seal(`slack:signin-flow:${id}`, { verifier }) } catch { throw new SlackError('key_unsafe', 'unavailable') }
+    const appKey = appReturnKey(sessionId)
+    try { sealed = this.box.seal(`slack:signin-flow:${id}`, { verifier, ...(appKey ? { appKey } : {}) }) } catch { throw new SlackError('key_unsafe', 'unavailable') }
     const replaced = this.heldRows('signin', 'user_id = ?', [userId])
     this.db.transaction(() => {
       this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = 'superseded' WHERE user_id = ? AND state = 'pending'").run(userId)
@@ -973,7 +979,7 @@ export class SlackConnector {
     if (f.verifier_enc) { try { kept = this.box.open<Record<string, unknown>>(aad, f.verifier_enc, (kind === 'signin' ? (f as SigninFlowRow).verifier_key_version : (f as InstallFlowRow).key_version) ?? 0) } catch { return null } }
     const code = newToken(), until = Math.min(this.now() + CLAIM_MS, Date.parse(f.expires_at))
     let sealed: { enc: string; keyVersion: number }
-    try { sealed = this.box.seal(aad, { ...kept, held: { ...value, claim: tokenHash(code), until } satisfies Held }) } catch { return null }
+    try { sealed = this.box.seal(aad, { ...kept, held: { ...value, claim: tokenHash(code), until, key: typeof kept.appKey === 'string' ? kept.appKey : null } satisfies Held }) } catch { return null }
     if (!this.db.query(`UPDATE ${table} SET verifier_enc = ?, ${keyCol} = ?, reason = ?, expires_at = ? WHERE id = ? AND state = 'pending' AND reason IS NULL`).run(sealed.enc, sealed.keyVersion, HELD, iso(until), f.id).changes) return { result: 'handed', client: f.client }
     const who = this.db.query('SELECT name, username FROM users WHERE id = ?').get(f.user_id) as { name: string; username: string } | null
     return { result: 'held', client: f.client, held: { code, who: who ?? { name: '', username: '' }, name: 'Slack', returnPort: appReturnPort(f.session_id) } }
@@ -988,7 +994,7 @@ export class SlackConnector {
    * claim address tries Drive, the Google apps, connections, then this). Only a held flow of THIS person and session;
    * the code is used up at once (atomic), then the same finish as a return in their browser (the role of "Add to
    * Slack" checked again). A code this does not know: null. A late one ends its flow. */
-  async claim(userId: string, sessionId: string, code: string): Promise<SlackClaimed | null> {
+  async claim(userId: string, sessionId: string, code: string, proof?: string | null): Promise<SlackClaimed | null> {
     this.expireHeld()
     for (const kind of ['signin', 'install'] as const) {
       const table = kind === 'signin' ? 'slack_signin_flows' : 'slack_install_flows'
@@ -997,7 +1003,8 @@ export class SlackConnector {
         let sealed: { held?: Held }
         try { sealed = this.box.open<{ held?: Held }>(`slack:${kind}-flow:${f.id}`, f.verifier_enc, (kind === 'signin' ? f.verifier_key_version : f.key_version) ?? 0) } catch { continue }
         const held = sealed.held
-        if (!held || !tokenMatches(code, held.claim)) continue
+        // held with the app's key: the app's own proof too (google-drive/app-return.ts heldProofOk)
+        if (!held || !tokenMatches(code, held.claim) || !heldProofOk(held.key, proof)) continue
         // single use: only the first claim takes it, whatever happens next
         if (!this.db.query(`UPDATE ${table} SET state = 'failed', reason = 'used' WHERE id = ? AND state = 'pending' AND reason = ?`).run(f.id, HELD).changes) return null
         const fail = (reason: string) => { this.db.query(`UPDATE ${table} SET reason = ? WHERE id = ?`).run(reason, f.id) }
@@ -1101,7 +1108,8 @@ export class SlackConnector {
     if (recent >= 20) throw new SlackError('ratelimited', 'rate_limited')
     const id = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
     let sealed: { enc: string; keyVersion: number }
-    try { sealed = this.box.seal(`slack:install-flow:${id}`, { verifier }) } catch { throw new SlackError('key_unsafe', 'unavailable') }
+    const appKey = appReturnKey(sessionId)
+    try { sealed = this.box.seal(`slack:install-flow:${id}`, { verifier, ...(appKey ? { appKey } : {}) }) } catch { throw new SlackError('key_unsafe', 'unavailable') }
     const replaced = this.heldRows('install', '1 = 1', [])
     this.db.transaction(() => {
       this.db.query("UPDATE slack_install_flows SET state = 'failed', reason = 'superseded' WHERE state = 'pending'").run()

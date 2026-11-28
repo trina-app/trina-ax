@@ -14,7 +14,7 @@ import { onShareOwnerCheck, ownerOk, SHARE_CONTEXT, shareByName, shareRow, share
 import { getSetting, setSetting } from '../../admin/settings'
 import { brokerKey, driveBrokerFor, DriveBroker, type BrokerOptions } from './broker'
 import type { CallbackOutcome } from './callback-page'
-import { CLAIM_MS, GO_PATH, appReturnPort, newToken, tokenHash, tokenMatches } from './app-return'
+import { CLAIM_MS, GO_PATH, appReturnKey, appReturnPort, heldProofOk, newToken, tokenHash, tokenMatches } from './app-return'
 import type { ClientKind } from '@mycel/shared/api'
 import { googleLoginHint } from '../../auth/login-identities'
 
@@ -249,7 +249,10 @@ export class GoogleDrive {
     const n = (this.ctx.db.query('SELECT count(*) n FROM drive_oauth_flows WHERE user_id=? AND created_at>?').get(user, new Date(now - 3600_000).toISOString()) as { n: number }).n
     // its own reason (not the hosting service's or Google's 'rate_limited'): the app says to wait about an hour (QA TC-3034)
     if (n >= 20) throw new DriveError('signin_limit', 429)
-    const sealed = this.store.seal(user, id, { verifier, ...(client === 'desktop' ? { desktop: true } as const : {}) })
+    // the app's key its session said at this start (app-return.ts appReturnKey): sealed now, so nothing said later (a
+    // page's script, another call) changes whose proof a held result needs
+    const appKey = appReturnKey(session)
+    const sealed = this.store.seal(user, id, { verifier, ...(client === 'desktop' ? { desktop: true } as const : {}), ...(appKey ? { appKey } : {}) })
     const expiresAt = new Date(now + TTL).toISOString()
     // a waiting result of the flow this one replaces is never used: its tokens are revoked
     this.dropTokens(this.ctx.db.query("SELECT * FROM drive_oauth_flows WHERE user_id=? AND purpose=? AND state IN ('exchanging','ready') AND secret_enc IS NOT NULL").all(user, purpose) as FlowRow[])
@@ -300,7 +303,9 @@ export class GoogleDrive {
   private clientOf(r: Pick<FlowRow, 'session_id' | 'secret_enc' | 'key_version' | 'id' | 'user_id'>): string | null {
     const c = (this.ctx.db.query('SELECT client FROM sessions WHERE id=?').get(r.session_id) as { client: string } | null)?.client ?? null
     if (c === 'desktop' || c === 'mobile' || !r.secret_enc) return c
-    try { return this.store.open<FlowSecret>(r as FlowRow).desktop ? 'desktop' : c } catch { return c }
+    // the page's word counts only with the app's key known for that session (APP_RETURN_KEY_HEADER): a browser's session
+    // that says 'desktop' gets no held result its own page could redeem (docs/decisions/20261128-held-sign-in-app-key.md)
+    try { const s = this.store.open<FlowSecret>(r as FlowRow); return s.desktop && s.appKey ? 'desktop' : c } catch { return c }
   }
   /** The return page's answer (routes/drive.ts, callback-page.ts): ok, or why not (the reason the flow recorded, or the
    * refusal before it started: an expired or used link, a browser not signed in as the same person). `app`: the app
@@ -391,7 +396,7 @@ export class GoogleDrive {
         if (!a || typeof a.permissionId !== 'string' || !a.permissionId || a.permissionId.length > 256) throw new DriveError('invalid_provider_response', 502)
         const account: Account = { subject: a.permissionId, name: clean(a.displayName, 200), email: clean(a.emailAddress, 320) }
         checkAbort(signal)
-        return { verifier: '', tokens, account, scopes, ...(s.desktop ? { desktop: true } as const : {}) }
+        return { verifier: '', tokens, account, scopes, ...(s.desktop ? { desktop: true } as const : {}), ...(s.appKey ? { appKey: s.appKey } : {}) }
       })
       this.store.session(r.user_id, r.session_id)
       const current = this.store.flow(r.id)
@@ -399,7 +404,8 @@ export class GoogleDrive {
       if (held) {
         // kept sealed, still "waiting" to everyone (no account shown), until the app on this computer brings the code
         const code = newToken(), until = Math.min(this.now() + CLAIM_MS, Date.parse(current.expires_at))
-        const sealed = this.store.seal(r.user_id, r.id, { ...result, claim: { hash: tokenHash(code), until } })
+        // with the app's key when its session said one: only that app's proof redeems the code then (claim)
+        const sealed = this.store.seal(r.user_id, r.id, { ...result, claim: { hash: tokenHash(code), until, key: s.appKey ?? null } })
         this.ctx.db.query("UPDATE drive_oauth_flows SET secret_enc=?,key_version=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, r.id)
         const who = this.ctx.db.query('SELECT name, username FROM users WHERE id=?').get(r.user_id) as { name: string; username: string } | null
         return { code, who: who ?? { name: '', username: '' }, google: result.account.email ?? result.account.name ?? '', returnPort: appReturnPort(r.session_id) }
@@ -417,14 +423,15 @@ export class GoogleDrive {
    * It counts only for a flow of THIS session: the flow turns "ready" (the person then confirms the account as
    * always) and the code is used up. A code of another session's flow, a used, unknown or late code: refused, nothing
    * changes (a late one ends its flow). */
-  claim(user: string, session: string, code: string): DriveFlow {
+  claim(user: string, session: string, code: string, proof?: string | null): DriveFlow {
     // no configured() first: an unknown code is the same refusal everywhere (a held flow's config_key is checked below)
     this.store.session(user, session); this.store.sweep()
     const rows = this.ctx.db.query("SELECT * FROM drive_oauth_flows WHERE user_id=? AND session_id=? AND state='exchanging' AND secret_enc IS NOT NULL").all(user, session) as FlowRow[]
     for (const r of rows) {
       let s: FlowSecret
       try { s = this.store.open<FlowSecret>(r) } catch { continue }
-      if (!s.claim || !tokenMatches(code, s.claim.hash)) continue
+      // held with the app's key: the app's own proof too (never the page's script, never whoever got the code)
+      if (!s.claim || !tokenMatches(code, s.claim.hash) || !heldProofOk(s.claim.key, proof)) continue
       if (this.now() > s.claim.until || r.config_key !== this.key) {
         this.dropTokens([r])
         this.ctx.db.query("UPDATE drive_oauth_flows SET state='failed',reason='expired',secret_enc=NULL,account=NULL WHERE id=? AND state='exchanging'").run(r.id)

@@ -331,9 +331,16 @@ const updater = new DesktopUpdater({
 // system language.
 let store: TeamsStore | undefined
 let uiLocale: UiLocale | null = null
+/** set once a language was picked while the app runs (the team list, or a team page reporting its language) */
+let uiPicked = false
 const locale = (): UiLocale => (uiLocale ??= store?.loadLocale() ?? kit.locale ?? DEFAULT_UI_LOCALE)
+/** The language someone chose for the app (on the team list or a team page, or a kit build's), null when nothing was
+ * (English only by default): a team page starts in it before anyone signs in there (bridge:info `locale`). */
+const chosenLocale = (): UiLocale | null => (uiPicked ? locale() : store?.loadLocale() ?? kit.locale ?? null)
 function setUiLocale(next: UiLocale | null) {
-  if (!next || next === locale()) return
+  if (!next) return
+  uiPicked = true
+  if (next === locale()) return
   uiLocale = next
   try {
     store?.saveLocale(next)
@@ -477,7 +484,7 @@ function registerIpc() {
   // team page bridge (shared/src/desktop-bridge.ts); store: a Mac App Store or Microsoft Store build, where Settings >
   // Apps offers no installer
   ipcMain.on('bridge:info', (e) => {
-    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, downloads: !process.mas, localApps: process.mas ? 0 : LOCAL_APPS_BRIDGE_VERSION, dictation: process.mas ? 0 : dictation.version(), googleSignIn: GOOGLE_SIGNIN_BRIDGE_VERSION, paneVersion: BROWSER_BRIDGE_VERSION } : null
+    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, downloads: !process.mas, localApps: process.mas ? 0 : LOCAL_APPS_BRIDGE_VERSION, dictation: process.mas ? 0 : dictation.version(), googleSignIn: GOOGLE_SIGNIN_BRIDGE_VERSION, paneVersion: BROWSER_BRIDGE_VERSION, locale: chosenLocale() } : null
   })
   // voice input on this Mac (main/dictation.ts): the team page's top frame only; the sound comes in as samples, the
   // words go back to that page alone, and a reload or another page ends its recording
@@ -632,6 +639,9 @@ function registerIpc() {
   // the return address for sign-in codes: its port for the team page's top frame at the team's own address, which tells
   // its server (shared APP_RETURN_HEADER); the address hands codes only to that team's window (claimReturnedCode)
   ipcMain.handle('bridge:code-return-port', (e) => (fromApp(e) && e.senderFrame && e.senderFrame.origin === win?.team?.origin ? codeReturn.port() : null))
+  // the app's key for that team's held sign-in codes (the sha256 of its proof, shared APP_RETURN_KEY_HEADER): the same
+  // frame only; the proof itself never leaves the main process but on that team's claim (AppWindow.claimSignIn)
+  ipcMain.handle('bridge:code-return-key', (e) => (fromApp(e) && e.senderFrame && e.senderFrame.origin === win?.team?.origin ? codeReturn.key(e.senderFrame.origin) : null))
   ipcMain.handle('bridge:browser-settings', (e) => (fromApp(e) ? (win!.browserSettings() ?? null) : null))
   ipcMain.handle('bridge:browser-access', async (e, v: unknown): Promise<AllowAllOutcome> => {
     if (!fromApp(e) || !win?.pane) return 'unavailable'
@@ -763,6 +773,7 @@ async function createWindow() {
   const resume = takeResume(app.getPath('userData'))
   win = new AppWindow({
     store,
+    signInProof: (origin) => codeReturn.proof(origin),
     locale,
     distDir: DIST,
     pageScript: readFileSync(join(DIST, 'page-script.js'), 'utf8'),

@@ -199,7 +199,7 @@ export async function consoleSetup(c: Context<AppEnv>, ctx: AppContext, b: z.out
     credential = { password: b.password! }
   }
   const id = await bootstrapOwner(ctx, {
-    username, email: owner.email, name: typedName(b.name) ?? ownerName(owner), teamName: owner.teamName, locale: ownerLocale(owner),
+    username, email: owner.email, name: typedName(b.name) ?? ownerName(owner), teamName: owner.teamName, locale: b.locale ?? ownerLocale(owner),
     timeZone: owner.timeZone, credential, method: 'console',
   })
   // the claim is spent only now; a failed confirm is tried again without holding up the sign-in

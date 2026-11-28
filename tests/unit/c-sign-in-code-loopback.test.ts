@@ -16,7 +16,7 @@ import { appReturnPort, heldLink, noteAppReturn } from '../../server/src/integra
 import { heldPage } from '../../server/src/integrations/connections/return-page'
 import { FakeGoogleDrive, DRIVE_CONFIG } from '../lib/fake-google-drive'
 import { CodeReturn, returnedCode } from '../../desktop/src/common/code-return'
-import { APP_CODE_RETURN_PATH, APP_RETURN_HEADER, appReturnPortOf } from '../../shared/src/desktop-bridge'
+import { APP_CODE_RETURN_PATH, APP_RETURN_HEADER, APP_RETURN_KEY_HEADER, APP_RETURN_PROOF_HEADER, appReturnPortOf } from '../../shared/src/desktop-bridge'
 
 let h: Harness, fake: FakeGoogleDrive, seq = 0
 const base = '/api/integrations/google-drive'
@@ -103,10 +103,11 @@ test('BOTH CAUSES (#695 + #698): the desktop app\'s session recorded as web says
   // page said "not signed in"); before this change the port of a 'web' session was not kept (the app link only)
   const desk = await session('web')
   const claims: Promise<{ status: number; body: any }>[] = []
-  const ret = new CodeReturn({ deliver: (code, team) => { if (team !== 'http://team.localhost') return false; claims.push(desk.try('POST', base + '/claim', { code })); return true }, page: () => 'Back in the app' })
+  // the app posts the code with its proof (AppWindow.claimSignIn); its page sends the key with every call (lib/api.ts)
+  const ret: CodeReturn = new CodeReturn({ deliver: (code, team) => { if (team !== 'http://team.localhost') return false; claims.push(desk.try('POST', base + '/claim', { code }, { [APP_RETURN_PROOF_HEADER]: ret.proof(team)! })); return true }, page: () => 'Back in the app' })
   try {
     const port = (await ret.port())!
-    const f = await desk.call('POST', base + '/authorize', { client: 'desktop' }, { [APP_RETURN_HEADER]: String(port) })
+    const f = await desk.call('POST', base + '/authorize', { client: 'desktop' }, { [APP_RETURN_HEADER]: String(port), [APP_RETURN_KEY_HEADER]: ret.key('http://team.localhost')! })
     const html = await (await bare(cbUrl(fake.authorize(f.authorizationUrl, 'alice')))).text()
     const next = refreshOf(html)!
     expect(next).toStartWith(`http://127.0.0.1:${port}${APP_CODE_RETURN_PATH}?code=`)

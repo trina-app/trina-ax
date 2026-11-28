@@ -355,7 +355,9 @@ export const OWNER_CLAIM_PATHS = [OWNER_CLAIM_RESERVE_PATH, OWNER_CLAIM_CONFIRM_
 export type OwnerClaimPath = (typeof OWNER_CLAIM_PATHS)[number]
 /** the team server page that takes the claim */
 export const OWNER_CLAIM_SETUP_PATH = '/app-setup'
-export const OWNER_CLAIM_TTL_MS = 10 * 60_000
+/** how long a claim works from its issue: long enough to read the screen and choose a password (10 minutes until
+ * 2026-11-28; the console issues claims, so its vendored copy decides) */
+export const OWNER_CLAIM_TTL_MS = 30 * 60_000
 export const OWNER_CLAIM_MAX_BODY_BYTES = DRIVE_BROKER_MAX_BODY_BYTES
 
 /** a claim: 32 random bytes, base64url, no padding */

@@ -14,6 +14,8 @@ export function useBrowserHandoff(onBack?: () => void, onCancel?: () => void) {
   // when the wait began (a new wait: a new clock), or null
   const [since, setSince] = useState<number | null>(null)
   const [timedOut, setTimedOut] = useState(false)
+  // where the wait went (the desktop app's system browser: Copy link beside the wait, CopySignInLink)
+  const [url, setUrl] = useState<string | null>(null)
   const back = useRef(onBack)
   back.current = onBack
   const cancelled = useRef(onCancel)
@@ -36,8 +38,10 @@ export function useBrowserHandoff(onBack?: () => void, onCancel?: () => void) {
   return {
     waiting,
     timedOut,
+    /** the address of the wait under way (null when none) */
+    url: waiting ? url : null,
     /** go to `url` (this page, or the other browser) and wait for the way back */
-    go: (url: string) => { setTimedOut(false); setSince(Date.now()); window.location.assign(url) },
+    go: (to: string) => { setTimedOut(false); setSince(Date.now()); setUrl(to); window.location.assign(to) },
     /** stop waiting: it finished */
     stop: () => { setSince(null); setTimedOut(false) },
     /** Cancel: stop waiting and end the flow on the server */

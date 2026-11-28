@@ -114,6 +114,15 @@ export const appReturnPortOf = (v: unknown): number | null => {
   const n = typeof v === 'string' && /^[1-9][0-9]{3,4}$/.test(v) ? Number(v) : typeof v === 'number' ? v : NaN
   return Number.isInteger(n) && n >= 1024 && n <= 65535 ? n : null
 }
+/** The app's key for its held sign-in codes (docs/decisions/20261128-held-sign-in-app-key.md): the app keeps a random
+ * secret per team while its return address is open; the page sends the secret's sha256 (64 hex) in APP_RETURN_KEY_HEADER
+ * with every API call, as it does the port, and the server seals it into a result it holds for the app's code. Only the
+ * app's main process sends the secret itself (APP_RETURN_PROOF_HEADER, 43 base64url characters), on the claim: a code
+ * held with a key is redeemed only with it (never by the page's script, never by whoever got the code or the link). */
+export const APP_RETURN_KEY_HEADER = 'x-mycel-app-return-key'
+export const APP_RETURN_PROOF_HEADER = 'x-mycel-app-return-proof'
+/** a key the header may name: a sha256 in lowercase hex */
+export const appReturnKeyOf = (v: unknown): string | null => (typeof v === 'string' && /^[0-9a-f]{64}$/.test(v) ? v : null)
 /** DesktopBridge.dictation: voice input transcribed on this Mac (0: not offered) */
 export const DICTATION_BRIDGE_VERSION = 1
 /** The in-app browser's own version (DesktopBridge.browser.version), for tools the browser.call contract adds after
@@ -236,6 +245,11 @@ export interface DesktopBridge {
    * none of them came from a store. Only the Mac App Store build answers the page's file inputs itself (platform
    * 'darwin' with store: web/src/lib/desktop.ts answersFileInputs). */
   store?: boolean
+  /** The language someone chose for the desktop app (its team list, or a team page it showed), when anyone did: a
+   * page with no language picked on it starts in this one before sign-in (the new team's first screen, the sign-in
+   * page), so it does not open in English in a Korean app. Read at each page load. Optional: absent when nothing was
+   * chosen and in desktop apps before this addition. */
+  locale?: string
   browser: {
     /** BROWSER_BRIDGE_VERSION of this app (file_upload since 1). Absent in apps before it: 0. */
     version?: number
@@ -393,6 +407,9 @@ export interface DesktopBridge {
    * null when none could be opened. Optional: apps before 2026-11-27 do not have it (their sign-ins use the app link). */
   codeReturn?: {
     port(): Promise<number | null>
+    /** the sha256 (hex) of this app's secret for the team on screen (APP_RETURN_KEY_HEADER); null when none. Optional:
+     * apps before 2026-11-28 have none (their held codes need no proof) */
+    key?(): Promise<string | null>
   }
   /**
    * Sign in with Google (GOOGLE_SIGNIN_BRIDGE_VERSION; docs/decisions/20261122-google-login-apps.md): this app opens

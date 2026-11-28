@@ -33,6 +33,7 @@ import { useRecommendedTools } from '../../lib/teamTools'
 import { integrationsChanged } from '../../store/live'
 import { useLocale, useT } from '../../i18n'
 import { Button, Switch, WaitLine } from '../ui'
+import { CopySignInLink } from '../integrations/CopySignInLink'
 import { SIGN_IN_WAIT_MINUTES } from '../../lib/signInWait'
 import { LogoTile } from '../integrations/ConnectorsView'
 import { reserveSignInWindow, useSignIn } from '../integrations/IntegrationRow'
@@ -207,7 +208,7 @@ function TeamRows({ team, rec }: { team: ReturnType<typeof useTeamConnections>; 
             <LogoTile src={connectorLogo(c)} className={logoCls} />
             <div className="min-w-0 flex-1 space-y-0.5">
               <p className="text-sm font-medium text-ink">{c.name}</p>
-              {waiting ? <WaitLine className="text-sm text-muted" text={line} hint={t('connect.wait.limit', { n: SIGN_IN_WAIT_MINUTES })} testId="welcome-tools-service-line" />
+              {waiting ? <WaitLine className="text-sm text-muted" text={line} hint={<>{t('connect.wait.limit', { n: SIGN_IN_WAIT_MINUTES })}<CopySignInLink url={flow.url} testId="welcome-tools-copy-link" /></>} testId="welcome-tools-service-line" />
                 : <p className={`text-sm break-words ${flow || errors[c.id] || rec.error?.id === c.id ? 'text-warn' : 'text-muted'}`} data-testid="welcome-tools-service-line">{line}</p>}
               {waiting && flow.url && <a href={flow.url} target="_blank" rel="noopener noreferrer" className={`${quietLink} text-sm`}>{t('integrations.signIn.open')}</a>}
               {/* each person may connect their own too (a listed service): the same switch as the Google rows */}

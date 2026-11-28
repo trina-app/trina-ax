@@ -980,6 +980,8 @@ export const ko = {
   "connect.wait.limit": "{n}분이 지나면 기다리기를 저절로 멈춰요.",
   "connect.wait.google": "Google에서 이 앱을 쓸 수 없다고 나오면(예: 회사 계정 전용) Google 창을 닫고 다시 시도를 눌러 회사 계정을 고르세요. {n}분이 지나면 기다리기를 저절로 멈춰요.",
   "connect.wait.googleDesktop": "Google에서 끝나면 브라우저에서 ‘앱으로 돌아가기’를 눌러 여기서 마치세요. Google에서 이 앱을 쓸 수 없다고 나오면 Google 창을 닫고 다시 시도를 눌러 회사 계정을 고르세요. {n}분이 지나면 기다리기를 저절로 멈춰요.",
+  'connect.copyLink': "링크 복사",
+  'connect.copiedLink': "복사했어요. 다른 브라우저에 붙여 넣으세요.",
   'connect.noKey': "키는 필요 없어요. {host}에 연결해요.",
   'connect.kindMcp': "MCP 서버",
   'connect.kindHttp': "HTTP API",

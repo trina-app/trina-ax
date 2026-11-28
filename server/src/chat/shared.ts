@@ -523,6 +523,14 @@ export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?:
   return { ...c, title: hide(c.title), shared, ...(forked ? { forkedFrom: forked } : {}), ...(parents.length ? { forkParents: parents } : {}), ...waitsForOf(rt, viewer, r, aud, runner), ...(unread?.n ? { unseen: true as const, unreadCount: unread.n } : {}), ...(muted ? { muted: true as const } : {}) }
 }
 
+/** A chat for a live chat.updated to `viewer` (chatView's copy): their own chat always says where it rows in their list,
+ * `forkParents: []` for a top-level row, where a list or an answer leaves the field out. A window keeps the parents it
+ * knows when an event says nothing of them (an older server, a copy that lacks them) and drops them on [] (a detach in
+ * another window), so a live update never moves a continuation out from under its chat (QA 11-27). */
+export function liveChat(viewer: string, r: Pick<ChatRow, 'user_id'>, c: Chat): Chat {
+  return viewer === r.user_id && !c.forkParents ? { ...c, forkParents: [] } : c
+}
+
 /** Was this shared chat shared after it was made (chat/share-chat.ts marks the turns it had then SHARED_LATER)? An answer
  * without a turn row (older data: a chat shared at creation never has one) counts as from before the share too. */
 const sharedLater = (db: Database, r: Pick<ChatRow, 'id'>): boolean =>

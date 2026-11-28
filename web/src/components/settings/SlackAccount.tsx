@@ -83,7 +83,7 @@ export function SlackAccount({ onShown }: { onShown?: (shown: boolean) => void }
           : me.signIn && !away.waiting && <Button variant="primary" size="sm" busy={busy} disabled={busy} onClick={() => void signIn()} title={t('slack.signin.button')} data-testid="slack-signin">{t('slack.signin.short')}</Button>}
       </div>
       {/* a new press replaces the earlier sign-in at the server (the newest only, 10 minutes, used once) */}
-      {!me.link && away.waiting && <BrowserWait text={t('slack.wait.signIn')} testId="slack-signin-waiting" busy={busy} onRetry={() => void signIn()} onCancel={away.cancel} />}
+      {!me.link && away.waiting && <BrowserWait text={t('slack.wait.signIn')} testId="slack-signin-waiting" busy={busy} onRetry={() => void signIn()} onCancel={away.cancel} copyLink={away.url} />}
       {!me.link && away.timedOut && <p role="status" className="text-sm text-warn" data-testid="slack-signin-timeout">{t('connect.wait.timedOut')}</p>}
     </div>
   )
