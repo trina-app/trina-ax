@@ -265,6 +265,9 @@ set -euo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 BASE=/var/lib/mycel
 UPLOAD=/root/.trina-upload
+# apt's own output (dpkg's "Reading database ... 5%") goes to this log, not to the setup window: the window shows the
+# installer's lines and its heartbeat (scripts/system/packages.sh PK_APT_TO_LOG; Windows QA 2026-11-28)
+export PK_APT_TO_LOG=1 PK_APT_LOG=/var/log/trina-packages-apt.log
 cmd=${1:-}
 [ $# -eq 0 ] || shift
 port() { python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["port"])' "$BASE/root/install.json" 2>/dev/null || echo 47820; }
@@ -315,10 +318,10 @@ user default root'
       dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q 'install ok installed' || need+=("$p")
     done
     if [ ${#need[@]} -eq 0 ]; then echo "curl and Python 3 are installed"; exit 0; fi
-    echo "installing ${need[*]} (for the download and its check)"
+    echo "installing ${need[*]} (for the download and its check; apt's output: $PK_APT_LOG)"
     export DEBIAN_FRONTEND=noninteractive
-    apt-get update -qq
-    apt-get install -y -qq --no-install-recommends "${need[@]}"
+    { apt-get update -qq && apt-get install -y -qq --no-install-recommends "${need[@]}"; } >> "$PK_APT_LOG" 2>&1 \
+      || { echo "apt-get failed; its last lines ($PK_APT_LOG):" >&2; tail -n 5 "$PK_APT_LOG" >&2; exit 1; }
     ;;
   state)
     # none: not installed. ok <version>: installed and the server answers. broken <version>: installed, no answer

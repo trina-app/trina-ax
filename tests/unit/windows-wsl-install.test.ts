@@ -52,6 +52,36 @@ describe('install-linux.sh: Landlock from the sandbox helper\'s probe', () => {
   })
 })
 
+describe('install-linux.sh: the closing hint on a WSL server (Windows QA 2026-11-28)', () => {
+  const part = between(INSTALLER, '# BEGIN wsl check\n', '# END wsl check') + '\n' + 'done_ok() {\n' + between(INSTALLER, '\ndone_ok() {\n', '\n}\n') + '\n}\n'
+  const run = (release: string) => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'wsl-done-'))
+    fs.mkdirSync(path.join(d, 'setup')); fs.mkdirSync(path.join(d, 'data'))
+    fs.writeFileSync(path.join(d, 'setup', 'code'), 'ABCD\n'); fs.writeFileSync(path.join(d, 'data', 'setup-token'), 'x')
+    fs.writeFileSync(path.join(d, 'osrelease'), release)
+    const r = bash(`WARNINGS=()\nsay() { echo "$*"; }\ndev_env_step() { :; }\nBASE='${d}' PORT=47820 ID=mycel RUNNING=1.0.0 DEPLOYMENT=x SRV_USER=s AGT_USER=a CTL_LINK=c\n${part}\ndone_ok`, { MYCEL_OSRELEASE: path.join(d, 'osrelease'), WSL_DISTRO_NAME: 'TrinaAX' })
+    fs.rmSync(d, { recursive: true, force: true })
+    return { ...r, out: r.out.replaceAll(d, '<base>') }
+  }
+  test('WSL: open 127.0.0.1 on this PC, the code on the clipboard or through wsl.exe; no ssh -L, no sudo cat', () => {
+    expect(part).toContain('on_wsl')
+    const r = run('6.6.87.2-microsoft-standard-WSL2\n')
+    expect(r.code).toBe(0)
+    expect(r.out).toContain('open http://127.0.0.1:47820/setup on this PC')
+    expect(r.out).toContain('The setup code is on the clipboard')
+    expect(r.out).toContain('wsl -d TrinaAX --cd / -u root -- cat <base>/setup/code')
+    expect(r.out).not.toContain('ssh -L')
+    expect(r.out).not.toContain('sudo cat')
+  })
+  test('a Linux server elsewhere: the ssh tunnel and sudo cat as before', () => {
+    const r = run('6.12.48+deb13-amd64\n')
+    expect(r.code).toBe(0)
+    expect(r.out).toContain('ssh -L 47820:127.0.0.1:47820 <this server>')
+    expect(r.out).toContain('sudo cat <base>/setup/code')
+    expect(r.out).not.toContain('wsl -d')
+  })
+})
+
 describe('install-wsl-server.ps1', () => {
   test('Windows PowerShell 5.1 reads it as written: ASCII only, -WhatIf through ShouldProcess, every change behind it', () => {
     // (5.1 reads a file without a BOM in the PC's code page: one non-ASCII character can break the script on a Korean PC)
@@ -99,7 +129,7 @@ describe('install-wsl-server.ps1', () => {
   test('it installs only what the download needs; the rest comes from the kit\'s list (scripts/system/packages.json)', () => {
     const helper = between(PS1, "$HelperScript = @'\n", "\n'@")
     const installs = helper.split('\n').filter((l) => /apt-get install/.test(l))
-    expect(installs).toEqual(['    apt-get install -y -qq --no-install-recommends "${need[@]}"'])
+    expect(installs).toEqual(['    { apt-get update -qq && apt-get install -y -qq --no-install-recommends "${need[@]}"; } >> "$PK_APT_LOG" 2>&1 \\'])
     expect(helper).toContain('for p in ca-certificates curl python3; do')
     const list = JSON.parse(read('scripts/system/packages.json')) as { groups: Record<string, { packages?: Record<string, unknown> }> }
     for (const p of ['ca-certificates', 'curl', 'python3']) expect(Object.values(list.groups).some((g) => p in (g.packages ?? {}))).toBe(true)
