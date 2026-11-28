@@ -212,6 +212,10 @@ jobs:
       # the base branch's highest of its component (the base is fetched the way changelog:check fetches it)
       - name: Migration numbers
         run: bun run check:migrations
+      # a change to what the Chrome extension's zip is built from must bump its version (docs/RELEASE-CI.md 16): on a
+      # pull request the version must be above the base branch's when the fingerprint differs from it
+      - name: Chrome extension version
+        run: bun run chrome:check
       - name: Native build (darwin + linux, amd64 + arm64), go vet and go test
         run: |
           ARCHS="amd64 arm64" bash native/build.sh
