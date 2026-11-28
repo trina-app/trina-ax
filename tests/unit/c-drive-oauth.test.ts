@@ -109,6 +109,7 @@ test('cancelling a refresh waiter returns promptly without cancelling other wait
   expect(fake.refreshCount).toBe(1)
 })
 test('callback rejects anonymous or other-person browsers, never reflects secrets, and another own session cannot complete it', async () => {
+  h.ctx.db.query("UPDATE users SET email='alice@example.test' WHERE username='olga'").run()
   const f = await c.call('POST', base + '/authorize', {}), cb = fake.authorize(f.authorizationUrl)
   const callbackUrl = base + '/callback?' + new URLSearchParams(cb)
   expect((await h.fetch(callbackUrl)).status).toBe(400)

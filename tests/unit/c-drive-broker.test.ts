@@ -128,7 +128,7 @@ test("a member's own Drive through the broker: signed calls, handoff bound to th
   // disconnect forgets the token here and never revokes: Google would end the person's whole grant of the hosting
   // service's one app, which their other Trina servers use too (docs/decisions/20261128-google-broker-grant-kept.md)
   expect((await svc.disconnect('alice')).revocation).toBe('kept')
-  expect(broker.revoked).toHaveLength(0); expect(broker.requests.some((r) => r.path === DRIVE_BROKER_PATHS.revoke)).toBe(false)
+  expect(broker.revoked).toHaveLength(1) // the hosting service is told to forget that one token (its /revoke, which no longer calls Google)
   expect(google.calls.some((c) => c.url === GOOGLE_REVOKE)).toBe(false)
   expect(svc.status('alice').status).toBe('disconnected')
 })
@@ -152,7 +152,7 @@ test('a team share through the broker: the admin signs in, members use it, stop 
   await updateShare(a.ctx, 'carol', share.id, { wholeDrive: true, access: { everyone: true, groups: [], users: [] } })
   expect((svc.status('alice').teamShares ?? []).map((s) => s.name)).toEqual(['Company Drive'])
   const stopped = await stopShare(a.ctx, 'carol', share.id)
-  expect(stopped.revocation).toBe('kept'); expect(broker.revoked).toHaveLength(0)
+  expect(stopped.revocation).toBe('kept'); expect(broker.revoked).toHaveLength(1)
   // a member cannot start a share sign-in through the broker either
   await expect(svc.begin('alice', 'alice-session', {})).rejects.toThrow('drive_access_denied')
 })

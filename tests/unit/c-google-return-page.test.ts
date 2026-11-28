@@ -71,6 +71,7 @@ test('Drive: the return page in the person\'s language with the real reason; suc
 })
 
 test('Drive: a browser not signed in (the desktop app\'s system browser) or signed in as someone else gets what to do', async () => {
+  h.ctx.db.query("UPDATE users SET email='alice@example.test' WHERE username='olga'").run()
   const f = await c.call('POST', base + '/authorize', {}), cb = fake.authorize(f.authorizationUrl)
   // nobody signed in: the language the sign-in screen picked (else the team default)
   let p = await page(await h.fetch(cbUrl(cb), { headers: { 'x-mycel-locale': 'ko' } }))

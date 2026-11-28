@@ -71,4 +71,9 @@ unit tests, web unit tests for the connectors.
 Built as planned. Differences: the return page finishes a sign-in only when the route asks (`callbackOutcome(…, {
 finish: true })`, routes/drive.ts and google-apps.ts), so the service's `callback` keeps its old meaning for tests and
 other callers; a flow the desktop or phone app started is never finished in the browser (its app confirms, as before).
-The team server's broker client lost its `revoke` call. trina-cloud companion: `fix/broker-no-grant-revoke`.
+trina-cloud companion: `fix/broker-no-grant-revoke`.
+
+Review (2026-11-29): the return page connects at once only for the person's own Google address (a leaked sign-in
+address consented with someone else's Google gets the confirm card; tests for a share, a team account, another
+session and a mismatch). The broker client calls `revoke` again as "forget" (the hosting service never refreshes that
+token again; no Google call), still answering `kept`. Cleanup of unused results decides by the token, not the mode.

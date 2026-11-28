@@ -335,7 +335,7 @@ test('hosted: signs in through the hosting service with the app; an older one th
   // disconnecting the last sign-in forgets it here and keeps the grant at Google: the hosting service's one app also
   // serves the person's other Trina servers (docs/decisions/20261128-google-broker-grant-kept.md)
   expect((await apps.disconnect('alice', 'gmail')).revocation).toBe('kept')
-  expect(broker.revoked).toHaveLength(0)
+  expect(broker.revoked).toHaveLength(1) // forgotten at the hosting service (no Google revoke there)
   // an older control plane refuses the app field: the card says it is not available yet
   broker.appsSupported = false
   await expect(apps.authorize('bob', 'bob-session', 'calendar')).rejects.toMatchObject({ reason: 'service_limited' })

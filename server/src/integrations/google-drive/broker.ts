@@ -222,7 +222,11 @@ export class DriveBroker {
   redeem(handoff: string, codeVerifier: string, signal?: AbortSignal) { return this.call('redeem', { v: 1, handoff, codeVerifier }, signal) }
   /** `app`: the Google app the token was made for (google-apps/), left out for Drive */
   refresh(sealedRefreshToken: string, signal?: AbortSignal, app?: GoogleBrokerApp) { return this.call('refresh', { v: 1, refreshToken: sealedRefreshToken, ...(app ? { app } : {}) }, signal) }
-  // No revoke: Google ends the person's whole grant of the hosting service's one Google app (every hosted team and
-  // registered server signs in with it), so a team server never asks for it; it only forgets the token
-  // (docs/decisions/20261128-google-broker-grant-kept.md). The contract's revoke address stays for older servers.
+  /** Forget one sealed token at the hosting service (its `revoke` address): from then on it refuses to refresh that
+   * token for anyone, while Google is never asked (its revoke ends the person's whole grant of the one shared Google
+   * app, which their other Trina servers use too; docs/decisions/20261128-google-broker-grant-kept.md). Best effort:
+   * this server has deleted its copy either way. */
+  async forget(sealedRefreshToken: string): Promise<boolean> {
+    try { await this.call('revoke', { v: 1, refreshToken: sealedRefreshToken }); return true } catch { return false }
+  }
 }
