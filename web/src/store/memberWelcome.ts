@@ -17,7 +17,8 @@ interface State {
   load: () => Promise<void>
   /** a row done here: shown at once, the server's answer follows */
   mark: (step: 'hi' | 'photo' | 'asked' | 'files' | 'tools') => void
-  hide: () => Promise<void>
+  /** false: the server did not take it (the card comes back from a fresh read) */
+  hide: () => Promise<boolean>
   /** Settings › Profile: the hidden card back on Home */
   show: () => Promise<boolean>
   /** "You're all set" has had its moment: gone from this page (the server lets it go by itself a little later) */
@@ -57,7 +58,13 @@ export const useMemberWelcome = create<State>((set, get) => ({
     const g = generation
     // gone at once; the server keeps it hidden on every device
     set({ welcome: null, hidden: !get().welcome?.allSet })
-    try { await api.call(API.updateMemberWelcome, { body: { hide: true } }) } catch { if (g === generation) void get().load() }
+    try {
+      await api.call(API.updateMemberWelcome, { body: { hide: true } })
+      return true
+    } catch {
+      if (g === generation) void get().load()
+      return false
+    }
   },
   async show() {
     const g = generation

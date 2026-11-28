@@ -9,7 +9,11 @@ export async function signIn(page: Page, base: string, who: Account) {
   await page.getByTestId('login-username').fill(who.username)
   await page.getByTestId('login-password').fill(who.password)
   await page.getByTestId('login-submit').click()
-  await expect(page.getByTestId('composer-input')).toBeVisible({ timeout: 20_000 })
+  // an owner whose team setup is unfinished lands on its steps once per tab session: Home is one step on
+  const composer = page.getByTestId('composer-input')
+  await expect(composer.or(page.getByTestId('welcome'))).toBeVisible({ timeout: 20_000 })
+  if (/\/welcome/.test(page.url())) await page.goto(`${base}/`)
+  await expect(composer).toBeVisible({ timeout: 20_000 })
 }
 
 /** GET/POST through the page's cookie session with the CSRF header the app sends. */
