@@ -384,7 +384,7 @@ describe('Sign in with Google on a team with no account yet', () => {
   })
   afterAll(() => h.close())
 
-  test('no_owner while nobody has an account; not_connected once someone has', async () => {
+  test('no_owner on a hosted team while nobody has an account; not_connected once someone has, or when not hosted', async () => {
     const start = async () => {
       const res = await h.client().raw('POST', '/api/auth/google/start', {})
       expect(res.status).toBe(200)
@@ -396,6 +396,9 @@ describe('Sign in with Google on a team with no account yet', () => {
       return h.fetch(`${CALLBACK}?${new URLSearchParams({ state, code })}`, { headers: { cookie: gsi } })
     }
     nextAccount = { sub: '900', email: 'new-owner@acme.test' }
+    // a self-installed server with nobody: the plain answer (its owner is made on its own /setup)
+    expect((await start()).headers.get('location')).toBe('/login?google=not_connected')
+    ;(h.ctx.config as { deployment?: string }).deployment = 'hosted'
     expect((await start()).headers.get('location')).toBe('/login?google=no_owner')
     await withOwner(h)
     expect((await start()).headers.get('location')).toBe('/login?google=not_connected')

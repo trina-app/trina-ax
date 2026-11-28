@@ -11,8 +11,13 @@
   - The only way to a new claim is the app's own console sign-in (`POST /api/app/v1/teams/:id/owner-claim`). The app
     answers `trina-ax://finish-setup` (contract `appFinishSetupLink`) and the team page's bridge call
     `finishTeamSetup()` by running that flow; neither carries a claim, an address or a code.
+  - Any web page can open the link, so it never claims by itself: it is ignored while S5 is on screen or within
+    2 minutes of a claim, and otherwise stops at the app's own confirm screen ("You already have a team · Open it");
+    only the person's press there asks for a claim. The team page's own button (the bridge call) claims at once, but
+    not within 30 seconds of a claim. One claim request at a time; the console's hourly limit (`rate_limited`) has its
+    own words and no button that asks again.
   - The console's page of an app team with no owner shows the app's steps and that link, never a claim or the old
-    setup link. The team's S5 expired screen and its Google sign-in on a team with no account (`no_owner`) say the same
+    setup link. The team's S5 expired screen and its Google sign-in on a hosted team with no account (`no_owner`) say the same
     steps; inside the app they have the button.
 - **Why:** [20261126-desktop-create-team](20261126-desktop-create-team.md) keeps claims out of links so that nobody can
   hand another person a team. Recovery keeps that: the claim still goes from the console to the app's window only.

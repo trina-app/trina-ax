@@ -512,6 +512,17 @@ export class AppWindow {
    * origin, exactly) opens there at once (common/address.ts desktopPagePath): no new server is connected, so ④ has
    * nothing to ask; the team's own sign-in and access checks still apply to the page.
    */
+  /** the team page on screen is the owner setup page (S5, `/app-setup`): a finish-setup link from outside never
+   * replaces it (main.ts finishSetup) */
+  showsOwnerSetup(): boolean {
+    if (!this.app || this.app.webContents.isDestroyed() || this.mode === 'welcome') return false
+    try {
+      return /^\/app-setup\/?$/.test(new URL(this.app.webContents.getURL()).pathname)
+    } catch {
+      return false
+    }
+  }
+
   offerLink(raw: string) {
     if (this.openLinkedPage(raw)) return
     // a Google sign-in's one-time code for the team on screen (its address, or the office address the window shows): that

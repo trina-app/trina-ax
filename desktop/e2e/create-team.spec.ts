@@ -310,7 +310,8 @@ test('"Open it" on a live team that is not set up yet: the owner claim opens its
 test('a lost setup link: "Get a new link" on the team page and the console\'s finish-setup link ask the console again', async () => {
   // docs/decisions/20261128-owner-claim-recovery.md: neither carries a claim; the app asks with its own sign-in
   fake.sc.team = fake.newTeam('Acme Cafe', 'acme-cafe', 'active')
-  const { app, w } = await start()
+  // a short gap after a claim for this test (the real ones: 30 s for the page's button, 2 min for a link)
+  const { app, w } = await start(newUserData('en'), { MYCEL_DESKTOP_TEST_FINISH_GAP_MS: '1500' })
   try {
     await w.getByTestId('create-team').click()
     await w.getByTestId('signin-google').click()
@@ -320,18 +321,64 @@ test('a lost setup link: "Get a new link" on the team page and the console\'s fi
     await expect(page.locator('#welcome')).toHaveText('Welcome to Acme Cafe, owner')
     const claimsAsked = () => fake.log.filter((l) => l.method === 'POST' && l.path.endsWith('/owner-claim')).length
     expect(claimsAsked()).toBe(1)
+    // at once after the claim: ignored (it would revoke the claim on screen)
+    await page.evaluate(() => (window as unknown as { mycelDesktop: { finishTeamSetup(): void } }).mycelDesktop.finishTeamSetup())
+    await new Promise((r) => setTimeout(r, 400))
+    expect(claimsAsked()).toBe(1)
+    await new Promise((r) => setTimeout(r, 1500))
     // the team page's bridge call (S5 expired, or the sign-in page's no_owner): a new claim, no "You have a team" notice
     await page.evaluate(() => (window as unknown as { mycelDesktop: { finishTeamSetup(): void } }).mycelDesktop.finishTeamSetup())
     await expect.poll(claimsAsked).toBe(2)
     await expect((await teamView(app, '/app-setup')).locator('#welcome')).toHaveText('Welcome to Acme Cafe, owner')
     await expect(w.getByRole('heading', { name: 'You already have a team, Acme Cafe.' })).toHaveCount(0)
-    // the console's "Open the Trina AX app" link: the same, with nothing in it
-    await app.evaluate(({ app: a }, link) => { a.emit('open-url', { preventDefault() {} }, link) }, `${PRODUCT.linkScheme}://finish-setup`)
-    await expect.poll(claimsAsked).toBe(3)
+    // a link from outside (any web page can open one) while S5 is on screen: ignored even after the gap, the claim on
+    // screen stays
+    await new Promise((r) => setTimeout(r, 1700))
+    const link = (l: string) => app.evaluate(({ app: a }, x) => { a.emit('open-url', { preventDefault() {} }, x) }, l)
+    for (let i = 0; i < 3; i++) await link(`${PRODUCT.linkScheme}://finish-setup`)
     // a link that tries to carry a claim is not this one: it goes to the usual "connect?" screen and asks nothing
-    await app.evaluate(({ app: a }, link) => { a.emit('open-url', { preventDefault() {} }, link) }, `${PRODUCT.linkScheme}://finish-setup#c=${'A'.repeat(43)}`)
+    await link(`${PRODUCT.linkScheme}://finish-setup#c=${'A'.repeat(43)}`)
+    await new Promise((r) => setTimeout(r, 700))
+    expect(claimsAsked()).toBe(2)
+    await expect((await teamView(app, '/app-setup')).locator('#welcome')).toHaveText('Welcome to Acme Cafe, owner')
+  } finally {
+    await close(app)
+  }
+})
+
+test('the console\'s finish-setup link from outside the app stops at "You already have a team · Open it"; only the press asks', async () => {
+  fake.sc.team = fake.newTeam('Acme Cafe', 'acme-cafe', 'active')
+  const { app, w } = await start()
+  try {
+    await w.getByTestId('create-team').click()
+    await w.getByTestId('signin-google').click()
+    await signInBrowser(app, 1)
+    await expect(w.getByRole('heading', { name: 'You already have a team, Acme Cafe.' })).toBeVisible()
+    const claimsAsked = () => fake.log.filter((l) => l.method === 'POST' && l.path.endsWith('/owner-claim')).length
+    for (let i = 0; i < 3; i++) await app.evaluate(({ app: a }, x) => { a.emit('open-url', { preventDefault() {} }, x) }, `${PRODUCT.linkScheme}://finish-setup`)
+    await expect(w.getByRole('heading', { name: 'You already have a team, Acme Cafe.' })).toBeVisible()
     await new Promise((r) => setTimeout(r, 500))
-    expect(claimsAsked()).toBe(3)
+    expect(claimsAsked()).toBe(0)
+    await w.getByTestId('notice-action').click()
+    const page = await teamView(app, '/app-setup')
+    await expect(page.locator('#welcome')).toHaveText('Welcome to Acme Cafe, owner')
+    expect(claimsAsked()).toBe(1)
+  } finally {
+    await close(app)
+  }
+})
+
+test('the console\'s claim limit: its own words, no button that asks again', async () => {
+  fake.sc.team = fake.newTeam('Acme Cafe', 'acme-cafe', 'active')
+  fake.sc.claimError = { status: 429, code: 'rate_limited' }
+  const { app, w } = await start()
+  try {
+    await w.getByTestId('create-team').click()
+    await w.getByTestId('signin-google').click()
+    await signInBrowser(app, 1)
+    await w.getByTestId('notice-action').click()
+    await expect(w.getByText('You asked for a new setup link too many times. Wait a few minutes, then try again.')).toBeVisible()
+    await expect(w.getByTestId('notice-action')).toHaveCount(0)
   } finally {
     await close(app)
   }

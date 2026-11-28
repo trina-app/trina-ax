@@ -195,7 +195,7 @@ function onLink(url: string) {
     launchLink = url
     return
   }
-  if (isAppFinishSetupLink(url, LINK_SCHEME)) finishSetup()
+  if (isAppFinishSetupLink(url, LINK_SCHEME)) finishSetup('link')
   else win.offerLink(url)
   if (win.win.isMinimized()) win.win.restore()
   win.win.show()
@@ -646,7 +646,7 @@ function registerIpc() {
   // frame only; the proof itself never leaves the main process but on that team's claim (AppWindow.claimSignIn)
   // "Get a new link" on the team page of a team with no owner account yet (S5 expired, Google `no_owner`): the top frame
   // of the team on screen only; it carries nothing, the app asks the console for its own account's claim (finishSetup)
-  ipcMain.on('bridge:finish-team-setup', (e) => { if (fromApp(e) && e.senderFrame && e.senderFrame.origin === win?.team?.origin) finishSetup() })
+  ipcMain.on('bridge:finish-team-setup', (e) => { if (fromApp(e) && e.senderFrame && e.senderFrame.origin === win?.team?.origin) finishSetup('page') })
   ipcMain.handle('bridge:code-return-key', (e) => (fromApp(e) && e.senderFrame && e.senderFrame.origin === win?.team?.origin ? codeReturn.key(e.senderFrame.origin) : null))
   ipcMain.handle('bridge:browser-settings', (e) => (fromApp(e) ? (win!.browserSettings() ?? null) : null))
   ipcMain.handle('bridge:browser-access', async (e, v: unknown): Promise<AllowAllOutcome> => {
@@ -768,6 +768,8 @@ async function createWindow() {
     changed: () => win?.createChanged(createTeam?.view().screen !== 'off'),
     openTeam: async (origin, label, path) => { await win?.openCreatedTeam(origin, label, path) },
     pollMs: dev && Number(process.env.MYCEL_DESKTOP_TEST_CREATE_POLL_MS) > 0 ? Number(process.env.MYCEL_DESKTOP_TEST_CREATE_POLL_MS) : undefined,
+    // a development run's tests: a shorter gap after a claim (MYCEL_DESKTOP_TEST_FINISH_GAP_MS), never in a packaged app
+    finishGapMs: dev && Number(process.env.MYCEL_DESKTOP_TEST_FINISH_GAP_MS) > 0 ? { page: Number(process.env.MYCEL_DESKTOP_TEST_FINISH_GAP_MS), link: Number(process.env.MYCEL_DESKTOP_TEST_FINISH_GAP_MS) } : undefined,
   })
   const create = createTeam
   // whether the console offers "Create a team for free" (asked once without a token; asked again later while unknown)
@@ -813,17 +815,24 @@ async function createWindow() {
   if (launchLink) {
     const link = launchLink
     launchLink = null
-    if (isAppFinishSetupLink(link, LINK_SCHEME)) finishSetup()
+    if (isAppFinishSetupLink(link, LINK_SCHEME)) finishSetup('link')
     else win.offerLink(link)
   }
 }
 
-/** "Get a new link" for a team whose owner account is not made yet (the link above, or the team page's bridge call): the
- * owner claim of the account's own team, opened in this window (a create screen shows only when one is needed: the
- * console sign-in, or a notice) */
-function finishSetup() {
+/** "Get a new link" for a team whose owner account is not made yet. From the team page's own button (`page`, the bridge
+ * call): the owner claim of the account's own team, opened in this window. From a link outside the app (`link`: any web
+ * page can open one): never while the owner setup page (S5) is on screen, and only to the app's own confirm screen
+ * ("You already have a team · Open it"); the claim is asked only by the person's press there. CreateTeam.finishSetup
+ * also ignores one right after a claim, and asks one at a time. */
+function finishSetup(from: 'page' | 'link') {
   if (!win || win.win.isDestroyed() || !createTeam) return
-  createTeam.finishSetup()
+  if (from === 'link' && win.showsOwnerSetup()) {
+    handoffLog('finish-setup link ignored: the owner setup page is on screen')
+    return
+  }
+  const skipped = createTeam.finishSetup(from)
+  if (skipped) handoffLog(`finish-setup ignored: ${skipped}`)
 }
 
 // write cookies of the open team (page and browser) to disk before quitting. The window is already closed by

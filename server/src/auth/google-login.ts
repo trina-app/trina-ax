@@ -40,7 +40,7 @@ import { fail } from '../http/errors'
 import { GOOGLE_AUTH, GOOGLE_TOKEN } from '../integrations/google-drive/client'
 import { configKey, hash as driveHash, type DriveConfig } from '../integrations/google-drive/config'
 import { googleDriveOf } from '../integrations/google-drive/oauth'
-import { publicHostOf } from '../system/deployment'
+import { isHosted, publicHostOf } from '../system/deployment'
 import { brokerClientOf, brokerFlowKey, brokerUnreachable, googleSigninBrokerOf } from './google-login-broker'
 import { verifyGoogleIdToken } from './google-id-token'
 import { viaOf } from './accounts'
@@ -506,9 +506,10 @@ export function googleClaims(idToken: unknown, clientId: string, nonce: string, 
   return { sub: p.sub, email: clean(p.email, 320), hd: clean(p.hd, 255), ...(name ? { name } : {}), ...(iat !== undefined ? { iat } : {}), ...(authTime !== undefined ? { authTime } : {}) }
 }
 
-/** no account exists on this team yet (the setup report's setupNeeded: cloud-tenant.ts) */
+/** a hosted team with no account yet (the setup report's setupNeeded: cloud-tenant.ts): the hosting service makes its
+ * owner (from the desktop app, or its setup link). A self-installed server with nobody is in its own /setup instead. */
 function noAccountYet(ctx: AppContext): boolean {
-  return !ctx.db.query('SELECT 1 FROM users WHERE guest = 0 LIMIT 1').get()
+  return isHosted(ctx.config) && !ctx.db.query('SELECT 1 FROM users WHERE guest = 0 LIMIT 1').get()
 }
 
 /** A sign-in Google answered: a browser's is signed in here; an app's gets a one-time code for the app's secret

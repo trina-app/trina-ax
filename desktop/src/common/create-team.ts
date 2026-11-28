@@ -95,6 +95,8 @@ export function startSteps(step: number): ('done' | 'now' | 'later')[] {
 export const CREATE_NOTICES = [
   'hasTeam', 'freeUsed', 'comeback', 'paused', 'awakeLimit', 'onHold', 'capacityFull', 'waitlist', 'waitlistDone',
   'networkLimit', 'emailUnverified', 'noFreeRegion', 'provisionFailed', 'noFree', 'noTeam', 'offline', 'failed',
+  // the console's limit of new setup links (owner claims) an hour: wait, no button (a button would ask again)
+  'claimLimit',
 ] as const
 export type CreateNotice = (typeof CREATE_NOTICES)[number]
 

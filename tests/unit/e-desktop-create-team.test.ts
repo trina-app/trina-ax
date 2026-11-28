@@ -5,8 +5,8 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { CreateTeam } from '../../desktop/src/main/create-team'
-import { emailSignInError, type CreateView } from '../../desktop/src/common/create-team'
+import { CreateTeam, FINISH_LINK_GAP_MS, FINISH_PAGE_GAP_MS } from '../../desktop/src/main/create-team'
+import { emailSignInError, noticeAction, type CreateView } from '../../desktop/src/common/create-team'
 import { isAppEmail } from '@mycel/shared/cloud-protocol/owner-claim'
 import type { ConsoleSignIn, EmailResult } from '../../desktop/src/main/console-signin'
 
@@ -116,7 +116,7 @@ describe('Get a new link: a lost owner claim (finishSetup)', () => {
   const claim = 'A'.repeat(43)
   test('signed in: straight to a new claim of the account\'s own team, opened in the app (no "You have a team" notice)', async () => {
     const { flow, calls, opened, views } = setup({ token: true, team, claim: { status: 200, body: { url: `https://acme.example.test/app-setup#c=${claim}` } } })
-    flow.finishSetup()
+    flow.finishSetup('page')
     await settle()
     expect(calls).toEqual(['GET /api/app/v1/me', 'POST /api/app/v1/teams/t1/owner-claim'])
     expect(opened).toEqual([`https://acme.example.test/app-setup#c=${claim}`])
@@ -124,14 +124,14 @@ describe('Get a new link: a lost owner claim (finishSetup)', () => {
   })
   test('a claim page of another address is never opened', async () => {
     const { flow, opened } = setup({ token: true, team, claim: { status: 200, body: { url: `https://evil.example.test/app-setup#c=${claim}` } } })
-    flow.finishSetup()
+    flow.finishSetup('page')
     await settle()
     expect(opened).toEqual([])
     expect(flow.view()).toMatchObject({ screen: 'notice', notice: 'failed' })
   })
   test('no token: the console sign-in first, then the claim', async () => {
     const { flow, calls, opened } = setup({ team, claim: { status: 200, body: { url: `https://acme.example.test/app-setup#c=${claim}` } } })
-    flow.finishSetup()
+    flow.finishSetup('page')
     expect(flow.view()).toMatchObject({ screen: 'signin', step: 'choose' })
     await flow.sendCode('owner@example.com')
     await flow.verifyCode('111111')
@@ -141,7 +141,7 @@ describe('Get a new link: a lost owner claim (finishSetup)', () => {
   })
   test('a set-up team opens at its start; "Create a team for free" still shows the notice', async () => {
     const a = setup({ token: true, team: { ...team, setUp: true } })
-    a.flow.finishSetup()
+    a.flow.finishSetup('page')
     await settle()
     expect(a.opened).toEqual(['https://acme.example.test/'])
     const b = setup({ token: true, team })
@@ -149,5 +149,62 @@ describe('Get a new link: a lost owner claim (finishSetup)', () => {
     await settle()
     expect(b.flow.view()).toMatchObject({ screen: 'notice', notice: 'hasTeam' })
     expect(b.calls).toEqual(['GET /api/app/v1/me'])
+  })
+  test('a link from outside the app stops at "You already have a team · Open it": no claim until the person presses it', async () => {
+    const { flow, calls, opened } = setup({ token: true, team, claim: { status: 200, body: { url: `https://acme.example.test/app-setup#c=${claim}` } } })
+    expect(flow.finishSetup('link')).toBeNull()
+    await settle()
+    expect(flow.view()).toMatchObject({ screen: 'notice', notice: 'hasTeam', action: 'open' })
+    expect(calls).toEqual(['GET /api/app/v1/me'])
+    await flow.act('open')
+    expect(calls).toEqual(['GET /api/app/v1/me', 'POST /api/app/v1/teams/t1/owner-claim'])
+    expect(opened).toEqual([`https://acme.example.test/app-setup#c=${claim}`])
+  })
+  test('right after a claim, more finish-setups are ignored (they would revoke the claim on screen); a link waits longer', async () => {
+    const { flow, calls } = setup({ token: true, team, claim: { status: 200, body: { url: `https://acme.example.test/app-setup#c=${claim}` } } })
+    flow.finishSetup('page')
+    await settle()
+    expect(calls.filter((c) => c.endsWith('/owner-claim'))).toHaveLength(1)
+    for (let i = 0; i < 5; i++) {
+      expect(flow.finishSetup('link')).toBe('recent')
+      expect(flow.finishSetup('page')).toBe('recent')
+    }
+    await settle()
+    expect(calls.filter((c) => c.endsWith('/owner-claim'))).toHaveLength(1)
+    // the page's own button again after its gap, a link only after the longer one
+    const real = Date.now
+    try {
+      Date.now = () => real() + FINISH_PAGE_GAP_MS + 1
+      expect(flow.finishSetup('link')).toBe('recent')
+      Date.now = () => real() + FINISH_LINK_GAP_MS + 1
+      expect(flow.finishSetup('link')).toBeNull()
+    } finally {
+      Date.now = real
+    }
+  })
+  test('one claim request at a time: presses while it is under way ask nothing more', async () => {
+    let release = () => {}
+    const { flow, calls } = setup({ token: true, team, claim: { status: 200, body: { url: `https://acme.example.test/app-setup#c=${claim}` } } })
+    const sl = (flow as unknown as { o: { signin: { api: (m: string, p: string) => Promise<unknown> } } }).o.signin
+    const api = sl.api
+    sl.api = async (m: string, p: string) => {
+      if (p.endsWith('/owner-claim')) { calls.push(`${m} ${p}`); await new Promise<void>((r) => { release = r }); return { status: 200, body: { url: `https://acme.example.test/app-setup#c=${claim}` } } }
+      return api(m, p)
+    }
+    flow.finishSetup('page')
+    await settle()
+    expect(flow.finishSetup('page')).toBe('busy')
+    expect(flow.finishSetup('link')).toBe('busy')
+    release()
+    await settle()
+    expect(calls.filter((c) => c.endsWith('/owner-claim'))).toHaveLength(1)
+  })
+  test('the console\'s claim limit (rate_limited) has its own words and no button that asks again', async () => {
+    const { flow, opened } = setup({ token: true, team, claim: { status: 429, body: { error: { code: 'rate_limited', message: 'x' } } } })
+    flow.finishSetup('page')
+    await settle()
+    expect(flow.view()).toMatchObject({ screen: 'notice', notice: 'claimLimit', action: null })
+    expect(opened).toEqual([])
+    expect(noticeAction('claimLimit', false)).toBeNull()
   })
 })
