@@ -396,3 +396,4 @@ Built on `feat/owner-personal-onboarding` as planned, with the four open decisio
 - Tests: tests/unit/b-owner-late-card.test.ts (new), b-member-welcome and b-my-setup-start (the two backfillOwner
   tests rewritten), b-welcome-at-setup (a row never opened), the guest role-read review list, web unit member-welcome
   and home-no-ai, web e2e my-setup-card (every card state at 1440 and 390, light and dark), tests/e2e-ui step 1.
+- PR: https://github.com/trina-app/trina-ax/pull/717
