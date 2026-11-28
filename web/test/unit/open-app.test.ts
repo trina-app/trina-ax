@@ -1,7 +1,7 @@
 // "Continue in the Mac app" (lib/open-app.ts; docs/decisions/20261116-desktop-first-onboarding.md): who gets /open-app
 // after setup and the files line, the link the button opens, and the code read from /app-signin's address.
 import { describe, expect, test } from 'bun:test'
-import { afterSetupPath, APP_SETUP_PATH, appComputer, appSignInHref, openAppLineShown, readAppSetupClaim, readAppSignInCode } from '../../src/lib/open-app'
+import { afterSetupPath, APP_SETUP_PATH, appComputer, appSignInHref, openAppLineShown, readAppSetupClaim, readAppSignInCode, takeAppSetupClaim, type AppSetupClaimStore } from '../../src/lib/open-app'
 
 const HTTPS = 'https://acme.trina.app'
 const CODE = 'Zm9vYmFyYmF6cXV4MDEyMzQ1Njc4OWFiY2RlZmdoaWo'
@@ -67,5 +67,26 @@ describe('the link and the code', () => {
     expect(APP_SETUP_PATH).toBe('/app-setup')
     expect(readAppSetupClaim(`#c=${CODE}`)).toBe(CODE)
     for (const h of ['', '#', `#c=${CODE}x`, `#c=${CODE.slice(1)}`, `#c=${CODE}&x=1`, `#x=1&c=${CODE}`, `#c=${CODE.slice(0, 42)}!`]) expect(readAppSetupClaim(h)).toBeNull()
+  })
+  // QA 0202: a reload showed "This link has expired" (the claim was out of the address), and a claim the app sent again
+  // into the page on screen was never read (the page kept its first one, which the new claim had revoked)
+  test('/app-setup keeps its claim for a reload of the tab; a newer claim in the address replaces it', () => {
+    const box: { kept: string | null } = { kept: null }
+    const store: AppSetupClaimStore = { get: () => box.kept, set: (c) => { box.kept = c }, remove: () => { box.kept = null } }
+    const NEWER = CODE.slice(1) + 'A'
+    expect(takeAppSetupClaim(`#c=${CODE}`, store)).toBe(CODE)
+    expect(box.kept).toBe(CODE)
+    // the reload: no fragment, the kept claim
+    expect(takeAppSetupClaim('', store)).toBe(CODE)
+    // the app opened the team again: the new claim wins and is the one kept
+    expect(takeAppSetupClaim(`#c=${NEWER}`, store)).toBe(NEWER)
+    expect(takeAppSetupClaim('', store)).toBe(NEWER)
+    // used or refused: nothing to go on with
+    store.remove()
+    expect(takeAppSetupClaim('', store)).toBeNull()
+    // a kept value that is not a claim is never sent
+    box.kept = 'not a claim'
+    expect(takeAppSetupClaim('', store)).toBeNull()
+    expect(takeAppSetupClaim('#c=short', store)).toBeNull()
   })
 })

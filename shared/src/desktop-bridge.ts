@@ -236,6 +236,11 @@ export interface DesktopBridge {
    * none of them came from a store. Only the Mac App Store build answers the page's file inputs itself (platform
    * 'darwin' with store: web/src/lib/desktop.ts answersFileInputs). */
   store?: boolean
+  /** The language someone chose for the desktop app (its team list, or a team page it showed), when anyone did: a
+   * page with no language picked on it starts in this one before sign-in (the new team's first screen, the sign-in
+   * page), so it does not open in English in a Korean app. Read at each page load. Optional: absent when nothing was
+   * chosen and in desktop apps before this addition. */
+  locale?: string
   browser: {
     /** BROWSER_BRIDGE_VERSION of this app (file_upload since 1). Absent in apps before it: 0. */
     version?: number

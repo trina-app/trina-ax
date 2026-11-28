@@ -57,3 +57,25 @@ export function readAppSignInCode(hash: string): string | null {
 export const APP_SETUP_PATH = OWNER_CLAIM_SETUP_PATH
 /** The console's claim in /app-setup's address (`#c=<43 characters>`, nothing else), or null. */
 export const readAppSetupClaim = (hash: string): string | null => readOwnerClaimFragment(hash)
+
+/** Where /app-setup keeps its claim for a reload of this tab (sessionStorage: this tab only, never the address, the
+ * history or another tab). Removed once the claim is used or refused. */
+export const APP_SETUP_CLAIM_KEY = 'mycel.appSetupClaim'
+export interface AppSetupClaimStore { get(): string | null; set(claim: string): void; remove(): void }
+/** This tab's sessionStorage (blocked storage: nothing kept, a reload then shows "expired" as before). */
+export const sessionClaimStore = (): AppSetupClaimStore => ({
+  get: () => { try { return sessionStorage.getItem(APP_SETUP_CLAIM_KEY) } catch { return null } },
+  set: (claim) => { try { sessionStorage.setItem(APP_SETUP_CLAIM_KEY, claim) } catch { /* blocked: this load only */ } },
+  remove: () => { try { sessionStorage.removeItem(APP_SETUP_CLAIM_KEY) } catch { /* blocked */ } },
+})
+/** /app-setup's claim: the one in the address (a new one replaces the kept one: the app asked the console again, which
+ * revoked the older), else the one this tab kept (a reload; the page took it out of the address). */
+export function takeAppSetupClaim(hash: string, kept: AppSetupClaimStore): string | null {
+  const fresh = readAppSetupClaim(hash)
+  if (fresh) {
+    kept.set(fresh)
+    return fresh
+  }
+  const old = kept.get()
+  return old && readAppSetupClaim(`#c=${old}`) ? old : null
+}
