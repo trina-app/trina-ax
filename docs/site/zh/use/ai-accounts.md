@@ -149,7 +149,7 @@ API 引擎可以连接任何提供兼容 OpenAI 的 API 的服务。它仍标为
 | Claude API (Anthropic) | `https://api.anthropic.com/v1` | [platform.claude.com/settings/keys](https://platform.claude.com/settings/keys) |
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | OpenRouter | `https://openrouter.ai/api/v1` | [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys) |
-| Ollama（这台 Mac） | `http://127.0.0.1:11434/v1` | 不需要密钥：模型运行在服务器所在的同一台电脑上。只有所有者能设置这个地址 |
+| Ollama（服务器的电脑上） | `http://127.0.0.1:11434/v1` | 不需要密钥：模型运行在服务器所在的同一台电脑上。只有所有者能设置这个地址 |
 
 :::steps
 #### 打开 API 这一行

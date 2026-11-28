@@ -111,13 +111,19 @@ describe('a service that lets only apps it approved sign in', () => {
     }
   })
 
-  test('a document is never offered from an address a service cannot reach: localhost or plain http keep the plain reason', async () => {
+  test('a document is never offered from an address a service cannot reach: localhost or plain http say the https address fixes it', async () => {
     fake.strict = { refuseRegistered: true, metadata: true }
     const c = await strict()
-    // the browser on the harness's own address, http://team.localhost
+    // the browser on the harness's own address, http://team.localhost (a WSL server at 127.0.0.1, WSL QA 2026-11-28
+    // with Indeed): not "only the service can change that", but the team's https address
     const r = await authorize(c.id, { origin: 'http://team.localhost' })
     expect(r.status).toBe(400)
-    expect(r.body.error.message).toBe(approvedOnly.ko)
+    expect(r.body.error.message).toBe(say('oauth_needs_https', 'ko', { name: 'Strict' }))
+    expect(r.body.error.message).not.toBe(approvedOnly.ko)
+    // a service that takes no document keeps the plain reason from such an address too
+    fake.strict = { refuseRegistered: true }
+    const plain = await authorize(c.id, { origin: 'http://team.localhost' })
+    expect(plain.body.error.message).toBe(approvedOnly.ko)
     expect(publicOrigin(TEAM)).toBe(true)
     for (const o of ['http://team.example.com', 'https://localhost', 'https://team.localhost', 'https://10.0.0.5', 'https://[::1]', 'https://office', 'https://nas.local']) expect(publicOrigin(o), o).toBe(false)
   })
@@ -280,6 +286,13 @@ describe('words', () => {
       expect(reasonText('oauth_approved_apps_only', l, { address: true, key: false })).toBe(TEXT.keyMember[l])
     }
     expect(TEXT.oauth_approved_apps_only.en).not.toMatch(/API|client|OAuth|registration/i)
+    // the https address as the fix, in every language, naming the service and where the relay is turned on
+    for (const l of LOCALES) {
+      const w = say('oauth_needs_https', l, { name: 'Indeed' })
+      expect(w).toContain('Indeed')
+      expect(w).toContain('https')
+      expect(w).not.toContain('{name}')
+    }
   })
 })
 

@@ -332,6 +332,25 @@ export function isolatedCommand(o: IsolatedRun & { workDir: string; timeoutMs: n
   return { argv, env }
 }
 
+const spawnConverter = (argv: string[], cwd: string, env: Record<string, string>, stdin: boolean) =>
+  Bun.spawn(argv, { cwd, env, stdin: stdin ? 'pipe' : 'ignore', stdout: 'pipe', stderr: 'pipe' })
+
+/** The machine could not start a process now (out of memory or processes): worth a second try. */
+export const spawnShortOf = (e: unknown) => {
+  const code = String((e as { code?: unknown } | null)?.code ?? '')
+  return code === 'EAGAIN' || code === 'ENOMEM' || /\b(EAGAIN|ENOMEM)\b/.test(String((e as Error | null)?.message ?? ''))
+}
+
+/** `start`, tried again after 200 and 800 ms while it fails with spawnShortOf. */
+export async function spawnRetrying<T>(start: () => T, waits: number[] = [200, 800]): Promise<T> {
+  for (let i = 0; ; i++) {
+    try { return start() } catch (e) {
+      if (i >= waits.length || !spawnShortOf(e)) throw e
+      await Bun.sleep(waits[i]!)
+    }
+  }
+}
+
 /** Run a converter isolated. Never throws for a non-zero exit; check `code`. */
 export async function runIsolated(o: IsolatedRun): Promise<IsolatedResult> {
   const ownDir = !o.workDir
@@ -345,7 +364,14 @@ export async function runIsolated(o: IsolatedRun): Promise<IsolatedResult> {
   const timeoutMs = o.timeoutMs ?? 60_000
   const background = o.background ?? backgroundRun()
   const { argv, env } = isolatedCommand({ ...o, workDir, timeoutMs, background })
-  const p = Bun.spawn(argv, { cwd: workDir, env, stdin: o.stdin ? 'pipe' : 'ignore', stdout: 'pipe', stderr: 'pipe' })
+  // a start refused for want of memory or processes (EAGAIN, ENOMEM: a busy machine, several converters of one Excel
+  // answer at once) is tried again twice, a moment apart; still refused, the error goes up with its code, and the
+  // folder made here is removed (WSL QA 2026-11-28: saves failed with "internal error" and nothing in the log)
+  let p: ReturnType<typeof spawnConverter>
+  try { p = await spawnRetrying(() => spawnConverter(argv, workDir, env, !!o.stdin)) } catch (e) {
+    if (ownDir) fs.rmSync(workDir, { recursive: true, force: true })
+    throw e
+  }
   let killed: IsolatedResult['killed'] = null
   const kill = (why: NonNullable<IsolatedResult['killed']>) => { if (!killed) { killed = why; try { p.kill('SIGKILL') } catch {} } }
   const timer = setTimeout(() => kill('timeout'), background ? timeoutMs * BACKGROUND_WALL_FACTOR : timeoutMs)

@@ -159,7 +159,7 @@ Code나 Codex와 다를 수 있어요.
 | Claude API (Anthropic) | `https://api.anthropic.com/v1` | [platform.claude.com/settings/keys](https://platform.claude.com/settings/keys) |
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | OpenRouter | `https://openrouter.ai/api/v1` | [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys) |
-| Ollama (이 맥) | `http://127.0.0.1:11434/v1` | 키가 필요 없어요. 서버와 같은 컴퓨터에서 돌아가는 모델이에요. 이 주소는 팀장만 정할 수 있어요 |
+| Ollama (서버 컴퓨터) | `http://127.0.0.1:11434/v1` | 키가 필요 없어요. 서버와 같은 컴퓨터에서 돌아가는 모델이에요. 이 주소는 팀장만 정할 수 있어요 |
 
 :::steps
 #### API 줄 열기

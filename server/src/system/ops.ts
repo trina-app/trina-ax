@@ -38,6 +38,7 @@ import { busyOwners, srtConfig } from '../devenv/srt/runner'
 import { activityFacts, configureActivityStore } from './activity'
 import { absoluteFloor, cappedSnapshot, configureStorageGuard, levelOf, planView, reserveBytes, snapshotOf, storageState, StorageMonitor, timeIn } from './storage'
 import { hostMessages, ML } from './messages-linux'
+import { runsOnWsl } from './wsl'
 import { audit } from '../admin/audit'
 import { autoUpdateDecision, DEFAULT_UPDATE_WINDOW, nextWindow, runUpdate, settleUpdateJob, updateWindowAnswer } from './update-job'
 import { zonedParts } from './time-zone'
@@ -460,7 +461,8 @@ export class OpsService {
     const L = this.layout
     // the Mac's wording as it always was; a Linux server and the hosted cloud get theirs (system/messages-linux.ts)
     const host = hostKind(this.ctx.config, this.platform())
-    const M = hostMessages(host, { id: L.label ?? path.basename(L.base), base: L.base })
+    // a Linux server inside WSL on a Windows PC: no office network reaches it (system/wsl.ts)
+    const M = hostMessages(host, { id: L.label ?? path.basename(L.base), base: L.base, wsl: host === 'linux' && runsOnWsl(this.platform()) })
     const t = (x: Parameters<typeof tr>[1]) => tr(locale, x)
     const checks: DiagnosticCheck[] = []
     const add = (id: string, group: string, label: string, status: CheckStatus, detail: string | null) => checks.push({ id, group, label, status, detail })

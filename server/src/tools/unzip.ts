@@ -23,6 +23,7 @@
 //   plan (files/unzip.ts planEntries: the zip's path, link, junk, name and size rules), unpacked again in the slot for
 //   the extraction and checked against the planned bytes; each file is a range of the unpacked tar. A lone .gz is one
 //   file, saved next to it (as gunzip does).
+import { internalWhy } from './internal-error'
 import { cameFromOutside } from '../files/office-exit'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -277,7 +278,7 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
   const madeKeys = new Set<string>()
   const failed: UnzipResult['failed'] = []
   const saved: UnzipResult['saved'] = []
-  const why = (e: unknown) => e instanceof Denied ? `not allowed (${e.message})` : e instanceof ToolError || e instanceof FileError ? e.message : e instanceof ZipProblem ? `damaged in the zip (${e.why})` : 'internal error'
+  const why = (e: unknown) => e instanceof Denied ? `not allowed (${e.message})` : e instanceof ToolError || e instanceof FileError ? e.message : e instanceof ZipProblem ? `damaged in the zip (${e.why})` : internalWhy('unzip_file', e)
   /** a folder (and its parents) made when missing: its path, or "!" and why it cannot be (a file has that name, no access) */
   const ensure = (segs: string[]): string => {
     const rel = join(segs)

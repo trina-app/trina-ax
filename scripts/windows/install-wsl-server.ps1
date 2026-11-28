@@ -89,11 +89,17 @@ $script:Cmd = $PSCmdlet
 $script:DryRun = [bool]$WhatIfPreference
 # the modules this script uses, loaded now with WhatIf off: loaded on first use under -WhatIf, Windows PowerShell 5.1
 # printed some 30 "What if: ..." lines of their own setup (Windows QA 2026-11-28). Loading changes nothing.
+# A module's own code (Dism's Set-Alias lines) reads the GLOBAL preference, not this script's: so the global one is off
+# too while they load, and put back after (WSL QA 2026-11-28: ~18 "WhatIf: ... Set Alias" lines still showed).
 & {
     $WhatIfPreference = $false
-    foreach ($m in @('CimCmdlets', 'Dism', 'ScheduledTasks', 'Microsoft.PowerShell.Security', 'Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Utility')) {
-        Import-Module $m -Global -ErrorAction SilentlyContinue
-    }
+    $globalWhatIf = $global:WhatIfPreference
+    $global:WhatIfPreference = $false
+    try {
+        foreach ($m in @('CimCmdlets', 'Dism', 'ScheduledTasks', 'Microsoft.PowerShell.Security', 'Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Utility')) {
+            Import-Module $m -Global -ErrorAction SilentlyContinue
+        }
+    } finally { $global:WhatIfPreference = $globalWhatIf }
 }
 
 # ---- fixed names (docs/INSTALL-WINDOWS.md names them too) ----
@@ -804,7 +810,10 @@ if (Read-YesNo -Question 'Stop this PC from going to sleep while it is plugged i
         $before = Join-Path $DataDir 'power-before.json'
         if ((Initialize-DataDir) -and -not (Test-Path -LiteralPath $before)) {
             $scheme = ([regex]::Match((& powercfg.exe /getactivescheme | Out-String), '[0-9a-fA-F]{8}-[0-9a-fA-F-]{27}')).Value
-            Write-LfFile $before ((@{ scheme = $scheme; standbyAcSeconds = $standby; hibernateAcSeconds = $hibernate } | ConvertTo-Json) + "`n")
+            # a value powercfg did not show (-1) is kept as "unknown": the uninstall then leaves that one as it is
+            $standbyKept = if ($standby -ge 0) { $standby } else { 'unknown' }
+            $hibernateKept = if ($hibernate -ge 0) { $hibernate } else { 'unknown' }
+            Write-LfFile $before ((@{ scheme = $scheme; standbyAcSeconds = $standbyKept; hibernateAcSeconds = $hibernateKept } | ConvertTo-Json) + "`n")
         }
         & powercfg.exe /change standby-timeout-ac 0
         & powercfg.exe /change hibernate-timeout-ac 0
