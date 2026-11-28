@@ -403,3 +403,111 @@ describe('security review fixes', () => {
     expect(textOf(await call(other.token, 'list_browser_profiles', {}, 'fine'))).not.toContain('too many')
   })
 })
+
+describe('every tool reaches the profile; sites and guards', () => {
+  test('B-06/B-08/B-10/B-11/B-12: each listed tool goes to the extension with its input, without `profile`', async () => {
+    wipe('alice')
+    const w = await link('alice', 'Every')
+    const e = await ext(w.token)
+    const stop = serve(e)
+    try {
+      const c = connect('alice', true)
+      const calls: [string, Record<string, unknown>][] = [
+        ['navigate', { url: 'https://example.com/' }], ['read_page', { filter: 'interactive' }], ['find', { query: 'Sign in' }], ['get_page_text', {}],
+        ['computer', { action: 'left_click', coordinate: [10, 20] }], ['computer', { action: 'type', text: 'Mina' }], ['computer', { action: 'key', text: 'Return' }],
+        ['computer', { action: 'scroll', coordinate: [5, 5], scroll_direction: 'down' }], ['form_input', { ref: 'ref_1', value: 'x' }],
+        ['tabs_context', {}], ['tabs_create', {}], ['tabs_select', { tabId: 'c1' }], ['tabs_close', { tabId: 'c1' }],
+        ['browser_batch', { actions: [{ name: 'find', input: { query: 'a' } }, { name: 'computer', input: { action: 'screenshot' } }] }],
+        ['resize_window', { preset: 'mobile' }], ['read_console_messages', { onlyErrors: true }],
+      ]
+      h.ctx.db.query("INSERT OR IGNORE INTO chrome_link_sites (link_id, site, created_at) VALUES (?, 'example.com', '2026-11-28T00:00:00Z')").run(w.linkId)
+      for (const [tool, args] of calls) {
+        const r = await call(c.token, tool, { ...args, profile: 'Every' }, 'every')
+        expect(r.isError).toBeFalsy()
+        const last = e.calls().at(-1)!
+        expect(last.tool as string).toBe(tool)
+        expect(last.args.profile).toBeUndefined()
+      }
+    } finally { stop(); e.ws.close() }
+  })
+
+  test('B-09: file_upload sends the person\'s own team file as a ticket; a file they cannot read is refused; never in a batch', async () => {
+    wipe('alice')
+    const w = await link('alice', 'Uploads')
+    const e = await ext(w.token)
+    const stop = serve(e)
+    try {
+      const c = connect('alice', true)
+      const ok = await call(c.token, 'file_upload', { ref: 'ref_3', files: ['users/alice/todo.md'] }, 'up')
+      expect(ok.isError).toBeFalsy()
+      const sent = e.calls().at(-1)!
+      expect(sent.tool).toBe('file_upload')
+      const f = (sent.args.files as { ticket: string; name: string }[])[0]!
+      expect(f.name).toBe('todo.md'); expect(typeof f.ticket).toBe('string')
+      const n = e.calls().length
+      const no = await call(c.token, 'file_upload', { ref: 'ref_3', files: ['users/bob/notes.md'] }, 'up')
+      expect(no.isError).toBe(true)
+      expect(textOf(no)).toContain('Nothing was attached')
+      expect(e.calls().length).toBe(n)
+      const batch = await call(c.token, 'browser_batch', { actions: [{ name: 'file_upload', input: { files: ['users/alice/todo.md'] } }] }, 'up')
+      expect(textOf(batch)).toContain('cannot be part of browser_batch')
+    } finally { stop(); e.ws.close() }
+  })
+
+  test('B-51/B-52: "Only these sites" refuses without asking; with the team\'s Always switch off an Always counts once', async () => {
+    wipe('alice')
+    const w = await link('alice', 'Limited')
+    h.ctx.db.query('UPDATE chrome_links SET only_listed = 1 WHERE id = ?').run(w.linkId)
+    const e = await ext(w.token)
+    const stop = serve(e, (c) => ((c.sites ?? []).includes('kept.example') ? {} : { ok: false, needSite: { host: 'kept.example' } }))
+    const asks = remoteBrowserOf(h.ctx).asks as unknown as { asks: Map<string, unknown> }
+    try {
+      const c = connect('alice', true)
+      const before = asks.asks.size
+      const r = await call(c.token, 'navigate', { url: 'https://kept.example/' })
+      expect(textOf(r)).toContain('limited to its own sites')
+      expect(asks.asks.size).toBe(before)
+      h.ctx.db.query('UPDATE chrome_links SET only_listed = 0 WHERE id = ?').run(w.linkId)
+      updateTeamSettings(h.ctx.db, { roomAlwaysAllow: false } as never)
+      try {
+        const r2 = await call(c.token, 'navigate', { url: 'https://kept.example/' }, 'sw')
+        const id = /browser-ask\/([0-9a-f]{32})/.exec(textOf(r2))![1]!
+        const view = await (await h.req('alice', `/api/chrome/asks/${id}`)).json() as { always: boolean }
+        expect(view.always).toBe(false)
+        expect((await h.req('alice', `/api/chrome/asks/${id}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ decision: 'always' }) })).status).toBe(204)
+        expect(h.ctx.db.query('SELECT COUNT(*) AS n FROM chrome_link_sites WHERE link_id = ?').get(w.linkId)).toEqual({ n: 0 })
+      } finally { updateTeamSettings(h.ctx.db, { roomAlwaysAllow: true } as never) }
+    } finally { stop(); e.ws.close() }
+  })
+
+  test('B-55: a page that shows a stored key gets no screenshot; key-like text is hidden', async () => {
+    wipe('alice')
+    const w = await link('alice', 'Keys')
+    const e = await ext(w.token)
+    const key = 'sk-proj-' + 'Zx9Qw3Er7Ty1Ui5Op2As8Df4Gh6Jk0Lz'.repeat(2)
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+    const stop = serve(e, (c) => (c.tool === 'read_page' ? { content: [{ type: 'text', text: `- textbox "Secret key" value="${key}" [ref_1]` }] } : { content: [{ type: 'image', data: png, mime: 'image/png' }] }))
+    try {
+      const c = connect('alice', true)
+      const shot = await call(c.token, 'computer', { action: 'screenshot' })
+      expect(shot.content.some((x) => x.type === 'image')).toBe(false)
+      const read = await call(c.token, 'read_page', {})
+      expect(JSON.stringify(read)).not.toContain(key)
+    } finally { stop(); e.ws.close() }
+  })
+
+  test('B-58b: a person made a guest during a call gets nothing back', async () => {
+    wipe('alice')
+    const w = await link('alice', 'Guesting')
+    const e = await ext(w.token)
+    let flip = false
+    const stop = serve(e, () => { if (flip) h.ctx.db.query('UPDATE users SET guest = 1 WHERE id = ?').run('alice'); return {} })
+    try {
+      const c = connect('alice', true)
+      flip = true
+      const r = await call(c.token, 'read_page', {})
+      expect(r.isError).toBe(true)
+      expect(JSON.stringify(r)).not.toContain('page text')
+    } finally { flip = false; h.ctx.db.query('UPDATE users SET guest = 0 WHERE id = ?').run('alice'); stop(); e.ws.close() }
+  })
+})
