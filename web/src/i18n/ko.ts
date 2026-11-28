@@ -1670,7 +1670,7 @@ export const ko = {
   "auth.or": "또는",
   "auth.googleSignIn": "Google 계정으로 로그인",
   "auth.google.not_connected": "이 Google 계정은 이 팀 계정에 연결돼 있지 않아요. 비밀번호로 로그인한 뒤 설정 › 보안·기기에서 연결해 주세요.",
-  "auth.google.no_owner": "이 팀의 소유자 계정이 아직 없어요. {product} 앱에서 무료로 팀 만들기 → 열기로 마무리해 주세요.",
+  "auth.google.no_owner": "이 팀의 팀장 계정이 아직 없어요. {product} 앱에서 무료로 팀 만들기 → 열기로 마무리해 주세요.",
   "auth.google.account_off": "이 계정은 꺼져 있어요. 팀장이나 관리자에게 물어봐 주세요.",
   "auth.google.password_first": "관리자가 임시 비밀번호를 줬어요. 먼저 그 비밀번호로 로그인해 주세요.",
   "auth.google.cancelled": "Google 로그인을 취소했어요.",
