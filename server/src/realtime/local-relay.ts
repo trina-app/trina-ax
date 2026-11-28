@@ -8,11 +8,14 @@ import { uuidv7 } from '@mycel/shared'
 import type { Hub } from './hub'
 import type { Logger } from '../log'
 import { CallRelay, type CallRelayOptions } from './call-relay'
+import { LocalFileLinks } from '../integrations/connections/local-file-links'
 
 export const LOCAL_NO_WINDOW = 'local_unavailable: the desktop app window that sent this message is not connected'
 export const LOCAL_WINDOW_GONE = 'local_unavailable: the desktop app window did not come back'
 
 export class LocalRelay extends CallRelay<LocalCall, LocalResult> {
+  /** one-time links to team files that an app's code or task downloads (local-file-links.ts) */
+  readonly links = new LocalFileLinks()
   constructor(hub: Hub, log: Logger, o: CallRelayOptions = {}) {
     // a tools/call may run as long as an MCP server's (mcp.ts MCP_CALL_TIMEOUT_MS): the caller sets each call's limit
     super(hub, log, {
@@ -28,6 +31,12 @@ export class LocalRelay extends CallRelay<LocalCall, LocalResult> {
       if (f.type === 'local.ack') this.ack(s.userId, f.callId)
       else if (f.type === 'local.result') this.result(s.userId, f.result)
     })
+  }
+
+  /** The turn ended: its calls are cancelled (CallRelay) and its team file links that were not used go. */
+  override cancelTurn(turnId: string) {
+    super.cancelTurn(turnId)
+    this.links.endTurn(turnId)
   }
 
   /** Pass one JSON-RPC message to the program of `connectionId` on the computer of this window. Never throws. */

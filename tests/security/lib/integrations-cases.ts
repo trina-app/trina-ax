@@ -49,4 +49,7 @@ export const INTEGRATION_SPECS: Record<string, Spec> = {
 // a desktop sign-in held for the app (login-CSRF, replay, expiry, another session or team) in tests/security/connect-app-return.test.ts
 // GET /api/integrations/oauth/client-metadata.json: public by design (a service fetches it without a session), holds
 // nothing but the product name and this server's callback; tests/unit/c-integrations-approved-apps.test.ts
-export const INTEGRATION_RAW_COVERED = ['RAW GET INTEGRATION_CALLBACK', 'RAW GET CLIENT_METADATA_PATH']
+// GET /team-file-links/:token: the token is the only auth by design (an app on the person's computer has no sign-in of the
+// team page); one download of the bytes checked for that person, the turn's and 10 minutes' end, the same 404 for an
+// unknown, used or expired token: tests/unit/c-local-file-links.test.ts and c-local-apps-shared.test.ts
+export const INTEGRATION_RAW_COVERED = ['RAW GET INTEGRATION_CALLBACK', 'RAW GET CLIENT_METADATA_PATH', "RAW GET '/team-file-links/:token'"]

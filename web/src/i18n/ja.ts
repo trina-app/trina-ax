@@ -2205,6 +2205,7 @@ export const ja: Record<MessageKey, string> = {
   "audit.act.chrome.pair_code": "ブラウザー接続用のコードを作成",
   "audit.act.chrome.unlink": "ブラウザープロフィールの接続を解除",
   "audit.act.chrome.link_update": "接続中のブラウザープロフィールを変更",
+  "audit.act.local_app.file_link": "コンピューターのアプリがチームのファイルをダウンロードしました",
   'schedules.empty': "定期タスクはありません",
   'schedules.next': "次回実行 {time}",
   'schedules.completed': "完了",

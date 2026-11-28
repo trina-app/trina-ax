@@ -7,6 +7,7 @@ import type { RouteModule } from './module'
 import { fail } from '../http/errors'
 import { getChatRuntime } from '../chat/runtime'
 import { MCP_CALL_MAX_BYTES } from '../integrations/connections/mcp'
+import { linkResponse } from '../integrations/connections/local-file-links'
 
 export const localAppsRoutes: RouteModule = {
   name: 'local-apps',
@@ -22,5 +23,8 @@ export const localAppsRoutes: RouteModule = {
     kit.handle(API.postLocalResult, ({ body, auth }) => {
       if (!rt.localRelay.result(auth.user.id, body)) fail('not_found')
     }, { jsonLimit: MCP_CALL_MAX_BYTES + 1024 * 1024 })
+    // a team file that an app's code or task downloads (local-file-links.ts): outside /api, the token is the auth (the
+    // app on the computer has no sign-in of the team page), one download
+    kit.raw('GET', '/team-file-links/:token', (c) => linkResponse(ctx, rt.localRelay.links, c.req.raw, c.req.param('token') ?? ''))
   },
 }

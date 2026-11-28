@@ -2233,6 +2233,7 @@ export const id: Record<MessageKey, string> = {
   "audit.act.chrome.pair_code": "Membuat kode untuk menghubungkan browser",
   "audit.act.chrome.unlink": "Memutuskan profil browser",
   "audit.act.chrome.link_update": "Mengubah profil browser yang terhubung",
+  "audit.act.local_app.file_link": "Aplikasi di komputer mengunduh file tim",
   'schedules.empty': 'Belum ada tugas terjadwal',
   'schedules.next': 'Berikutnya {time}',
   'schedules.completed': 'Selesai',

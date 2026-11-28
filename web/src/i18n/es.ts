@@ -2205,6 +2205,7 @@ export const es: Record<MessageKey, string> = {
   "audit.act.chrome.pair_code": "Creó un código para conectar un navegador",
   "audit.act.chrome.unlink": "Desconectó un perfil de navegador",
   "audit.act.chrome.link_update": "Cambió un perfil de navegador conectado",
+  "audit.act.local_app.file_link": "Una app del ordenador descargó un archivo del equipo",
   'schedules.empty': "No hay tareas programadas",
   'schedules.next': "Próxima ejecución: {time}",
   'schedules.completed': "Completada",
