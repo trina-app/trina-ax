@@ -11,9 +11,11 @@ import { ChevronDown, Pencil, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { PRODUCT } from '@mycel/shared'
 import { ChromeLinkLabel, ChromeSite, type BrowserTarget, type ChromeLink } from '@mycel/shared/api'
+import { chromeProfileLabel, chromeStoreUrl } from '@mycel/shared/chrome-native'
+import type { DesktopBrowserProfile } from '@mycel/shared'
 import { useLocale, useT } from '../../i18n'
 import { api, API, errorText, isApiError } from '../../lib/api'
-import { isDesktop } from '../../lib/desktop'
+import { desktop, isDesktop } from '../../lib/desktop'
 import { formatRelative } from '../../lib/format'
 import { toast } from '../../store/ui'
 import { Button, IconButton, Skeleton, Switch, inputCls } from '../ui'
@@ -53,26 +55,57 @@ export interface ChromeLinkViewProps {
   /** rows whose sites start open (tests, screenshots) */
   openIds?: string[]
   now?: number
+  /** inside a desktop app that links profiles itself: this computer's browser profiles (null while read), else undefined */
+  profiles?: DesktopBrowserProfile[] | null
+  /** the profile being opened ("<browser>/<dir>"), or 'all' */
+  connecting?: string | null
+  onConnectProfile?(p: DesktopBrowserProfile): void
+  onConnectAll?(ps: DesktopBrowserProfile[]): void
 }
 
-export function ChromeLinkView({ data, inApp, host, busy = null, onDisconnect, onTarget, onPatch, openIds = [], now = Date.now() }: ChromeLinkViewProps) {
+const BROWSER_NAMES: Record<DesktopBrowserProfile['browser'], string> = { chrome: 'Chrome', edge: 'Edge', brave: 'Brave' }
+export const profileKey = (p: DesktopBrowserProfile) => `${p.browser}/${p.dir}`
+
+/** The link a profile of this computer already has: the same account, else the same name (what the app named it). */
+export function linkOfProfile(p: DesktopBrowserProfile, links: ChromeLink[]): ChromeLink | undefined {
+  const name = BROWSER_NAMES[p.browser]
+  const label = chromeProfileLabel(p.name, name)
+  const sameBrowser = (l: ChromeLink) => !l.browser || l.browser.toLowerCase().startsWith(name.toLowerCase())
+  return (p.email ? links.find((l) => sameBrowser(l) && l.email?.toLowerCase() === p.email!.toLowerCase()) : undefined)
+    ?? links.find((l) => sameBrowser(l) && l.label === label)
+}
+
+export function ChromeLinkView({ data, inApp, host, busy = null, onDisconnect, onTarget, onPatch, openIds = [], now = Date.now(), profiles, connecting = null, onConnectProfile, onConnectAll }: ChromeLinkViewProps) {
   const t = useT()
   const product = PRODUCT.displayName
+  const appLinks = profiles !== undefined
   return (
     <section className="mb-8" data-testid="chrome-link" aria-labelledby="chrome-link-title">
       <h2 id="chrome-link-title" className="mb-1 text-title-sm font-semibold">{t('settings.chrome.title')}</h2>
       <p className="mb-3 text-sm text-muted">{t('settings.chrome.intro')}</p>
+      {appLinks && data && <ThisComputer profiles={profiles} links={data.links} connecting={connecting} onConnect={(p) => onConnectProfile?.(p)} onConnectAll={(ps) => onConnectAll?.(ps)} />}
       {!data ? (
         <Skeleton lines={2} />
       ) : data.links.length === 0 ? (
-        <p className="text-sm text-muted" data-testid="chrome-link-how">{t('settings.chrome.how', { product, host })}</p>
+        appLinks ? null : (
+          <div data-testid="chrome-link-how">
+            <p className="text-sm text-muted">{t('settings.chrome.how', { product, host })}</p>
+            <a className="mt-2 inline-block text-sm text-accent underline" href={chromeStoreUrl('chrome')} target="_blank" rel="noreferrer" data-testid="chrome-link-store">{t('settings.chrome.store')}</a>
+            <p className="mt-2 text-sm text-muted">{t('settings.chrome.oneEach')}</p>
+          </div>
+        )
       ) : (
         <>
+          {appLinks && <h3 className="mb-2 text-sm font-semibold text-ink" data-testid="chrome-links-title">{t('settings.chrome.connectedTitle')}</h3>}
           <ul className="divide-y divide-line md:rounded-xl md:border md:border-line" data-testid="chrome-links">
             {data.links.map((l) => <LinkRow key={l.id} link={l} busy={busy} startOpen={openIds.includes(l.id)} now={now} onDisconnect={onDisconnect} onPatch={onPatch} />)}
           </ul>
-          <p className="mt-3 text-sm text-muted" data-testid="chrome-link-another">{t('settings.chrome.another', { product, host })}</p>
-          <p className="mt-1 text-sm text-faint" data-testid="chrome-link-tip">{t('settings.chrome.oneEach')}</p>
+          {!appLinks && (
+            <p className="mt-3 text-sm text-muted" data-testid="chrome-link-another">
+              {t('settings.chrome.another', { product, host })} {t('settings.chrome.oneEach')}{' '}
+              <a className="text-accent underline" href={chromeStoreUrl('chrome')} target="_blank" rel="noreferrer" data-testid="chrome-link-store">{t('settings.chrome.store')}</a>
+            </p>
+          )}
           {inApp && (
             <div className="mt-2" data-testid="chrome-target">
               <SettingRow inline id="chrome-target-switch" title={t('settings.chrome.use')} desc={t(data.target === 'chrome' ? 'settings.chrome.useOn' : 'settings.chrome.useOff')}
@@ -85,6 +118,45 @@ export function ChromeLinkView({ data, inApp, host, busy = null, onDisconnect, o
   )
 }
 
+/** The desktop app's list of this computer's browser profiles: Connect on each one not linked yet, Connect all. */
+function ThisComputer({ profiles, links, connecting, onConnect, onConnectAll }: { profiles: DesktopBrowserProfile[] | null; links: ChromeLink[]; connecting: string | null; onConnect(p: DesktopBrowserProfile): void; onConnectAll(ps: DesktopBrowserProfile[]): void }) {
+  const t = useT()
+  if (!profiles) return <div className="mb-4"><Skeleton lines={2} /></div>
+  if (!profiles.length) return <p className="mb-4 text-sm text-muted" data-testid="chrome-profiles-none">{t('settings.chrome.noProfiles')}</p>
+  // the linked ones are in the list below: only the profiles still to connect show here (none left: nothing)
+  const open = profiles.filter((p) => !linkOfProfile(p, links))
+  if (!open.length) return null
+  const ready = open.filter((p) => p.installed)
+  return (
+    <div className="mb-6" data-testid="chrome-profiles">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-ink">{t('settings.chrome.thisComputer')}</h3>
+        {ready.length > 1 && (
+          <Button size="sm" variant="secondary" busy={connecting === 'all'} disabled={!!connecting} onClick={() => onConnectAll(ready)} data-testid="chrome-profiles-all">{t('settings.chrome.connectAll')}</Button>
+        )}
+      </div>
+      <p className="mt-0.5 mb-2 text-xs text-muted" data-testid="chrome-profiles-hint">{t('settings.chrome.appHint')}</p>
+      <ul className="divide-y divide-line md:rounded-xl md:border md:border-line">
+        {open.map((p) => {
+          const name = BROWSER_NAMES[p.browser]
+          const shown = p.name || p.email || name
+          return (
+            <li key={profileKey(p)} className="flex items-center gap-3 py-2.5 text-sm md:px-4" data-testid="chrome-profile-row">
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium text-ink" title={shown} data-testid="chrome-profile-name">{shown}</div>
+                <div className="truncate text-xs text-muted">{[name, p.email && p.email !== shown ? p.email : null].filter(Boolean).join(' · ')}</div>
+              </div>
+              <Button size="sm" variant="secondary" className="shrink-0" busy={connecting === profileKey(p)} disabled={!!connecting} onClick={() => onConnect(p)} aria-label={`${p.installed ? t('settings.chrome.connect') : t('settings.chrome.install')} ${shown} (${name})`} data-testid="chrome-profile-connect">
+                {p.installed ? t('settings.chrome.connect') : t('settings.chrome.install')}
+              </Button>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 /** One linked profile: its name (renamed in place), its state, Disconnect, and its sites behind "Sites". */
 function LinkRow({ link: l, busy, startOpen, now, onDisconnect, onPatch }: { link: ChromeLink; busy: string | null; startOpen: boolean; now: number; onDisconnect(l: ChromeLink): void; onPatch(l: ChromeLink, p: ChromeLinkPatch): Promise<boolean> }) {
   const t = useT()
@@ -94,6 +166,8 @@ function LinkRow({ link: l, busy, startOpen, now, onDisconnect, onPatch }: { lin
   const [site, setSite] = useState('')
   const [siteError, setSiteError] = useState(false)
   const saving = busy === l.id || busy === `unlink:${l.id}`
+  // the profile's account and browser, each once (not when the name says it already)
+  const extras = [l.email && l.email !== l.label ? l.email : null, l.browser && l.browser !== l.label ? l.browser : null].filter((x): x is string => !!x)
   const sitesId = `chrome-sites-${l.id}`
   const rename = async (e?: FormEvent) => {
     e?.preventDefault()
@@ -136,9 +210,12 @@ function LinkRow({ link: l, busy, startOpen, now, onDisconnect, onPatch }: { lin
               />
             </form>
           )}
-          <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted" data-testid="chrome-link-state">
-            <span className={l.online ? 'size-2 shrink-0 rounded-full bg-ok' : 'size-2 shrink-0 rounded-full border border-faint'} aria-hidden />
-            {l.online ? t('settings.chrome.online') : l.lastSeenAt ? t('settings.chrome.lastUsed', { when: formatRelative(l.lastSeenAt, locale, now) }) : t('settings.chrome.offline')}
+          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted">
+            <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap" data-testid="chrome-link-state">
+              <span className={l.online ? 'size-2 shrink-0 rounded-full bg-ok' : 'size-2 shrink-0 rounded-full border border-faint'} aria-hidden />
+              {l.online ? t('settings.chrome.online') : l.lastSeenAt ? t('settings.chrome.lastUsed', { when: formatRelative(l.lastSeenAt, locale, now) }) : t('settings.chrome.offline')}
+            </span>
+            {extras.length > 0 && <span className="min-w-0 truncate" title={extras.join(' · ')} data-testid="chrome-link-account">· {extras.join(' · ')}</span>}
           </span>
         </div>
         <Button size="sm" variant="ghost" className="shrink-0" aria-expanded={open} aria-controls={sitesId} onClick={() => setOpen(!open)} data-testid="chrome-link-sites-toggle">
@@ -198,7 +275,12 @@ export function ChromeLinkSettings() {
   const [busy, setBusy] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const live = useRef(true)
+  const cp = desktop()?.chromeProfiles
+  const [profiles, setProfiles] = useState<DesktopBrowserProfile[] | null>(null)
+  const [connecting, setConnecting] = useState<string | null>(null)
   const read = useCallback(async () => {
+    // this computer's profiles (new ones show up by themselves): read with the links
+    if (cp) void cp.list().then((ps) => { if (live.current) setProfiles(ps) }, () => { if (live.current) setProfiles([]) })
     try {
       const r = await api.call(API.chromeLinks)
       if (!live.current) return
@@ -209,7 +291,7 @@ export function ChromeLinkSettings() {
       // the next read tries again
       if (live.current && isApiError(e, 'not_found')) setAbsent(true)
     }
-  }, [])
+  }, [cp])
   useEffect(() => {
     live.current = true
     void read()
@@ -267,5 +349,31 @@ export function ChromeLinkSettings() {
       setBusy(null)
     }
   }
-  return <ChromeLinkView data={data} inApp={isDesktop()} host={window.location.host} busy={busy} now={now} onDisconnect={(l) => void onDisconnect(l)} onTarget={(v) => void onTarget(v)} onPatch={onPatch} />
+  const onConnectProfile = async (p: DesktopBrowserProfile) => {
+    setConnecting(profileKey(p))
+    try {
+      const r = await cp!.connect({ browser: p.browser, dir: p.dir })
+      if (r === 'failed') toast({ level: 'error', text: t('settings.chrome.openFailed') })
+      else if (r === 'store') toast({ level: 'info', text: t('settings.chrome.storeOpened', { product: PRODUCT.displayName }), ms: 10_000 })
+    } finally {
+      setConnecting(null)
+      // the link shows up as soon as the extension spent its code
+      window.setTimeout(() => void read(), 3000)
+    }
+  }
+  const onConnectAll = async (ps: DesktopBrowserProfile[]) => {
+    setConnecting('all')
+    try {
+      // one after the other: each opens its browser profile (a browser takes a moment to open the next one)
+      for (const p of ps) {
+        await cp!.connect({ browser: p.browser, dir: p.dir }).catch(() => 'failed' as const)
+        await new Promise((r) => window.setTimeout(r, 1200))
+      }
+    } finally {
+      setConnecting(null)
+      window.setTimeout(() => void read(), 3000)
+    }
+  }
+  return <ChromeLinkView data={data} inApp={isDesktop()} host={window.location.host} busy={busy} now={now} onDisconnect={(l) => void onDisconnect(l)} onTarget={(v) => void onTarget(v)} onPatch={onPatch}
+    {...(cp ? { profiles, connecting, onConnectProfile: (p: DesktopBrowserProfile) => void onConnectProfile(p), onConnectAll: (ps: DesktopBrowserProfile[]) => void onConnectAll(ps) } : {})} />
 }

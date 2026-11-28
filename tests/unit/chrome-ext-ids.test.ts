@@ -54,7 +54,7 @@ describe('manifest', () => {
   test('exactly the permissions the listing explains, no host access by default, no content scripts', () => {
     const m = manifest('0.1.0') as Record<string, unknown>
     expect(m.manifest_version).toBe(3)
-    expect(m.permissions).toEqual(['debugger', 'tabGroups', 'storage', 'alarms', 'activeTab'])
+    expect(m.permissions).toEqual(['debugger', 'tabGroups', 'storage', 'alarms', 'activeTab', 'nativeMessaging'])
     expect(m.optional_host_permissions).toEqual(['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*'])
     for (const k of ['host_permissions', 'content_scripts', 'externally_connectable', 'web_accessible_resources']) expect(m[k]).toBeUndefined()
     expect(m.name).toBe('__MSG_extName__')

@@ -5,6 +5,7 @@
 // address or code is useless anywhere else. A pending pairing ends after 5 minutes or when its tab closes.
 import { CHROME_CONNECT_DONE_PATH, CHROME_CONNECT_PATH, ChromeRedeemed } from '../../shared/src/api/chrome'
 import { browserLabel, codeFromDoneUrl, pkcePair } from './ids'
+import { cutLabel } from '../../shared/src/chrome-native'
 import { loadLink, saveLink } from './state'
 
 const PAIR_TTL_MS = 5 * 60_000
@@ -44,8 +45,8 @@ export async function pairState(): Promise<PairState> {
 
 /** The name of this browser profile as the team lists it: 1 to 60 characters, the browser and system when left empty. */
 export function cleanLabel(raw: string): string {
-  const v = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()
-  return Array.from(v).slice(0, 60).join('').trim() || browserLabel(navigator.userAgent, navigator.userAgentData, Boolean(navigator.brave))
+  const v = raw.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim()
+  return cutLabel(v) || browserLabel(navigator.userAgent, navigator.userAgentData, Boolean(navigator.brave))
 }
 
 /** A team origin the extension may connect to: https, or a developer's http://localhost. */
@@ -88,33 +89,45 @@ async function onTabUrl(tabId: number, url: string, onLinked: () => Promise<void
   await chrome.storage.session.remove('pair')
   await chrome.tabs.remove(tabId).catch(() => {})
   if (!code) return void (await chrome.storage.session.set({ pairFailed: true }))
+  const r = await redeem(p.origin, code, p.verifier, p.label)
+  await chrome.storage.session.set({ pairFailed: r === 'linked' ? false : r })
+  if (r === 'linked') await onLinked()
+}
+
+/**
+ * Spend a code with the verifier at the team and keep the link (the in-profile Connect and the desktop app's pair page,
+ * pair.ts). 'full': the person has CHROME_LINKS_MAX browsers linked; true: anything else that failed (a used, expired
+ * or wrong code: 410; no answer).
+ */
+export async function redeem(origin: string, code: string, verifier: string, label: string, extra: { email?: string } = {}): Promise<'linked' | 'full' | true> {
   // the link this install already holds (same team): replaced, not a second row for one profile
   const held = await loadLink()
-  const previous = held && held.origin === p.origin ? held.token : undefined
+  const previous = held && held.origin === origin ? held.token : undefined
   try {
-    const res = await fetch(`${p.origin}/api/chrome/redeem`, {
+    // no cookies: a profile linked through the desktop app has no access to the team's address (the server answers this
+    // one path to extensions: CORS); the code and the verifier are the whole proof
+    const res = await fetch(`${origin}/api/chrome/redeem`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'omit',
       cache: 'no-store',
       body: JSON.stringify({
         code,
-        verifier: p.verifier,
-        label: p.label,
+        verifier,
+        label,
         version: chrome.runtime.getManifest().version,
         ...(previous ? { previous } : {}),
+        ...(extra.email ? { email: extra.email } : {}),
+        browser: browserLabel(navigator.userAgent, navigator.userAgentData, Boolean(navigator.brave)),
       }),
     })
-    // the person has as many linked browsers as a person may: one must go first (Settings › Browser)
-    if (res.status === 409) return void (await chrome.storage.session.set({ pairFailed: 'full' }))
-    if (!res.ok) throw new Error(`redeem ${res.status}`)
+    if (res.status === 409) return 'full'
+    if (!res.ok) return true
     const r = ChromeRedeemed.parse(await res.json())
-    await saveLink({ origin: p.origin, token: r.token, linkId: r.linkId, user: r.user, team: r.team, label: p.label, teamHosts: r.teamHosts })
-    await chrome.storage.session.set({ pairFailed: false })
-    await onLinked()
+    await saveLink({ origin, token: r.token, linkId: r.linkId, user: r.user, team: r.team, label, teamHosts: r.teamHosts })
+    return 'linked'
   } catch {
-    // a used, expired or wrong code (410) or no answer: the popup shows a plain retry line
-    await chrome.storage.session.set({ pairFailed: true })
+    return true
   }
 }
 

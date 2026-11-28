@@ -8,7 +8,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { CHROME_CONNECT_DONE_PATH, type ChromeLink, type Me, type TurnRequest } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
-import { ChromeLinkSettings, ChromeLinkView, siteOf, type ChromeLinkData } from '../../src/components/settings/ChromeLink'
+import { ChromeLinkSettings, ChromeLinkView, linkOfProfile, siteOf, type ChromeLinkData } from '../../src/components/settings/ChromeLink'
+import type { DesktopBrowserProfile } from '@mycel/shared'
 import { ConnectChrome, chromeDoneHref, readChallenge } from '../../src/pages/ConnectChrome'
 import { browserTabShown, chromeLinkHere, settingsTabs } from '../../src/pages/settingsTabs'
 import AskCard from '../../src/components/chat/AskCard'
@@ -16,7 +17,7 @@ import { useSession } from '../../src/store/session'
 import { installDom, mount, removeDom } from './dom-host'
 
 const noop = () => {}
-const link = (o: Partial<ChromeLink> = {}): ChromeLink => ({ id: 'l1', label: 'Chrome on Mac', createdAt: '2026-11-28T00:00:00.000Z', lastSeenAt: null, online: true, version: '0.1.0', sites: [], onlyListed: false, ...o })
+const link = (o: Partial<ChromeLink> = {}): ChromeLink => ({ id: 'l1', label: 'Chrome on Mac', email: null, browser: null, createdAt: '2026-11-28T00:00:00.000Z', lastSeenAt: null, online: true, version: '0.1.0', sites: [], onlyListed: false, ...o })
 const view = (data: ChromeLinkData | null, inApp = false, now = Date.parse('2026-11-28T12:00:00.000Z'), openIds: string[] = []) =>
   renderToStaticMarkup(<ChromeLinkView data={data} inApp={inApp} host="acme.trina.app" now={now} onDisconnect={noop} onTarget={noop} onPatch={async () => true} openIds={openIds} />)
 const CHALLENGE = 'A'.repeat(43)
@@ -41,6 +42,40 @@ describe('where "Your Chrome" shows', () => {
   })
 })
 
+describe('Settings › Browser › On this computer (desktop app links profiles itself)', () => {
+  const prof = (o: Partial<DesktopBrowserProfile> = {}): DesktopBrowserProfile => ({ browser: 'chrome', dir: 'Default', name: 'Work', email: 'mina@work.example', installed: true, ...o })
+  const withProfiles = (data: ChromeLinkData, profiles: DesktopBrowserProfile[] | null) =>
+    renderToStaticMarkup(<ChromeLinkView data={data} inApp host="acme.trina.app" onDisconnect={noop} onTarget={noop} onPatch={async () => true} profiles={profiles} onConnectProfile={noop} onConnectAll={noop} />)
+  test('each profile with Connect (installed) or Add to Chrome (not yet), Connect all for two or more; no "how" text', () => {
+    const html = withProfiles({ links: [], target: 'app' }, [prof(), prof({ dir: 'Profile 1', name: 'Person 1', email: undefined, installed: false }), prof({ browser: 'edge', dir: 'Default', name: 'Home', email: undefined })])
+    expect(html.match(/data-testid="chrome-profile-row"/g)?.length).toBe(3)
+    expect(html).toContain(translate('en', 'settings.chrome.install'))
+    // Connect all: only the profiles that have the extension (two here)
+    expect(html).toContain('data-testid="chrome-profiles-all"')
+    expect(html).toContain('mina@work.example')
+    expect(html).toContain('Edge')
+    expect(html).toContain(translate('en', 'settings.chrome.appHint'))
+    expect(html).not.toContain('data-testid="chrome-link-how"')
+  })
+  test('a profile already linked (same account, else the same name) is only in the connected list; one left: no Connect all', () => {
+    const html = withProfiles({ links: [link({ label: 'Work', email: 'mina@work.example', browser: 'Chrome on Mac' })], target: 'app' }, [prof(), prof({ dir: 'Profile 2', name: 'Home', email: 'mina@home.example' })])
+    expect(html.match(/data-testid="chrome-profile-row"/g)?.length).toBe(1)
+    expect(html).toContain('data-testid="chrome-links-title"')
+    expect(html).not.toContain('data-testid="chrome-profiles-all"')
+    // all linked: the section is gone
+    expect(withProfiles({ links: [link({ label: 'Work', email: 'mina@work.example' })], target: 'app' }, [prof()])).not.toContain('data-testid="chrome-profiles"')
+    expect(linkOfProfile(prof({ email: undefined, name: 'Person 1' }), [link({ label: 'Person 1' })])).toBeTruthy()
+    // an Edge profile is not matched by a Chrome link of the same account
+    expect(linkOfProfile(prof({ browser: 'edge' }), [link({ email: 'mina@work.example', browser: 'Chrome on Mac' })])).toBeUndefined()
+  })
+  test('the linked row names the account and the browser', () => {
+    const html = withProfiles({ links: [link({ label: 'Work', email: 'mina@work.example', browser: 'Chrome on Mac' })], target: 'app' }, [])
+    expect(html).toContain('data-testid="chrome-link-account"')
+    expect(html).toContain('Chrome on Mac')
+    expect(html).toContain('data-testid="chrome-profiles-none"')
+  })
+})
+
 describe('Settings › Browser › Your Chrome', () => {
   test('no link: how to connect, with the team address; no row, no switch', () => {
     const html = view({ links: [], target: 'app' })
@@ -57,12 +92,13 @@ describe('Settings › Browser › Your Chrome', () => {
     expect(html).toContain('data-testid="chrome-link-disconnect"')
     expect(html).not.toContain('data-testid="chrome-link-how"')
   })
-  test('several profiles: one row each, the line on connecting another and the one-per-identity tip', () => {
+  test('several profiles: one row each, the line on connecting another (each profile once, the store link)', () => {
     const html = view({ links: [link(), link({ id: 'l2', label: '업무 메일', online: false })], target: 'app' })
     expect(html.match(/data-testid="chrome-link-row"/g)?.length).toBe(2)
     expect(html).toContain('업무 메일')
     expect(html).toContain('data-testid="chrome-link-another"')
-    expect(html).toContain('data-testid="chrome-link-tip"')
+    expect(html).toContain(translate('en', 'settings.chrome.oneEach'))
+    expect(html).toContain('data-testid="chrome-link-store"')
     // the sites stay closed until asked for
     expect(html).not.toContain('data-testid="chrome-link-sites"')
     expect(html).toContain(translate('en', 'settings.chrome.sites', { n: 0 }))

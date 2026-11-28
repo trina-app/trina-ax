@@ -11,7 +11,8 @@ import type { RealtimeConn } from '../services'
 import type { AppContext } from '../context'
 import { getTeamSettings } from '../admin/settings'
 import { CHROME_WINDOW_PREFIX, isChromeWindow, type WindowTransport } from '../realtime/call-relay'
-import { linkByToken, touchLink } from './store'
+import { linkByToken, touchLink, updateLink } from './store'
+import { audit } from '../admin/audit'
 import { teamHosts } from './team-hosts'
 
 export const PING_INTERVAL_MS = 20_000
@@ -95,6 +96,12 @@ export class ChromeLinks implements WindowTransport {
     if (s) this.close(s, ChromeWsClose.revoked, 'link ended')
   }
 
+  /** The person renamed this profile in Settings: its popup shows the new name. */
+  tellLabel(linkId: string, label: string) {
+    const s = this.byLink.get(linkId)
+    if (s) this.send(s, { type: 'label', label })
+  }
+
   dropUser(userId: string) {
     for (const s of [...this.byLink.values()]) if (s.userId === userId) this.close(s, ChromeWsClose.revoked, 'link ended')
   }
@@ -143,7 +150,7 @@ export class ChromeLinks implements WindowTransport {
         try { touchLink(this.ctx.db, link.id, parsed.version ?? null, now()) } catch (e) { this.ctx.log.warn('chrome link touch failed', { err: e }) }
         const u = this.ctx.db.query('SELECT name, username FROM users WHERE id = ?').get(link.user_id) as { name: string | null; username: string } | null
         this.send(s, {
-          type: 'hello', linkId: link.id, user: { name: u?.name ?? u?.username ?? '', username: u?.username ?? '' },
+          type: 'hello', linkId: link.id, label: link.label, user: { name: u?.name ?? u?.username ?? '', username: u?.username ?? '' },
           team: { name: getTeamSettings(this.ctx.db).teamName }, teamHosts: teamHosts(this.ctx), pingIntervalMs: PING_INTERVAL_MS, serverTime: now(),
         })
         for (const l of this.windowListeners) try { l(s.userId, s.windowId, 'open') } catch (e) { this.ctx.log.error('chrome window listener failed', { err: e }) }
@@ -159,6 +166,16 @@ export class ChromeLinks implements WindowTransport {
             me.touchedAt = now()
             try { touchLink(this.ctx.db, me.linkId, null, now()) } catch (e) { this.ctx.log.warn('chrome link touch failed', { err: e }) }
           }
+          return
+        }
+        case 'label': {
+          // the popup's rename: only this link's own name (what Settings › Browser's pencil does)
+          if (!this.stillLinked(me)) return
+          try {
+            updateLink(this.ctx.db, me.userId, me.linkId, { label: parsed.label })
+            audit(this.ctx.db, { actor: me.userId, action: 'chrome.link_update', target: me.linkId, detail: { label: true, via: 'extension' } })
+          } catch (e) { this.ctx.log.warn('chrome label failed', { err: e }) }
+          this.send(me, { type: 'label', label: parsed.label })
           return
         }
         case 'unlink': {

@@ -39,7 +39,7 @@ export const chromeRoutes: RouteModule = {
     const rt = getChatRuntime(ctx)
 
     const view = (l: LinkRow): ChromeLink => ({
-      id: l.id, label: l.label, createdAt: l.created_at, lastSeenAt: l.last_seen_at, online: rt.chrome.online(l.id), version: l.version,
+      id: l.id, label: l.label, email: l.email, browser: l.browser, createdAt: l.created_at, lastSeenAt: l.last_seen_at, online: rt.chrome.online(l.id), version: l.version,
       sites: linkSites(ctx.db, l.id), onlyListed: l.only_listed === 1,
     })
     kit.handle(API.chromeLinks, ({ auth }) => ({ links: linksOf(ctx.db, auth.user.id).map(view), target: browserTarget(ctx.db, auth.user.id) }))
@@ -56,6 +56,8 @@ export const chromeRoutes: RouteModule = {
       updateLink(ctx.db, auth.user.id, params.id, { label: body.label, onlyListed: body.onlyListed })
       if (site) addLinkSite(ctx.db, params.id, site)
       if (body.removeSite) removeLinkSite(ctx.db, params.id, body.removeSite)
+      // the extension's popup shows the new name at once
+      if (body.label !== undefined) rt.chrome.tellLabel(params.id, body.label)
       audit(ctx.db, { actor: auth.user.id, action: 'chrome.link_update', target: params.id, detail: { ...(body.label !== undefined ? { label: true } : {}), ...(body.onlyListed !== undefined ? { onlyListed: body.onlyListed } : {}), ...(body.addSite ? { addSite: body.addSite } : {}), ...(body.removeSite ? { removeSite: body.removeSite } : {}) } })
       return view(linkOf(ctx.db, auth.user.id, params.id)!)
     })
@@ -91,7 +93,7 @@ export const chromeRoutes: RouteModule = {
       if (!got) { guard.fail(); return fail('gone') }
       if (got.replaced) rt.chrome.drop(got.replaced)
       const u = ctx.db.query('SELECT name, username FROM users WHERE id = ?').get(got.link.user_id) as { name: string; username: string }
-      audit(ctx.db, { actor: got.link.user_id, action: 'chrome.link', target: got.link.id, detail: { ip: info.ip, label: got.link.label, version: got.link.version, ...(got.replaced ? { replaced: got.replaced } : {}) } })
+      audit(ctx.db, { actor: got.link.user_id, action: 'chrome.link', target: got.link.id, detail: { ip: info.ip, label: got.link.label, version: got.link.version, ...(got.link.browser ? { browser: got.link.browser } : {}), ...(got.replaced ? { replaced: got.replaced } : {}) } })
       return { token: got.token, linkId: got.link.id, user: { name: u.name, username: u.username }, team: { name: getTeamSettings(ctx.db).teamName }, teamHosts: teamHosts(ctx, [new URL(c.req.url).hostname]) }
     })
 

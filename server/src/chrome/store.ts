@@ -14,15 +14,19 @@ export const challengeOf = (verifier: string) => crypto.createHash('sha256').upd
 export const newSecret = () => crypto.randomBytes(32).toString('base64url')
 const iso = (ms: number) => new Date(ms).toISOString()
 
-export interface LinkRow { id: string; user_id: string; label: string; version: string | null; only_listed: number; created_at: string; last_seen_at: string | null }
-const COLS = 'id, user_id, label, version, only_listed, created_at, last_seen_at'
+export interface LinkRow { id: string; user_id: string; label: string; version: string | null; only_listed: number; created_at: string; last_seen_at: string | null; email: string | null; browser: string | null }
+const COLS = 'id, user_id, label, version, only_listed, created_at, last_seen_at, email, browser'
 
-/** A new code for this person's extension (the one before is void: one live code per person). */
+/** live codes a person holds at once: the desktop app links several profiles one after the other ("모두 연결") */
+export const LIVE_CODES_MAX = 5
+
+/** A new code for this person's extension. Each is bound to its own challenge; past LIVE_CODES_MAX the oldest goes. */
 export function mintCode(db: Database, userId: string, challenge: string, now = Date.now()): { code: string; expiresAt: string } {
   const code = newSecret()
   const expiresAt = iso(now + CHROME_CODE_TTL_MS)
   db.transaction(() => {
-    db.query('DELETE FROM chrome_pair_codes WHERE user_id = ?').run(userId)
+    db.query('DELETE FROM chrome_pair_codes WHERE user_id = ? AND (expires_at <= ? OR challenge = ?)').run(userId, iso(now), challenge)
+    db.query(`DELETE FROM chrome_pair_codes WHERE id IN (SELECT id FROM chrome_pair_codes WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ${LIVE_CODES_MAX - 1})`).run(userId)
     db.query('INSERT INTO chrome_pair_codes (id, user_id, code_hash, challenge, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
       .run(newId(), userId, sha256hex(code), challenge, iso(now), expiresAt)
   }).immediate()
@@ -35,7 +39,7 @@ export function mintCode(db: Database, userId: string, challenge: string, now = 
  * the verifier: a guessed code is gone for its owner too, never tried twice. One more profile of the person, or the
  * install's own earlier link renewed (`previous`); 'full' past CHROME_LINKS_MAX (nothing is removed).
  */
-export function redeemCode(db: Database, o: { code: string; verifier: string; label: string; version: string; previous?: string }, now = Date.now()): { link: LinkRow; token: string; replaced: string | null } | 'full' | null {
+export function redeemCode(db: Database, o: { code: string; verifier: string; label: string; version: string; previous?: string; email?: string; browser?: string }, now = Date.now()): { link: LinkRow; token: string; replaced: string | null } | 'full' | null {
   return db.transaction(() => {
     const row = db.query('DELETE FROM chrome_pair_codes WHERE code_hash = ? RETURNING user_id, challenge, expires_at').get(sha256hex(o.code)) as { user_id: string; challenge: string; expires_at: string } | null
     if (!row || row.expires_at <= iso(now)) return null
@@ -49,19 +53,19 @@ export function redeemCode(db: Database, o: { code: string; verifier: string; la
     if (!prev && count >= CHROME_LINKS_MAX) return 'full'
     const token = newSecret()
     if (prev) {
-      db.query('UPDATE chrome_links SET token_hash = ?, label = ?, version = ?, last_seen_at = ? WHERE id = ?').run(sha256hex(token), o.label, o.version, iso(now), prev.id)
+      db.query('UPDATE chrome_links SET token_hash = ?, label = ?, version = ?, last_seen_at = ?, email = COALESCE(?, email), browser = COALESCE(?, browser) WHERE id = ?').run(sha256hex(token), o.label, o.version, iso(now), o.email ?? null, o.browser ?? null, prev.id)
       return { link: linkOf(db, row.user_id, prev.id)!, token, replaced: prev.id }
     }
-    const link: LinkRow = { id: newId(), user_id: row.user_id, label: o.label, version: o.version, only_listed: 0, created_at: iso(now), last_seen_at: iso(now) }
-    db.query('INSERT INTO chrome_links (id, user_id, token_hash, label, version, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(link.id, link.user_id, sha256hex(token), link.label, link.version, link.created_at, link.last_seen_at)
+    const link: LinkRow = { id: newId(), user_id: row.user_id, label: o.label, version: o.version, only_listed: 0, created_at: iso(now), last_seen_at: iso(now), email: o.email ?? null, browser: o.browser ?? null }
+    db.query('INSERT INTO chrome_links (id, user_id, token_hash, label, version, created_at, last_seen_at, email, browser) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(link.id, link.user_id, sha256hex(token), link.label, link.version, link.created_at, link.last_seen_at, link.email, link.browser)
     return { link, token, replaced: null }
   }).immediate()
 }
 
 /** The live link a token belongs to, for an active member (not a guest), or null. */
 export function linkByToken(db: Database, token: string, now = Date.now()): LinkRow | null {
-  const row = db.query(`SELECT l.id, l.user_id, l.label, l.version, l.only_listed, l.created_at, l.last_seen_at FROM chrome_links l JOIN users u ON u.id = l.user_id
+  const row = db.query(`SELECT l.id, l.user_id, l.label, l.version, l.only_listed, l.created_at, l.last_seen_at, l.email, l.browser FROM chrome_links l JOIN users u ON u.id = l.user_id
     WHERE l.token_hash = ? AND u.status = 'active' AND u.deleted_at IS NULL AND u.guest = 0`).get(sha256hex(token)) as LinkRow | null
   if (!row) return null
   if (Date.parse(row.last_seen_at ?? row.created_at) < now - CHROME_LINK_IDLE_DAYS * 86_400_000) return null

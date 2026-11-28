@@ -14,6 +14,8 @@ declare namespace chrome {
     function getManifest(): { version: string; name: string }
     function getURL(path: string): string
     function sendMessage<T = unknown>(message: unknown): Promise<T>
+    /** one message to a native messaging host (Chrome starts it, for the ids its manifest allows only) */
+    function sendNativeMessage(application: string, message: unknown): Promise<unknown>
     const onMessage: Event<(message: any, sender: MessageSender, sendResponse: (r?: unknown) => void) => boolean | void>
     const onStartup: Event<() => void>
     const onInstalled: Event<(details: { reason: string }) => void>
@@ -68,6 +70,7 @@ declare namespace chrome {
     }
     const TAB_ID_NONE: number
     function get(id: number): Promise<Tab>
+    function getCurrent(): Promise<Tab | undefined>
     function query(q: { active?: boolean; currentWindow?: boolean; lastFocusedWindow?: boolean; groupId?: number; windowId?: number }): Promise<Tab[]>
     function create(p: { url?: string; active?: boolean; windowId?: number; index?: number; openerTabId?: number }): Promise<Tab>
     function update(id: number, p: { active?: boolean; url?: string }): Promise<Tab>

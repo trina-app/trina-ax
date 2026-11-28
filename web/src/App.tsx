@@ -36,6 +36,7 @@ import { resetInbox } from './store/inbox'
 import { resetChatMentions } from './store/chatMentions'
 import { useJobs } from './store/jobs'
 import { useSessionMarkers } from './store/sessionMarkers'
+import { useChromeAppLinking } from './lib/chromeAppLink'
 import { resetAdminReads } from './store/adminPeople'
 import { useRailMemory } from './lib/rail'
 import { setBeforePersonSwitch, useMe, useSession } from './store/session'
@@ -325,6 +326,8 @@ function Gate() {
   // page the person was on opens again, where that dialog opens by itself (lib/workFiles.ts saveResume)
   const navigate = useNavigate()
   const signedInId = status.kind === 'signed-in' && !status.me.user.mustChangePassword ? status.me.user.id : null
+  // the desktop app links browser profiles of this computer through this page (lib/chromeAppLink.ts)
+  useChromeAppLinking(signedInId)
   useEffect(() => {
     if (!signedInId || location.pathname !== '/' || location.search) return
     const back = resumePath(signedInId)

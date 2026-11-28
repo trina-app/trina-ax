@@ -26,11 +26,19 @@ export const CHROME_CODE_TTL_MS = 5 * 60_000
 export const BrowserTarget = z.enum(['app', 'chrome'])
 export type BrowserTarget = z.infer<typeof BrowserTarget>
 
-export const ChromeLinkLabel = z.string().trim().min(1).max(60)
+export const ChromeLinkLabel = z.string().trim().min(1).max(60).regex(/^[^\u0000-\u001f\u007f\u2028\u2029]+$/)
+/** the Google account a browser profile is signed in to (chrome.identity), as the extension read it */
+export const ChromeLinkEmail = z.string().trim().max(254).regex(/^[^\s@<>"]+@[^\s@<>"]+$/)
+/** what the extension runs in: "Chrome on Mac", "Edge on Windows" */
+export const ChromeBrowserName = z.string().trim().min(1).max(60).regex(/^[^\u0000-\u001f\u007f<>"]+$/)
 export const ChromeLink = z.object({
   id: z.string(),
-  /** what the extension calls itself ("Chrome on Mac") */
+  /** the profile's name (the person's, else its account's email, else "Chrome on Mac") */
   label: z.string(),
+  /** the Google account the profile is signed in to, when the extension could read it */
+  email: z.string().nullable(),
+  /** "Chrome on Mac" */
+  browser: z.string().nullable(),
   createdAt: z.string(),
   lastSeenAt: z.string().nullable(),
   /** connected now */
@@ -54,6 +62,8 @@ export const ChromeRedeemBody = z.strictObject({
   version: z.string().max(40).regex(/^[0-9A-Za-z.+-]+$/),
   /** the link token this install already holds, if any: that one link is replaced (not a second row for one profile) */
   previous: ChromeSecret.optional(),
+  email: ChromeLinkEmail.optional(),
+  browser: ChromeBrowserName.optional(),
 })
 export const ChromeRedeemed = z.object({
   token: ChromeSecret,
@@ -69,19 +79,23 @@ export type ChromeRedeemed = z.infer<typeof ChromeRedeemed>
 // ---------------- the extension's WebSocket ----------------
 /** server -> extension */
 export const ChromeServerFrame = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('hello'), linkId: z.string(), user: z.object({ name: z.string(), username: z.string() }), team: z.object({ name: z.string() }), teamHosts: z.array(z.string().max(260)).max(50), pingIntervalMs: z.number().int().positive(), /** the server's clock (epoch ms): a call's deadline is in it */ serverTime: z.number() }),
+  z.object({ type: z.literal('hello'), linkId: z.string(), /** the profile's name as the team lists it (renamed in Settings) */ label: z.string().optional(), user: z.object({ name: z.string(), username: z.string() }), team: z.object({ name: z.string() }), teamHosts: z.array(z.string().max(260)).max(50), pingIntervalMs: z.number().int().positive(), /** the server's clock (epoch ms): a call's deadline is in it */ serverTime: z.number() }),
   z.object({ type: z.literal('browser.call'), call: BrowserCall }),
   z.object({ type: z.literal('browser.cancel'), callId: z.string() }),
   z.object({ type: z.literal('pong'), t: z.number() }),
+  /** the person renamed this profile in Settings › Browser */
+  z.object({ type: z.literal('label'), label: z.string() }),
 ])
 export type ChromeServerFrame = z.infer<typeof ChromeServerFrame>
 /** extension -> server */
 export const ChromeClientFrame = z.discriminatedUnion('type', [
   /** the first frame, within CHROME_AUTH_WAIT_MS */
-  z.object({ type: z.literal('auth'), token: ChromeSecret, version: z.string().max(40).optional() }),
+  z.object({ type: z.literal('auth'), token: ChromeSecret, version: z.string().max(40).optional()}),
   z.object({ type: z.literal('ping'), t: z.number() }),
   z.object({ type: z.literal('browser.ack'), callId: z.string().min(1).max(100) }),
   z.object({ type: z.literal('browser.result'), result: BrowserResult }),
+  /** the person renamed this profile in the popup */
+  z.object({ type: z.literal('label'), label: ChromeLinkLabel }),
   /** the person pressed Disconnect in the extension: the link ends */
   z.object({ type: z.literal('unlink') }),
 ])

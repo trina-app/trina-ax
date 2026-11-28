@@ -469,7 +469,7 @@ export class TurnExec {
   browserVia: 'app' | 'chrome' | null = null
   /** the person's linked browser profiles when this turn's browser is their own (docs/decisions/20261128-trina-in-chrome.md):
    * every one, online or not, as the AI is told about them; the AI names one per call (`profile`) */
-  chromeProfiles: { linkId: string; label: string; online: boolean; sites: string[]; onlyListed: boolean }[] = []
+  chromeProfiles: { linkId: string; label: string; email: string | null; online: boolean; sites: string[]; onlyListed: boolean }[] = []
   /** the profile this run used last (a call without `profile` goes there) */
   chromeCurrent: string | null = null
   /** public sites the person allowed once in this answer on the Chrome site card, per profile (chat/tools.ts) */
@@ -998,7 +998,7 @@ export class TurnExec {
     const online = chromeWanted ? rt.chrome.onlineLinks(spec.userId) : []
     if (online.length) {
       const up = new Set(online.map((o) => o.linkId))
-      this.chromeProfiles = linksOf(rt.db, spec.userId).map((l) => ({ linkId: l.id, label: l.label, online: up.has(l.id), sites: linkSites(rt.db, l.id), onlyListed: l.only_listed === 1 }))
+      this.chromeProfiles = linksOf(rt.db, spec.userId).map((l) => ({ linkId: l.id, label: l.label, email: l.email, online: up.has(l.id), sites: linkSites(rt.db, l.id), onlyListed: l.only_listed === 1 }))
     }
     const chrome = online[0]?.windowId ?? null
     this.browserWindow = chrome ?? (this.desktop ? spec.windowId! : null)
@@ -1352,7 +1352,7 @@ export class TurnExec {
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone, personTimeZone: spec.timeZone,
       // a shared chat: only the asker's memories kept in this very chat (their words are in its transcript), never their
       // private ones; a guest's none (docs/decisions/20261125-auto-memory-shared-chats.md; prompt.ts promptMemories)
-      memories: this.shared ? (guestTurn ? [] : chatMemories(rt.db, spec.userId, spec.chatId).map((m) => ({ id: m.id, text: m.text, sharedChat: spec.chatId }))) : rt.memoriesForPrompt(spec.userId), autoMemory: this.autoMemoryPlace && autoMemoryOn(rt.db, spec.userId), promptTokens, project, browser: this.browser, ...(this.browserVia === 'chrome' ? { browserVia: 'chrome' as const, browserProfiles: this.chromeProfiles.map((p) => ({ name: p.label, id: p.linkId, online: p.online, ...(this.shared ? {} : { sites: p.sites }) })) } : {}), browserUpload: this.browserUpload, tools: extraTools,
+      memories: this.shared ? (guestTurn ? [] : chatMemories(rt.db, spec.userId, spec.chatId).map((m) => ({ id: m.id, text: m.text, sharedChat: spec.chatId }))) : rt.memoriesForPrompt(spec.userId), autoMemory: this.autoMemoryPlace && autoMemoryOn(rt.db, spec.userId), promptTokens, project, browser: this.browser, ...(this.browserVia === 'chrome' ? { browserVia: 'chrome' as const, browserProfiles: this.chromeProfiles.map((p) => ({ name: p.label, id: p.linkId, online: p.online, ...(this.shared ? {} : { sites: p.sites, ...(p.email ? { email: p.email } : {}) }) })) } : {}), browserUpload: this.browserUpload, tools: extraTools,
       // the web or a phone: the AI says the desktop app has the browser (prompt.ts NO_BROWSER_RULE)
       browserInDesktopApp: !this.browser && !this.restricted && (spec.clientKind === 'web' || spec.clientKind === 'mobile'),
       // a shared chat's transcript says who wrote each message (chat/shared.ts)

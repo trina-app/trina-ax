@@ -291,3 +291,24 @@ export function csrf(ctx: AppContext): MiddlewareHandler<AppEnv> {
     await next()
   }
 }
+
+/**
+ * The browser extension's redeem without host access (docs/decisions/20261128-chrome-app-led-linking.md): a profile
+ * linked through the desktop app has no permission for the team's address, so its fetch of POST /api/chrome/redeem is
+ * a cross-origin request. Only that path, only an extension origin, never with cookies (no Allow-Credentials): the
+ * request carries its own proof (a one-time code and the secret only that extension holds), so answering it to any
+ * extension adds nothing a script could not already do with curl.
+ */
+const EXTENSION_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/
+export function chromeExtensionCors(): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const origin = c.req.header('origin') ?? ''
+    if (c.req.path !== CHROME_REDEEM_PATH || !EXTENSION_ORIGIN.test(origin)) return next()
+    if (c.req.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'POST', 'Access-Control-Allow-Headers': 'content-type', 'Access-Control-Max-Age': '600', Vary: 'Origin' } })
+    }
+    await next()
+    c.res.headers.set('Access-Control-Allow-Origin', origin)
+    c.res.headers.append('Vary', 'Origin')
+  }
+}

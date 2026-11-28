@@ -313,3 +313,81 @@ describe('upload tickets', () => {
     expect(u.take(deskT!, 'alice')).not.toBeNull()
   })
 })
+
+// docs/decisions/20261128-chrome-app-led-linking.md: profiles linked through the desktop app
+describe('app-led linking (server side)', () => {
+  test('a link keeps the profile\'s account and browser; the list shows them', async () => {
+    unlinkAllOf('bob')
+    const verifier = secret()
+    const { code } = await h.api('bob').call(API.chromePair, { body: { challenge: challengeOf(verifier) } })
+    const r = await h.req(null, API.chromeRedeem.path, { method: 'POST', headers: { 'content-type': 'application/json', origin: EXT }, body: JSON.stringify({ code, verifier, label: 'Work', version: '0.1.0', email: 'bob@work.example', browser: 'Chrome on Mac' }) })
+    expect(r.status).toBe(200)
+    const l = (await h.api('bob').call(API.chromeLinks, {})).links[0]!
+    expect(l).toMatchObject({ label: 'Work', email: 'bob@work.example', browser: 'Chrome on Mac' })
+    // not an email, or markup in the browser name: refused
+    const bad = await h.req(null, API.chromeRedeem.path, { method: 'POST', headers: { 'content-type': 'application/json', origin: EXT }, body: JSON.stringify({ code, verifier, label: 'x', version: '1', email: 'not an email' }) })
+    expect(bad.status).toBe(400)
+  })
+
+  test('several live codes at once ("Connect all"): each spends with its own verifier', async () => {
+    unlinkAllOf('bob')
+    h.ctx.db.query('DELETE FROM login_attempts').run()
+    const vs = [secret(), secret(), secret()]
+    const codes = []
+    for (const v of vs) codes.push((await h.api('bob').call(API.chromePair, { body: { challenge: challengeOf(v) } })).code)
+    for (let i = 0; i < vs.length; i++) {
+      const r = await h.req(null, API.chromeRedeem.path, { method: 'POST', headers: { 'content-type': 'application/json', origin: EXT }, body: JSON.stringify({ code: codes[i], verifier: vs[i], label: `P${i}`, version: '1' }) })
+      expect(r.status).toBe(200)
+    }
+    expect((await h.api('bob').call(API.chromeLinks, {})).links.length).toBe(3)
+    // a code's verifier never spends another code
+    const v1 = secret(), v2 = secret()
+    const c1 = (await h.api('bob').call(API.chromePair, { body: { challenge: challengeOf(v1) } })).code
+    await h.api('bob').call(API.chromePair, { body: { challenge: challengeOf(v2) } })
+    const cross = await h.req(null, API.chromeRedeem.path, { method: 'POST', headers: { 'content-type': 'application/json', origin: EXT }, body: JSON.stringify({ code: c1, verifier: v2, label: 'x', version: '1' }) })
+    expect(cross.status).toBe(410)
+  })
+
+  test('the redeem answers an extension origin cross-origin (no cookies), and nothing else', async () => {
+    const pre = await h.req(null, API.chromeRedeem.path, { method: 'OPTIONS', headers: { origin: EXT, 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type' } })
+    expect(pre.status).toBe(204)
+    expect(pre.headers.get('access-control-allow-origin')).toBe(EXT)
+    expect(pre.headers.get('access-control-allow-credentials')).toBeNull()
+    const post = await h.req(null, API.chromeRedeem.path, { method: 'POST', headers: { 'content-type': 'application/json', origin: EXT }, body: JSON.stringify({ code: secret(), verifier: secret(), label: 'x', version: '1' }) })
+    expect(post.status).toBe(410)
+    expect(post.headers.get('access-control-allow-origin')).toBe(EXT)
+    // a web page's origin, or another path: no CORS
+    const page = await h.req(null, API.chromeRedeem.path, { method: 'OPTIONS', headers: { origin: 'https://evil.example', 'access-control-request-method': 'POST' } })
+    expect(page.headers.get('access-control-allow-origin')).toBeNull()
+    const other = await h.req(null, API.chromeLinks.path, { method: 'OPTIONS', headers: { origin: EXT, 'access-control-request-method': 'GET' } })
+    expect(other.headers.get('access-control-allow-origin')).toBeNull()
+  })
+
+  test('rename from the popup (label frame) and from Settings (pushed to the extension)', async () => {
+    unlinkAllOf('bob')
+    const { token, linkId } = await link('bob', 'Chrome on Mac')
+    const e = await ext(token)
+    const hello = await e.until(() => e.frames.find((f) => f.type === 'hello'))
+    expect(hello).toMatchObject({ label: 'Chrome on Mac' })
+    e.send({ type: 'label', label: 'Work mail' })
+    await e.until(() => e.frames.find((f) => f.type === 'label'))
+    expect((await h.api('bob').call(API.chromeLinks, {})).links.find((l) => l.id === linkId)!.label).toBe('Work mail')
+    await h.api('bob').call(API.chromeUpdateLink, { params: { id: linkId }, body: { label: 'Personal' } })
+    await e.until(() => e.frames.some((f) => f.type === 'label' && f.label === 'Personal'))
+    e.ws.close()
+  })
+})
+
+test('the AI\'s profile list names each profile\'s account (only where the turn gives it: not in a shared chat)', async () => {
+  const { profilesRule } = await import('../../server/src/chat/prompt')
+  const out = profilesRule({ browserProfiles: [
+    { name: 'Work', id: 'l1', online: true, email: 'ann@work.example', sites: ['example.org'] },
+    { name: 'me@home.example', id: 'l2', online: false, email: 'me@home.example' },
+    { name: 'Shared', id: 'l3', online: true },
+  ] })
+  expect(out).toContain('"Work" (id l1; account ann@work.example); sites allowed there: example.org')
+  // the name is the account already: said once
+  expect(out).toContain('"me@home.example" (id l2) (not open now)')
+  expect(out).toContain('"Shared" (id l3)')
+  expect(out).toContain('(its name, account or id)')
+})

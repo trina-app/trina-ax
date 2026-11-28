@@ -65,9 +65,11 @@ export default {
     // voice input's on-device helper (desktop/native/dictation/build.sh, run by the dist:mac* scripts) next to the app's
     // own program in Contents/MacOS; electron-builder signs it with the app (hardened runtime, the inherit
     // entitlements). It reads sound from the app, never the microphone, so it needs no permission of its own.
-    extraFiles: [{ from: 'native-build/dictation', to: 'MacOS/dictation' }],
-    // it is universal already, so the arm64 and x64 apps hold the same file: @electron/universal takes it as it is
-    x64ArchFiles: 'Contents/MacOS/dictation',
+    // The <app> in Chrome extension's native messaging helper (desktop/native/chrome-host/build.sh): Chrome starts it
+    // for our extension ids and it relays to the running app's socket (desktop/src/common/chrome-pair.ts)
+    extraFiles: [{ from: 'native-build/dictation', to: 'MacOS/dictation' }, { from: 'native-build/chrome-host', to: 'MacOS/chrome-host' }],
+    // they are universal already, so the arm64 and x64 apps hold the same files: @electron/universal takes them as they are
+    x64ArchFiles: 'Contents/MacOS/{dictation,chrome-host}',
     extraResources: Object.entries({ en: 'en', ko: 'ko', 'zh-Hans': 'zh-Hans', zh_CN: 'zh-Hans', ja: 'ja', es: 'es', es_419: 'es', id: 'id' })
       .map(([folder, lang]) => ({ from: `build-resources/mac-infoplist/${lang}.strings`, to: `${folder}.lproj/InfoPlist.strings` })),
   },

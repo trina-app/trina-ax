@@ -21,6 +21,8 @@
  *   MYCEL_DESKTOP_TEST_STORE   1: the first-run and create screens as in the Mac App Store build (no create row, no plans)
  *   MYCEL_DESKTOP_TEST_CREATE_POLL_MS  how often the starting screen asks the console (main/create-team.ts)
  *   MYCEL_DESKTOP_TEST_OFFER_RETRY_MS  how soon an unknown "Create a team for free" answer is asked again (unpacked only)
+ *   MYCEL_CHROME_HOST_HELPER, MYCEL_CHROME_REGISTER_HOST, MYCEL_CHROME_DATA_DIRS, MYCEL_CHROME_BINARIES  app-led
+ *                              linking of the <app> in Chrome extension (main/chrome-profiles.ts)
  *   MYCEL_DESKTOP_TEST_PASSWORD_STORE  Linux: gnome-libsecret | kwallet5 | kwallet6, the keyring Chromium uses (Playwright's
  *                              Electron loader sets --password-store=basic, Electron's fixed-key fallback, which "Apps on
  *                              your computer" refuses to seal settings with)
@@ -69,6 +71,7 @@ import { execFile } from 'node:child_process'
 const LSREGISTER = '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister'
 import { LocalAppsHost } from './local-apps'
 import { DictationHost } from './dictation'
+import { ChromeProfilesHost } from './chrome-profiles'
 
 // the folder of the bundled main.cjs (Bun inlines __dirname at build time, so look for it at run time):
 // packaged = <app.asar>/dist, `electron .` = desktop/dist, `electron dist/main.cjs` = that file's folder
@@ -314,6 +317,11 @@ let dictationPage: WebContents | null = null
 const dictation = new DictationHost({
   send: (ev) => { if (dictationPage && !dictationPage.isDestroyed()) dictationPage.send('bridge:dictation-event', ev) },
 })
+// app-led linking of the <app> in Chrome extension (main/chrome-profiles.ts): macOS, not a store build, for now (the
+// helper is a Mac program; Windows and Linux keep the in-profile Connect)
+const chromeProfiles = process.platform === 'darwin' && !storeBuild(process)
+  ? new ChromeProfilesHost({ userData: app.getPath('userData'), dataDirName: PRODUCT.desktopDataDir, dev, execPath: process.execPath, team: () => win?.chromePairTeam() ?? null })
+  : null
 const updater = new DesktopUpdater({
   team: () => (win?.team && win.app ? { id: win.team.id, origin: win.team.origin } : null),
   window: () => win?.win ?? null,
@@ -484,7 +492,7 @@ function registerIpc() {
   // team page bridge (shared/src/desktop-bridge.ts); store: a Mac App Store or Microsoft Store build, where Settings >
   // Apps offers no installer
   ipcMain.on('bridge:info', (e) => {
-    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, downloads: !process.mas, localApps: process.mas ? 0 : LOCAL_APPS_BRIDGE_VERSION, dictation: process.mas ? 0 : dictation.version(), googleSignIn: GOOGLE_SIGNIN_BRIDGE_VERSION, paneVersion: BROWSER_BRIDGE_VERSION, locale: chosenLocale() } : null
+    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, downloads: !process.mas, localApps: process.mas ? 0 : LOCAL_APPS_BRIDGE_VERSION, dictation: process.mas ? 0 : dictation.version(), googleSignIn: GOOGLE_SIGNIN_BRIDGE_VERSION, paneVersion: BROWSER_BRIDGE_VERSION, chromeProfiles: chromeProfiles ? 1 : 0, locale: chosenLocale() } : null
   })
   // voice input on this Mac (main/dictation.ts): the team page's top frame only; the sound comes in as samples, the
   // words go back to that page alone, and a reload or another page ends its recording
@@ -512,6 +520,11 @@ function registerIpc() {
     }
     return dictation.start(dictationLanguage(lang))
   })
+  // app-led Chrome linking (main/chrome-profiles.ts): the team page lists the profiles, opens one, and answers the
+  // app's pair requests (only the page that was asked)
+  ipcMain.handle('bridge:chrome-profiles-list', (e) => (fromApp(e) && chromeProfiles ? chromeProfiles.list() : []))
+  ipcMain.handle('bridge:chrome-profiles-connect', (e, p: unknown) => (fromApp(e) && chromeProfiles && p && typeof p === 'object' ? chromeProfiles.connect(p as { browser: unknown; dir: unknown }) : 'failed'))
+  ipcMain.on('bridge:chrome-pair-answer', (e, id: unknown, r: unknown) => { if (fromApp(e)) chromeProfiles?.answer(e.sender, id, r) })
   // a refused microphone is turned on again in System Settings (a fixed address; the page names nothing)
   ipcMain.on('bridge:mic-settings', (e) => { if (fromApp(e) && process.platform === 'darwin') void shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone').catch(() => {}) })
   ipcMain.on('bridge:dictation-push', (e, id: unknown, samples: unknown) => fromApp(e) && e.sender === dictationPage && typeof id === 'number' && samples instanceof Float32Array && dictation.push(id, samples))
@@ -830,6 +843,7 @@ if (primary) {
       wc.on('will-attach-webview', (ev) => ev.preventDefault())
     })
     registerIpc()
+    chromeProfiles?.start()
     await createWindow()
     updater.start()
     // still the old version after the update was installed twice on quit: one plain line with the download page
@@ -850,7 +864,7 @@ if (primary) {
     if (!win) void createWindow()
   })
   // write cookies of the open team (page and browser) to disk before quitting (lastTeam, flushed: above)
-  app.on('before-quit', () => { debug('before-quit'); localApps?.apps.stopAll(); dictation.stopAll() })
+  app.on('before-quit', () => { debug('before-quit'); localApps?.apps.stopAll(); dictation.stopAll(); chromeProfiles?.stop() })
   app.on('will-quit', (e) => {
     debug('will-quit', flushed)
     // every program an app on this computer started ends with the app: asked to stop first (before-quit, and here),

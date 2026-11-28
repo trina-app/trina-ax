@@ -9,7 +9,7 @@ import type { DesktopBridge } from '@mycel/shared/desktop-bridge'
 import { keepPageFocus } from '../common/keyboard-focus'
 
 // constants come from the main process: this preload stays free of shared runtime code (zod etc.)
-const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform']; store?: boolean; workFiles?: number; workFilesWide?: number; downloads?: boolean; localApps?: number; dictation?: number; googleSignIn?: number; paneVersion?: number; locale?: string | null } | null
+const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform']; store?: boolean; workFiles?: number; workFilesWide?: number; downloads?: boolean; localApps?: number; dictation?: number; googleSignIn?: number; paneVersion?: number; chromeProfiles?: number; locale?: string | null } | null
 
 const on = (channel: string) => (cb: (payload: any) => void) => {
   const handler = (_e: IpcRendererEvent, payload: unknown) => cb(payload)
@@ -141,6 +141,25 @@ const bridge: DesktopBridge = {
           stop: (id: number) => ipcRenderer.send('bridge:dictation-stop', Number(id)),
           cancel: (id: number) => ipcRenderer.send('bridge:dictation-cancel', Number(id)),
           onEvent: on('bridge:dictation-event'),
+        },
+      }
+    : {}),
+  // app-led linking of the <app> in Chrome extension (main/chrome-profiles.ts): the profiles' names and folders, open
+  // one, answer the app's pair request with a code the page made itself, and the notice when a profile linked
+  ...(info?.chromeProfiles
+    ? {
+        chromeProfiles: {
+          list: () => ipcRenderer.invoke('bridge:chrome-profiles-list'),
+          connect: (p: { browser: string; dir: string }) => ipcRenderer.invoke('bridge:chrome-profiles-connect', { browser: String(p?.browser ?? ''), dir: String(p?.dir ?? '') }),
+          onPairRequest: (cb: (r: { challenge: string }) => Promise<{ code: string } | null>) =>
+            on('bridge:chrome-pair-request')((q: { id?: unknown; challenge?: unknown }) => {
+              if (!q || typeof q.id !== 'string' || typeof q.challenge !== 'string') return
+              const id = q.id
+              void Promise.resolve()
+                .then(() => cb({ challenge: String(q.challenge) }))
+                .then((r) => ipcRenderer.send('bridge:chrome-pair-answer', id, r && typeof r.code === 'string' ? { code: r.code } : null), () => ipcRenderer.send('bridge:chrome-pair-answer', id, null))
+            }),
+          onLinked: on('bridge:chrome-linked'),
         },
       }
     : {}),
