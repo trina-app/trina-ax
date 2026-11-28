@@ -12,7 +12,7 @@ import { verifyChain } from '../policy/resolve'
 import { foldKey } from '../policy/names'
 import { newId } from '../db'
 import { insertVersion } from '../files/store'
-import { copyOffLoop } from '../files/copy-off-loop'
+import { copyOffLoop, renameOrCopy } from '../files/copy-off-loop'
 
 export { copyOffLoop }
 
@@ -139,13 +139,8 @@ export async function stageInstall(root: string, dir: string[], src: string, o: 
   const tmp = tmpName(path.join(root, ...dir))
   let renamed = false, copied = false
   if (o.keepSource) await copyOffLoop(src, tmp)
-  else {
-    try { fs.renameSync(src, tmp); renamed = true } catch (e: any) {
-      if (e.code !== 'EXDEV') throw e
-      await copyOffLoop(src, tmp)
-      copied = true
-    }
-  }
+  else if (await renameOrCopy(src, tmp) === 'renamed') renamed = true
+  else copied = true
   const s: Staged = { root, dir, tmp, src, renamed, copied, st: null as unknown as fs.Stats, done: false }
   try { fs.chmodSync(tmp, 0o600); s.st = fs.lstatSync(tmp) } catch (e) { abortStaged(s); throw e }
   return s
@@ -194,23 +189,34 @@ export function installRenamed(root: string, segs: string[], src: string): void 
 }
 
 /**
- * The server-owned file `src` on the team folder's volume, so that installRenamed() places it with a rename: `src`
- * itself when it is there already, else a copy (off the event loop) under a temp name in the team's .system folder.
- * `src` stays until finish(true) (placed: the source goes) or finish(false) (not placed: the copy goes, `src` keeps the
- * bytes), so a failed placement leaves the caller's file where it was.
+ * The server-owned file `src` brought onto the team folder's mount, so that installRenamed() places it with a rename:
+ * under a temp name in the team's .system folder, or in the folder it goes into (`near`) when that is on another file
+ * system (a mount inside the team folder). A rename when the system allows it, else (EXDEV) a copy off the event
+ * loop (renameOrCopy). Never decided from st_dev: two bind mounts of one disk (systemd ReadWritePaths: the data and the
+ * team folder) have one st_dev and still refuse a rename between them.
+ * finish(true) (placed): a copy's source goes. finish(false) (not placed): a renamed file goes back to `src`, a copy
+ * goes, so a failed placement leaves the caller's file where it was.
  */
 export async function onTeamVolume(root: string, src: string, near?: string): Promise<{ file: string; finish: (placed: boolean) => void }> {
   const sys = path.join(root, PRODUCT.systemDir)
   fs.mkdirSync(sys, { recursive: true, mode: 0o700 })
-  // the volume of the folder it goes into when that is there already (a mount inside the team folder), else the team's
-  let dev = fs.lstatSync(sys).dev
-  if (near) try { const st = fs.lstatSync(near); if (st.isDirectory()) dev = st.dev } catch { /* made later: the team's */ }
-  if (fs.lstatSync(src).dev === dev) return { file: src, finish: () => {} }
-  const tmp = tmpName(dev === fs.lstatSync(sys).dev ? sys : near!)
-  await copyOffLoop(src, tmp)
+  // .system (only the server writes there) unless the folder it goes into is surely on another file system (another
+  // st_dev: a mount inside the team folder). One st_dev proves nothing (two mounts of one disk): renameOrCopy tries
+  let dir = sys
+  if (near) try { const st = fs.lstatSync(near); if (st.isDirectory() && st.dev !== fs.lstatSync(sys).dev) dir = near } catch { /* made later, on the team's mount */ }
+  const tmp = tmpName(dir)
+  const how = await renameOrCopy(src, tmp)
+  let done = false
   return {
     file: tmp,
-    finish: (placed) => { try { fs.rmSync(placed ? src : tmp, { force: true }) } catch { /* a leftover copy */ } },
+    finish: (placed) => {
+      if (done) return
+      done = true
+      if (how === 'copied') { try { fs.rmSync(placed ? src : tmp, { force: true }) } catch { /* a leftover copy */ } }
+      // still at its temp name when it was not placed (installRenamed puts it back there): back to the caller's name;
+      // when even that fails it stays at the temp name, never deleted as the only copy
+      else if (!placed) try { fs.renameSync(tmp, src) } catch { /* left at its temp name */ }
+    },
   }
 }
 
