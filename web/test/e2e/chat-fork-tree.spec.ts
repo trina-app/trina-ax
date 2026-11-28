@@ -121,13 +121,18 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
         const row = navChatRow(page, { id: f })
         await expect(row).toHaveAttribute('data-tree-depth', '1')
 
+        await expect(row).toContainText('출시 계획 (이어서)')
         if (vp.name === '1440') {
-          // a reply sent here
+          // a reply sent here: its first new message names it (docs/decisions/20261128-fork-retitle-first-message.md), live,
+          // and the row stays under its chat; the line back still names the original
           await page.getByTestId('composer-input').fill('일정도 정리해 줘')
           await page.getByTestId('composer-input').press('Enter')
           await expect(page.getByTestId('assistant-message')).toHaveCount(2)
           await idle(page, f)
+          await expect(row).toContainText('일정도 정리해 줘')
+          await expect(row).not.toContainText('(이어서)')
           await expect(row).toHaveAttribute('data-tree-depth', '1')
+          await expect(page.getByTestId('chat-forked-from')).toHaveText('‘출시 계획’에서 이어 왔어요')
         }
         // a rename from the row's "···"
         if (vp.name === '1440') await row.hover()

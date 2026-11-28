@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 15:42
 - Branch: `fix/fork-retitle-first-message`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (title.ts, fork.ts, runtime.ts, prompt.ts). Why: chat titles and forks live there (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a fix to how an existing feature names its chats; no new API, no migration
 
@@ -56,4 +56,7 @@ chat-fork under Bun 1.3.12.
 
 ## Result
 
-(filled in at the end)
+Built as planned. The placeholder swap is a separate guarded update (`WHERE title_source = 'fork'`), so a rename that
+lands while the message is admitted wins. The web mock (test/mock/server.ts) names a continuation on its first message
+too, and chat-fork-tree.spec checks the row's title changes live with its "└" and the line back kept. b-chat-fork-tree's
+detach test now expects the renamed first continuation ("More") and one "(continued)" on its continuation.
