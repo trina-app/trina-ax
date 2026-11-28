@@ -6,7 +6,7 @@
 //     bun.lock, so a comment or a type changes nothing and the result does not depend on the Bun version);
 //   - build.ts the same way, with the version's value left out (bumping it is not a change);
 //   - the pages, the icons and the desktop pane's page script, byte for byte (they are copied into the zip as they are);
-//   - the version of each npm package the code imports (zod …).
+//   - the version of each npm package the code imports and of the packages they depend on (zod, tldts, tldts-core …).
 // Not in it: the Bun version that bundles (CI pins it), tests, docs, the store listing (store/: uploaded by hand).
 //   bun chrome-extension/inputs.ts   prints the files and the fingerprint
 import { createHash } from 'node:crypto'
@@ -44,14 +44,23 @@ function packageOf(spec: string): string {
   return spec.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]!
 }
 
-function packageVersion(name: string, entry: string): string {
+/** The package's folder and version, found up from a file inside it. */
+function packageAt(name: string, entry: string): { dir: string; version: string; deps: string[] } {
   for (let d = dirname(entry); d !== dirname(d); d = dirname(d)) {
     const pj = join(d, 'package.json')
     if (!existsSync(pj)) continue
-    const j = JSON.parse(readFileSync(pj, 'utf8')) as { name?: string; version?: string }
-    if (j.name === name && j.version) return j.version
+    const j = JSON.parse(readFileSync(pj, 'utf8')) as { name?: string; version?: string; dependencies?: Record<string, string> }
+    if (j.name === name && j.version) return { dir: d, version: j.version, deps: Object.keys(j.dependencies ?? {}) }
   }
   throw new Error(`no version found for ${name} (${entry})`)
+}
+
+/** `name` and every package it depends on (tldts → tldts-core: a lockfile update can change only the latter). */
+function addPackage(packages: Record<string, string>, name: string, entry: string) {
+  const p = packageAt(name, entry)
+  if (packages[name] === p.version) return
+  packages[name] = p.version
+  for (const dep of p.deps) addPackage(packages, dep, Bun.resolveSync(`${dep}/package.json`, p.dir))
 }
 
 /** Every input of the store zip, each hashed. */
@@ -79,8 +88,7 @@ export function extensionInputs(): Inputs {
       } else if (spec.startsWith('.')) {
         throw new Error(`${rel(abs)} imports ${spec} outside the repository`)
       } else {
-        const name = packageOf(spec)
-        packages[name] = packageVersion(name, target)
+        addPackage(packages, packageOf(spec), target)
       }
     }
   }

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 11:03
 - Branch: `ci/chrome-ext-own-release`
-- Status: in progress
+- Status: done
 - Where: `.github/workflows/chrome-extension.yml`, `chrome-extension/`, `scripts/chrome-store/`, `docs/RELEASE-CI.md`.
   Why: the extension lives in this repo (it shares the protocol in `shared/src/api/chrome.ts`) but ships on its own
   cadence (owner, 2026-11-28).
@@ -62,4 +62,9 @@ Out: creating credentials or secrets, publishing anything, changing release.yml 
 
 ## Result
 
-(at the end)
+Built as planned. Differences: the fingerprint hashes TypeScript-transpiled code (comments and types do not count) and
+follows workspace imports (`@mycel/shared/…`) and transitive npm packages; a 0.1.0 protocol snapshot was made from
+e1ffb7743 (the store-screenshot commit, nearest to the hand upload) and the one tightening it shows (the label pattern)
+is accepted in the test with its reason; `chrome:check` also refuses removing a released version's protocol file. A
+re-run keeps the GitHub release's first zip. Review fixes: no asset clobber, Edge has no staged mode, transitive
+packages, `propertyNames` compared and unknown schema keywords fail closed.

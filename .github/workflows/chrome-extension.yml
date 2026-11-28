@@ -134,8 +134,9 @@ jobs:
           ZIP: ${{ needs.build.outputs.zip }}
         run: |
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            # a run again: the same zip (the build is reproducible from the tag); the release is never made latest
-            gh release upload "$TAG" "out/$ZIP" out/SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
+            # a run again: the release keeps the zip of its first run (the package the store got; a new build differs in
+            # its file times). Delete the release by hand first to replace it.
+            echo "the release $TAG exists: its zip stays as it is"
           else
             notes="The browser extension, version ${TAG#chrome-v}. Install it from the Chrome Web Store; this zip is the package the store got (SHA256SUMS). Changes: the merged pull requests that touched chrome-extension/ since the last chrome-v tag."
             gh release create "$TAG" "out/$ZIP" out/SHA256SUMS --repo "$GITHUB_REPOSITORY" --verify-tag --latest=false --title "$TITLE" --notes "$notes"
@@ -225,5 +226,6 @@ jobs:
         run: |
           (cd out && sha256sum -c SHA256SUMS)
           flags=()
-          if [ "$STORE" = upload-only ]; then flags+=(--upload-only); fi
+          # Edge has no staged publish: staged and upload-only both leave the draft for Partner Center
+          if [ "$STORE" = upload-only ] || [ "$STORE" = staged ]; then flags+=(--upload-only); fi
           bun scripts/chrome-store/stores.ts edge "out/$ZIP" "$VERSION" "${flags[@]}"

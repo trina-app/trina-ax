@@ -855,7 +855,7 @@ bun run chrome:bump patch     # 또는 minor, major
    upload, 그 다음 publish(심사 뒤 자동 게시). 공개 범위(공개·미등록·비공개)와 단계 배포 비율은 대시보드에 둔 값 그대로다.
 4. 심사는 며칠 걸린다(`debugger` 권한은 정밀 심사). 상태: Developer Dashboard › 항목 › Status, 또는 run 로그.
 5. 다시 돌리기: Actions › Chrome extension › Run workflow, "Use workflow from"에서 같은 태그, `tag`에 같은 태그.
-   `store`: `publish`(기본), `staged`(심사 뒤 대시보드에서 Publish를 눌러야 나간다), `upload-only`(패키지만 올리고 제출은
+   `store`: `publish`(기본), `staged`(심사 뒤 대시보드에서 Publish를 눌러야 나간다. Edge에는 없어 초안만 올린다), `upload-only`(패키지만 올리고 제출은
    손으로), `none`(GitHub Release만). 스토어에 이미 있는 버전(게시됐거나 심사 중)은 다시 올리지 않고 성공으로 끝난다.
 
 태그를 옮기거나 다시 달지 않는다. 고치면 새 번호다(`chrome:bump patch`).
@@ -952,7 +952,9 @@ refresh token이라는 오래 가는 비밀이 생긴다. Google 로그인용 �
 - 업로드 거절(심사 중): 앞 버전의 심사가 끝난 뒤 Run workflow로 같은 태그를 다시 돌린다.
 - `invalid_grant`(B-2): refresh token이 끝났다. B-2의 4를 다시 한다. B-1에서 `permission denied`: A-6(대시보드에 서비스 계정)과
   B-1-5(impersonation)를 확인한다.
-- 스토어 쪽이 실패해도 GitHub Release와 zip은 남는다. 다시 돌리면 같은 zip을 다시 올린다.
+- 스토어 쪽이 실패해도 GitHub Release와 zip은 남는다. 다시 돌리면 다시 빌드한 zip을 올린다(GitHub Release의 zip은 첫 run의 것 그대로).
+- `upload-only`로 올린 버전을 나중에 제출하려면 대시보드에서 **Submit for review**를 누른다(같은 태그를 `publish`로 다시 돌리면
+  스토어가 같은 버전의 두 번째 업로드를 거절할 수 있다).
 - 비용: 없음(Web Store 등록비는 이미 냈다. 공개 레포의 Actions 분은 무료).
 
 ## User-facing release notes

@@ -80,6 +80,9 @@ export function accepts(consumer: Schema, producer: Schema, at = '', o: { unknow
     return tries.some((r) => r.length === 0) ? [] : tries[0]!
   }
   const out: string[] = []
+  // keywords zod does not write for this contract today: fail closed rather than pass a change unseen
+  for (const k of ['allOf', 'not', '$ref', 'prefixItems', 'if', 'patternProperties', 'dependentSchemas'])
+    if (k in consumer || k in producer) out.push(`${at}: "${k}" is not compared; extend chrome-extension/protocol.ts`)
   const ct = typeOf(consumer), pt = typeOf(producer)
   if (ct && ct !== pt && !(ct === 'number' && pt === 'integer')) return [`${at}: ${pt ?? 'any'} where ${ct} is read`]
   if ('const' in consumer && consumer.const !== producer.const) out.push(`${at}: must be ${JSON.stringify(consumer.const)}`)
@@ -102,6 +105,8 @@ export function accepts(consumer: Schema, producer: Schema, at = '', o: { unknow
     }
     if (consumer.additionalProperties && typeof consumer.additionalProperties === 'object' && producer.additionalProperties && typeof producer.additionalProperties === 'object')
       out.push(...accepts(consumer.additionalProperties as Schema, producer.additionalProperties as Schema, `${at}.*`))
+    if (consumer.propertyNames && typeof consumer.propertyNames === 'object')
+      out.push(...accepts(consumer.propertyNames as Schema, (producer.propertyNames ?? { type: 'string' }) as Schema, `${at}{key}`))
   }
   if (ct === 'array' && consumer.items && producer.items) out.push(...accepts(consumer.items as Schema, producer.items as Schema, `${at}[]`))
   return out
