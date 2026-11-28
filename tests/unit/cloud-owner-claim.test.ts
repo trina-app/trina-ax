@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'bun:test'
 import crypto from 'node:crypto'
 import {
-  APP_PATHS, appCallbackUrl, appConnectUrl, isAppEmail, isOwnerClaim, parseAppEmailStart, parseAppEmailVerify, parseAppRetryTeam, OWNER_CLAIM_CONFIRM_PATH, OWNER_CLAIM_RESERVE_PATH, ownerClaimSetupUrl,
+  APP_FINISH_SETUP_HOST, APP_PATHS, appCallbackUrl, appFinishSetupLink, isAppFinishSetupLink, appConnectUrl, isAppEmail, isOwnerClaim, parseAppEmailStart, parseAppEmailVerify, parseAppRetryTeam, OWNER_CLAIM_CONFIRM_PATH, OWNER_CLAIM_RESERVE_PATH, ownerClaimSetupUrl,
   ownerClaimSigningString, parseAppConnectParams, parseAppCreateTeam, parseAppError, parseAppMe, parseAppTeam,
   parseAppTokenAnswer, parseAppTokenRequest, parseOwnerClaimConfirmAnswer, parseOwnerClaimOwner, parseOwnerClaimRequest,
   readOwnerClaimFragment, suggestTeamSlug, teamSlugOk,
@@ -34,6 +34,16 @@ describe('owner claim', () => {
     expect(ownerClaimSetupUrl('https://acme.treesoop.com/some/path?q=1', O.claim)).toBe(O.setupUrl)
   })
 
+  test('the way back to a lost claim is a link that carries nothing', () => {
+    expect(APP_FINISH_SETUP_HOST).toBe('finish-setup')
+    expect(appFinishSetupLink('trina-ax')).toBe('trina-ax://finish-setup')
+    expect(() => appFinishSetupLink('trina-ax://x')).toThrow()
+    expect(isAppFinishSetupLink('trina-ax://finish-setup', 'trina-ax')).toBe(true)
+    expect(isAppFinishSetupLink('trina-ax://finish-setup/', 'trina-ax')).toBe(true)
+    // nothing may ride on it: no claim, no address, no query
+    for (const bad of [`trina-ax://finish-setup#c=${O.claim}`, 'trina-ax://finish-setup?url=https://evil.example', 'trina-ax://finish-setup/x', 'other://finish-setup', 'trina-ax://open?url=https://acme.treesoop.com/'])
+      expect(isAppFinishSetupLink(bad, 'trina-ax')).toBe(false)
+  })
   test('reserve and confirm bodies are strict', () => {
     for (const ok of O.request.valid) expect(parseOwnerClaimRequest(ok)).toEqual(ok as never)
     for (const bad of O.request.invalid) expect(parseOwnerClaimRequest(bad.raw), bad.why).toBeNull()

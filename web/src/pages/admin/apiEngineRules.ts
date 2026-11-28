@@ -2,13 +2,13 @@
 
 /** Presets of the API engine's address (any OpenAI-compatible Chat Completions API works with "custom"). */
 /** `keys`: where that provider's API keys are made (QA TC-2312, the same kind of link as Add account's and Voice input's);
- * Ollama runs on this computer and needs none. */
+ * Ollama runs on the server's own computer and needs none; its option says so in the person's words (Engines.tsx). */
 export const API_PRESETS = [
   { id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-5.4-mini', keys: 'https://platform.openai.com/api-keys' },
   { id: 'anthropic', label: 'Claude API (Anthropic)', baseUrl: 'https://api.anthropic.com/v1', model: 'claude-sonnet-5-5', keys: 'https://platform.claude.com/settings/keys' },
   { id: 'gemini', label: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-flash', keys: 'https://aistudio.google.com/apikey' },
   { id: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'openai/gpt-5.4-mini', keys: 'https://openrouter.ai/keys' },
-  { id: 'ollama', label: 'Ollama (this Mac)', baseUrl: 'http://127.0.0.1:11434/v1', model: 'qwen3:8b', keys: null },
+  { id: 'ollama', label: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1', model: 'qwen3:8b', keys: null },
 ] as const
 
 /** Words that name a provider in a display name ("QA OpenRouter", "Claude via API") */

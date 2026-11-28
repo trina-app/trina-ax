@@ -373,3 +373,34 @@ describe('googleClaims', () => {
     expect(googleClaims(undefined, CLIENT_ID, 'n', now)).toBeNull()
   })
 })
+
+// docs/decisions/20261128-owner-claim-recovery.md: a team with no account yet (a desktop-made team whose setup page
+// expired) answers a Google sign-in with no_owner, so the page can point to the app instead of a password
+describe('Sign in with Google on a team with no account yet', () => {
+  let h: Harness
+  beforeAll(async () => {
+    h = await harness('google-login-no-owner')
+    googleDriveOf(h.ctx, { config: { clientId: CLIENT_ID, clientSecret: 'secret', redirectUri: `http://team.localhost${CALLBACK}` }, fetch: fakeFetch, broker: null })
+  })
+  afterAll(() => h.close())
+
+  test('no_owner on a hosted team while nobody has an account; not_connected once someone has, or when not hosted', async () => {
+    const start = async () => {
+      const res = await h.client().raw('POST', '/api/auth/google/start', {})
+      expect(res.status).toBe(200)
+      const u = new URL(((await res.json()) as { url: string }).url)
+      const state = u.searchParams.get('state')!
+      const gsi = res.headers.getSetCookie().find((c) => c.startsWith(`${GSI}=`))!.split(';')[0]!
+      const code = `code-${state.slice(0, 8)}`
+      nonces.set(code, u.searchParams.get('nonce')!)
+      return h.fetch(`${CALLBACK}?${new URLSearchParams({ state, code })}`, { headers: { cookie: gsi } })
+    }
+    nextAccount = { sub: '900', email: 'new-owner@acme.test' }
+    // a self-installed server with nobody: the plain answer (its owner is made on its own /setup)
+    expect((await start()).headers.get('location')).toBe('/login?google=not_connected')
+    ;(h.ctx.config as { deployment?: string }).deployment = 'hosted'
+    expect((await start()).headers.get('location')).toBe('/login?google=no_owner')
+    await withOwner(h)
+    expect((await start()).headers.get('location')).toBe('/login?google=not_connected')
+  })
+})

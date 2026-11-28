@@ -14,6 +14,7 @@
 // it, the trash setting), checked again around the move itself. No earlier answer, room grant or "always allow" covers
 // it; no count per answer (Claude Code asks every time), none after a "no", one card open at a time. One audit row per
 // call.
+import { internalWhy } from '../tools/internal-error'
 import { grantOnly, seenWhy, SHARED_FILE_SOURCE } from './grant-reads'
 import { tr } from './i18n'
 import { placeWords } from './place-words'
@@ -243,7 +244,7 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     let done
     try { done = svc.trashAiPlan(user.id, plan, spec.turnId) } catch (e) {
       auditCall({ ...base, outcome: 'failed', trashIds: [] }, target)
-      return result(`${NONE}: ${e instanceof ToolError ? e.message : 'internal error'}.`, 'failed')
+      return result(`${NONE}: ${e instanceof ToolError ? e.message : internalWhy('delete_files', e, { turnId: spec.turnId, userId: user.id })}.`, 'failed')
     }
     const moved = done.trashed.length + done.stranded.length
     const outcome = moved === plan.items.length && !done.stranded.length ? 'trashed' : moved ? 'partial' : done.changed.length ? 'changed' : 'failed'
@@ -324,7 +325,7 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     const svc = componentC(rt.ctx).files
     let planned
     try { planned = svc.planAiTrash(user.id, paths) } catch (e) {
-      const text = e instanceof ToolError ? e.message : 'internal error'
+      const text = e instanceof ToolError ? e.message : internalWhy('delete_files', e, { turnId: spec.turnId, userId: user.id })
       auditCall({ outcome: 'refused', reason: e instanceof ToolError && e.code === 'too_many' ? 'too_many' : 'error', paths: paths.slice(0, 50), requestId: null, trashIds: [] }, paths[0] ?? null)
       return result(`${NONE}: ${text}.`, e instanceof ToolError && e.code === 'too_many' ? 'refused: more than 200 entries' : 'failed')
     }
@@ -365,7 +366,7 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     let done
     try { done = svc.trashAiPlan(user.id, plan, spec.turnId) } catch (e) {
       auditCall({ ...base, outcome: 'failed', trashIds: [] }, target)
-      return result(`${NONE}: ${e instanceof ToolError ? e.message : 'internal error'}.`, 'failed')
+      return result(`${NONE}: ${e instanceof ToolError ? e.message : internalWhy('delete_files', e, { turnId: spec.turnId, userId: user.id })}.`, 'failed')
     }
     const trashIds = done.trashed.map((x) => x.trashId)
     const moved = done.trashed.length + done.stranded.length

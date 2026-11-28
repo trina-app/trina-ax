@@ -5,6 +5,7 @@
 // mock's Google rules are POST /__test/google-login (web/test/mock/server.ts googleStart, googleReturn); the real
 // server's checks (binding cookie, one use, id_token, sub only) are tests/unit/a-google-login.test.ts.
 import { expect, test, type Page } from '@playwright/test'
+import { PRODUCT } from '@mycel/shared'
 import { DICTS } from '../../src/i18n'
 import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
 
@@ -139,6 +140,32 @@ test('a Google account nobody connected signs nobody in, whatever its e-mail; a 
   await page.getByTestId('login-google').click()
   await page.locator('#cancel').click()
   await expect(page.getByTestId('login-google-result')).toHaveText(t['auth.google.cancelled'])
+})
+
+// docs/decisions/20261128-owner-claim-recovery.md: a team with no account yet (its owner setup from the desktop app did
+// not finish) says so and where to finish; inside an app with "Get a new link", that button asks the app
+test('no_owner: the line points to the app; inside an app that can, Get a new link asks the app', async ({ page, browser }) => {
+  await reset(page, { teamLocale: 'en' })
+  await page.goto('/login?google=no_owner')
+  await expect(page.getByTestId('login-google-result')).toHaveText(t['auth.google.no_owner'].replace('{product}', PRODUCT.displayName))
+  await expect(page.getByTestId('login-new-setup-link')).toHaveCount(0)
+  const ctx = await browser.newContext({ locale: 'en-US' })
+  const p = await ctx.newPage()
+  await p.addInitScript(() => {
+    const noop = () => {}
+    ;(window as unknown as { mycelDesktop: unknown }).mycelDesktop = {
+      bridgeVersion: 1, appVersion: '0.20.4', platform: 'darwin',
+      browser: { run: async (c: { callId: string }) => ({ callId: c.callId, ok: false, content: [], error: 'no pane' }), cancel: noop },
+      pane: { open: noop, close: noop, toggle: noop, getState: async () => ({ open: false, tabs: [], driving: false }), onState: () => noop },
+      connection: { get: async () => ({ route: 'remote', origin: location.origin, teamAddress: location.origin, fingerprintMismatch: false }), onChange: () => noop },
+      notify: noop, openTeams: noop, hostLine: noop,
+      finishTeamSetup: () => { const w = window as unknown as { __finish?: number }; w.__finish = (w.__finish ?? 0) + 1 },
+    }
+  })
+  await p.goto('/login?google=no_owner')
+  await p.getByTestId('login-new-setup-link').click()
+  expect(await p.evaluate(() => (window as unknown as { __finish?: number }).__finish)).toBe(1)
+  await ctx.close()
 })
 
 test('a phone: Security & devices lists the Google account with Connect', async ({ page }) => {
