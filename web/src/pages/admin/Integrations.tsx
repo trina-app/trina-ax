@@ -93,6 +93,14 @@ export default function AdminIntegrations() {
   // a page: /admin/connectors/<id> (a Google connector, a listed service) or /admin/connectors/mcp/<id> (a team
   // connection), in place of the list; the way back returns to the list
   const { sub, item } = useParams()
+  // the Google statuses read again on every move between the list and a page (not on the first draw, which just read
+  // them), so a card the list shows as On is On on its page too: the hosting service's answer can change meanwhile
+  // (WSL QA 2026-11-28: Gmail On in the list, Not set up on its page)
+  const firstSub = useRef(true)
+  useEffect(() => {
+    if (firstSub.current) { firstSub.current = false; return }
+    void reloadDrive(); void reloadGapps()
+  }, [sub, reloadDrive, reloadGapps])
   // connecting: read again until it is connected (or a problem), as Slack's page does
   useSlackRecheck(sub ? null : slack.data, slack.reload)
   const navigate = useNavigate()

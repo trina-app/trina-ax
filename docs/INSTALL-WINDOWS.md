@@ -242,8 +242,9 @@ Remove **everything**, after you made and checked an off-PC backup:
 $f = "$env:ProgramData\TrinaAX\power-before.json"
 if (Test-Path $f) {
   $p = Get-Content $f -Raw | ConvertFrom-Json
-  powercfg /setacvalueindex $p.scheme SUB_SLEEP STANDBYIDLE $p.standbyAcSeconds
-  powercfg /setacvalueindex $p.scheme SUB_SLEEP HIBERNATEIDLE $p.hibernateAcSeconds
+  # a value saved as "unknown" (powercfg did not show it) is left as it is
+  if ("$($p.standbyAcSeconds)" -match '^\d+$') { powercfg /setacvalueindex $p.scheme SUB_SLEEP STANDBYIDLE $p.standbyAcSeconds }
+  if ("$($p.hibernateAcSeconds)" -match '^\d+$') { powercfg /setacvalueindex $p.scheme SUB_SLEEP HIBERNATEIDLE $p.hibernateAcSeconds }
   powercfg /setactive $p.scheme
 }
 Unregister-ScheduledTask -TaskPath '\TrinaAX\' -TaskName 'Keep the Trina AX server running' -Confirm:$false

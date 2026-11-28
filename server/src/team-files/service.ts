@@ -1,6 +1,7 @@
 // The file screen (design tab 4 "파일", tab 2 "동시 수정"): tree, text content, save, folders, move / rename,
 // trash, version history. Every path goes through authorize() (policy/authorize.ts) with the caller's own rules;
 // what the caller may not read looks exactly like what does not exist.
+import { internalWhy } from '../tools/internal-error'
 import { assertSafeTeamPath, replacedAsRead } from '../files/office-exit'
 import { markTeamShares } from '../chat/team-shares'
 import fs from 'node:fs'
@@ -2596,7 +2597,7 @@ export class TeamFiles {
 }
 
 /** The reason a delete_files path failed, for the AI: the checks' own words; anything else is not shown. */
-const aiReason = (e: unknown) => (e instanceof Denied || e instanceof ToolError || e instanceof HttpError || e instanceof FileError ? e.message : 'internal error')
+const aiReason = (e: unknown) => (e instanceof Denied || e instanceof ToolError || e instanceof HttpError || e instanceof FileError ? e.message : internalWhy('delete_files', e))
 
 /** Every active person with their groups (who could be affected by an audience change). */
 export function activePeople(db: AppContext['db']): Principal[] {

@@ -142,7 +142,7 @@ API エンジンは、OpenAI 互換の API を提供するサービスなら何�
 | Claude API (Anthropic) | `https://api.anthropic.com/v1` | [platform.claude.com/settings/keys](https://platform.claude.com/settings/keys) |
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | OpenRouter | `https://openrouter.ai/api/v1` | [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys) |
-| Ollama (this Mac) | `http://127.0.0.1:11434/v1` | キーは不要：サーバーと同じコンピューターで動くモデル。このアドレスを設定できるのはオーナーだけです |
+| Ollama（サーバーのコンピューター） | `http://127.0.0.1:11434/v1` | キーは不要：サーバーと同じコンピューターで動くモデル。このアドレスを設定できるのはオーナーだけです |
 
 :::steps
 #### API の行を開く

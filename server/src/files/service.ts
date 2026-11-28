@@ -1,4 +1,5 @@
 // The six file tools (list/glob/grep/read/write/edit) plus the human-side operations that share their rules.
+import { internalErrorText } from '../tools/internal-error'
 import { parsePlace, workPlacePath, type Place } from '@mycel/shared/places'
 import { SKIP_OWN } from '../chat/search-path'
 import fs from 'node:fs'
@@ -626,7 +627,7 @@ export class FileService {
       }
       if (e?.name === 'ZodError') return { text: 'Invalid input: ' + e.issues.map((i: any) => `${i.path.join('.')}: ${i.message}`).join('; '), isError: true, summary: `${tool} -> invalid input` }
       if (e instanceof ToolError) return { text: 'Error: ' + this.withMovedNote(ctx.user, toolErrorText(this.db,ctx.user.id,e), ctx.turnId), isError: true, summary: `${tool} ${short(p)} -> error: ${e.message}` }
-      return { text: 'Error: internal error', isError: true, summary: `${tool} ${short(p)} -> internal: ${String(e?.message ?? e).slice(0, 200)}` }
+      return { text: internalErrorText(tool, e, { turnId: ctx.turnId, userId: ctx.user.id }), isError: true, summary: `${tool} ${short(p)} -> internal: ${String(e?.message ?? e).slice(0, 200)}` }
     }
   }
 

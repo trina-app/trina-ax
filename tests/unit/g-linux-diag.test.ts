@@ -17,6 +17,7 @@ import { configureStorageGuard } from '../../server/src/system/storage'
 import { DiskSpaceUnknown } from '../../server/src/system/disk-stat'
 import { M } from '../../server/src/system/messages'
 import { engineStatusMessages, hostMessages, ML } from '../../server/src/system/messages-linux'
+import { runsOnWsl } from '../../server/src/system/wsl'
 import { OpsService } from '../../server/src/system/ops'
 import { launcherStatus } from '../../server/src/native'
 import { T as ENGINE_T } from '../../server/src/admin/engines'
@@ -62,6 +63,21 @@ describe('wording', () => {
       for (const [k, s] of Object.entries(render(eng))) expect(MAC_WORDS.test(s), `${host} engine ${k}: ${s}`).toBe(false)
     })
   }
+  test('a Linux server inside WSL: no "office network" advice (its NAT reaches only this PC), the Windows guide instead', () => {
+    // WSL QA 2026-11-28: the check said the team could connect "only from the office network"
+    const OFFICE = /office network|사무실|jaringan kantor|社内|red interna|办公室|install-linux/i
+    const wsl = hostMessages('linux', { id: 'mycel', base: '/var/lib/mycel', wsl: true })
+    const plain = hostMessages('linux', { id: 'mycel', base: '/var/lib/mycel' })
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
+      expect(wsl.relayOff[l], l).not.toMatch(OFFICE)
+      expect(wsl.relayOff[l], l).toContain('docs/INSTALL-WINDOWS.md')
+      expect(wsl.relayOffline[l], l).not.toMatch(OFFICE)
+      expect(plain.relayOff[l], l).toContain('install-linux.sh')
+    }
+    // a hosted server never takes the WSL words
+    expect(hostMessages('hosted', { id: 'mycel', base: '/var/lib/mycel', wsl: true }).relayOff).toEqual(hostMessages('hosted', { id: 'mycel', base: '/var/lib/mycel' }).relayOff)
+    expect(runsOnWsl('darwin')).toBe(false)
+  })
   test('Linux names its commands; Team AX Cloud points at the admin screens or support, never at a server shell', () => {
     const lin = hostMessages('linux', { id: 'mycel-a', base: '/var/lib/mycel-a' })
     expect(lin.launcherNotRunning(null, null).ko).toContain('sudo systemctl restart mycel-a-launcher')

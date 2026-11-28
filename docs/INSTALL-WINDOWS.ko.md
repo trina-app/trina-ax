@@ -237,8 +237,9 @@ PC 밖 백업을 만들고 확인한 뒤 **전부** 제거:
 $f = "$env:ProgramData\TrinaAX\power-before.json"
 if (Test-Path $f) {
   $p = Get-Content $f -Raw | ConvertFrom-Json
-  powercfg /setacvalueindex $p.scheme SUB_SLEEP STANDBYIDLE $p.standbyAcSeconds
-  powercfg /setacvalueindex $p.scheme SUB_SLEEP HIBERNATEIDLE $p.hibernateAcSeconds
+  # "unknown"으로 저장된 값(powercfg가 보여 주지 않았던 값)은 그대로 둡니다
+  if ("$($p.standbyAcSeconds)" -match '^\d+$') { powercfg /setacvalueindex $p.scheme SUB_SLEEP STANDBYIDLE $p.standbyAcSeconds }
+  if ("$($p.hibernateAcSeconds)" -match '^\d+$') { powercfg /setacvalueindex $p.scheme SUB_SLEEP HIBERNATEIDLE $p.hibernateAcSeconds }
   powercfg /setactive $p.scheme
 }
 Unregister-ScheduledTask -TaskPath '\TrinaAX\' -TaskName 'Keep the Trina AX server running' -Confirm:$false
