@@ -1316,7 +1316,7 @@ export function stoppedAnswerBlock(text: string, status: 'stopped' | 'error'): s
 }
 
 /** While a new chat has no real title (the set_title tool is offered, chat/title.ts): the answering AI names it. */
-export const TITLE_RULE = 'The set_title tool is offered only at the start of a chat. When you have it: early in your answer, call set_title once with a short title (2-60 characters, best under 30) in the user\'s language that says what the person wants, e.g. "Summarize Q3 sales report" or "Fix login error on mobile". Never put keys, tokens, passwords, personal data or a quote of the message in it; no trailing punctuation. If the message does not say yet what they want (only a greeting or a test), do not call it: it is offered again with their next message. Do not mention the title in your answer.'
+export const TITLE_RULE = 'The set_title tool is offered only at the start of a chat. When you have it: early in your answer, call set_title once with a short title (2-60 characters, best under 30) in the user\'s language that says what the person wants, e.g. "Summarize Q3 sales report" or "Fix login error on mobile". Never put keys, tokens, passwords, personal data or a quote of the message in it; no trailing punctuation. If the message does not say yet what they want (only a greeting or a test), do not call it: it is offered again with their next message. When the chat starts with messages carried over from an earlier chat, the title says what the person asks in their new message (the earlier messages are only context), never the earlier chat\'s title. Do not mention the title in your answer.'
 
 /**
  * The main AI's part about Claude Code's Agent tool (when the turn has it). Claude Code's own tool description says

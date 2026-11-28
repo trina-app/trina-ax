@@ -115,6 +115,8 @@ export function googleBrokerKey(dataDir: string, tunnelHost: string | null | und
 }
 
 /** The configuration fingerprint of broker mode: connections made through one control plane origin belong together. */
+/** A refresh token the hosting service sealed (its `ev1.` envelope): this server cannot open it, and never revokes it. */
+export const isBrokerToken = (token: string) => token.startsWith('ev1.')
 export const brokerKey = (origin: string) => 'broker:' + crypto.createHash('sha256').update(origin).digest('hex')
 
 /** A Google app request the hosting service refused as a request (`invalid_request`: an older control plane that does
@@ -220,7 +222,11 @@ export class DriveBroker {
   redeem(handoff: string, codeVerifier: string, signal?: AbortSignal) { return this.call('redeem', { v: 1, handoff, codeVerifier }, signal) }
   /** `app`: the Google app the token was made for (google-apps/), left out for Drive */
   refresh(sealedRefreshToken: string, signal?: AbortSignal, app?: GoogleBrokerApp) { return this.call('refresh', { v: 1, refreshToken: sealedRefreshToken, ...(app ? { app } : {}) }, signal) }
-  async revoke(sealedRefreshToken: string): Promise<'revoked' | 'unavailable'> {
-    try { return (await this.call('revoke', { v: 1, refreshToken: sealedRefreshToken })).revocation === 'revoked' ? 'revoked' : 'unavailable' } catch { return 'unavailable' }
+  /** Forget one sealed token at the hosting service (its `revoke` address): from then on it refuses to refresh that
+   * token for anyone, while Google is never asked (its revoke ends the person's whole grant of the one shared Google
+   * app, which their other Trina servers use too; docs/decisions/20261128-google-broker-grant-kept.md). Best effort:
+   * this server has deleted its copy either way. */
+  async forget(sealedRefreshToken: string): Promise<boolean> {
+    try { await this.call('revoke', { v: 1, refreshToken: sealedRefreshToken }); return true } catch { return false }
   }
 }
