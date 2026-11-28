@@ -145,6 +145,7 @@ import { hasCredentialFor, resolveCredential, SOON_MS, type CredEngine } from '.
 import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
 import { browserTarget, linkSites, linksOf } from '../chrome/store'
+import { sharedChatLabel } from '../chrome/profiles'
 import { mayAttachChatFile, mayWriteChatVersion, resolvePlace } from '../files/places'
 import { chatPlaces } from './place-ctx'
 import { situationOf } from './situation'
@@ -1001,7 +1002,8 @@ export class TurnExec {
     const online = chromeWanted ? rt.chrome.onlineLinks(spec.userId) : []
     if (online.length) {
       const up = new Set(online.map((o) => o.linkId))
-      this.chromeProfiles = linksOf(rt.db, spec.userId).map((l) => ({ linkId: l.id, label: l.label, email: l.email, online: up.has(l.id), sites: linkSites(rt.db, l.id), onlyListed: l.only_listed === 1 }))
+      // a shared chat: a name that is an email address shows only its part before the @ (its members see the cards)
+      this.chromeProfiles = linksOf(rt.db, spec.userId).map((l) => ({ linkId: l.id, label: this.shared ? sharedChatLabel(l.label) : l.label, email: l.email, online: up.has(l.id), sites: linkSites(rt.db, l.id), onlyListed: l.only_listed === 1 }))
     }
     const chrome = online[0]?.windowId ?? null
     this.browserWindow = chrome ?? (this.desktop ? spec.windowId! : null)

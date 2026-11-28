@@ -20,7 +20,13 @@
   the 0.3.2 manifest has the same four warnings as 0.3.1.
 - **Left out:** the Chrome profile's own name ("Work"): no extension API gives it, and the desktop app's native helper
   cannot tell which profile is calling (matching Local State would be a guess). The desktop-app path keeps using it.
-- **Privacy:** the email shows where the profile's name shows: the person's Settings › Browser, their AI, and the address
-  card of a chat that uses the profile (members of a shared chat see that card). The person sees the email in the field
-  before connecting and can type another name.
+- **Privacy:** the email shows where the profile's name shows to the person: Settings › Browser, the popup, their AI and
+  their own MCP apps. A shared chat (people chat, project chat) shows a name that is an email address only up to the @
+  ("ann@…") in its cards, steps and the AI's profile list, as it already left out the account itself
+  (server/src/chrome/profiles.ts sharedChatLabel). On the first Connect the field is empty: the email is not seen
+  before it goes to the team; the popup then shows the name ("This browser: …") and Rename changes it. When the
+  permission is held, the email also goes to the link's `email` field when a name was typed (as the desktop-app path
+  does). The audit log keeps the name, as before.
+- **After a Deny:** Chrome closes the popup when its prompt opens, so the popup says "the browser did not allow access"
+  the next time it opens, and that Connect asks only for the address.
 - **Version impact:** patch (extension 0.3.2; server: numbered repeated names).

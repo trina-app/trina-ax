@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 18:55
 - Branch: `feat/chrome-default-browser-name`
-- Status: in progress
+- Status: done
 - Where: chrome-extension/ (popup, pairing), server/src/chrome/store.ts (redeem). Why: the in-profile Connect names
   every profile "Chrome on Mac", so a person with several profiles sees identical rows in Settings › Browser and the AI
   cannot tell them apart.
@@ -64,4 +64,8 @@ docs/decisions/20261128-chrome-app-led-linking.md for the in-profile Connect onl
 
 ## Result
 
-(filled in at the end)
+Built as planned, plus two review fixes: a shared chat shows a name that is an email address only up to the @
+(sharedChatLabel), and the popup says "the browser did not allow access" after a Deny (Chrome closes the popup when its
+prompt opens). Measured in Chrome 158: no new install warning (warnings identical to 0.3.1); one prompt with "Read and
+change your data on <team>" + "Know your email address" (ko: "이메일 주소 조회"); after a Deny the next Connect asks only
+for the address. Not measured: the email itself (throwaway profiles cannot sign in to Google); unit-tested paths cover it.

@@ -79,6 +79,7 @@ function render(s: PopupStatus) {
   if (!s.linked) {
     app.append(el('h1', { textContent: t('notLinkedTitle') }), el('p', { textContent: t('notLinkedBody') }))
     if (s.pair.state === 'failed') app.append(el('p', { cls: 'error', textContent: s.pair.full ? t('linksFull') : t('pairFailed') }))
+    if (s.denied) note = t('permissionDenied')
     if (note) app.append(el('p', { cls: 'error', textContent: note }))
     // each browser profile is its own link, shown in the team's list: named after its Google account when the extension
     // may read it (else left empty: Connect asks once), else "Chrome on Mac"; the person can type any name ("Work mail")

@@ -174,6 +174,18 @@ export async function wantPairing(origin: string, label: string, askEmail = fals
   if (askEmail) await chrome.storage.local.set({ emailAsked: true })
 }
 
+/** Chrome's prompt was answered No while the popup was closed (Chrome closes it when the prompt opens): the Connect a
+ * moment ago left its wish unused and the address is still not allowed. Said once; the wish is dropped. */
+export async function deniedConnect(now = Date.now()): Promise<boolean> {
+  const want = (await chrome.storage.session.get('want')).want as { origin: string; at: number } | undefined
+  if (!want || now - want.at < 4000) return false
+  if ((await pending())) return false
+  const host = new URL(want.origin)
+  if (await chrome.permissions.contains({ origins: [`${host.protocol}//${host.hostname}/*`] })) return false
+  await chrome.storage.session.remove('want')
+  return true
+}
+
 export function installPairingListeners(onLinked: () => Promise<void>) {
   // Chrome granted the team address (the popup may have closed while it asked): pairing starts here
   chrome.permissions.onAdded.addListener((p) => {

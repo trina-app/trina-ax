@@ -5,6 +5,14 @@ import { siteCovers } from './store'
 
 export interface ChromeProfile { linkId: string; label: string; email: string | null; online: boolean; sites: string[]; onlyListed: boolean }
 
+/** A profile's name as a shared chat shows it (its cards, steps and the AI's list): a name that is an email address (the
+ * extension names a profile after its Google account) keeps only its part before the @ ("ann@…"): the person still
+ * recognises it, the chat's other members do not get the address (docs/decisions/20261128-chrome-default-browser-name.md). */
+export function sharedChatLabel(label: string): string {
+  const v = label.trim()
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? `${v.slice(0, v.indexOf('@'))}@…` : label
+}
+
 /** Strip `profile` from a call's input (and a batch's actions): what the extension gets has none. */
 export function withoutProfile(args: Record<string, unknown>): Record<string, unknown> {
   const { profile: _p, ...rest } = args

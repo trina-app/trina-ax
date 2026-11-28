@@ -2,7 +2,7 @@
 // the connection. The popup talks to it with chrome.runtime messages (popup.ts).
 import { runningCalls, stopAllRuns, stopRun, WINDOW_CLOSED, workingRuns } from './calls'
 import { connect, linked, rename, unlink } from './link'
-import { cancelPairing, cleanLabel, installPairingListeners, pairState, profileEmail, shouldAskEmail, startPairing, teamOrigin, wantPairing } from './pairing'
+import { cancelPairing, cleanLabel, deniedConnect, installPairingListeners, pairState, profileEmail, shouldAskEmail, startPairing, teamOrigin, wantPairing } from './pairing'
 import { live, loadLink, refreshBadge, saveLink } from './state'
 
 /** the popup's last rename could not be kept (offline): it says so once */
@@ -24,6 +24,8 @@ export interface PopupStatus {
   email?: string
   /** Connect asks Chrome, once, for the permission to read that account (an empty field then becomes the email) */
   askEmail: boolean
+  /** the last Connect's Chrome prompt was answered No (the popup was closed then): it says so once */
+  denied?: true
   online: boolean
   /** the tasks working now, each with its own Stop */
   runs: { id: string; title: string; tabs: number }[]
@@ -65,6 +67,7 @@ async function status(): Promise<PopupStatus> {
     suggestedLabel: browserLabel(navigator.userAgent, navigator.userAgentData, Boolean(navigator.brave)),
     ...(email ? { email } : {}),
     askEmail: l ? false : await shouldAskEmail(),
+    ...(!l && (await deniedConnect()) ? { denied: true as const } : {}),
     online: live.online,
     runs: workingRuns(),
     stopped: live.stoppedAt > 0 && Date.now() - live.stoppedAt < 60_000,

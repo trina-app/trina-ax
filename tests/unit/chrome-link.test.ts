@@ -126,6 +126,15 @@ test('two profiles with one name are told apart: the second "Chrome on Mac" beco
   unlinkAllOf('alice')
 })
 
+test('a shared chat shows a profile named after its Google account only up to the @', async () => {
+  const { sharedChatLabel } = await import('../../server/src/chrome/profiles')
+  expect(sharedChatLabel('ann@example.com')).toBe('ann@…')
+  expect(sharedChatLabel(' Ann.Lee@mail.example.co.kr ')).toBe('Ann.Lee@…')
+  expect(sharedChatLabel('Work')).toBe('Work')
+  expect(sharedChatLabel('Chrome on Mac 2')).toBe('Chrome on Mac 2')
+  expect(sharedChatLabel('me @ home')).toBe('me @ home')
+})
+
 describe('the extension\'s connection', () => {
   test('an unknown token, a page origin or a missing auth frame is refused', async () => {
     const bad = await ext(secret())
