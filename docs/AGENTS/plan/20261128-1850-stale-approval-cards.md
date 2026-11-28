@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 18:50
 - Branch: `fix/stale-approval-cards`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (open-questions, runtime, turn, tools), server/src/integrations/connections, shared/src/api,
   web/src (steps). Why: the approval cards and the turn start live there (see docs/REPOSITORY-RULES.md)
 - Version impact: patch: a typed message no longer leaves an earlier approval card open; no new API, table or setting
@@ -67,4 +67,7 @@ message keeps the card), b-safety-cards-wait, b-open-questions, the connector ca
 
 ## Result
 
-(filled in at the end)
+Built as planned. Two additions: the web shows a moved-on step with the quiet "not answered" mark (a dashed circle, not
+a check), and the web mock scripts the flow ("latecard") for an e2e at 1440 and 390. The words are neutral ("the chat
+moved on without an answer") because the others in a shared chat see the step too. The exact call behind 자세히 on a
+connector card still shows the handle as sent; every labelled line names the file. PR: see the branch's PR into dev.
