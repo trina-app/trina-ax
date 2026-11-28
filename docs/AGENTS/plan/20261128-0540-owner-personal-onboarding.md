@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 05:40
 - Branch: `plan/owner-personal-onboarding` (plan only; the build branch is `feat/owner-personal-onboarding`)
-- Status: draft
+- Status: done
 - Where: server/src/onboarding (member-welcome.ts, my-setup.ts), server/src/admin/users.ts (handover),
   shared/src/api/member-welcome.ts, web/src/components/onboarding/MemberWelcome.tsx, web/src/pages/Home.tsx, the five
   app languages. Why: Team AX core onboarding (docs/REPOSITORY-RULES.md); no plan, billing or hosting code.
@@ -376,4 +376,23 @@ line and "Ready in your team" all stay out under a card); guests; one owner at a
 
 ## Result
 
-Filled in at the end.
+Built on `feat/owner-personal-onboarding` as planned, with the four open decisions as recommended (the owner,
+2026-11-28: "검수 끝나면 ㄱㄱ"):
+
+- Server: `ensureOwnCard` (member-welcome.ts) replaces `backfillOwner`: its own INSERT with `apps_seen_at` set, the
+  30-day window, "ever had an own connection" (a personal connection or Drive row in any status, or the audit log's
+  `drive.connected`, `google_app.connected` and personal `integration.create`: a disconnect deletes the row, so the
+  audit is what remembers it), no demo, no guest. `setupOpen` for the owner role only; the owner's `countedDone` is
+  tools + asked + not setupOpen. `startMySetup` restarts an open owner card's days at the end (forward only). The
+  handover calls `ensureOwnCard` after the commit.
+- Web: the owner card's setup row ("팀 설정 이어서 하기 · n/5", "팀 설정 시작하기 · 1/5" while no step was taken, "남은
+  일: …", the phone's "팀 설정은 컴퓨터에서 이어서 해요"), the ask row, the open-setup title, line and count line, the AI
+  row first for anyone who can connect it (Home's no-AI buttons, exported as `TeamWaysButtons` from ConnectAi.tsx),
+  Hide's undo toast; Home drops the owner no-AI exception. Six languages; "나만 보여요" removed.
+- What differs: the decision file is `docs/decisions/20261128-owner-personal-onboarding.md` (the README names it after
+  the branch), not `…-owner-admin-personal-card.md`. "Never started" on the web is "no step recorded" (the progress the
+  web reads has no `openedAt`); a setup someone opened and left at step 1 also reads "팀 설정 시작하기 · 1/5", which is
+  true there too. The JDR `created_at` check is skipped (the owner: don't touch the jdr server).
+- Tests: tests/unit/b-owner-late-card.test.ts (new), b-member-welcome and b-my-setup-start (the two backfillOwner
+  tests rewritten), b-welcome-at-setup (a row never opened), the guest role-read review list, web unit member-welcome
+  and home-no-ai, web e2e my-setup-card (every card state at 1440 and 390, light and dark), tests/e2e-ui step 1.

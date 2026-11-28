@@ -225,7 +225,7 @@ describe('destructive actions go through lib/destructive.ts', () => {
     }
   })
   /** files with an undo toast of their own (a move, a share, a setting: not a delete or a leave), 2026-11-26 */
-  const UNDO_OK = ['components/ArtifactPanel.tsx', 'components/FolderShareParts.tsx', 'components/FilePanel.tsx', 'components/chat/ChatProject.tsx', 'components/chat/ShareToRoom.tsx', 'components/chat/ChatShareDialog.tsx', 'components/nav/SidebarSections.tsx', 'components/rooms/SendHere.tsx', 'components/onboarding/SetupRow.tsx', 'components/onboarding/CardHide.tsx', 'components/onboarding/WelcomeResume.tsx', 'pages/Files.tsx', 'pages/admin/FolderSharing.tsx']
+  const UNDO_OK = ['components/ArtifactPanel.tsx', 'components/FolderShareParts.tsx', 'components/FilePanel.tsx', 'components/chat/ChatProject.tsx', 'components/chat/ShareToRoom.tsx', 'components/chat/ChatShareDialog.tsx', 'components/nav/SidebarSections.tsx', 'components/rooms/SendHere.tsx', 'components/onboarding/SetupRow.tsx', 'components/onboarding/CardHide.tsx', 'components/onboarding/MemberWelcome.tsx', 'components/onboarding/WelcomeResume.tsx', 'pages/Files.tsx', 'pages/admin/FolderSharing.tsx']
   test('an undo toast is made by the helper or a file on the list', () => {
     const makers = sources.filter((s) => /action: \{ label: t\('common\.undo'\)/.test(s.text)).map((s) => s.path)
     expect(makers.filter((p) => !UNDO_OK.includes(p))).toEqual([])
