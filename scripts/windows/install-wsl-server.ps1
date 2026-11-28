@@ -92,7 +92,7 @@ $script:DryRun = [bool]$WhatIfPreference
 & {
     $WhatIfPreference = $false
     foreach ($m in @('CimCmdlets', 'Dism', 'ScheduledTasks', 'Microsoft.PowerShell.Security', 'Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Utility')) {
-        Import-Module $m -Global -ErrorAction SilentlyContinue -WhatIf:$false
+        Import-Module $m -Global -ErrorAction SilentlyContinue
     }
 }
 

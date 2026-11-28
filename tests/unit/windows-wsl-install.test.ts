@@ -173,6 +173,26 @@ describe('install-wsl-server.ps1', () => {
     expect(PS1.indexOf('$cu = Invoke-Helper clearupload')).toBeLessThan(PS1.indexOf('$c = Copy-ToDistro -LinuxPath $pair[1] -From $pair[0]'))
     expect(between(PS1, "$HelperScript = @'\n", "\n'@")).toContain('  clearupload)\n    # an earlier -KitPath copy that stopped half-way: an empty folder for the next one\n    rm -rf -- "$UPLOAD"\n')
   })
+  test('-WhatIf / -Confirm only on cmdlets that take them (Windows PowerShell 5.1 stops on any other: QA 2026-11-28)', () => {
+    // the cmdlets of this script and its guides that support ShouldProcess; Import-Module, Get-*, Write-*, Read-Host,
+    // Invoke-WebRequest and the rest do not, and a -WhatIf:$false on Import-Module stopped the script before step 1
+    const SHOULD_PROCESS = new Set(['Unregister-ScheduledTask', 'Register-ScheduledTask', 'Remove-Item', 'Rename-Item', 'Copy-Item', 'New-Item', 'Set-Acl', 'Set-Clipboard', 'Start-Process', 'Restart-Computer', 'Enable-WindowsOptionalFeature', 'Start-ScheduledTask', 'Stop-ScheduledTask', 'Disable-ScheduledTask', 'Enable-ScheduledTask'])
+    const sources = { 'scripts/windows/install-wsl-server.ps1': PS1, 'docs/INSTALL-WINDOWS.md': read('docs/INSTALL-WINDOWS.md'), 'docs/INSTALL-WINDOWS.ko.md': read('docs/INSTALL-WINDOWS.ko.md') }
+    let seen = 0
+    for (const [f, text] of Object.entries(sources)) {
+      for (const line of text.split('\n')) {
+        if (line.trimStart().startsWith('#')) continue
+        // (text in quotes is a message, not a parameter)
+        for (const m of line.replace(/'[^']*'|"[^"]*"/g, "''").matchAll(/([A-Z][a-z]+-[A-Za-z]+)\b[^|;{}()]*?\s-(?:WhatIf|Confirm)\b/g)) {
+          seen++
+          expect(`${f}: ${m[1]} (${line.trim()}): ${SHOULD_PROCESS.has(m[1]!)}`).toBe(`${f}: ${m[1]} (${line.trim()}): true`)
+        }
+      }
+    }
+    expect(seen).toBeGreaterThan(0)
+    // the regex sees it: the line QA hit would fail here
+    expect([...'        Import-Module $m -Global -ErrorAction SilentlyContinue -WhatIf:$false'.matchAll(/([A-Z][a-z]+-[A-Za-z]+)\b[^|;{}()]*?\s-(?:WhatIf|Confirm)\b/g)].map((m) => m[1])).toEqual(['Import-Module'])
+  })
   test('Windows QA 2026-11-28: wsl.exe writes its own lines to the console, -WhatIf loads modules quietly, sleep is put back as it was', () => {
     const live = between(PS1, 'function Invoke-WslLive([string[]]$A) {', '\n}\n')
     // no pipe through PowerShell and no WSL_UTF8: the Korean progress lines came out with every letter twice
@@ -180,7 +200,9 @@ describe('install-wsl-server.ps1', () => {
     expect(live).toContain("$psi.EnvironmentVariables.Remove('WSL_UTF8')")
     expect(live).not.toMatch(/Redirect/)
     // the modules load before anything with WhatIf off
-    expect(PS1.indexOf("Import-Module $m -Global -ErrorAction SilentlyContinue -WhatIf:$false")).toBeLessThan(PS1.indexOf('# ---- 1. this PC ----'))
+    // (WhatIf off by the preference in a child scope: Import-Module has no -WhatIf on Windows PowerShell 5.1)
+    expect(PS1).toMatch(/& \{\n {4}\$WhatIfPreference = \$false\n[^\n]*\n {8}Import-Module \$m -Global -ErrorAction SilentlyContinue\n/)
+    expect(PS1.indexOf("Import-Module $m -Global -ErrorAction SilentlyContinue")).toBeLessThan(PS1.indexOf("# ---- 1. this PC ----"))
     for (const m of ['CimCmdlets', 'Dism', 'ScheduledTasks']) expect(PS1).toContain(`'${m}'`)
     // the AC sleep values before the first change are kept (never overwritten) and the uninstall puts them back
     expect(PS1).toMatch(/if \(\(Initialize-DataDir\) -and -not \(Test-Path -LiteralPath \$before\)\) \{[\s\S]*?standbyAcSeconds = \$standby; hibernateAcSeconds = \$hibernate[\s\S]*?& powercfg\.exe \/change standby-timeout-ac 0/)
