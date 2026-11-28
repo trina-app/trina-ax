@@ -20,7 +20,9 @@ import { audit } from '../admin/audit'
 import { HttpError } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { freeName } from '../team-files/place'
-import { assetDir, BRAND_PAGE_TEXT_MAX, pageLines, stagedAssets, type BrandAssetRow } from './brand-assets'
+import { imageInfo } from '@mycel/shared'
+import { saveTeamIconIfAbsent, TEAM_ICON_CHANGED, teamIconInfo } from '../admin/team-icon'
+import { assetDir, BRAND_PAGE_TEXT_MAX, dropStagedSiteIcon, pageLines, stagedAssets, stagedSiteIcon, type BrandAssetRow } from './brand-assets'
 import { readCompanyProfile } from './profile'
 import { BRAND_AT, BRAND_OWN_FILES, BRAND_TRIED_AT, brandDone, brandFoldersOf, brandOwnFiles, markBrand, readWelcome, setupWelcomeTeam, wantsBrandOnRead, welcomeOpened } from './welcome'
 
@@ -184,12 +186,34 @@ function ownerFile(ctx: AppContext, userId: string, rel: string, locale: Locale)
 }
 
 /**
+ * The website's square icon (onboarding/site-icon.ts, staged while the draft read the site) as the team logo, only if the
+ * team has none at this moment (docs/decisions/20261128-team-icon-from-site.md): never over a logo someone set, even
+ * one set a moment ago (saveTeamIconIfAbsent links, it does not check then write). The staged icon is used once either
+ * way, so an undo stays undone. Audited as team_icon.set with source "site"; open windows show it at once.
+ */
+export function applySiteIcon(ctx: AppContext, userId: string, chatId: string): { version: string } | null {
+  const staged = stagedSiteIcon(ctx.engineConfig.dataDir, chatId)
+  if (!staged) return null
+  let set: ReturnType<typeof saveTeamIconIfAbsent> = null
+  try {
+    const info = imageInfo(staged.bytes)
+    set = info ? saveTeamIconIfAbsent(ctx.config.dataDir, staged.bytes, info.type) : null
+  } catch (err) { ctx.log.warn('the website icon was not set as the team logo', { err }) }
+  try { dropStagedSiteIcon(ctx.engineConfig.dataDir, chatId) } catch { /* the sweep removes it later */ }
+  if (!set) return null
+  audit(ctx.db, { actor: userId, action: 'team_icon.set', target: null, detail: { ...teamIconInfo(set), before: null, source: 'site', url: staged.url } })
+  ctx.services.realtime.publishEach(() => TEAM_ICON_CHANGED)
+  return { version: set.version }
+}
+
+/**
  * The brand materials, as the owner (docs/DECISIONS.md "W6"): the team's start when its group or brand folder is
  * missing, the website's pictures into the brand images folder, and 회사 소개.md unless the owner gave intro files (one
  * there is kept). Records `brandAt` once it ran through. Throws what failed (the folder rules, no material at all):
- * the profile stays saved either way.
+ * the profile stays saved either way. `siteIcon`: the owner's own press (not the server's runs below) also sets the
+ * website's square icon as the team logo when the team has none (applySiteIcon).
  */
-export function placeBrand(ctx: AppContext, userId: string, locale: Locale, body: WelcomeBrand): Omit<WelcomeBrandResult, 'progress'> {
+export function placeBrand(ctx: AppContext, userId: string, locale: Locale, body: WelcomeBrand, o: { siteIcon?: boolean } = {}): Omit<WelcomeBrandResult, 'progress'> {
   let p = readWelcome(ctx)
   if (!p?.teamGroup?.brandFolder) p = setupWelcomeTeam(ctx, userId, locale).progress
   const group = p.teamGroup
@@ -200,6 +224,8 @@ export function placeBrand(ctx: AppContext, userId: string, locale: Locale, body
   // the website's pictures (the latest website draft of the owner that collected any)
   const draft = latestDraftChat(ctx, userId)
   const images = draft ? placeBrandAssets(ctx, userId, draft, imagesFolder, team) : []
+  // before the sweep, which removes a draft's staged folder once its pictures are placed
+  const teamIcon = o.siteIcon && draft ? applySiteIcon(ctx, userId, draft) : null
   sweepStagedAssets(ctx)
   let intro: string | null = null
   let wrote = false
@@ -221,7 +247,7 @@ export function placeBrand(ctx: AppContext, userId: string, locale: Locale, body
   const first = !brandDone(ctx)
   markBrand(ctx, BRAND_AT)
   if (first || wrote || images.length) audit(ctx.db, { actor: userId, action: 'onboarding.brand', target: brandFolder, detail: { files: files.length, intro: wrote, images: images.length } })
-  return { brandFolder, imagesFolder, images, intro }
+  return { brandFolder, imagesFolder, images, intro, teamIcon }
 }
 
 /** Whose brand materials a read puts in: the active owner with the latest website reading (its pictures are theirs:

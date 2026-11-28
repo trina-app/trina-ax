@@ -43,4 +43,7 @@ export const TEAM_ICON_SPECS: Record<string, Spec> = {
     },
   },
   deleteTeamIcon: { build: c => c.del('/api/admin/team-icon'), scope: 'byLevel' },
+  // the saved company profile's website, never an address from the request: this world has none, so an admin meets 409
+  // no_website (the found and not-found paths are tests/unit/b-site-icon.test.ts)
+  teamIconFromSite: { build: c => c.post('/api/admin/team-icon/from-site'), scope: 'byLevel' },
 }

@@ -58,6 +58,7 @@ import { assertConcurrencyAllowed, concurrencyMax } from '../system/limits'
 import { checkApiEngineUrl, checkApiEngineUrlForAdmin } from '../system/egress'
 import { feature } from '../system/deployment'
 import { readTeamIcon, removeTeamIcon, saveTeamIcon, TEAM_ICON_CHANGED, teamIconInfo } from '../admin/team-icon'
+import { teamIconFromSite } from '../admin/team-icon-site'
 
 const hostOf = (u: string) => { try { return new URL(u).host } catch { return '' } }
 
@@ -448,11 +449,23 @@ export const adminRoutes: RouteModule = {
       ctx.services.realtime.publishEach(() => TEAM_ICON_CHANGED)
       return info
     })
-    kit.handle(API.deleteTeamIcon, ({ auth }) => {
+    kit.handle(API.deleteTeamIcon, ({ auth, query }) => {
       const before = readTeamIcon(ctx.config.dataDir)?.version ?? null
-      if (!removeTeamIcon(ctx.config.dataDir)) return
-      audit(ctx.db, { actor: auth.user.id, action: 'team_icon.remove', target: null, detail: { before } })
+      // with a version (the undo of a logo set from the website): never a newer logo
+      const removed = removeTeamIcon(ctx.config.dataDir, query.version)
+      if (removed === 'stale') return fail('conflict', undefined, { params: { reason: 'stale' } })
+      if (!removed) return
+      audit(ctx.db, { actor: auth.user.id, action: 'team_icon.remove', target: null, detail: { before, ...(query.version ? { undo: true } : {}) } })
       ctx.services.realtime.publishEach(() => TEAM_ICON_CHANGED)
+    })
+    // the saved company profile's website, never an address from the request (admin/team-icon-site.ts)
+    kit.handle(API.teamIconFromSite, async ({ c, auth }) => {
+      const before = readTeamIcon(ctx.config.dataDir)?.version ?? null
+      const { icon, url } = await teamIconFromSite(ctx, auth.user.id, c.get('locale'))
+      const info = teamIconInfo(icon)
+      audit(ctx.db, { actor: auth.user.id, action: 'team_icon.set', target: null, detail: { ...info, before, source: 'site', url } })
+      ctx.services.realtime.publishEach(() => TEAM_ICON_CHANGED)
+      return info
     })
 
     // ---------------- voice input: the OpenRouter key (credentials/speech-key.ts) ----------------

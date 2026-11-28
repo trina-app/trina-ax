@@ -891,7 +891,7 @@ export class TurnExec {
       // the pages it opens or is refused are written down as they happen: the profile screen shows them line by line
       // and a website's pages are also looked at for the brand's pictures, colours and text (docs/DECISIONS.md "N")
       const web = draft?.web ?? null
-      const brand = web ? new BrandCollector(rt.db, spec.chatId, { dataDir: rt.ctx.engineConfig.dataDir, log: rt.log, inScope: (u) => inWebScope(web, u) }) : null
+      const brand = web ? new BrandCollector(rt.db, spec.chatId, { dataDir: rt.ctx.engineConfig.dataDir, log: rt.log, inScope: (u) => inWebScope(web, u), siteIcon: !web.prefix }) : null
       this.profileDraft = draft ? { scope: draft, fetched: new Set(), pages: new DraftPages(rt.db, spec.assistantId, rt.log, () => this.content.length, brand) } : null
       // a team skill draft chat runs with no tool at all (fails closed the same way)
       this.skillDraft = draft ? null : skillDraftOf(rt.db, spec.chatId)
