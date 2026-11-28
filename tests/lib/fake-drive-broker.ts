@@ -19,10 +19,12 @@ export class FakeDriveBroker {
   trusted = this.publicKey
   configured = true
   requests: { path: string; body: string }[] = []
-  starts = new Map<string, { returnState: string; challenge: string; purpose: string; app?: string }>()
+  starts = new Map<string, { returnState: string; challenge: string; purpose: string; app?: string; locale?: string }>()
   handoffs = new Map<string, { challenge: string; who: string; app?: string }>()
   /** false: an older control plane that refuses the `app` field (invalid_request) */
   appsSupported = true
+  /** false: an older control plane that refuses the `locale` field (invalid_request) */
+  localeSupported = true
   /** false: a control plane that takes an app only with purpose "personal" (before team app sign-ins, invalid_request) */
   shareAppsSupported = true
   /** apps the control plane knows but has closed: a start for one answers app_unavailable */
@@ -109,10 +111,10 @@ export class FakeDriveBroker {
     if (path === DRIVE_BROKER_PATHS.status) return parseDriveBrokerStatus(json) ? Response.json({ ok: true }) : err('invalid_request', 400)
     if (path === DRIVE_BROKER_PATHS.start) {
       const b = parseDriveBrokerStart(json)
-      if (!b || (b.app && !this.appsSupported) || (b.app && b.purpose !== 'personal' && !this.shareAppsSupported)) return err('invalid_request', 400)
+      if (!b || (b.app && !this.appsSupported) || (b.app && b.purpose !== 'personal' && !this.shareAppsSupported) || (b.locale && !this.localeSupported)) return err('invalid_request', 400)
       if (b.app && this.appsClosed.includes(b.app)) return err('app_unavailable', 409)
       const state = crypto.randomBytes(32).toString('base64url')
-      this.starts.set(state, { returnState: b.returnState, challenge: b.codeChallenge, purpose: b.purpose, ...(b.app ? { app: b.app } : {}) })
+      this.starts.set(state, { returnState: b.returnState, challenge: b.codeChallenge, purpose: b.purpose, ...(b.app ? { app: b.app } : {}), ...(b.locale ? { locale: b.locale } : {}) })
       const u = new URL(this.authorizeBase)
       u.searchParams.set('state', state); u.searchParams.set('scope', DRIVE_BROKER_SCOPE); u.searchParams.set('redirect_uri', BROKER_ORIGIN + '/drive-broker/google/callback')
       const connectUrl = this.connect === 'none' ? undefined : this.connect === 'page' ? driveBrokerConnectPage(BROKER_ORIGIN, state) : this.connect.replace('{state}', state)
