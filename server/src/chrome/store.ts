@@ -5,7 +5,7 @@
 // its own name and site rules. Pure database code; the routes are routes/chrome.ts, the live connections chrome/links.ts.
 import type { Database } from 'bun:sqlite'
 import crypto from 'node:crypto'
-import { CHROME_CODE_TTL_MS, CHROME_LINK_IDLE_DAYS, CHROME_LINKS_MAX, type BrowserTarget } from '@mycel/shared/api'
+import { CHROME_CODE_TTL_MS, CHROME_LINK_IDLE_DAYS, CHROME_LINKS_MAX } from '@mycel/shared/api'
 import { newId } from '../db'
 
 const sha256hex = (s: string) => crypto.createHash('sha256').update(s).digest('hex')
@@ -107,15 +107,9 @@ export function sweepChrome(db: Database, now = Date.now()): string[] {
   return ids
 }
 
-export function browserTarget(db: Database, userId: string): BrowserTarget {
-  const r = db.query('SELECT target FROM user_browser_target WHERE user_id = ?').get(userId) as { target: BrowserTarget } | null
-  return r?.target ?? 'app'
-}
-
-export function setBrowserTarget(db: Database, userId: string, target: BrowserTarget, now = Date.now()) {
-  db.query('INSERT INTO user_browser_target (user_id, target, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET target = excluded.target, updated_at = excluded.updated_at')
-    .run(userId, target, iso(now))
-}
+// user_browser_target (migration 464) is no longer read: every turn gets the person's linked profiles, and in the
+// desktop app its own browser as one more (docs/decisions/20261128-browser-profiles-every-turn.md). Its rows stay for a
+// build rolled back to one that reads them; account deletion still clears them (chat/account-cleanup.ts)
 
 export function linkOf(db: Database, userId: string, linkId: string): LinkRow | null {
   return db.query(`SELECT ${COLS} FROM chrome_links WHERE id = ? AND user_id = ?`).get(linkId, userId) as LinkRow | null

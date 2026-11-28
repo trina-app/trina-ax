@@ -144,7 +144,8 @@ import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, SOON_MS, type CredEngine } from '../credentials/resolve'
 import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
-import { browserTarget, linkSites, linksOf } from '../chrome/store'
+import { linkSites, linksOf } from '../chrome/store'
+import { APP_PROFILE_ID, type ChromeProfile } from '../chrome/profiles'
 import { mayAttachChatFile, mayWriteChatVersion, resolvePlace } from '../files/places'
 import { chatPlaces } from './place-ctx'
 import { situationOf } from './situation'
@@ -465,11 +466,14 @@ export class TurnExec {
   /** where this turn's browser calls go: the desktop window that sent it, or the asker's own linked Chrome
    * (`chrome:<linkId>`, docs/decisions/20261128-trina-in-chrome.md); null: no browser */
   browserWindow: string | null = null
-  /** which of the two `browserWindow` is */
+  /** 'chrome': each call picks one of `chromeProfiles` (the person's linked profiles, and in the desktop app its own
+   * browser as the profile 'app'); 'app': the desktop window only; null: no browser */
   browserVia: 'app' | 'chrome' | null = null
-  /** the person's linked browser profiles when this turn's browser is their own (docs/decisions/20261128-trina-in-chrome.md):
-   * every one, online or not, as the AI is told about them; the AI names one per call (`profile`) */
-  chromeProfiles: { linkId: string; label: string; email: string | null; online: boolean; sites: string[]; onlyListed: boolean }[] = []
+  /** the desktop window that sent this turn, whose own browser is the profile 'app' (null: not the desktop app) */
+  appWindow: string | null = null
+  /** the person's linked browser profiles (docs/decisions/20261128-trina-in-chrome.md): every one, online or not, as the
+   * AI is told about them; the AI names one per call (`profile`). In the desktop app also its own browser (`app: true`) */
+  chromeProfiles: ChromeProfile[] = []
   /** the profile this run used last (a call without `profile` goes there) */
   chromeCurrent: string | null = null
   /** public sites the person allowed once in this answer on the Chrome site card, per profile (chat/tools.ts) */
@@ -990,24 +994,30 @@ export class TurnExec {
     // there (confirmSharedBrowser; docs/decisions/20261126-shared-chat-own-tools.md): it shows the person's signed-in
     // pages, which everyone here then sees, so the asker is told once per place, as for a connection
     this.desktop = !this.restricted && spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
-    // the asker's own linked Chrome (docs/decisions/20261128-trina-in-chrome.md): on the web whenever it is connected, in
-    // the desktop app when the person chose it (Settings › Browser); never a phone, a scheduled run, a guest or a
-    // restricted run, and only the person's own link (another member's turn never reaches it)
-    // ...and the person's own scheduled runs (a profile's own Always answers are what they may use there unattended)
+    // the asker's own linked browser profiles (docs/decisions/20261128-trina-in-chrome.md): on every turn of theirs, the
+    // web, the desktop app and their own scheduled runs, whenever they linked one (docs/decisions/
+    // 20261128-browser-profiles-every-turn.md: a desktop-app turn used to get them only behind a Settings switch, so the
+    // AI said no Chrome was connected while the extension said online). Never a phone, a guest or a restricted run, and
+    // only the person's own links (another member's turn never reaches them). In the desktop app the app's own browser
+    // is one more profile ('app'): the AI picks per call, nothing global decides
     const chromeWanted = !this.restricted && !isGuestUser(rt.db, spec.userId)
-      && (spec.clientKind === 'schedule' || (!!spec.windowId && (spec.clientKind === 'web' || (spec.clientKind === 'desktop' && browserTarget(rt.db, spec.userId) === 'chrome'))
+      && (spec.clientKind === 'schedule' || (!!spec.windowId && (spec.clientKind === 'web' || spec.clientKind === 'desktop')
         // a live window of the person's own (an app's or a script's token posting a message has none): security review
         && rt.hub.isWindowOpen(spec.userId, spec.windowId)))
-    const online = chromeWanted ? rt.chrome.onlineLinks(spec.userId) : []
-    if (online.length) {
-      const up = new Set(online.map((o) => o.linkId))
-      this.chromeProfiles = linksOf(rt.db, spec.userId).map((l) => ({ linkId: l.id, label: l.label, email: l.email, online: up.has(l.id), sites: linkSites(rt.db, l.id), onlyListed: l.only_listed === 1 }))
-    }
-    const chrome = online[0]?.windowId ?? null
-    this.browserWindow = chrome ?? (this.desktop ? spec.windowId! : null)
-    this.browserVia = chrome ? 'chrome' : this.desktop ? 'app' : null
+    const links = chromeWanted ? linksOf(rt.db, spec.userId) : []
+    const online = links.length ? rt.chrome.onlineLinks(spec.userId) : []
+    const up = new Set(online.map((o) => o.linkId))
+    this.chromeProfiles = links.map((l) => ({ linkId: l.id, label: l.label, email: l.email, online: up.has(l.id), sites: linkSites(rt.db, l.id), onlyListed: l.only_listed === 1 }))
+    // profiles are offered when one is open now, or in the desktop app (its own browser is open; a closed profile is
+    // listed as not open, and a call naming it is refused with how to open it)
+    const viaProfiles = this.chromeProfiles.length > 0 && (online.length > 0 || this.desktop)
+    if (viaProfiles && this.desktop) this.chromeProfiles.push({ linkId: APP_PROFILE_ID, label: APP_PROFILE_ID, email: null, online: true, sites: [], onlyListed: false, app: true })
+    this.appWindow = this.desktop ? spec.windowId! : null
+    this.browserWindow = this.appWindow ?? (viaProfiles ? online[0]!.windowId : null)
+    this.browserVia = viaProfiles ? 'chrome' : this.desktop ? 'app' : null
     this.browser = !!this.browserWindow
-    this.browserUpload = this.browser && rt.relay.paneVersion(spec.userId, this.browserWindow) >= BROWSER_BRIDGE_VERSION
+    // file_upload where any of this turn's browsers runs it (an older desktop app's own browser refuses it per call)
+    this.browserUpload = this.browser && [this.browserWindow, ...online.map((o) => o.windowId)].some((w) => rt.relay.paneVersion(spec.userId, w) >= BROWSER_BRIDGE_VERSION)
     if (this.stopReason) return
     // the dev environment (devenv/setting.ts), never in a scheduled run (nobody there answers the credential card), an
     // approved template run (its scope is fixed) or a company profile draft (web_fetch only). Any chat of a person in
@@ -1355,7 +1365,7 @@ export class TurnExec {
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone, personTimeZone: spec.timeZone,
       // a shared chat: only the asker's memories kept in this very chat (their words are in its transcript), never their
       // private ones; a guest's none (docs/decisions/20261125-auto-memory-shared-chats.md; prompt.ts promptMemories)
-      memories: this.shared ? (guestTurn ? [] : chatMemories(rt.db, spec.userId, spec.chatId).map((m) => ({ id: m.id, text: m.text, sharedChat: spec.chatId }))) : rt.memoriesForPrompt(spec.userId), autoMemory: this.autoMemoryPlace && autoMemoryOn(rt.db, spec.userId), promptTokens, project, browser: this.browser, ...(this.browserVia === 'chrome' ? { browserVia: 'chrome' as const, browserProfiles: this.chromeProfiles.map((p) => ({ name: p.label, id: p.linkId, online: p.online, ...(this.shared ? {} : { sites: p.sites, ...(p.email ? { email: p.email } : {}) }) })) } : {}), browserUpload: this.browserUpload, tools: extraTools,
+      memories: this.shared ? (guestTurn ? [] : chatMemories(rt.db, spec.userId, spec.chatId).map((m) => ({ id: m.id, text: m.text, sharedChat: spec.chatId }))) : rt.memoriesForPrompt(spec.userId), autoMemory: this.autoMemoryPlace && autoMemoryOn(rt.db, spec.userId), promptTokens, project, browser: this.browser, ...(this.browserVia === 'chrome' ? { browserVia: 'chrome' as const, ...(this.appWindow ? { browserApp: true } : {}) } : {}), ...(this.chromeProfiles.some((p) => !p.app) ? { browserProfiles: this.chromeProfiles.filter((p) => !p.app).map((p) => ({ name: p.label, id: p.linkId, online: p.online, ...(this.shared ? {} : { sites: p.sites, ...(p.email ? { email: p.email } : {}) }) })) } : {}), browserUpload: this.browserUpload, tools: extraTools,
       // the web or a phone: the AI says the desktop app has the browser (prompt.ts NO_BROWSER_RULE)
       browserInDesktopApp: !this.browser && !this.restricted && (spec.clientKind === 'web' || spec.clientKind === 'mobile'),
       // a shared chat's transcript says who wrote each message (chat/shared.ts)

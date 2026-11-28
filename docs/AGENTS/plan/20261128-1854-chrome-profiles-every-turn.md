@@ -41,7 +41,7 @@ Out: a phone turn (still no browser); MCP apps' browser tools (already per profi
 
 ## Decisions
 
-docs/decisions/20261129-browser-profiles-every-turn.md (changes 20261128-trina-in-chrome.md "Settings › Browser: this
+docs/decisions/20261128-browser-profiles-every-turn.md (changes 20261128-trina-in-chrome.md "Settings › Browser: this
 app or my Chrome").
 
 ## Risks

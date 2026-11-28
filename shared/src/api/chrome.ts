@@ -22,11 +22,6 @@ export const CHROME_LINK_IDLE_DAYS = 30
 /** a code lives this long */
 export const CHROME_CODE_TTL_MS = 5 * 60_000
 
-/** Where a desktop-app turn's browser runs: the app's own pane (default) or the person's Chrome. The web always uses an
- * online Chrome. */
-export const BrowserTarget = z.enum(['app', 'chrome'])
-export type BrowserTarget = z.infer<typeof BrowserTarget>
-
 export const ChromeLinkLabel = z.string().trim().min(1).max(60).regex(/^[^\u0000-\u001f\u007f\u2028\u2029]+$/)
 /** the Google account a browser profile is signed in to (chrome.identity), as the extension read it */
 export const ChromeLinkEmail = z.string().trim().max(254).regex(/^[^\s@<>"]+@[^\s@<>"]+$/)
@@ -136,10 +131,9 @@ export type BrowserAskView = z.infer<typeof BrowserAskView>
 export const BrowserAskDecision = z.enum(['once', 'always', 'no'])
 
 export const CHROME = {
-  chromeLinks: endpoint({ method: 'GET', path: '/api/chrome/links', auth: 'user', owner: 'B', response: z.object({ links: z.array(ChromeLink), target: BrowserTarget }), summary: 'The browser profiles (Chrome, Edge, Brave) this person linked to the team, each with its name, state and site rules, and where a desktop-app turn\'s browser runs.' }),
+  chromeLinks: endpoint({ method: 'GET', path: '/api/chrome/links', auth: 'user', owner: 'B', response: z.object({ links: z.array(ChromeLink) }), summary: 'The browser profiles (Chrome, Edge, Brave) this person linked to the team, each with its name, state and site rules. Every turn of theirs may use them (in the desktop app next to its own browser): the AI picks one per step.' }),
   chromeUnlink: endpoint({ method: 'DELETE', path: '/api/chrome/links/:id', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Disconnect one of this person\'s Chromes: its token stops working and its connection closes at once. 404: not theirs.' }),
   chromeUpdateLink: endpoint({ method: 'PATCH', path: '/api/chrome/links/:id', auth: 'user', owner: 'B', body: z.strictObject({ label: ChromeLinkLabel.optional(), onlyListed: z.boolean().optional(), addSite: ChromeSite.optional(), removeSite: ChromeSite.optional() }), response: ChromeLink, summary: 'Rename one of this person\'s browser profiles, limit it to its site list, or add or remove a site the AI may use there without asking. 404: not theirs.' }),
-  chromeTarget: endpoint({ method: 'PUT', path: '/api/chrome/target', auth: 'user', owner: 'B', body: z.strictObject({ target: BrowserTarget }), response: empty, status: 204, summary: 'Where a desktop-app turn\'s browser runs: the app\'s own browser (app) or the person\'s Chrome (chrome).' }),
   chromePair: endpoint({ method: 'POST', path: '/api/chrome/pair', auth: 'user', owner: 'B', body: z.strictObject({ challenge: ChromeSecret }), response: z.object({ code: ChromeSecret, expiresAt: z.string() }), summary: 'The signed-in team page in Chrome (/connect-chrome) makes a one-time code for the extension that opened it (bound to its challenge, 5 minutes); the page puts it only in the fragment of /connect-chrome/done. Cookie sessions only; a guest: 403.' }),
   chromeRedeem: endpoint({ method: 'POST', path: '/api/chrome/redeem', auth: 'public', owner: 'B', body: ChromeRedeemBody, response: ChromeRedeemed, summary: 'The extension spends a code with its verifier for a link token (only its sha256 is kept): one more browser profile of the person (`previous`: the one this install held is replaced). Past CHROME_LINKS_MAX: 409 links_full, nothing removed. Wrong, used or expired: 410; failures are counted per address.' }),
   browserAsk: endpoint({ method: 'GET', path: '/api/chrome/asks/:id', auth: 'user', owner: 'B', response: BrowserAskView, summary: 'A question one of this person\'s own MCP apps needs answered in their browser profile (a site, an address, an office address). Only the person it is for; another person\'s, an answered or an expired one: 404.' }),

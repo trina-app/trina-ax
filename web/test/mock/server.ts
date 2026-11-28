@@ -365,7 +365,6 @@ export class MockServer {
   /** the AI's browser in the person's own Chrome (shared/src/api/chrome.ts): their linked Chromes, where a desktop-app
    * turn's browser runs, and the codes the connect page made (POST /__test/chrome seeds links) */
   chromeLinks = new Map<string, import('@mycel/shared/api').ChromeLink[]>()
-  chromeTargets = new Map<string, 'app' | 'chrome'>()
   chromeCodes: { userId: string; challenge: string; code: string }[] = []
   /** the questions a person's own MCP apps wait on in their browser profile (/browser-ask/<id>; POST /__test/browser-ask
    * seeds one), and the connections whose browser work was resumed */
@@ -710,7 +709,6 @@ export class MockServer {
     this.widening = null
     this.notReadyTold = new Set()
     this.chromeLinks = new Map()
-    this.chromeTargets = new Map()
     this.chromeCodes = []
     this.browserAsks = new Map()
     this.browserResumed = []
@@ -3030,7 +3028,7 @@ export class MockServer {
       return { allowAll: this.webAccess.has(c.user.id) }
     },
     // like server/src/routes/chrome.ts: the person's own links only; pair needs a signed-in member (a guest: 403)
-    chromeLinks: (c) => ({ links: this.chromeLinks.get(c.user.id) ?? [], target: this.chromeTargets.get(c.user.id) ?? 'app' }),
+    chromeLinks: (c) => ({ links: this.chromeLinks.get(c.user.id) ?? [] }),
     chromeUnlink: (c) => {
       const mine = this.chromeLinks.get(c.user.id) ?? []
       if (!mine.some((l) => l.id === c.params.id)) fail('not_found', 404, 'Not found')
@@ -3046,10 +3044,6 @@ export class MockServer {
       if (c.body.addSite && !l!.sites.includes(c.body.addSite)) l!.sites = [...l!.sites, c.body.addSite].sort()
       if (c.body.removeSite) l!.sites = l!.sites.filter((x) => x !== c.body.removeSite)
       return l
-    },
-    chromeTarget: (c) => {
-      this.chromeTargets.set(c.user.id, c.body.target)
-      return undefined
     },
     // like server/src/routes/chrome.ts: only the person it is for, while open; another's, answered or expired: 404
     browserAsk: (c) => {
@@ -6577,12 +6571,11 @@ export class MockServer {
     }
     if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined, withAdmin: !!body.withAdmin })
     else if (p === '/__test/chrome') {
-      // {username?, links: [{label, online?, lastSeenAt?, sites?, onlyListed?}], target?}: that person's (else everyone's)
+      // {username?, links: [{label, online?, lastSeenAt?, sites?, onlyListed?}]}: that person's (else everyone's)
       // linked browser profiles
       const links = (Array.isArray(body.links) ? body.links : []) as { label: string; email?: string; browser?: string; online?: boolean; lastSeenAt?: string | null; sites?: string[]; onlyListed?: boolean }[]
       for (const u of this.users.filter((x) => body.username === undefined || x.username === body.username)) {
         this.chromeLinks.set(u.id, links.map((l, i) => ({ id: `chrome-${u.id}-${i}`, label: l.label, email: l.email ?? null, browser: l.browser ?? null, createdAt: now(), lastSeenAt: l.lastSeenAt ?? null, online: l.online === true, version: '0.1.0', sites: l.sites ?? [], onlyListed: l.onlyListed === true })))
-        if (body.target === 'app' || body.target === 'chrome') this.chromeTargets.set(u.id, body.target)
       }
     } else if (p === '/__test/browser-ask') {
       // {username?, id?, kind?, always?, url?, profile?, client?}: an open question for that person (else the first user)

@@ -3,7 +3,11 @@
 import { urlsOf } from '../realtime/browser-tools'
 import { siteCovers } from './store'
 
-export interface ChromeProfile { linkId: string; label: string; email: string | null; online: boolean; sites: string[]; onlyListed: boolean }
+/** `app`: the desktop app's own browser next to the chat, one more choice in a desktop-app turn (id APP_PROFILE_ID) */
+export interface ChromeProfile { linkId: string; label: string; email: string | null; online: boolean; sites: string[]; onlyListed: boolean; app?: boolean }
+
+/** the id the AI names the desktop app's own browser by (`profile: "app"`); never a link id (those are uuids) */
+export const APP_PROFILE_ID = 'app'
 
 /** Strip `profile` from a call's input (and a batch's actions): what the extension gets has none. */
 export function withoutProfile(args: Record<string, unknown>): Record<string, unknown> {
@@ -16,7 +20,9 @@ export function withoutProfile(args: Record<string, unknown>): Record<string, un
 /**
  * The `profile` a call names (name, account email when only one profile has it, or id; a batch's own or its first
  * action's), else the profile this run used last, else the one whose sites hold the call's address (only when exactly
- * one does), else the only one open. A named or pinned profile that is not open is refused, never swapped for another.
+ * one does), else the only linked browser profile open (several: the AI asks), else the desktop app's own browser (in a
+ * desktop-app turn, docs/decisions/20261128-browser-profiles-every-turn.md). A named or pinned profile that is not open
+ * is refused, never swapped for another.
  * `ready`: the profile is connected now.
  */
 export function pickProfile<P extends ChromeProfile>(ps: readonly P[], current: string | null, ready: (p: P) => boolean, tool: string, raw: Record<string, unknown>, ask = 'ask the user once (ask_user)'): { profile: P; args: Record<string, unknown> } | { refused: string; why: string } {
@@ -45,8 +51,12 @@ export function pickProfile<P extends ChromeProfile>(ps: readonly P[], current: 
       return { profile: pinned[0]!, args }
     }
   }
-  const open = ps.filter(ready)
+  // a linked browser profile before the app's own browser: the person linked it to be used (the owner's bug: a desktop
+  // turn never reached the Chrome that said "online")
+  const open = ps.filter((p) => !p.app && ready(p))
   if (open.length === 1) return { profile: open[0]!, args }
-  if (!open.length) return { refused: 'None of the user\'s browser profiles is open now. Tell the user to open their browser.', why: 'none open' }
-  return { refused: `Several browser profiles are open (${open.map((p) => `"${p.label}"`).join(', ')}): pass \`profile\` with the one whose account this step needs. If the task does not say which account, ${ask}.`, why: 'which one' }
+  if (open.length > 1) return { refused: `Several browser profiles are open (${open.map((p) => `"${p.label}"`).join(', ')}): pass \`profile\` with the one whose account this step needs. If the task does not say which account, ${ask}.`, why: 'which one' }
+  const app = ps.find((p) => p.app && ready(p))
+  if (app) return { profile: app, args }
+  return { refused: 'None of the user\'s browser profiles is open now. Tell the user to open that browser (Chrome, Edge or Brave with the extension connects by itself), or to check Settings › Browser.', why: 'none open' }
 }

@@ -6,7 +6,6 @@ export const CHROME_SPECS: Record<string, Spec> = {
   chromeLinks: { build: (c) => c.get('/api/chrome/links'), scope: 'self' },
   // a link that is not the caller's (or none): the same 404 for everyone
   chromeUnlink: { build: (c) => c.del('/api/chrome/links/no-such-link'), scope: 'nobody' },
-  chromeTarget: { build: (c) => c.put('/api/chrome/target', { target: 'app' }), scope: 'self' },
   chromeUpdateLink: { build: (c) => c.patch('/api/chrome/links/no-such-link', { label: 'x' }), scope: 'nobody' },
   chromePair: { build: (c) => c.post('/api/chrome/pair', { challenge }), scope: 'byLevel' },
   // a made-up code links nothing, for anyone

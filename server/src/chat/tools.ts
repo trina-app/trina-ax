@@ -18,7 +18,7 @@ import { chatFileOffered, chatFileTool, chatPlaceHooks, restoreChatFileTool, sav
 import { answerCommentsOff, answerCommentsTool } from './answer-comments'
 import path from 'node:path'
 import { z } from 'zod'
-import { AskUserInput, TodoWriteInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, MoveSkillInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
+import { AskUserInput, TodoWriteInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, MoveSkillInput, RememberInput, SetTitleInput, SkillInput, uuidv7, BROWSER_BRIDGE_VERSION } from '@mycel/shared'
 import { MEMORY_TEXT_MAX } from '@mycel/shared/api'
 import type { BrowserResult, BrowserToolName, ConfirmDetail, Locale, Step, TurnRequest } from '@mycel/shared/api'
 import type { McpContent, TurnToolSet } from '../turns'
@@ -422,7 +422,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     const s = t.inputSchema as unknown as Record<string, unknown>
     if (exec.browserVia !== 'chrome') return s
     const props = (s.properties ?? {}) as Record<string, unknown>
-    return { ...s, properties: { ...props, profile: { type: 'string', description: 'Which of the user\'s browser profiles (its name, account email or id, listed in the Browser rules). Omit: the profile this answer used last.' } } }
+    return { ...s, properties: { ...props, profile: { type: 'string', description: `Which of the user's browser profiles (its name, account email or id, listed in the Browser rules)${exec.appWindow ? ', or "app" for the browser built into this desktop app' : ''}. Omit: the profile this answer used last, else the user's open profile.` } } }
   }
   if (exec.browser) for (const t of PANE_TOOLS) if (t.name !== 'file_upload' || exec.browserUpload) add(browserTool(exec, t.name as BrowserToolName, t.description, schemaOf(t)), { browser: true })
   // per-person tools (external-service connections), built from saved data at the start of the turn
@@ -1946,18 +1946,30 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       const chrome = exec.browserVia === 'chrome'
       let win = exec.browserWindow!
       let profile: TurnExec['chromeProfiles'][number] | null = null
+      /** where the call ran, for its step ("· 'Work' 프로필", "· 앱 브라우저"): put on the step with the call's one patch
+       * at the end (a second patch of one call would land on the tool's next step: turn.ts patchToolStep) */
+      let ranIn = ''
       if (chrome) {
         const picked = pickProfile(exec, name, args)
         if ('refused' in picked) return { ...text(picked.refused, true), summary: `${name} -> not run (browser profile: ${picked.why})` }
-        profile = picked.profile
         args = picked.args
-        win = chromeWindowOf(profile.linkId)
-        exec.chromeCurrent = profile.linkId
-        // the step says which profile it ran in (two profiles of one person look the same otherwise)
-        const said = exec.redact(tr('chromeStepProfile', spec.locale, { profile: profile.label }))
-        exec.patchToolStep(name, (s) => ({ label: s.label.endsWith(said) ? s.label : `${s.label} · ${said}` }))
+        exec.chromeCurrent = picked.profile.linkId
+        if (picked.profile.app) {
+          // the desktop app's own browser (the profile "app", docs/decisions/20261128-browser-profiles-every-turn.md):
+          // the call runs as in a desktop turn without profiles (its sites, its cards, its Always)
+          win = exec.appWindow!
+          ranIn = exec.redact(tr('chromeStepApp', spec.locale))
+          if (name === 'file_upload' && rt.relay.paneVersion(spec.userId, win) < BROWSER_BRIDGE_VERSION) {
+            return { ...text('Not run: the desktop app on this computer is too old to attach files in its own browser. Use one of the user\'s browser profiles for this step, or tell the user to update the desktop app (it updates itself when restarted).', true), summary: `${name} -> not run (app browser too old for file_upload)` }
+          }
+        } else {
+          profile = picked.profile
+          win = chromeWindowOf(profile.linkId)
+          // the step says which profile it ran in (two profiles of one person look the same otherwise)
+          ranIn = exec.redact(tr('chromeStepProfile', spec.locale, { profile: profile.label }))
+        }
         // a scheduled run: no script of the AI's own in the person's signed-in pages (nobody watches it)
-        if (spec.clientKind === 'schedule' && (name === 'javascript_tool' || (name === 'browser_batch' && Array.isArray(args.actions) && args.actions.some((a) => (a as { name?: unknown })?.name === 'javascript_tool')))) {
+        if (profile && spec.clientKind === 'schedule' && (name === 'javascript_tool' || (name === 'browser_batch' && Array.isArray(args.actions) && args.actions.some((a) => (a as { name?: unknown })?.name === 'javascript_tool')))) {
           return { ...text('Not run: scripts (javascript_tool) are not used in the user\'s own browser during a scheduled run. Use read_page, find, computer and form_input.', true), summary: `${name} -> refused (scheduled run: no script in Chrome)` }
         }
       }
@@ -2115,8 +2127,8 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       for (const n of g.notes) content.push({ type: 'text', text: n })
       // the files are in the page: the step says how many and where ("파일 2개 첨부함: mail.daum.net · …")
       const attached = files ? attachedStepLabel(r, files, spec.locale) : null
-      const inProfile = profile && attached ? ` · ${tr('chromeStepProfile', spec.locale, { profile: profile.label })}` : ''
-      exec.patchToolStep(name, (s) => ({ ...(shared.length ? { images: [...(s.images ?? []), ...shared] } : {}), ...(attached ? { label: exec.redact(attached + inProfile) } : {}) }))
+      const inProfile = ranIn ? ` · ${ranIn}` : ''
+      if (shared.length || attached || ranIn) exec.patchToolStep(name, (s) => ({ ...(shared.length ? { images: [...(s.images ?? []), ...shared] } : {}), ...(attached ? { label: exec.redact(attached + inProfile) } : ranIn ? { label: s.label.endsWith(ranIn) ? s.label : `${s.label}${inProfile}` } : {}) }))
       if (!content.length) content.push({ type: 'text', text: r.ok ? 'OK' : 'Error' })
       return { content, isError: !r.ok, summary: `${name} -> ${r.ok ? 'ok' : 'error: ' + (r.error ?? '').slice(0, 200)}${guardSummary(g)}${allSites ? ' (all websites allowed)' : ''}${files ? ` (${files.length} file${files.length === 1 ? '' : 's'} ${r.ok ? 'attached' : 'offered'}: ${uploadSummary(files)})` : ''}` }
     },
@@ -2188,7 +2200,8 @@ function runTitle(exec: TurnExec): string {
 
 /** Which of the person's browser profiles a call goes to (chrome/profiles.ts, the same rule as the MCP apps'). */
 function pickProfile(exec: TurnExec, tool: string, raw: Record<string, unknown>) {
-  return pickChromeProfile(exec.chromeProfiles, exec.chromeCurrent, (p) => p.online && exec.rt.chrome.online(p.linkId), tool, raw)
+  // the app's own browser is ready while the window that sent the turn is (the relay fails a call to a window gone)
+  return pickChromeProfile(exec.chromeProfiles, exec.chromeCurrent, (p) => p.app ? !!exec.appWindow : p.online && exec.rt.chrome.online(p.linkId), tool, raw)
 }
 
 /** The name the desktop app hears for an allowed address: the host in lower case without "www." and without its port
