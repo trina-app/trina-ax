@@ -5,7 +5,14 @@ description: Run your team's Trina AX server on a Windows 11 PC in your office, 
 
 Your team's Trina AX server can run on an ordinary Windows PC that stays on, such as the PC at the front desk or a spare one in the office. One setup script does the work. It is the same server as on a Linux machine, with the same updates, backups and safe space for the AI's work.
 
-It suits a small office that has a PC that is always on and nobody who looks after servers. If you would rather not keep a PC on at all, [Trina hosting](https://ax.trina.app/#pricing) runs the server for you.
+It suits a small office that has a PC that is always on. If you would rather not keep a PC on at all, [Trina hosting](https://ax.trina.app/#pricing) runs the server for you.
+
+How hard is it?
+
+- **Only on this PC: easy.** Paste a few commands, restart the PC once, and it is done in about 10 minutes.
+- **For the whole team:** you need your own domain and a Cloudflare account. As with other open-source software, it takes someone who knows a little IT.
+
+Korean: [윈도우 PC에 설치하기](../../INSTALL-WINDOWS.ko.md) (the full guide in Korean).
 
 ## What you need
 

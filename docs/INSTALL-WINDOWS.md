@@ -5,6 +5,12 @@
 > **Not technical?** The short version is the docs page [Host it on a Windows PC](site/operate/windows-pc.md): what you
 > need, four steps and what to keep in mind. This page has every detail behind it.
 
+How hard is it?
+
+- **Only on this PC: easy.** Paste a few commands, restart the PC once, and it is done in about 10 minutes.
+- **For the whole team:** you need your own domain and a Cloudflare account. As with other open-source software, it
+  takes someone who knows a little IT.
+
 Your team server can run on a Windows PC that stays on. Windows runs a small Debian Linux inside it (WSL2, the
 Windows Subsystem for Linux), and the normal [Linux server](INSTALL-LINUX.en.md) runs in that Linux. One script sets
 it all up. It is the same server as on a Linux machine, with the same updates, backups and AI sandbox. The script
