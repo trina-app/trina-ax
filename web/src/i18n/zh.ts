@@ -19,6 +19,7 @@ export const zh: Record<MessageKey, string> = {
   "openApp.close": "如果应用已打开，可以关闭这个标签页。",
   "openApp.line": "在 Mac 和 Windows 应用中可以查找这台电脑上的工作文件。",
   "openApp.lineLink": "打开应用",
+  "openApp.linePaste": "在应用的第一个界面粘贴 {address} 即可使用。",
   "appSignIn.outside": "此链接会在 {product} 应用中打开",
   "appSignIn.home": "前往团队主页",
   "appSignIn.working": "正在登录…",

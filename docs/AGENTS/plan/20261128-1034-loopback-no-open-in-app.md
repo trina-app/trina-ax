@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 10:34
 - Branch: `fix/loopback-no-open-in-app`
-- Status: in progress
+- Status: done
 - Where: shared/src/team-link.ts (+ the phone copy), desktop/src/common/address.ts, web/src/lib. Why: the rule that a
   link from outside may open the desktop app belongs to the shared link reading (docs/REPOSITORY-RULES.md).
 - Version impact: patch. A button that could never work is no longer offered; nothing new.
@@ -53,4 +53,8 @@ web/test/unit/open-app.test.ts, web/test/unit/join-open-app.test.ts, the web e2e
 
 ## Result
 
-(filled in at the end)
+Built as planned. `appLinkOpens` (shared) is what readDesktopLink and the web's `appLinkOffered` both use; openInAppHref
+returns no computer link and appComputer no computer at a loopback page, so setup, /open-app, the join pages, the title
+menus and the welcome card all follow. The files line at a loopback address says to paste the address in the app. The
+e2e config's `mycel.e2eAppLinks` keeps the offers testable at the mock's 127.0.0.1; a new open-app spec case runs
+without it (Windows, 127.0.0.1: no offers, the paste line).

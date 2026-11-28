@@ -19,6 +19,7 @@ export const en: Record<MessageKey, string> = {
   "openApp.close": "If the app opened, you can close this tab.",
   "openApp.line": "Finding work files on this computer works in the Mac and Windows app.",
   "openApp.lineLink": "Open the app",
+  "openApp.linePaste": "To use it, paste {address} on the app's first screen.",
   "appSignIn.outside": "This link opens in the {product} app",
   "appSignIn.home": "Go to your team's home",
   "appSignIn.working": "Signing in…",

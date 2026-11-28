@@ -14,7 +14,7 @@ export const JOIN_IN_BROWSER_KEY = 'mycel.joinInBrowser'
 
 /**
  * Whether the join page leads with the desktop app: a web browser on a computer with the desktop app, on a team the
- * app opens from a link (lib/open-app.ts appComputer: https, or this machine for development), for a member (a guest,
+ * app opens from a link (lib/open-app.ts appComputer: https, never this computer's own address), for a member (a guest,
  * someone from outside the team who usually joins once, keeps the browser first), unless this browser chose the browser
  * before or the person is back from Google (they chose the browser already), and only with a link to open.
  */

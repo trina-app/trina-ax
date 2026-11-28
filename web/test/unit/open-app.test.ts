@@ -1,20 +1,54 @@
 // "Continue in the Mac app" (lib/open-app.ts; docs/decisions/20261116-desktop-first-onboarding.md): who gets /open-app
 // after setup and the files line, the link the button opens, and the code read from /app-signin's address.
 import { describe, expect, test } from 'bun:test'
-import { afterSetupPath, APP_SETUP_PATH, appComputer, appSignInHref, openAppLineShown, readAppSetupClaim, readAppSignInCode, takeAppSetupClaim, type AppSetupClaimStore } from '../../src/lib/open-app'
+import { appLinkOpens } from '@mycel/shared/team-link'
+import { afterSetupPath, APP_SETUP_PATH, appComputer, appSignInHref, openAppLinePaste, openAppLineShown, readAppSetupClaim, readAppSignInCode, takeAppSetupClaim, type AppSetupClaimStore } from '../../src/lib/open-app'
+import { openInAppHref, pageOpenInAppHref } from '../../src/lib/team-link'
 
 const HTTPS = 'https://acme.trina.app'
 const CODE = 'Zm9vYmFyYmF6cXV4MDEyMzQ1Njc4OWFiY2RlZmdoaWo'
 
 describe('who is offered the desktop app', () => {
-  test('a web browser on a Mac, Windows or Linux PC, on an https team (or this machine)', () => {
+  test('a web browser on a Mac, Windows or Linux PC, on an https team', () => {
     expect(appComputer({ platform: 'mac', client: 'web', origin: HTTPS })).toBe('mac')
     expect(appComputer({ platform: 'windows', client: 'web', origin: HTTPS })).toBe('windows')
     // QA TC-5352 / TC-5072: a Linux browser was sent from /open-app to Home and could not hand back to the app
     expect(appComputer({ platform: 'linux', client: 'web', origin: HTTPS })).toBe('linux')
-    expect(appComputer({ platform: 'linux', client: 'web', origin: 'http://localhost:5173' })).toBe('linux')
-    expect(appComputer({ platform: 'mac', client: 'web', origin: 'http://127.0.0.1:19143' })).toBe('mac')
-    expect(appComputer({ platform: 'mac', client: 'web', origin: 'http://localhost:5173' })).toBe('mac')
+    expect(appComputer({ platform: 'windows', client: 'web', origin: 'https://192.168.0.10:8443' })).toBe('windows')
+  })
+  // Windows WSL QA 2026-11-28: "Windows 앱에서 계속" at http://127.0.0.1:47820 could never work, the app refuses a link
+  // to this computer's own address (desktop readDesktopLink, the same shared appLinkOpens)
+  test('never at this computer\'s own address (127.0.0.1, localhost, ::1), http or https', () => {
+    for (const origin of ['http://127.0.0.1:47820', 'http://127.0.0.1:19143', 'http://localhost:5173', 'http://[::1]:47820', 'https://localhost', 'https://127.0.0.1:8443', 'https://[::1]', 'http://acme.localhost:19100', 'https://[::ffff:127.0.0.1]'])
+      for (const platform of ['mac', 'windows', 'linux'] as const) {
+        expect({ origin, platform, c: appComputer({ platform, client: 'web', origin }) }).toEqual({ origin, platform, c: null })
+        expect(afterSetupPath({ platform, client: 'web', origin })).toBe('/welcome')
+        expect(openAppLineShown({ platform, client: 'web', origin, guest: false })).toBe(false)
+      }
+  })
+  test('the web offers the app exactly where the desktop app opens the link (one shared rule)', () => {
+    for (const origin of [HTTPS, 'https://192.168.0.10:8443', 'http://acme.example.com', 'http://127.0.0.1:47820', 'https://localhost', 'https://[::1]:8443', 'null', ''])
+      expect({ origin, offered: appComputer({ platform: 'mac', client: 'web', origin }) !== null }).toEqual({ origin, offered: appLinkOpens(origin) })
+  })
+  test('the files line at this computer\'s own address says to paste the address in the app instead (Mac, Windows)', () => {
+    const LOCAL = 'http://127.0.0.1:47820'
+    expect(openAppLinePaste({ platform: 'windows', client: 'web', origin: LOCAL, guest: false })).toBe(true)
+    expect(openAppLinePaste({ platform: 'mac', client: 'web', origin: 'http://localhost:5173', guest: false })).toBe(true)
+    // not where the link works, not Linux (no Find work files), never a guest, never inside our apps, not plain http elsewhere
+    expect(openAppLinePaste({ platform: 'windows', client: 'web', origin: HTTPS, guest: false })).toBe(false)
+    expect(openAppLinePaste({ platform: 'linux', client: 'web', origin: LOCAL, guest: false })).toBe(false)
+    expect(openAppLinePaste({ platform: 'windows', client: 'web', origin: LOCAL, guest: true })).toBe(false)
+    expect(openAppLinePaste({ platform: 'windows', client: 'desktop', origin: LOCAL, guest: false })).toBe(false)
+    expect(openAppLinePaste({ platform: 'ios', client: 'web', origin: LOCAL, guest: false })).toBe(false)
+    expect(openAppLinePaste({ platform: 'mac', client: 'web', origin: 'http://team.example.lan', guest: false })).toBe(false)
+  })
+  test('no link to this computer\'s own address on a computer (the join pages\' "Open the app", the title menus)', () => {
+    for (const platform of ['mac', 'windows', 'linux'] as const) {
+      expect(openInAppHref({ scheme: 'trina-ax', origin: 'http://127.0.0.1:47820', path: '/invite/abc', platform, androidPackage: '' })).toBeNull()
+      expect(pageOpenInAppHref({ scheme: 'trina-ax', origin: 'https://127.0.0.1', path: '/c/abc', platform, client: 'web', phone: false })).toBeNull()
+      expect(openInAppHref({ scheme: 'trina-ax', origin: HTTPS, path: '/invite/abc', platform, androidPackage: '' })).toBe(`trina-ax://open?url=${encodeURIComponent(`${HTTPS}/invite/abc`)}`)
+    }
+    expect(appSignInHref({ scheme: 'trina-ax', origin: 'http://127.0.0.1:47820', code: CODE, computer: 'windows' })).toBeNull()
   })
   test('never inside our apps, on a phone, on another system, or on a plain-http team the app cannot open', () => {
     expect(appComputer({ platform: 'mac', client: 'desktop', origin: HTTPS })).toBeNull()

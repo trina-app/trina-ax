@@ -18,6 +18,7 @@ export const ko = {
   "openApp.close": "앱이 열렸다면 이 탭은 닫아도 돼요.",
   "openApp.line": "이 컴퓨터의 업무 파일 찾기는 Mac·Windows 앱에서 돼요.",
   "openApp.lineLink": "앱에서 열기",
+  "openApp.linePaste": "앱 첫 화면에 {address} 주소를 붙여 넣으면 돼요.",
   "appSignIn.outside": "이 링크는 {product} 앱에서 열려요",
   "appSignIn.home": "팀 홈으로 가기",
   "appSignIn.working": "로그인하는 중…",
