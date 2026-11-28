@@ -29,6 +29,11 @@ the user can see and stop.
   one-time number the app put in that page's address and a hash of a secret only the extension keeps, and gets back a
   one-time code for the user's team. Nothing else goes over it; the browser calls themselves go to the team server.
   The desktop app's helper accepts this extension's id only (Chrome enforces the list).
+- **identity, identity.email (optional):** Only to name this browser profile after the Google account it is signed in
+  to, so the user and their AI can tell several profiles apart. `identity` alone gives nothing;
+  `identity.email` is asked at the user's Connect click, in the same prompt as the team address and only once, and only
+  when the user left the name empty. The email (`chrome.identity.getProfileUserInfo`) is sent to the user's own team
+  server once, at linking. No sign-in, no tokens: the extension never uses `getAuthToken` or any Google API.
 - **Host permissions (optional, one origin):** Asked at Connect for the user's own team address only (the
   `optional_host_permissions` patterns let the user grant that one https address, or localhost for developers). Used
   to read the team's connect page address (for the one-time code), to talk to the team server (link, WebSocket, file
@@ -53,10 +58,11 @@ Check these types in the form:
 - **Authentication information:** No. The extension never reads passwords, cookies or site storage, refuses to type
   into password and payment-card fields, and blocks sign-in and account-security pages. Its own link token is kept
   locally and sent only to the user's team.
-- **Personally identifiable information:** Yes, limited: when the profile is linked through the desktop app, the
-  name and the Google account email address the browser shows for this profile (read by the desktop app from the
-  browser's own profile list) are sent to the user's own team server once, so the user and their AI can tell the
-  profiles apart. The extension does not read the account itself.
+- **Personally identifiable information:** Yes, limited: the name and the Google account email address of this
+  browser profile are sent to the user's own team server once, at linking, so the user and their AI can tell the
+  profiles apart. Linked through the desktop app, the app reads them from the browser's own profile list; linked in
+  the profile, the extension reads the email only if the user allowed the optional "Know your email address" permission
+  at Connect.
 - **Health, financial and payment information, location:** Not collected by the extension. (Banking, payment and
   crypto sites need the user's explicit permission per site.)
 

@@ -54,7 +54,9 @@ describe('manifest', () => {
   test('exactly the permissions the listing explains, no host access by default, no content scripts', () => {
     const m = manifest('0.1.0') as Record<string, unknown>
     expect(m.manifest_version).toBe(3)
-    expect(m.permissions).toEqual(['debugger', 'tabGroups', 'storage', 'alarms', 'activeTab', 'nativeMessaging'])
+    expect(m.permissions).toEqual(['debugger', 'tabGroups', 'storage', 'alarms', 'activeTab', 'nativeMessaging', 'identity'])
+    // the profile's email is asked at Connect only (no install warning; "Know your email address" in that prompt)
+    expect(m.optional_permissions).toEqual(['identity.email'])
     expect(m.optional_host_permissions).toEqual(['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*'])
     for (const k of ['host_permissions', 'content_scripts', 'externally_connectable', 'web_accessible_resources']) expect(m[k]).toBeUndefined()
     expect(m.name).toBe('__MSG_extName__')

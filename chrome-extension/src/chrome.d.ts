@@ -43,10 +43,16 @@ declare namespace chrome {
   }
 
   export namespace permissions {
-    function request(p: { origins?: string[] }): Promise<boolean>
-    function contains(p: { origins?: string[] }): Promise<boolean>
-    function remove(p: { origins?: string[] }): Promise<boolean>
-    const onAdded: Event<(p: { origins?: string[] }) => void>
+    interface Permissions { origins?: string[]; permissions?: string[] }
+    function request(p: Permissions): Promise<boolean>
+    function contains(p: Permissions): Promise<boolean>
+    function remove(p: Permissions): Promise<boolean>
+    const onAdded: Event<(p: Permissions) => void>
+  }
+
+  export namespace identity {
+    /** the Google account the profile is signed in to; empty strings without the identity.email permission */
+    function getProfileUserInfo(o?: { accountStatus?: 'SYNC' | 'ANY' }): Promise<{ email: string; id: string }>
   }
 
   export namespace action {

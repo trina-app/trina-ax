@@ -3,7 +3,7 @@
 // signed-in team page asks the person and moves its tab to /connect-chrome/done#code=…; the extension reads that tab's
 // address (it has access to the team origin only), closes the tab and spends the code with the verifier. A copied
 // address or code is useless anywhere else. A pending pairing ends after 5 minutes or when its tab closes.
-import { CHROME_CONNECT_DONE_PATH, CHROME_CONNECT_PATH, ChromeRedeemed } from '../../shared/src/api/chrome'
+import { CHROME_CONNECT_DONE_PATH, CHROME_CONNECT_PATH, ChromeLinkEmail, ChromeRedeemed } from '../../shared/src/api/chrome'
 import { browserLabel, codeFromDoneUrl, pkcePair } from './ids'
 import { cutLabel } from '../../shared/src/chrome-native'
 import { loadLink, saveLink } from './state'
@@ -12,8 +12,10 @@ const PAIR_TTL_MS = 5 * 60_000
 
 interface Pending {
   origin: string
-  /** the name the person gave this browser profile */
+  /** the name the person gave this browser profile (else its Google account, else "Chrome on Mac") */
   label: string
+  /** the Google account the profile is signed in to, when Chrome lets the extension read it */
+  email?: string
   verifier: string
   tabId: number
   startedAt: number
@@ -49,6 +51,38 @@ export function cleanLabel(raw: string): string {
   return cutLabel(v) || browserLabel(navigator.userAgent, navigator.userAgentData, Boolean(navigator.brave))
 }
 
+/** The optional permission that lets the extension read the profile's Google account (asked at Connect, never at install). */
+export const EMAIL_PERMISSION = 'identity.email'
+
+/**
+ * The Google account this browser profile is signed in to, or null: without the optional identity.email permission, with
+ * no account, or in a browser without chrome.identity (Edge, Brave may answer nothing). `ANY`: a profile signed in
+ * without sync counts too.
+ */
+export async function profileEmail(): Promise<string | null> {
+  try {
+    if (!chrome.identity?.getProfileUserInfo) return null
+    if (!(await chrome.permissions.contains({ permissions: [EMAIL_PERMISSION] }))) return null
+    const u = await chrome.identity.getProfileUserInfo({ accountStatus: 'ANY' })
+    const e = ChromeLinkEmail.safeParse(u?.email ?? '')
+    return e.success && e.data ? e.data : null
+  } catch {
+    return null
+  }
+}
+
+/** Connect should ask Chrome for the email permission: not held yet and never asked before (a "Deny" is final: the next
+ * Connect asks only for the team address). */
+export async function shouldAskEmail(): Promise<boolean> {
+  try {
+    if (!chrome.identity?.getProfileUserInfo) return false
+    if (await chrome.permissions.contains({ permissions: [EMAIL_PERMISSION] })) return false
+    return !(await chrome.storage.local.get('emailAsked')).emailAsked
+  } catch {
+    return false
+  }
+}
+
 /** A team origin the extension may connect to: https, or a developer's http://localhost. */
 export function teamOrigin(raw: string): string | null {
   let u: URL
@@ -62,15 +96,17 @@ export function teamOrigin(raw: string): string | null {
   return null
 }
 
-/** Start pairing with a team (the popup already got the host permission for it). */
+/** Start pairing with a team (the popup already got the host permission for it). An empty `label`: the profile's Google
+ * account, else "Chrome on Mac" (the team numbers a name the person already uses). */
 export async function startPairing(origin: string, label: string): Promise<void> {
   const old = await pending()
   // the same start twice (the grant and the popup's own message): one tab
   if (old && old.origin === origin && Date.now() - old.startedAt < 10_000) return
   if (old) await drop(old, false)
   const { verifier, challenge } = await pkcePair()
+  const email = await profileEmail()
   const tab = await chrome.tabs.create({ url: `${origin}${CHROME_CONNECT_PATH}?challenge=${encodeURIComponent(challenge)}`, active: true })
-  await chrome.storage.session.set({ pair: { origin, label: cleanLabel(label), verifier, tabId: tab.id!, startedAt: Date.now() } satisfies Pending, pairFailed: false })
+  await chrome.storage.session.set({ pair: { origin, label: cleanLabel(label.trim() ? label : email ?? ''), ...(email ? { email } : {}), verifier, tabId: tab.id!, startedAt: Date.now() } satisfies Pending, pairFailed: false })
 }
 
 export async function cancelPairing(): Promise<void> {
@@ -89,7 +125,7 @@ async function onTabUrl(tabId: number, url: string, onLinked: () => Promise<void
   await chrome.storage.session.remove('pair')
   await chrome.tabs.remove(tabId).catch(() => {})
   if (!code) return void (await chrome.storage.session.set({ pairFailed: true }))
-  const r = await redeem(p.origin, code, p.verifier, p.label)
+  const r = await redeem(p.origin, code, p.verifier, p.label, p.email ? { email: p.email } : {})
   await chrome.storage.session.set({ pairFailed: r === 'linked' ? false : r })
   if (r === 'linked') await onLinked()
 }
@@ -124,16 +160,18 @@ export async function redeem(origin: string, code: string, verifier: string, lab
     if (res.status === 409) return 'full'
     if (!res.ok) return true
     const r = ChromeRedeemed.parse(await res.json())
-    await saveLink({ origin, token: r.token, linkId: r.linkId, user: r.user, team: r.team, label, teamHosts: r.teamHosts })
+    // the team may have numbered the name ("Chrome on Mac 2"): keep the one it lists
+    await saveLink({ origin, token: r.token, linkId: r.linkId, user: r.user, team: r.team, label: r.label || label, teamHosts: r.teamHosts })
     return 'linked'
   } catch {
     return true
   }
 }
 
-/** The popup is about to ask Chrome for access to this team address. */
-export async function wantPairing(origin: string, label: string): Promise<void> {
+/** The popup is about to ask Chrome for access to this team address (and, `askEmail`, for the profile's email: asked once). */
+export async function wantPairing(origin: string, label: string, askEmail = false): Promise<void> {
   await chrome.storage.session.set({ want: { origin, label, at: Date.now() } })
+  if (askEmail) await chrome.storage.local.set({ emailAsked: true })
 }
 
 export function installPairingListeners(onLinked: () => Promise<void>) {
@@ -143,7 +181,11 @@ export function installPairingListeners(onLinked: () => Promise<void>) {
       const want = (await chrome.storage.session.get('want')).want as { origin: string; label: string; at: number } | undefined
       if (!want || Date.now() - want.at > 120_000) return
       const host = new URL(want.origin)
-      if (!(p.origins ?? []).includes(`${host.protocol}//${host.hostname}/*`)) return
+      const pattern = `${host.protocol}//${host.hostname}/*`
+      // the address itself, or (the address was granted before) the email permission asked with it
+      const ok = (p.origins ?? []).includes(pattern)
+        || ((p.permissions ?? []).includes(EMAIL_PERMISSION) && await chrome.permissions.contains({ origins: [pattern] }))
+      if (!ok) return
       await chrome.storage.session.remove('want')
       await startPairing(want.origin, want.label)
     })()

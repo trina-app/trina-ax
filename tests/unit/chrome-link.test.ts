@@ -101,6 +101,31 @@ describe('pairing', () => {
   })
 })
 
+test('two profiles with one name are told apart: the second "Chrome on Mac" becomes "Chrome on Mac 2", a re-link keeps its own', async () => {
+  unlinkAllOf('alice')
+  const redeem = async (label: string, previous?: string) => {
+    h.ctx.db.query('DELETE FROM login_attempts').run()
+    const verifier = secret()
+    const { code } = await h.api('alice').call(API.chromePair, { body: { challenge: challengeOf(verifier) } })
+    const r = await h.req(null, API.chromeRedeem.path, { method: 'POST', headers: { 'content-type': 'application/json', origin: EXT }, body: JSON.stringify({ code, verifier, label, version: '0.1.0', ...(previous ? { previous } : {}) }) })
+    return await r.json() as { token: string; linkId: string; label: string }
+  }
+  const a = await redeem('Chrome on Mac')
+  expect(a.label).toBe('Chrome on Mac')
+  expect((await redeem('chrome on mac')).label).toBe('chrome on mac 2')
+  expect((await redeem('Chrome on Mac')).label).toBe('Chrome on Mac 3')
+  // the same install linking again keeps its own name (not a number against itself)
+  expect((await redeem('Chrome on Mac', a.token)).label).toBe('Chrome on Mac')
+  // a long name stays within 60 units with its number
+  const long = 'x'.repeat(60)
+  await redeem(long)
+  const b = await redeem(long)
+  expect(b.label).toBe(`${'x'.repeat(58)} 2`)
+  const listed = (await h.api('alice').call(API.chromeLinks, {})).links.map((l) => l.label).sort()
+  expect(new Set(listed).size).toBe(listed.length)
+  unlinkAllOf('alice')
+})
+
 describe('the extension\'s connection', () => {
   test('an unknown token, a page origin or a missing auth frame is refused', async () => {
     const bad = await ext(secret())

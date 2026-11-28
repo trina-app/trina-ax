@@ -46,7 +46,7 @@ called it, so matching Local State is guesswork).
 
 ## Decisions
 
-docs/decisions/20261129-chrome-profile-name-from-google-account.md (supersedes the "never the account's email" line of
+docs/decisions/20261128-chrome-default-browser-name.md (supersedes the "never the account's email" line of
 docs/decisions/20261128-chrome-app-led-linking.md for the in-profile Connect only).
 
 ## Risks
