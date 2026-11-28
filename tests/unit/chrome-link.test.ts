@@ -158,8 +158,8 @@ describe('turns', () => {
       expect(calls[1]!.sites).toContain('example.org')
       expect(calls[1]!.run).toEqual({ id: chat, title: expect.any(String) })
       expect((await h.api('alice').call(API.chromeLinks, {})).links.find((l) => l.id === linkId)!.sites).toEqual(['example.org'])
-      // the person-wide list is not touched (an Always in a profile is that profile's)
-      expect(h.ctx.db.query("SELECT 1 FROM user_allowed_sites WHERE user_id = 'alice' AND site = 'example.org'").get()).toBeNull()
+      // the person's own site for the address check too (no second card for its next plain address)
+      expect(h.ctx.db.query("SELECT 1 FROM user_allowed_sites WHERE user_id = 'alice' AND site = 'example.org'").get()).toBeTruthy()
       expect(win.frames.some((f) => f.type === 'browser.call')).toBe(false)
     } finally { stop(); win.close(); e.ws.close() }
   })
