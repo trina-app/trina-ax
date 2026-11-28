@@ -181,7 +181,7 @@ export const FEATURES: Feature[] = [
   { id: 'admin.plugins', name: 'Plugins', area: 'Admin', endpoints: ['*Plugin*'], screens: ['/admin/plugins', '/admin/plugins/:id'] },
   { id: 'admin.usage', name: 'Team usage and AI limits', area: 'Admin', endpoints: ['usage', '*Budget*'], screens: ['/admin/usage', '/admin/settings/limits'] },
   { id: 'admin.audit', name: 'Activity log', area: 'Admin', endpoints: ['audit'], screens: ['/admin/audit', '/admin/audit/:id'] },
-  { id: 'admin.team-settings', name: 'Team settings: name, icon, time, data, members AI', area: 'Admin', endpoints: ['settings', 'updateSettings', 'putTeamIcon', 'deleteTeamIcon'], screens: ['/admin/settings', '/admin/settings/general', '/admin/settings/data', '/admin/settings/members'] },
+  { id: 'admin.team-settings', name: 'Team settings: name, icon, time, data, members AI', area: 'Admin', endpoints: ['settings', 'updateSettings', 'putTeamIcon', 'deleteTeamIcon', 'teamIconFromSite'], screens: ['/admin/settings', '/admin/settings/general', '/admin/settings/data', '/admin/settings/members'] },
   { id: 'admin.voice', name: 'Voice input settings', area: 'Admin', endpoints: ['speechHost', 'speechKey', 'setSpeechKey'], screens: ['/admin/settings/voice'] },
   { id: 'admin.dev-env', name: 'Dev environment for the team', area: 'Admin', endpoints: ['devEnvTeam', 'updateDevEnvTeam'], screens: ['/admin/settings/dev-env'] },
 

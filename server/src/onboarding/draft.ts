@@ -437,7 +437,7 @@ export function profileDraftState(ctx: AppContext, rt: ChatRuntime, userId: stri
   const answer = leaf?.role === 'assistant' ? leaf : null
   // the pages of the latest answer as the server opened or refused them (no page text), for the person who asked only
   const steps = answer ? draftPages(ctx.db, answer.id, answer.status !== 'streaming') : []
-  const base = { website: scope.website, draft: null, error: null, steps, writing: false, ...(scope.source === 'website' ? { assets: brandAssetsOf(ctx.db, chat.id) } : {}) }
+  const base = { website: scope.website, draft: null, error: null, steps, writing: false, ...(scope.source === 'website' ? { assets: brandAssetsOf(ctx.db, chat.id, ctx.engineConfig.dataDir) } : {}) }
   if (!answer || answer.status === 'streaming') {
     const exec = answer ? rt.execForMessage(answer.id) : undefined
     return { ...base, status: 'running', writing: !!exec?.profileDraft?.pages?.writing(exec.content) }
