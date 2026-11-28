@@ -35,6 +35,7 @@ import { mobileApp } from '../../lib/mobile'
 import { Tooltip } from '../Tooltip'
 import { dropOverCls } from '../FileDropZone'
 import { useFileDrop } from '../chat/ComposerFiles'
+import { GOOGLE_CONNECTIONS_URL } from '../../lib/driveSignIn'
 
 const DRIVE = APP_CONNECTORS[0]
 
@@ -115,7 +116,9 @@ export function useDriveParts(s: DriveConnectionState) {
       {/* before Google opens: Google may call Trina's shared app unverified (QA TC-2957) */}
       {unverified && <GoogleUnverifiedNote />}
       {d.error && !flow && <p className="text-sm text-danger" role="alert" data-testid="drive-error">{t(d.reason === 'timeout' ? 'connect.wait.timedOut' : signInFailedKey(d.reason))}</p>}
-      {s.revokeWarning && <p className="text-xs text-muted" role="status" data-testid="drive-revoke-warning">{t('drive.revokeWarning')}</p>}
+      {s.revokeWarning === 'unavailable' && <p className="text-xs text-muted" role="status" data-testid="drive-revoke-warning">{t('drive.revokeWarning')}</p>}
+      {s.revokeWarning === 'kept' && <p className="text-xs text-muted" role="status" data-testid="drive-revoke-kept">{t('drive.keptAtGoogle')}{' '}
+        <a className="underline underline-offset-2" href={GOOGLE_CONNECTIONS_URL} target="_blank" rel="noopener noreferrer" data-testid="drive-remove-at-google">{t('drive.removeAtGoogle')}</a></p>}
     </>
   )
   const state = !c ? 'loading' : unavailable ? 'disabled' : flow ? `flow-${flow.state}` : c.status
