@@ -113,6 +113,12 @@ STEP=apt-quiet
 systemctl stop apt-daily.timer apt-daily-upgrade.timer apt-daily.service apt-daily-upgrade.service unattended-upgrades.service 2>/dev/null || true
 printf 'DPkg::Lock::Timeout "900";\n' > /etc/apt/apt.conf.d/00ax-build-lock
 
+# the login accounts of the builder's first boot (cloud-init's default user): only these are removed in step 3, never an
+# account that customize.sh or the kit makes
+BOOT_USERS="$(getent passwd | awk -F: '$3 >= 1000 && $3 < 60000 { print $1 }' | tr '\n' ' ')"
+# shellcheck disable=SC2012 # a log line only
+say "login accounts of the first boot: ${BOOT_USERS:-none}; cloud.cfg.d: $(ls /etc/cloud/cloud.cfg.d 2>/dev/null | tr '\n' ' ')"
+
 # ---- 2. customize.sh on the live system
 STEP=customize
 extra=()
@@ -128,14 +134,14 @@ fi
 
 # ---- 3. what the builder's first boot made
 STEP=builder-traces
-# cloud-init's default user (admin on Debian) and any other login account it made: its home holds the Lightsail key
-# pair in authorized_keys. The image's own accounts (axserver 980, axagent 981) are system accounts below 1000.
-while IFS=: read -r name _ uid _; do
-  [[ "$uid" -ge 1000 && "$uid" -lt 60000 ]] || continue
+# cloud-init's default user (admin on Debian), saved before customize.sh: its home holds the Lightsail key pair in
+# authorized_keys. The image's own accounts (axserver 980, axagent 981) are system accounts below 1000.
+for name in $BOOT_USERS; do
+  uid="$(id -u "$name" 2>/dev/null)" || continue
   say "remove login account $name ($uid) of the builder's first boot"
   pkill -KILL -u "$uid" 2>/dev/null || true
   userdel -r -f "$name" 2>/dev/null || userdel -f "$name" || die "userdel $name failed"
-done < <(getent passwd)
+done
 rm -f /etc/sudoers.d/90-cloud-init-users
 rm -rf /root/.ssh
 # the Lightsail part of the launch script (it runs again on each new instance, harmlessly without sshd)
