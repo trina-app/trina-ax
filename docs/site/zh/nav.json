@@ -15,7 +15,7 @@
       { "title": "你的账号", "pages": ["use/settings-and-search", "use/sign-in-with-google"] }
     ] },
     { "title": "运行和运维", "groups": [
-      { "title": "安装设置", "pages": ["operate/install", "operate/configuration", "operate/google-own-app-self-installed"] },
+      { "title": "安装设置", "pages": ["operate/install", "operate/windows-pc", "operate/configuration", "operate/google-own-app-self-installed"] },
       { "title": "保持运行", "pages": ["operate/updates-and-releases", "operate/backups", "operate/troubleshooting"] },
       { "title": "安全", "pages": ["operate/security"] }
     ] },
