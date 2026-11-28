@@ -6,6 +6,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
 
 const MAC_CHROME = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
+const WINDOWS_CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 const LINUX_FIREFOX = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0'
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
 const dir = process.env.OPEN_APP_SHOTS
@@ -293,6 +294,46 @@ test.describe('on a phone', () => {
     await expect(page).toHaveURL(/\/welcome/)
     await page.goto('/files?path=users/kim')
     await expect(page.getByTestId('open-app-line')).toHaveCount(0)
+  })
+})
+
+// Windows WSL QA 2026-11-28: the server and the browser on one PC at http://127.0.0.1:47820 offered "Windows 앱에서 계속",
+// which the app refuses (docs/decisions/20261128-loopback-no-open-in-app.md). The mock is at 127.0.0.1 too; without the
+// suite's mycel.e2eAppLinks key the page behaves as a real one there
+test.describe('in a Windows browser at this computer\'s own address', () => {
+  test.use({ userAgent: WINDOWS_CHROME, locale: 'en-US', viewport: { width: 1440, height: 900 }, storageState: { cookies: [], origins: [] } })
+  test('setup goes to the welcome steps, /open-app is never shown, the join page has no app offer (no Open the app, no "앱에서 열기"), the files line says to paste the address', async ({ page }) => {
+    await reset(page, { setup: true, teamLocale: 'en' })
+    await page.goto('/')
+    await page.getByLabel('Setup code').fill('setup-token-0123456789')
+    await page.getByTestId('setup-team').fill('Acme')
+    await page.getByLabel('Your name').fill('Kim Owner')
+    await page.getByLabel('Username').fill('kim')
+    await page.getByLabel('Password', { exact: true }).fill('a long password 1')
+    await page.getByRole('button', { name: 'Create team and start' }).click()
+    await expect(page).toHaveURL(/\/welcome/)
+    await page.goto('/open-app')
+    await expect(page).toHaveURL(/\/welcome/)
+    // a member's My files (the mock's olga)
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+    await signIn(page)
+    await page.goto('/open-app')
+    await expect(page).toHaveURL(/\/welcome/)
+    await page.goto('/files?path=users/olga')
+    const origin = new URL(page.url()).origin
+    const line = page.getByTestId('open-app-line')
+    await expect(line).toHaveText(`Finding work files on this computer works in the Mac and Windows app. To use it, paste ${origin} on the app's first screen.`)
+    await expect(page.getByTestId('open-app-line-link')).toHaveCount(0)
+    const r = await page.request.post('/api/admin/invites', { headers: { 'x-mycel-csrf': '1' }, data: { role: 'member', groupIds: [] } })
+    expect(r.status()).toBe(201)
+    const { token } = (await r.json()) as { token: string }
+    const ctx = await page.context().browser()!.newContext({ userAgent: WINDOWS_CHROME, locale: 'en-US', storageState: { cookies: [], origins: [] } })
+    const p = await ctx.newPage()
+    await p.goto(`${origin}/invite/${token}`)
+    await expect(p.getByTestId('invite-name')).toBeVisible()
+    await expect(p.getByTestId('app-first')).toHaveCount(0)
+    await expect(p.getByTestId('open-in-app')).toHaveCount(0)
+    await ctx.close()
   })
 })
 

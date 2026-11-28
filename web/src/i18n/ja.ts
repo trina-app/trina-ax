@@ -19,6 +19,7 @@ export const ja: Record<MessageKey, string> = {
   "openApp.close": "アプリが開いたら、このタブは閉じてかまいません。",
   "openApp.line": "このコンピューターの仕事のファイル探しは、Mac・Windowsアプリで使えます。",
   "openApp.lineLink": "アプリで開く",
+  "openApp.linePaste": "アプリの最初の画面に {address} を貼り付けると使えます。",
   "appSignIn.outside": "このリンクは{product}アプリで開きます",
   "appSignIn.home": "チームのホームへ",
   "appSignIn.working": "ログインしています…",

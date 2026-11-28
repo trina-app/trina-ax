@@ -97,7 +97,9 @@ describe('host manifest', () => {
     expect(where).toEqual([path.join(chrome, 'NativeMessagingHosts')])
     const files = writeNativeHostManifests(where, '/opt/helper', true)
     expect(files).toEqual([path.join(chrome, 'NativeMessagingHosts', `${CHROME_NATIVE_HOST}.json`)])
-    expect(JSON.parse(fs.readFileSync(files[0]!, 'utf8')).allowed_origins).toEqual([`chrome-extension://${DEV}/`])
+    expect(JSON.parse(fs.readFileSync(files[0]!, 'utf8')).allowed_origins).toEqual(chromeExtensionIds(true).map((id) => `chrome-extension://${id}/`))
+    // the store item is let in; a packaged app's manifest never names the dev id
+    expect(chromeExtensionIds(false)).toEqual([CHROME_EXTENSION_IDS.chromeStore])
     const before = fs.statSync(files[0]!).mtimeMs
     writeNativeHostManifests(where, '/opt/helper', true)
     expect(fs.statSync(files[0]!).mtimeMs).toBe(before)

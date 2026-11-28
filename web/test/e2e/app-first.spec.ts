@@ -9,8 +9,9 @@ import { CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
 import { reset, signIn } from './helpers'
 
-// a fresh browser: nothing remembered (the config starts every other spec as one that chose the browser)
-test.use({ storageState: { cookies: [], origins: [] } })
+// a fresh browser: nothing remembered (the config starts every other spec as one that chose the browser), but the
+// offers kept on at the mock's 127.0.0.1 (lib/team-link.ts appLinkOffered)
+test.use({ storageState: { cookies: [], origins: [{ origin: `http://127.0.0.1:${Number(process.env.MOCK_PORT ?? 19143)}`, localStorage: [{ name: 'mycel.e2eAppLinks', value: '1' }] }] } })
 
 const ko = (k: Parameters<typeof translate>[1]) => translate('ko', k)
 const MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'

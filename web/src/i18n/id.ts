@@ -19,6 +19,7 @@ export const id: Record<MessageKey, string> = {
   "openApp.close": "Jika aplikasinya terbuka, Anda bisa menutup tab ini.",
   "openApp.line": "Mencari file kerja di komputer ini bisa dilakukan di aplikasi Mac dan Windows.",
   "openApp.lineLink": "Buka aplikasi",
+  "openApp.linePaste": "Untuk memakainya, tempel {address} di layar pertama aplikasi.",
   "appSignIn.outside": "Tautan ini terbuka di aplikasi {product}",
   "appSignIn.home": "Ke beranda tim",
   "appSignIn.working": "Sedang masuk…",

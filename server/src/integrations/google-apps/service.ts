@@ -44,6 +44,7 @@ import { clientFromBody, clientSettingKey, driveAppAvailable, redirectUriOf, saf
 import { googleTransport, isGoogleAppSecret, setGoogleFetch, tokensOf, type GoogleAppSecret } from './tokens'
 import { workspaceLibraryOf } from './library'
 import { googleLoginHint } from '../../auth/login-identities'
+import { personLocale } from '../../files/media-text'
 import type { AppClient, CallbackOutcome } from '../google-drive/callback-page'
 import { CLAIM_MS, appReturnKey, appReturnPort, heldProofOk, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
 
@@ -243,7 +244,7 @@ export class GoogleApps {
     })()
     if (setup.mode === 'broker') {
       try {
-        const urls = await this.brokerStart(scope, state, challengeOf(verifier), app)
+        const urls = await this.brokerStart(scope, state, challengeOf(verifier), app, personLocale(this.db, user))
         this.limited.delete(app)
         return { flowId: id, ...urls, expiresAt }
       } catch (e) {
@@ -272,12 +273,12 @@ export class GoogleApps {
    * as one person's (QA TC-6065). Any other refusal (the app closed: app_unavailable, rate limits, ...) is final, never
    * downgraded. This holds only while `purpose` is wording only on the broker (the same scopes, the same tokens, the
    * same team binding): if the broker ever treats "share" differently, this fallback must go. */
-  private async brokerStart(scope: Scope, state: string, challenge: string, app: GoogleAppId) {
+  private async brokerStart(scope: Scope, state: string, challenge: string, app: GoogleAppId, locale: string) {
     const broker = googleDriveOf(this.ctx).broker!
-    if (scope !== 'team') return broker.start('personal', state, challenge, app)
-    try { return await broker.start('share', state, challenge, app) } catch (e) {
+    if (scope !== 'team') return broker.start('personal', state, challenge, app, locale)
+    try { return await broker.start('share', state, challenge, app, locale) } catch (e) {
       if (!(e instanceof BrokerRequestRefused)) throw e
-      return broker.start('personal', state, challenge, app)
+      return broker.start('personal', state, challenge, app, locale)
     }
   }
 

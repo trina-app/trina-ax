@@ -20,7 +20,7 @@ import { stopShare, updateShare } from '../../server/src/integrations/google-dri
 import { registerDriveTools } from '../../server/src/tools/drive'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { GOOGLE_REVOKE, GOOGLE_TOKEN } from '../../server/src/integrations/google-drive/client'
-import { DRIVE_BROKER_PATHS, GOOGLE_BROKER_KEY_PATH, brokerSelfOrigin, parseDriveBrokerRegister } from '../../shared/src/cloud-protocol/drive-broker'
+import { DRIVE_BROKER_LOCALES, DRIVE_BROKER_PATHS, GOOGLE_BROKER_KEY_PATH, brokerSelfOrigin, parseDriveBrokerRegister, parseDriveBrokerStart } from '../../shared/src/cloud-protocol/drive-broker'
 import { SERVICE_HOSTS } from '../../shared/src/service-hosts'
 import { FakeGoogleDrive, DRIVE_CONFIG, membersMayConnect } from '../lib/fake-google-drive'
 import { BROKER_ORIGIN, FakeDriveBroker } from '../lib/fake-drive-broker'
@@ -101,7 +101,8 @@ test("a member's own Drive through the broker: signed calls, handoff bound to th
   expect(new URL(f.authorizationUrl).hostname).toBe('accounts.google.com')
   const start = JSON.parse(broker.requests.find((r) => r.path === DRIVE_BROKER_PATHS.start)!.body)
   expect(start).toMatchObject({ v: 1, purpose: 'personal' })
-  expect(Object.keys(start).sort()).toEqual(['codeChallenge', 'purpose', 'returnState', 'v'])
+  // the person's Trina language goes along, for the hosting service's pages and Google's screen
+  expect(Object.keys(start).sort()).toEqual(['codeChallenge', 'locale', 'purpose', 'returnState', 'v'])
   const back = broker.browserReturn(f.authorizationUrl, 'alice')
   // another signed-in person's browser cannot take alice's sign-in, and a direct `code` is not a handoff
   await expect(svc.callback(back, browser('bob'))).rejects.toThrow('browser_session_required')
@@ -175,6 +176,46 @@ test('the hosting service\'s start page is passed on with Google\'s address; the
   expect(c.searchParams.get('state')).toBe(new URL(f.authorizationUrl).searchParams.get('state'))
   expect(await svc.callback(broker.browserReturn(f.authorizationUrl, 'alice'), browser('alice'))).toBe(true)
   expect((await svc.complete('alice', 'alice-session', f.flowId)).status).toBe('connected')
+})
+
+test("the start names the person's own Trina language, in each of the six; a team default follows the person (Windows QA 2026-11-28)", async () => {
+  await svc.checkBroker(); membersMayConnect(a.ctx.db)
+  const startOf = () => JSON.parse(broker.requests.filter((r) => r.path === DRIVE_BROKER_PATHS.start).at(-1)!.body)
+  for (const lang of DRIVE_BROKER_LOCALES) {
+    a.ctx.db.query('UPDATE users SET locale = ?, locale_follows_team = 0 WHERE id = ?').run(lang, 'alice')
+    await svc.begin('alice', 'alice-session')
+    expect(startOf().locale).toBe(lang)
+  }
+  // bob follows the team default (users.locale is kept equal to it): Korean team, Korean page
+  a.ctx.db.query("UPDATE users SET locale = 'ko', locale_follows_team = 1 WHERE id = 'bob'").run()
+  await svc.begin('bob', 'bob-session')
+  expect(startOf().locale).toBe('ko')
+})
+
+test('an older hosting service that refuses the language is asked again without it, once; the sign-in still completes', async () => {
+  await svc.checkBroker(); membersMayConnect(a.ctx.db)
+  broker.localeSupported = false
+  a.ctx.db.query("UPDATE users SET locale = 'ko', locale_follows_team = 0 WHERE id = 'alice'").run()
+  const f = await svc.begin('alice', 'alice-session')
+  const starts = broker.requests.filter((r) => r.path === DRIVE_BROKER_PATHS.start).map((r) => JSON.parse(r.body))
+  expect(starts).toHaveLength(2)
+  expect(starts[0].locale).toBe('ko'); expect('locale' in starts[1]).toBe(false)
+  expect(await svc.callback(broker.browserReturn(f.authorizationUrl, 'alice'), browser('alice'))).toBe(true)
+  expect((await svc.complete('alice', 'alice-session', f.flowId)).status).toBe('connected')
+  // any other refusal is not retried
+  broker.localeSupported = true; broker.configured = false
+  const before = broker.requests.filter((r) => r.path === DRIVE_BROKER_PATHS.start).length
+  await expect(svc.begin('alice', 'alice-session')).rejects.toThrow()
+  expect(broker.requests.filter((r) => r.path === DRIVE_BROKER_PATHS.start).length - before).toBeLessThanOrEqual(1)
+})
+
+test('the start body takes a language only as one of the six product languages', () => {
+  const base = { v: 1, purpose: 'personal', returnState: 'a'.repeat(43), codeChallenge: 'b'.repeat(43) }
+  expect(parseDriveBrokerStart(base)).toEqual(base as any)
+  for (const locale of DRIVE_BROKER_LOCALES) expect(parseDriveBrokerStart({ ...base, locale })).toEqual({ ...base, locale } as any)
+  for (const locale of ['de', 'ko-KR', 'KO', '', null, 3]) expect(parseDriveBrokerStart({ ...base, locale })).toBeNull()
+  expect(parseDriveBrokerStart({ ...base, app: 'gmail', locale: 'ja' })).toEqual({ ...base, app: 'gmail', locale: 'ja' } as any)
+  expect(parseDriveBrokerStart({ ...base, lang: 'ko' })).toBeNull()
 })
 
 test('a start page that is not exactly the hosting service\'s is dropped; Google\'s address stays', async () => {
