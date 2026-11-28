@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 11:31
 - Branch: `fix/drive-broker-connect-lang`
-- Status: in progress
+- Status: done
 - Where: `shared/src/cloud-protocol/drive-broker.ts` (MIT wire contract), `server/src/integrations/google-drive/`,
   `server/src/integrations/google-apps/`. Why: the team server is the only side that knows the person's Trina language.
 - Version impact: patch: a fix; one new optional request field that older control planes are retried without.
@@ -49,4 +49,10 @@ No migration. A newer control plane must accept the field before every server se
 `tests/unit/c-google-apps-team-broker.test.ts`, `tests/unit/c-google-apps-signin.test.ts`.
 
 ## Result
+
+Built as planned. \`DriveBroker.start\` sends \`locale\` = the person's \`users.locale\` (their own choice or the team
+default they follow); on \`invalid_request\` it asks once more without it. A Google app team sign-in on a control plane
+from before both fields asks \`share\`+locale, \`share\`, then \`personal\`+locale. The control plane side (store it with
+the state, use it on the start page and Google's return, \`hl\` for Google) is trina-cloud's PR. Tests: 4 broker files,
+53 pass; \`check:prepush\` ok.
 
