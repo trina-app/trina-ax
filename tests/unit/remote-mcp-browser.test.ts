@@ -384,6 +384,8 @@ describe('security review fixes', () => {
   test('two profiles with one name: the app must pass the id', async () => {
     wipe('alice')
     const a = await link('alice', 'Person 1'), b = await link('alice', 'Person 1')
+    // linking numbers a repeated name ("Person 1 2"); a rename in Settings can still make two alike
+    h.ctx.db.query('UPDATE chrome_links SET label = ? WHERE id = ?').run('Person 1', b.linkId)
     const ea = await ext(a.token), eb = await ext(b.token)
     const s1 = serve(ea), s2 = serve(eb)
     try {
