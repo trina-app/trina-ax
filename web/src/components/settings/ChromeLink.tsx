@@ -69,7 +69,7 @@ export const profileKey = (p: DesktopBrowserProfile) => `${p.browser}/${p.dir}`
 /** The link a profile of this computer already has: the same account, else the same name (what the app named it). */
 export function linkOfProfile(p: DesktopBrowserProfile, links: ChromeLink[]): ChromeLink | undefined {
   const name = BROWSER_NAMES[p.browser]
-  const label = chromeProfileLabel(p.name, p.email, name)
+  const label = chromeProfileLabel(p.name, name)
   const sameBrowser = (l: ChromeLink) => !l.browser || l.browser.toLowerCase().startsWith(name.toLowerCase())
   return (p.email ? links.find((l) => sameBrowser(l) && l.email?.toLowerCase() === p.email!.toLowerCase()) : undefined)
     ?? links.find((l) => sameBrowser(l) && l.label === label)
@@ -90,11 +90,13 @@ export function ChromeLinkView({ data, inApp, host, busy = null, onDisconnect, o
         appLinks ? null : (
           <div data-testid="chrome-link-how">
             <p className="text-sm text-muted">{t('settings.chrome.how', { product, host })}</p>
-            <p className="mt-1 text-sm text-muted">{t('settings.chrome.oneEach')} <a className="text-accent underline" href={chromeStoreUrl('chrome')} target="_blank" rel="noreferrer" data-testid="chrome-link-store">{t('settings.chrome.store')}</a></p>
+            <a className="mt-2 inline-block text-sm text-accent underline" href={chromeStoreUrl('chrome')} target="_blank" rel="noreferrer" data-testid="chrome-link-store">{t('settings.chrome.store')}</a>
+            <p className="mt-2 text-sm text-muted">{t('settings.chrome.oneEach')}</p>
           </div>
         )
       ) : (
         <>
+          {appLinks && <h3 className="mb-2 text-sm font-semibold text-ink" data-testid="chrome-links-title">{t('settings.chrome.connectedTitle')}</h3>}
           <ul className="divide-y divide-line md:rounded-xl md:border md:border-line" data-testid="chrome-links">
             {data.links.map((l) => <LinkRow key={l.id} link={l} busy={busy} startOpen={openIds.includes(l.id)} now={now} onDisconnect={onDisconnect} onPatch={onPatch} />)}
           </ul>
@@ -121,39 +123,36 @@ function ThisComputer({ profiles, links, connecting, onConnect, onConnectAll }: 
   const t = useT()
   if (!profiles) return <div className="mb-4"><Skeleton lines={2} /></div>
   if (!profiles.length) return <p className="mb-4 text-sm text-muted" data-testid="chrome-profiles-none">{t('settings.chrome.noProfiles')}</p>
+  // the linked ones are in the list below: only the profiles still to connect show here (none left: nothing)
   const open = profiles.filter((p) => !linkOfProfile(p, links))
+  if (!open.length) return null
+  const ready = open.filter((p) => p.installed)
   return (
-    <div className="mb-5" data-testid="chrome-profiles">
-      <div className="mb-2 flex items-center justify-between gap-3">
+    <div className="mb-6" data-testid="chrome-profiles">
+      <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold text-ink">{t('settings.chrome.thisComputer')}</h3>
-        {open.length > 1 && (
-          <Button size="sm" variant="primary" busy={connecting === 'all'} disabled={!!connecting} onClick={() => onConnectAll(open)} data-testid="chrome-profiles-all">{t('settings.chrome.connectAll')}</Button>
+        {ready.length > 1 && (
+          <Button size="sm" variant="secondary" busy={connecting === 'all'} disabled={!!connecting} onClick={() => onConnectAll(ready)} data-testid="chrome-profiles-all">{t('settings.chrome.connectAll')}</Button>
         )}
       </div>
+      <p className="mt-0.5 mb-2 text-xs text-muted" data-testid="chrome-profiles-hint">{t('settings.chrome.appHint')}</p>
       <ul className="divide-y divide-line md:rounded-xl md:border md:border-line">
-        {profiles.map((p) => {
-          const linked = linkOfProfile(p, links)
+        {open.map((p) => {
           const name = BROWSER_NAMES[p.browser]
+          const shown = p.name || p.email || name
           return (
             <li key={profileKey(p)} className="flex items-center gap-3 py-2.5 text-sm md:px-4" data-testid="chrome-profile-row">
               <div className="min-w-0 flex-1">
-                <div className="truncate font-medium text-ink" data-testid="chrome-profile-name">{p.name || p.email || name}</div>
-                <div className="truncate text-xs text-muted">{[name, p.email && p.email !== p.name ? p.email : null].filter(Boolean).join(' · ')}</div>
+                <div className="truncate font-medium text-ink" title={shown} data-testid="chrome-profile-name">{shown}</div>
+                <div className="truncate text-xs text-muted">{[name, p.email && p.email !== shown ? p.email : null].filter(Boolean).join(' · ')}</div>
               </div>
-              {linked ? (
-                <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted" data-testid="chrome-profile-linked">
-                  <span className="size-2 rounded-full bg-ok" aria-hidden />{t('settings.chrome.connected')}
-                </span>
-              ) : (
-                <Button size="sm" variant="secondary" className="shrink-0" busy={connecting === profileKey(p)} disabled={!!connecting} onClick={() => onConnect(p)} aria-label={`${p.installed ? t('settings.chrome.connect') : t('settings.chrome.install', { browser: name })} ${p.name}`} data-testid="chrome-profile-connect">
-                  {p.installed ? t('settings.chrome.connect') : t('settings.chrome.install', { browser: name })}
-                </Button>
-              )}
+              <Button size="sm" variant="secondary" className="shrink-0" busy={connecting === profileKey(p)} disabled={!!connecting} onClick={() => onConnect(p)} aria-label={`${p.installed ? t('settings.chrome.connect') : t('settings.chrome.install')} ${shown} (${name})`} data-testid="chrome-profile-connect">
+                {p.installed ? t('settings.chrome.connect') : t('settings.chrome.install')}
+              </Button>
             </li>
           )
         })}
       </ul>
-      <p className="mt-2 text-xs text-muted" data-testid="chrome-profiles-hint">{t('settings.chrome.appHint')}</p>
     </div>
   )
 }
@@ -167,6 +166,8 @@ function LinkRow({ link: l, busy, startOpen, now, onDisconnect, onPatch }: { lin
   const [site, setSite] = useState('')
   const [siteError, setSiteError] = useState(false)
   const saving = busy === l.id || busy === `unlink:${l.id}`
+  // the profile's account and browser, each once (not when the name says it already)
+  const extras = [l.email && l.email !== l.label ? l.email : null, l.browser && l.browser !== l.label ? l.browser : null].filter((x): x is string => !!x)
   const sitesId = `chrome-sites-${l.id}`
   const rename = async (e?: FormEvent) => {
     e?.preventDefault()
@@ -209,10 +210,12 @@ function LinkRow({ link: l, busy, startOpen, now, onDisconnect, onPatch }: { lin
               />
             </form>
           )}
-          <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted" data-testid="chrome-link-state">
-            <span className={l.online ? 'size-2 shrink-0 rounded-full bg-ok' : 'size-2 shrink-0 rounded-full border border-faint'} aria-hidden />
-            {l.online ? t('settings.chrome.online') : l.lastSeenAt ? t('settings.chrome.lastUsed', { when: formatRelative(l.lastSeenAt, locale, now) }) : t('settings.chrome.offline')}
-            {[l.email && l.email !== l.label ? l.email : null, l.browser].filter(Boolean).map((x) => <span key={x} className="truncate" data-testid="chrome-link-account"> · {x}</span>)}
+          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted">
+            <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap" data-testid="chrome-link-state">
+              <span className={l.online ? 'size-2 shrink-0 rounded-full bg-ok' : 'size-2 shrink-0 rounded-full border border-faint'} aria-hidden />
+              {l.online ? t('settings.chrome.online') : l.lastSeenAt ? t('settings.chrome.lastUsed', { when: formatRelative(l.lastSeenAt, locale, now) }) : t('settings.chrome.offline')}
+            </span>
+            {extras.length > 0 && <span className="min-w-0 truncate" title={extras.join(' · ')} data-testid="chrome-link-account">· {extras.join(' · ')}</span>}
           </span>
         </div>
         <Button size="sm" variant="ghost" className="shrink-0" aria-expanded={open} aria-controls={sitesId} onClick={() => setOpen(!open)} data-testid="chrome-link-sites-toggle">
@@ -351,7 +354,7 @@ export function ChromeLinkSettings() {
     try {
       const r = await cp!.connect({ browser: p.browser, dir: p.dir })
       if (r === 'failed') toast({ level: 'error', text: t('settings.chrome.openFailed') })
-      else if (r === 'store') toast({ level: 'info', text: t('settings.chrome.storeOpened', { browser: p.browser === 'edge' ? 'Edge' : p.browser === 'brave' ? 'Brave' : 'Chrome' }), ms: 10_000 })
+      else if (r === 'store') toast({ level: 'info', text: t('settings.chrome.storeOpened', { product: PRODUCT.displayName }), ms: 10_000 })
     } finally {
       setConnecting(null)
       // the link shows up as soon as the extension spent its code

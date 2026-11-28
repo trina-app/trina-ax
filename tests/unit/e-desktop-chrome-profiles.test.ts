@@ -150,7 +150,8 @@ describe('opening a profile', () => {
     const bin = path.join(tmp(), 'chrome')
     fs.writeFileSync(bin, '')
     const urls: string[] = []
-    const host = new ChromeProfilesHost({ userData: tmp(), dataDirName: 'Team AX', dev: true, execPath: '/x', team: () => null, env: env({ MYCEL_CHROME_DATA_DIRS: `chrome=${chrome}`, MYCEL_CHROME_BINARIES: `chrome=${bin}` }), exec: async (_f, a) => { urls.push(a[a.length - 1]!); return true } })
+    const page = { send: () => {}, isDestroyed: () => false }
+    const host = new ChromeProfilesHost({ userData: tmp(), dataDirName: 'Team AX', dev: true, execPath: '/x', team: () => ({ origin: 'https://acme.test', name: 'Acme', page }), env: env({ MYCEL_CHROME_DATA_DIRS: `chrome=${chrome}`, MYCEL_CHROME_BINARIES: `chrome=${bin}` }), exec: async (_f, a) => { urls.push(a[a.length - 1]!); return true } })
     expect(host.list()).toEqual([{ browser: 'chrome', dir: 'Default', name: 'Person 1', email: 'me@acme.test', installed: true }, { browser: 'chrome', dir: 'Profile 2', name: 'Home', installed: false }])
     expect(await host.connect({ browser: 'chrome', dir: 'Default' })).toBe('pair')
     expect(await host.connect({ browser: 'chrome', dir: 'Profile 2' })).toBe('store')
@@ -159,6 +160,6 @@ describe('opening a profile', () => {
     expect(urls[1]).toMatch(/^https:\/\/chromewebstore\.google\.com\//)
     const m = /^chrome-extension:\/\/([a-p]{32})\/pair\.html#nonce=([A-Za-z0-9_-]{43})$/.exec(urls[0]!)
     expect(m?.[1]).toBe(DEV)
-    expect(host.nonces.take(m![2]!)).toEqual({ browser: 'chrome', dir: 'Default', label: 'me@acme.test', email: 'me@acme.test', browserLabel: 'Chrome on Mac' })
+    expect(host.nonces.take(m![2]!)).toEqual({ browser: 'chrome', dir: 'Default', label: 'Person 1', email: 'me@acme.test', browserLabel: 'Chrome on Mac', teamOrigin: 'https://acme.test' })
   })
 })

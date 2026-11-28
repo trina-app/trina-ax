@@ -81,6 +81,9 @@ export class ChromeProfilesHost {
   register(dirs = nativeHostDirs(this.env)): string[] {
     const helper = this.helperPath()
     if (!helper || !this.socket) return []
+    // an app run from the disk image or moved by macOS's App Translocation: its path goes away, so a manifest would
+    // name a helper that is gone (written again at the next start from the installed copy)
+    if (!this.d.dev && /^\/Volumes\/|\/AppTranslocation\//.test(helper)) return []
     const fixed = path.join(this.env.home, 'Library', 'Application Support', this.d.dataDirName, 'chrome', 'pair.sock')
     // the helper finds the packaged app's socket by itself; any other (a dev run, another user data folder) is named by
     // a start script in the app's own folder
@@ -105,7 +108,10 @@ export class ChromeProfilesHost {
     let url: string
     let nonce: string | null = null
     if (found.id) {
-      nonce = this.nonces.mint({ browser, dir: found.dir, label: chromeProfileLabel(found.name, found.email, bl), ...(found.email ? { email: found.email } : {}), browserLabel: bl })
+      // the team on screen now: the code must come from it (no team: the pair page says to open one)
+      const team = this.d.team()
+      if (!team) return 'failed'
+      nonce = this.nonces.mint({ browser, dir: found.dir, label: chromeProfileLabel(found.name, bl), ...(found.email ? { email: found.email } : {}), browserLabel: bl, teamOrigin: team.origin })
       // the nonce goes only into this argument list (the browser's second process shows it in `ps` while it runs)
       url = pairPageUrl(found.id, nonce)
     } else url = chromeStoreUrl(browser)

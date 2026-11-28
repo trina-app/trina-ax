@@ -6,7 +6,11 @@
 // The socket: MYCEL_CHROME_PAIR_SOCKET (a development run's start script sets it), else
 // ~/Library/Application Support/<the app's data folder>/chrome/pair.sock (build.sh writes the folder's name into
 // config.swift). It keeps nothing, writes no file and logs nothing.
+// A release build (build.sh with CHROME_HOST_TEAM_ID, the Developer ID team) talks only to a socket served by a program
+// signed by that team (the socket's peer pid, checked with the Security framework) and ignores MYCEL_CHROME_PAIR_SOCKET:
+// another program of this user that took the socket's place, or pointed the helper elsewhere, gets nothing to answer.
 import Foundation
+import Security
 
 let maxBytes = 16 * 1024
 
@@ -30,9 +34,24 @@ func write(_ json: Data) {
 let notRunning = Data(#"{"type":"error","reason":"app_not_running"}"#.utf8)
 
 func socketPath() -> String {
-  if let p = ProcessInfo.processInfo.environment["MYCEL_CHROME_PAIR_SOCKET"], p.hasPrefix("/") { return p }
+  if requiredTeam.isEmpty, let p = ProcessInfo.processInfo.environment["MYCEL_CHROME_PAIR_SOCKET"], p.hasPrefix("/") { return p }
   let home = FileManager.default.homeDirectoryForCurrentUser.path
   return "\(home)/Library/Application Support/\(appDataDir)/chrome/pair.sock"
+}
+
+/// the program serving the socket is signed by our team (release builds; a development build checks nothing)
+func peerIsOurApp(_ fd: Int32) -> Bool {
+  if requiredTeam.isEmpty { return true }
+  var pid: pid_t = 0
+  var len = socklen_t(MemoryLayout<pid_t>.size)
+  if getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &len) != 0 || pid <= 0 { return false }
+  var code: SecCode?
+  let attrs = [kSecGuestAttributePid: NSNumber(value: pid)] as CFDictionary
+  guard SecCodeCopyGuestWithAttributes(nil, attrs, [], &code) == errSecSuccess, let c = code else { return false }
+  var req: SecRequirement?
+  let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(requiredTeam)\"" as CFString
+  guard SecRequirementCreateWithString(text, [], &req) == errSecSuccess, let r = req else { return false }
+  return SecCodeCheckValidity(c, [], r) == errSecSuccess
 }
 
 /// one round trip to the app: the line out, one line back (at most maxBytes), or nil
@@ -60,6 +79,7 @@ func ask(_ line: Data) -> Data? {
     $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
   }
   if ok != 0 { return nil }
+  if !peerIsOurApp(fd) { return nil }
   var sent = 0
   let sentOk = line.withUnsafeBytes { (p: UnsafeRawBufferPointer) -> Bool in
     while sent < line.count {

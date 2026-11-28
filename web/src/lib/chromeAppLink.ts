@@ -9,6 +9,9 @@ import { api, API, isApiError } from './api'
 import { desktop } from './desktop'
 import { toast } from '../store/ui'
 
+/** a link counts as "just linked" this long */
+const FRESH_MS = 5 * 60_000
+
 /** One pair code for the app, or null when this person cannot link a browser (a guest, a limit, offline). */
 export async function pairCodeForApp(challenge: string): Promise<{ code: string } | null> {
   try {
@@ -26,7 +29,14 @@ export function useChromeAppLinking(userId: string | null) {
     const cp = desktop()?.chromeProfiles
     if (!cp || !userId) return
     const offPair = cp.onPairRequest((r) => pairCodeForApp(r.challenge))
-    const offLinked = cp.onLinked((l) => {
+    const offLinked = cp.onLinked(async (l) => {
+      // only a link of this person that was made or renewed just now gets the notice (Undo disconnects exactly it)
+      let fresh = false
+      try {
+        const got = (await api.call(API.chromeLinks)).links.find((x) => x.id === l.linkId)
+        fresh = !!got && Date.parse(got.lastSeenAt ?? got.createdAt) > Date.now() - FRESH_MS
+      } catch { fresh = false }
+      if (!fresh) return
       toast({
         level: 'success',
         text: t('settings.chrome.linkedByApp', { browser: l.browser, label: l.label }),

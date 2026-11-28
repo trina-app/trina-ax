@@ -39,14 +39,14 @@ const en = {
   pairAppTitle: 'Could not connect this browser',
   pairAppWorking: 'Connecting this browser…',
   pairAppExpired: 'This link has expired. Press Connect in the desktop app again.',
-  pairAppNoApp: 'The desktop app is not running. Open it and press Connect again, or click the {app} icon in the toolbar and connect here.',
+  pairAppNoApp: 'The desktop app is not running. Open it and press Connect again, or click the {app} icon next to the address bar and connect here.',
   pairAppNoTeam: 'Open your team in the desktop app and sign in, then press Connect again.',
-  pairAppRefused: 'Your team did not allow it. Click the {app} icon in the toolbar and connect here instead.',
+  pairAppRefused: 'The desktop app cannot connect this browser right now. Click the {app} icon next to the address bar and connect here instead.',
   pairAppDone: 'Connected to $1',
-  pairAppDoneBody: 'This browser is "$1" in your team. This tab closes by itself.',
+  pairAppDoneBody: 'Its name in your team: $1. This tab closes by itself.',
   rename: 'Rename',
   save: 'Save',
-  renameOffline: 'Could not rename while offline. Try again when it is online.',
+  renameOffline: 'Could not rename: this browser was offline. Try again.',
 } as const
 
 export type MessageKey = keyof typeof en
@@ -85,14 +85,14 @@ const ko: Record<MessageKey, string> = {
   pairAppTitle: '이 브라우저를 연결하지 못했어요',
   pairAppWorking: '이 브라우저를 연결하는 중…',
   pairAppExpired: '링크가 만료됐어요. 데스크톱 앱에서 연결을 다시 눌러 주세요.',
-  pairAppNoApp: '데스크톱 앱이 실행 중이 아니에요. 앱을 열고 연결을 다시 누르거나, 툴바의 {app} 아이콘을 눌러 여기서 연결하세요.',
+  pairAppNoApp: '데스크톱 앱이 꺼져 있어요. 앱을 열고 연결을 다시 누르거나, 주소창 오른쪽의 {app} 아이콘을 눌러 여기서 연결해 주세요.',
   pairAppNoTeam: '데스크톱 앱에서 팀을 열고 로그인한 뒤 연결을 다시 눌러 주세요.',
-  pairAppRefused: '팀에서 허용하지 않았어요. 툴바의 {app} 아이콘을 눌러 여기서 연결하세요.',
+  pairAppRefused: '지금은 데스크톱 앱에서 이 브라우저를 연결할 수 없어요. 주소창 오른쪽의 {app} 아이콘을 눌러 여기서 연결해 주세요.',
   pairAppDone: '$1에 연결했어요',
-  pairAppDoneBody: '팀에서는 이 브라우저를 "$1"(으)로 보여 줘요. 이 탭은 곧 저절로 닫혀요.',
+  pairAppDoneBody: '팀에서 보이는 이름: $1. 이 탭은 곧 저절로 닫혀요.',
   rename: '이름 바꾸기',
   save: '저장',
-  renameOffline: '오프라인이라 이름을 바꾸지 못했어요. 온라인일 때 다시 해 주세요.',
+  renameOffline: '연결이 끊겨 있어 이름을 바꾸지 못했어요. 다시 해 주세요.',
 }
 
 const ja: Record<MessageKey, string> = {
@@ -129,14 +129,14 @@ const ja: Record<MessageKey, string> = {
   pairAppTitle: 'このブラウザをつなげませんでした',
   pairAppWorking: 'このブラウザをつないでいます…',
   pairAppExpired: 'リンクの期限が切れました。デスクトップアプリでもう一度「接続」を押してください。',
-  pairAppNoApp: 'デスクトップアプリが起動していません。アプリを開いてもう一度「接続」を押すか、ツールバーの {app} アイコンからここで接続してください。',
+  pairAppNoApp: 'デスクトップアプリが起動していません。アプリを開いてもう一度「接続」を押すか、アドレスバーの右にある {app} アイコンからここで接続してください。',
   pairAppNoTeam: 'デスクトップアプリでチームを開いてサインインし、もう一度「接続」を押してください。',
-  pairAppRefused: 'チームで許可されていません。ツールバーの {app} アイコンからここで接続してください。',
+  pairAppRefused: '今はデスクトップアプリからこのブラウザを接続できません。アドレスバーの右にある {app} アイコンからここで接続してください。',
   pairAppDone: '$1 に接続しました',
-  pairAppDoneBody: 'チームではこのブラウザは「$1」と表示されます。このタブは自動で閉じます。',
+  pairAppDoneBody: 'チームでの名前: $1。このタブは自動で閉じます。',
   rename: '名前を変更',
   save: '保存',
-  renameOffline: 'オフラインのため名前を変更できませんでした。オンラインのときにもう一度お試しください。',
+  renameOffline: 'このブラウザがオフラインだったため、名前を変更できませんでした。もう一度お試しください。',
 }
 
 const zh_CN: Record<MessageKey, string> = {
@@ -173,14 +173,14 @@ const zh_CN: Record<MessageKey, string> = {
   pairAppTitle: '未能连接此浏览器',
   pairAppWorking: '正在连接此浏览器…',
   pairAppExpired: '链接已过期。请在桌面应用中再按一次“连接”。',
-  pairAppNoApp: '桌面应用未在运行。请打开应用再按“连接”，或点击工具栏中的 {app} 图标在这里连接。',
+  pairAppNoApp: '桌面应用未在运行。请打开应用再按“连接”，或点击地址栏右侧的 {app} 图标在这里连接。',
   pairAppNoTeam: '请在桌面应用中打开团队并登录，然后再按“连接”。',
-  pairAppRefused: '团队未允许。请点击工具栏中的 {app} 图标在这里连接。',
+  pairAppRefused: '桌面应用现在无法连接此浏览器。请点击地址栏右侧的 {app} 图标在这里连接。',
   pairAppDone: '已连接到 $1',
-  pairAppDoneBody: '在团队中，此浏览器显示为“$1”。此标签页会自动关闭。',
+  pairAppDoneBody: '在团队中的名称：$1。此标签页会自动关闭。',
   rename: '重命名',
   save: '保存',
-  renameOffline: '离线时无法重命名。请在在线时再试。',
+  renameOffline: '此浏览器离线，无法重命名。请再试一次。',
 }
 
 const es: Record<MessageKey, string> = {
@@ -217,14 +217,14 @@ const es: Record<MessageKey, string> = {
   pairAppTitle: 'No se pudo conectar este navegador',
   pairAppWorking: 'Conectando este navegador…',
   pairAppExpired: 'Este enlace caducó. Pulsa Conectar otra vez en la aplicación de escritorio.',
-  pairAppNoApp: 'La aplicación de escritorio no está abierta. Ábrela y pulsa Conectar otra vez, o haz clic en el icono de {app} en la barra y conéctate aquí.',
+  pairAppNoApp: 'La aplicación de escritorio no está abierta. Ábrela y pulsa Conectar otra vez, o haz clic en el icono de {app} junto a la barra de direcciones y conéctate aquí.',
   pairAppNoTeam: 'Abre tu equipo en la aplicación de escritorio e inicia sesión; luego pulsa Conectar otra vez.',
-  pairAppRefused: 'Tu equipo no lo permitió. Haz clic en el icono de {app} en la barra y conéctate aquí.',
+  pairAppRefused: 'La aplicación de escritorio no puede conectar este navegador ahora. Haz clic en el icono de {app} junto a la barra de direcciones y conéctate aquí.',
   pairAppDone: 'Conectado a $1',
-  pairAppDoneBody: 'En tu equipo, este navegador aparece como "$1". Esta pestaña se cierra sola.',
+  pairAppDoneBody: 'Su nombre en tu equipo: $1. Esta pestaña se cierra sola.',
   rename: 'Cambiar nombre',
   save: 'Guardar',
-  renameOffline: 'No se pudo cambiar el nombre sin conexión. Inténtalo cuando esté en línea.',
+  renameOffline: 'No se pudo cambiar el nombre: este navegador estaba sin conexión. Inténtalo de nuevo.',
 }
 
 const id: Record<MessageKey, string> = {
@@ -261,14 +261,14 @@ const id: Record<MessageKey, string> = {
   pairAppTitle: 'Tidak dapat menghubungkan browser ini',
   pairAppWorking: 'Menghubungkan browser ini…',
   pairAppExpired: 'Tautan ini sudah kedaluwarsa. Tekan Hubungkan lagi di aplikasi desktop.',
-  pairAppNoApp: 'Aplikasi desktop tidak berjalan. Buka aplikasinya lalu tekan Hubungkan lagi, atau klik ikon {app} di toolbar dan hubungkan di sini.',
+  pairAppNoApp: 'Aplikasi desktop tidak berjalan. Buka aplikasinya lalu tekan Hubungkan lagi, atau klik ikon {app} di sebelah bilah alamat dan hubungkan di sini.',
   pairAppNoTeam: 'Buka tim Anda di aplikasi desktop dan masuk, lalu tekan Hubungkan lagi.',
-  pairAppRefused: 'Tim Anda tidak mengizinkannya. Klik ikon {app} di toolbar dan hubungkan di sini.',
+  pairAppRefused: 'Aplikasi desktop belum dapat menghubungkan browser ini sekarang. Klik ikon {app} di sebelah bilah alamat dan hubungkan di sini.',
   pairAppDone: 'Terhubung ke $1',
-  pairAppDoneBody: 'Di tim Anda, browser ini tampil sebagai "$1". Tab ini akan tertutup sendiri.',
+  pairAppDoneBody: 'Namanya di tim Anda: $1. Tab ini akan tertutup sendiri.',
   rename: 'Ganti nama',
   save: 'Simpan',
-  renameOffline: 'Tidak dapat mengganti nama saat offline. Coba lagi saat online.',
+  renameOffline: 'Tidak dapat mengganti nama: browser ini sedang offline. Coba lagi.',
 }
 
 export const MESSAGES: Record<Locale, Record<MessageKey, string>> = { en, ko, ja, zh_CN, es, id }

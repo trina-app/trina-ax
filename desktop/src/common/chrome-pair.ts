@@ -26,6 +26,8 @@ export interface PairBinding {
   email?: string
   /** "Chrome on Mac" */
   browserLabel: string
+  /** the team on the app's screen when it opened the profile: the code must come from that same team */
+  teamOrigin: string
 }
 interface Entry { b: PairBinding; at: number; paired: boolean; linked: boolean }
 
@@ -102,7 +104,8 @@ export async function handlePairMessage(d: PairServerDeps, msg: unknown): Promis
   const b = d.nonces.take(r.data.nonce)
   if (!b) return refuse('bad_nonce')
   const team = d.team()
-  if (!team) { d.nonces.drop(r.data.nonce); return refuse('no_team') }
+  // the team on screen now must be the one the profile was opened for (a team switch in between: Connect again)
+  if (!team || team.origin !== b.teamOrigin) { d.nonces.drop(r.data.nonce); return refuse('no_team') }
   let got: { code: string } | null = null
   try { got = await d.askCode(r.data.challenge) } catch { got = null }
   if (!got || !/^[A-Za-z0-9_-]{43}$/.test(got.code)) { d.nonces.drop(r.data.nonce); return refuse('refused') }

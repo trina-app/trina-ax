@@ -43,14 +43,14 @@ async function start() {
   const nonce = new URLSearchParams(location.hash.replace(/^#/, '')).get('nonce')
   // out of the address (history, a copied link) before anything else
   history.replaceState(null, '', location.pathname)
-  if (!nonce || !ChromePairNonce.safeParse(nonce).success) return show(t('pairAppTitle'), t('pairAppExpired'), true)
+  if (!nonce || !ChromePairNonce.safeParse(nonce).success) return show(t('pairAppTitle'), t('pairAppExpired'))
   show(t('pairAppWorking'))
   const { verifier, challenge } = await pkcePair()
   const r = await ask({ type: 'pair', nonce, challenge })
   if (r.type !== 'code') {
     const why = r.type === 'error' ? r.reason : 'refused'
     const key = why === 'app_not_running' ? 'pairAppNoApp' : why === 'no_team' ? 'pairAppNoTeam' : why === 'bad_nonce' ? 'pairAppExpired' : 'pairAppRefused'
-    return show(t('pairAppTitle'), t(key), true)
+    return show(t('pairAppTitle'), t(key))
   }
   const origin = teamOrigin(r.origin)
   if (!origin) return show(t('pairAppTitle'), t('pairFailed'), true)
@@ -60,7 +60,8 @@ async function start() {
   await chrome.runtime.sendMessage({ type: 'linked' }).catch(() => {})
   const link = (await chrome.storage.local.get('link')).link as { linkId?: string; user?: { name?: string } } | undefined
   if (link?.linkId) await ask({ type: 'linked', nonce, linkId: link.linkId })
-  show(t('pairAppDone', [r.team]), t('pairAppDoneBody', [r.label]))
+  // the team and its address in plain sight: the person sees where this browser now answers
+  show(t('pairAppDone', [`${r.team} (${new URL(origin).host})`]), t('pairAppDoneBody', [r.label]))
   await closeSoon()
 }
 

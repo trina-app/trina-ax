@@ -126,7 +126,10 @@ function render(s: PopupStatus) {
 /** "This browser: Work" with Rename (only while online: the team keeps the name), or the field being typed. */
 function nameRow(s: PopupStatus): Node[] {
   if (renaming !== null) {
-    const input = el('input', { type: 'text', value: renaming, maxLength: 60, spellcheck: false, oninput: () => (renaming = input.value) })
+    const input = el('input', {
+      type: 'text', value: renaming, maxLength: 60, spellcheck: false, oninput: () => (renaming = input.value),
+      onkeydown: (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); renaming = null; void refresh() } },
+    })
     input.setAttribute('aria-label', t('nameLabel'))
     const form = el('form', {
       cls: 'rename',

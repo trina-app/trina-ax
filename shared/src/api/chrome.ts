@@ -26,7 +26,7 @@ export const CHROME_CODE_TTL_MS = 5 * 60_000
 export const BrowserTarget = z.enum(['app', 'chrome'])
 export type BrowserTarget = z.infer<typeof BrowserTarget>
 
-export const ChromeLinkLabel = z.string().trim().min(1).max(60)
+export const ChromeLinkLabel = z.string().trim().min(1).max(60).regex(/^[^\u0000-\u001f\u007f\u2028\u2029]+$/)
 /** the Google account a browser profile is signed in to (chrome.identity), as the extension read it */
 export const ChromeLinkEmail = z.string().trim().max(254).regex(/^[^\s@<>"]+@[^\s@<>"]+$/)
 /** what the extension runs in: "Chrome on Mac", "Edge on Windows" */

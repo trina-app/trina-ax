@@ -5,6 +5,7 @@
 // address or code is useless anywhere else. A pending pairing ends after 5 minutes or when its tab closes.
 import { CHROME_CONNECT_DONE_PATH, CHROME_CONNECT_PATH, ChromeRedeemed } from '../../shared/src/api/chrome'
 import { browserLabel, codeFromDoneUrl, pkcePair } from './ids'
+import { cutLabel } from '../../shared/src/chrome-native'
 import { loadLink, saveLink } from './state'
 
 const PAIR_TTL_MS = 5 * 60_000
@@ -44,8 +45,8 @@ export async function pairState(): Promise<PairState> {
 
 /** The name of this browser profile as the team lists it: 1 to 60 characters, the browser and system when left empty. */
 export function cleanLabel(raw: string): string {
-  const v = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()
-  return Array.from(v).slice(0, 60).join('').trim() || browserLabel(navigator.userAgent, navigator.userAgentData, Boolean(navigator.brave))
+  const v = raw.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim()
+  return cutLabel(v) || browserLabel(navigator.userAgent, navigator.userAgentData, Boolean(navigator.brave))
 }
 
 /** A team origin the extension may connect to: https, or a developer's http://localhost. */

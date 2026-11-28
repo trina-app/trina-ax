@@ -49,18 +49,21 @@ describe('Settings › Browser › On this computer (desktop app links profiles 
   test('each profile with Connect (installed) or Add to Chrome (not yet), Connect all for two or more; no "how" text', () => {
     const html = withProfiles({ links: [], target: 'app' }, [prof(), prof({ dir: 'Profile 1', name: 'Person 1', email: undefined, installed: false }), prof({ browser: 'edge', dir: 'Default', name: 'Home', email: undefined })])
     expect(html.match(/data-testid="chrome-profile-row"/g)?.length).toBe(3)
-    expect(html).toContain(translate('en', 'settings.chrome.install', { browser: 'Chrome' }))
+    expect(html).toContain(translate('en', 'settings.chrome.install'))
+    // Connect all: only the profiles that have the extension (two here)
     expect(html).toContain('data-testid="chrome-profiles-all"')
     expect(html).toContain('mina@work.example')
     expect(html).toContain('Edge')
     expect(html).toContain(translate('en', 'settings.chrome.appHint'))
     expect(html).not.toContain('data-testid="chrome-link-how"')
   })
-  test('a profile already linked (same account, else the same name) shows Connected; one left: no Connect all', () => {
+  test('a profile already linked (same account, else the same name) is only in the connected list; one left: no Connect all', () => {
     const html = withProfiles({ links: [link({ label: 'Work', email: 'mina@work.example', browser: 'Chrome on Mac' })], target: 'app' }, [prof(), prof({ dir: 'Profile 2', name: 'Home', email: 'mina@home.example' })])
-    expect(html.match(/data-testid="chrome-profile-linked"/g)?.length).toBe(1)
-    expect(html.match(/data-testid="chrome-profile-connect"/g)?.length).toBe(1)
+    expect(html.match(/data-testid="chrome-profile-row"/g)?.length).toBe(1)
+    expect(html).toContain('data-testid="chrome-links-title"')
     expect(html).not.toContain('data-testid="chrome-profiles-all"')
+    // all linked: the section is gone
+    expect(withProfiles({ links: [link({ label: 'Work', email: 'mina@work.example' })], target: 'app' }, [prof()])).not.toContain('data-testid="chrome-profiles"')
     expect(linkOfProfile(prof({ email: undefined, name: 'Person 1' }), [link({ label: 'Person 1' })])).toBeTruthy()
     // an Edge profile is not matched by a Chrome link of the same account
     expect(linkOfProfile(prof({ browser: 'edge' }), [link({ email: 'mina@work.example', browser: 'Chrome on Mac' })])).toBeUndefined()

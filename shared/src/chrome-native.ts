@@ -64,7 +64,7 @@ export const ChromeNativeReply = z.discriminatedUnion('type', [
     code: Secret,
     team: z.string().max(200),
     /** the profile's name and account as the browser's Local State lists them, and "Chrome on Mac" */
-    label: z.string().min(1).max(60),
+    label: z.string().min(1).max(60).regex(/^[^\u0000-\u001f\u007f\u2028\u2029]+$/),
     email: z.string().max(254).optional(),
     browser: z.string().min(1).max(60),
   }),
@@ -73,11 +73,17 @@ export const ChromeNativeReply = z.discriminatedUnion('type', [
 ])
 export type ChromeNativeReply = z.infer<typeof ChromeNativeReply>
 
-/** The name a profile gets: the browser's own name for it, its account when that name is one the browser made up
- * ("Person 1", "사용자 1"), else "Chrome on Mac". At most 60 characters. */
-export function chromeProfileLabel(name: string | undefined, email: string | undefined, browser: string): string {
-  const n = (name ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()
-  const madeUp = !n || /^(person|profile|user|사용자|프로필|ユーザー|用户|usuario|persona|pengguna)\s*\d+$/i.test(n)
-  const pick = madeUp ? (email || n || browser) : n
-  return Array.from(pick).slice(0, 60).join('').trim() || browser
+/** At most `max` UTF-16 units (what zod's .max counts), never a broken surrogate pair, trimmed. */
+export function cutLabel(v: string, max = 60): string {
+  let out = ''
+  for (const ch of v) { if (out.length + ch.length > max) break; out += ch }
+  return out.trim()
+}
+
+/** The name a profile gets: the browser's own name for it ("Work", "Person 1": what the browser's profile menu shows),
+ * else "Chrome on Mac". Never the account's email (it shows next to the name, and only where the person sees it). At
+ * most 60 UTF-16 units, no control characters. */
+export function chromeProfileLabel(name: string | undefined, browser: string): string {
+  const n = (name ?? '').replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim()
+  return cutLabel(n) || cutLabel(browser) || 'Chrome'
 }

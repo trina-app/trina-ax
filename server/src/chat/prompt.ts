@@ -793,7 +793,7 @@ export const CHROME_BROWSER_RULES = [
 export const profilesRule = (i: Pick<PromptInput, 'browserProfiles'>) => {
   const ps = i.browserProfiles ?? []
   if (!ps.length) return ''
-  const row = (p: NonNullable<PromptInput['browserProfiles']>[number]) => `  - "${p.name.replace(/["\n]/g, ' ')}" (id ${p.id}${p.email && p.email !== p.name ? `; account ${p.email.replace(/[\s"<>]/g, '')}` : ''})${p.online ? '' : ' (not open now)'}${p.sites?.length ? `; sites allowed there: ${p.sites.slice(0, 30).join(', ')}` : ''}`
+  const row = (p: NonNullable<PromptInput['browserProfiles']>[number]) => `  - "${p.name.replace(/["\u0000-\u001f\u007f\u2028\u2029]/g, ' ')}" (id ${p.id}${p.email && p.email !== p.name ? `; account ${p.email.replace(/[\s"<>]/g, '')}` : ''})${p.online ? '' : ' (not open now)'}${p.sites?.length ? `; sites allowed there: ${p.sites.slice(0, 30).join(', ')}` : ''}`
   return [
     '- The user keeps a separate browser profile per account. Every browser tool takes `profile` (its name, account or id): pick the profile whose account the step needs, and switch between profiles from one call to the next as the task needs (for example read in one, write mail in another). Without `profile` a call goes to the profile this answer used last, else the one whose sites hold the address, else the only one open. Tabs belong to their profile. When you cannot tell which account a step needs, ask the user once (ask_user). Profiles:',
     ...ps.slice(0, 20).map(row),

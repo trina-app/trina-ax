@@ -15,8 +15,8 @@ import { ChromeProfilesHost, type PageLike } from '../../desktop/src/main/chrome
 
 const ORIGIN = `chrome-extension://${CHROME_EXTENSION_IDS.dev}/`
 const secret = () => crypto.randomBytes(32).toString('base64url')
-const A: PairBinding = { browser: 'chrome', dir: 'Default', label: 'Work', email: 'mina@acme.test', browserLabel: 'Chrome on Mac' }
-const B: PairBinding = { browser: 'chrome', dir: 'Profile 2', label: 'Home', browserLabel: 'Chrome on Mac' }
+const A: PairBinding = { browser: 'chrome', dir: 'Default', label: 'Work', email: 'mina@acme.test', browserLabel: 'Chrome on Mac', teamOrigin: 'https://acme.trina.test' }
+const B: PairBinding = { browser: 'chrome', dir: 'Profile 2', label: 'Home', browserLabel: 'Chrome on Mac', teamOrigin: 'https://acme.trina.test' }
 const HELPER = path.join(import.meta.dir, '../../desktop/native-build/chrome-host')
 
 const cleanup: (() => void)[] = []
@@ -152,6 +152,27 @@ async function line(socket: string, data: string | Buffer, wait = 5000): Promise
   })
 }
 
+describe('review fixes', () => {
+  test('the team switched between opening the profile and its pair: no_team, the nonce is spent, the page is never asked', async () => {
+    const t = deps({ team: () => ({ origin: 'https://other.trina.test', name: 'Other' }) })
+    const n = t.d.nonces.mint(A)
+    expect(await handlePairMessage(t.d, { origin: ORIGIN, request: { type: 'pair', nonce: n, challenge: secret() } })).toEqual({ type: 'error', reason: 'no_team' })
+    expect(t.asked).toEqual([])
+    expect(t.d.nonces.take(n)).toBeNull()
+  })
+  test('names: the browser\'s own profile name (never the email), cut to 60 UTF-16 units without breaking an emoji, no control characters', async () => {
+    const { chromeProfileLabel, cutLabel, ChromeNativeReply } = await import('@mycel/shared/chrome-native')
+    expect(chromeProfileLabel('Person 1', 'Chrome on Mac')).toBe('Person 1')
+    expect(chromeProfileLabel('', 'Chrome on Mac')).toBe('Chrome on Mac')
+    expect(chromeProfileLabel('Work\u2028mail\n', 'Chrome on Mac')).toBe('Work mail')
+    const emoji = '😀'.repeat(40)
+    const cut = cutLabel(emoji)
+    expect(cut.length).toBe(60)
+    expect(cut).toBe('😀'.repeat(30))
+    expect(ChromeNativeReply.safeParse({ type: 'code', origin: 'https://a.test', code: secret(), team: 'A', label: chromeProfileLabel(emoji, 'Chrome on Mac'), browser: 'Chrome on Mac' }).success).toBe(true)
+  })
+})
+
 describe('socket', () => {
   function serve(o: Partial<PairServerDeps> = {}) {
     const dir = tmp()
@@ -196,7 +217,7 @@ describe('the host and the page', () => {
     const sent: { channel: string; payload: any }[] = []
     const page: PageLike = { send: (channel, payload) => sent.push({ channel, payload }), isDestroyed: () => false }
     const other: PageLike = { send: () => {}, isDestroyed: () => false }
-    const host = new ChromeProfilesHost({ userData: tmp(), dataDirName: 'X', dev: true, execPath: '/x', team: () => ({ origin: 'https://acme.test', name: 'Acme', page }), askMs: 300 })
+    const host = new ChromeProfilesHost({ userData: tmp(), dataDirName: 'X', dev: true, execPath: '/x', team: () => ({ origin: 'https://acme.trina.test', name: 'Acme', page }), askMs: 300 })
     host.start()
     cleanup.unshift(() => host.stop())
     await Bun.sleep(50)
@@ -209,7 +230,7 @@ describe('the host and the page', () => {
     host.answer(other, sent[0]!.payload.id, { code: secret() })
     host.answer(page, sent[0]!.payload.id, { code })
     host.answer(page, sent[0]!.payload.id, { code: secret() })
-    expect(JSON.parse((await reply)!)).toMatchObject({ type: 'code', code, team: 'Acme', origin: 'https://acme.test' })
+    expect(JSON.parse((await reply)!)).toMatchObject({ type: 'code', code, team: 'Acme', origin: 'https://acme.trina.test' })
     expect(JSON.parse((await line(host.socket!, JSON.stringify({ origin: ORIGIN, request: { type: 'linked', nonce: n, linkId: 'cl_9' } }) + '\n'))!)).toEqual({ type: 'ok' })
     expect(sent[1]).toEqual({ channel: 'bridge:chrome-linked', payload: { linkId: 'cl_9', label: 'Work', browser: 'Chrome on Mac' } })
     // nobody answers: refused after askMs
