@@ -5,6 +5,16 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+## 0.21.0 — 2026-11-28
+
+- Admin notes: 0.21.0 changes no root file, so a Linux server on 0.20.4 takes it as an app update in the team's update window (or `sudo mycel-ctl update`). Migration 135_a only adds a table (browser pauses of a Trina AX MCP connection); the reader level stays 9: going back to 0.20.4 needs no backup.
+
+- Connecting Google Drive or another Google app through the hosting service now shows its page ("Connect Google Drive", "Continue to Google") and Google's own screen in your Trina language. It followed the browser, so a Korean team on a self-installed server could see English. Needs the hosting service's update; until then nothing changes.
+- A team opened in the browser at this computer's own address (`http://127.0.0.1:47820`, as on a Windows PC with the server in WSL) no longer offers "Continue in the Windows app" or "Open the app": the app does not take such a link, so the button did nothing. The files line says to paste the address on the app's first screen instead.
+- The "앱에서 열기" link under the join form is no longer shown on a plain-http address on the office network (`http://192.168.…`) either: the app always refused such a link as not secure.
+- **Your AI apps in your own browser.** Claude Code, Codex and Claude can now work in the Chrome, Edge and Brave profiles you linked to Trina, through the Trina AX MCP connection. Tick **Use my browser profiles** when you sign the app in. The app picks the profile for each step (a work account in one, a personal one in another), each session gets its own window and tab group, and a site you have not allowed asks you once on a Trina page, with **Always allow** kept for that profile everywhere.
+- Stop in the browser extension pauses that app's browser work until you press **Resume** in Settings › Trina AX MCP.
+
 ## 0.20.4 — 2026-11-28
 
 - Admin notes: 0.20.4 changes a root file (`scripts/system/packages.sh`: a progress line while system packages install), so every Linux server takes it through the root update: the update timer installs it in the team's update window, or run `sudo mycel-ctl update`. The system package list is unchanged. Migrations 464 and 465 only add tables and columns (Trina in Chrome); the reader level stays 9: going back to 0.20.3 needs no backup.
