@@ -63,8 +63,8 @@ Windows 10 no longer gets regular updates from Microsoft, so prefer Windows 11.
    it would make and changes nothing:
    `powershell -ExecutionPolicy Bypass -File .\install-wsl-server.ps1 -WhatIf`
 
-3. Answer its questions (Enter means yes). On the test PC (2026-11-28) it took about 6 minutes plus the restart; a
-   slower PC or connection can take up to 40 minutes, most of it the server's packages. Leave the window open.
+3. Answer its questions (Enter means yes). It takes about 6 minutes, up to 40 on a slow PC or connection (most of it
+   the server's packages), plus the restart. Leave the window open.
 
 What the script does, in order. Run it again at any time: finished steps are skipped.
 
@@ -110,8 +110,11 @@ programs on the PC can read.) To see the code yourself (keep it private):
 wsl -d TrinaAX --cd / -u root -- cat /var/lib/mycel/setup/code
 ```
 
-Create the owner, the team name and the language; check the team's time zone. Then follow the Linux guide's
-[First run](INSTALL-LINUX.en.md#first-run) list: permissions, AI connection, invite the team, first skill, first backup.
+The installer's last lines speak of `ssh -L` and `sudo cat`: they are written for a Linux server without a screen.
+On Windows, open `http://127.0.0.1:47820/setup` on this PC instead.
+
+Create the owner, the team name and the language; check the team's time zone. Then, in this order: folder
+permissions, the AI connection, invite the team, a first skill, a first backup.
 
 ## Reach it from other computers and phones
 
@@ -121,16 +124,19 @@ self-hosted software. Using it only on this PC needs none of this.
 
 The simplest way is a free Cloudflare Tunnel: step by step, in plain words, in
 [Connect your own domain with Cloudflare Tunnel](site/operate/windows-pc.md#connect-your-own-domain-with-cloudflare-tunnel).
-Any other tunnel or reverse proxy that reaches `127.0.0.1:47820` works too (see the Linux guide's
-[First run](INSTALL-LINUX.en.md#first-run), step 3). Either way, register the host name from inside Linux:
+Run the tunnel program (cloudflared) inside Linux, as that page does: there it reaches the server at
+`127.0.0.1:47820` exactly as on a Linux server. Then register the host name from inside Linux:
 
 ```powershell
 wsl -d TrinaAX --cd / -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh repair --public-host team.example.com"
 ```
 
-A tunnel program can run inside Linux (`wsl -d TrinaAX --cd / -u root`) or on Windows (it reaches the server at
-`127.0.0.1:47820`). Opening the PC's port to the office network (WSL's mirrored networking, `netsh portproxy`) is not
-needed and not covered here: it gives no https.
+This runs the installer again (`repair`) and restarts the server: for about 35 seconds nobody can use it. It ends
+with a line `installed mycel <version> (...)`. The hints printed after it (`ssh -L`, `sudo ...`) are written for a
+Linux server: on this PC, skip them.
+
+Opening the PC's port to the office network (WSL's mirrored networking, `netsh portproxy`) is not needed and not
+covered here.
 
 ## What the script changes in Linux
 
@@ -181,7 +187,7 @@ first.
 - **Sleep**: the server cannot answer while the PC sleeps. The script can set "never sleep while plugged in" (the
   screen still turns off). On a laptop, also set what closing the lid does (Control Panel › Power Options › Choose
   what closing the lid does › Do nothing, when plugged in).
-- **While it is stopped** nothing of the server runs: scheduled tasks, phone notifications and the relay wait, and the
+- **While it is stopped** nothing of the server runs: scheduled tasks and phone notifications wait, and the
   daily backup catches up when Linux runs again.
 - **Check**: `wsl -l -v` lists `TrinaAX` as `Running`; `wsl -d TrinaAX --cd / -u root -- mycel-ctl status` shows the server.
 - **Stop it for a while**: disable the task in Task Scheduler (folder TrinaAX), then `wsl --terminate TrinaAX`.
@@ -266,6 +272,8 @@ if (Test-Path $f) {
 Unregister-ScheduledTask -TaskPath '\TrinaAX\' -TaskName 'Keep the Trina AX server running' -Confirm:$false
 wsl --unregister TrinaAX            # deletes the Linux disk with all of the team's data
 Remove-Item -Recurse "$env:ProgramData\TrinaAX"
+# only if the script created .wslconfig (you had none before; no .wslconfig.trina-backup-<date> next to it)
+Remove-Item $env:USERPROFILE\.wslconfig
 ```
 
 Then, if you want them back as they were:

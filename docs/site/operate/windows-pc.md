@@ -23,7 +23,7 @@ Korean: [윈도우 PC에 설치하기](../../INSTALL-WINDOWS.ko.md) (the full gu
 | **Disk** | 20 GB free on drive C:, plus room for the team's files |
 | **Account** | A Windows account with administrator rights. The server belongs to this account |
 | **Power and internet** | The PC stays plugged in, on and online during work hours |
-| **About 10 minutes** | The test PC took 6 minutes, plus one restart. A slow PC or connection can take up to 40 |
+| **About 10 minutes** | About 6 minutes, up to 40 on a slow PC or connection, plus one restart |
 
 ## The four steps
 
@@ -44,7 +44,7 @@ powershell -ExecutionPolicy Bypass -File .\install-wsl-server.ps1
 Answer its questions (Enter means yes) and leave the window open. The first time, Windows restarts once; sign in again and the setup goes on by itself in a new window. If a "Welcome to WSL" window opens, close it. If something is missing (for example virtualization is off), the script stops and says what to do.
 
 #### Create your team
-At the end the script offers to open the setup page on this PC and copies a one-time setup code for you. Paste the code into the page, then create your owner account and your team, and pick its language.
+At the end the script offers to open the setup page on this PC and copies a one-time setup code for you. (If the window's last lines mention `ssh -L` or `sudo`, skip them: they are for a Linux server. Open `http://127.0.0.1:47820/setup` on this PC.) Paste the code into the page, then create your owner account and your team, and pick its language.
 
 #### Use it on this PC, or give it your own address
 **Only on this PC?** You are done: open `http://127.0.0.1:47820` in the browser or the desktop app on this PC. Nothing else to set up.
@@ -62,7 +62,7 @@ A tunnel lets people reach the server at `https://team.yourcompany.com` without 
 
 :::steps
 #### Put your domain on Cloudflare
-Sign up at [cloudflare.com](https://www.cloudflare.com) and add your domain (the free plan is enough). Cloudflare tells you which two name servers to set where you bought the domain. Wait until Cloudflare shows the domain as active; this can take a few hours.
+No domain yet? Buy one first, from any domain seller or from Cloudflare itself (usually a few dollars a year). Then sign up at [cloudflare.com](https://www.cloudflare.com) and add your domain (the free plan is enough). Cloudflare tells you which two name servers to set where you bought the domain. Wait until Cloudflare shows the domain as active; this can take a few hours.
 
 #### Create the tunnel
 In the Cloudflare dashboard, open **Networking › Tunnels** and choose **Create a tunnel**. Give it a name such as `trina-office` and create it. On the next screen Cloudflare shows install commands for each system. You need only the long token in them: the text after `service install`. Copy it.
@@ -85,6 +85,8 @@ In the same PowerShell window, with your address in place of `team.yourcompany.c
 ```powershell
 wsl -d TrinaAX --cd / -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh repair --public-host team.yourcompany.com"
 ```
+
+This runs the installer again and restarts the server, so for about 35 seconds nobody can use it. It ends with a line `installed mycel <version> (...)`; skip the hints after it about `ssh -L` and `sudo`, which are for a Linux server.
 
 Open `https://team.yourcompany.com` on another computer or a phone and sign in. Your team uses this address in the browser and the apps; the invite links use it too.
 :::

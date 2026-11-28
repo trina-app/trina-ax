@@ -61,8 +61,8 @@ systemd가 켜진 WSL2에는 Microsoft의 최신 WSL(2.4.4 이상)이 필요합�
    모두 보여 주기만 하고 아무것도 바꾸지 않습니다.
    `powershell -ExecutionPolicy Bypass -File .\install-wsl-server.ps1 -WhatIf`
 
-3. 묻는 말에 답합니다(Enter는 '예'). 테스트 PC(2026-11-28)에서는 다시 시작을 빼고 6분쯤 걸렸습니다. PC나 인터넷이
-   느리면 40분까지 걸릴 수 있고, 대부분은 서버 패키지 설치 시간입니다. 창을 닫지 마세요.
+3. 묻는 말에 답합니다(Enter는 '예'). 6분쯤 걸리고, PC나 인터넷이 느리면 40분까지 걸립니다(대부분 서버 패키지 설치
+   시간). 여기에 재부팅 한 번이 더해집니다. 창을 닫지 마세요.
 
 스크립트가 하는 일을 순서대로 적었습니다. 언제든 다시 실행해도 됩니다. 끝난 단계는 건너뜁니다.
 
@@ -106,8 +106,10 @@ systemd가 켜진 WSL2에는 Microsoft의 최신 WSL(2.4.4 이상)이 필요합�
 wsl -d TrinaAX --cd / -u root -- cat /var/lib/mycel/setup/code
 ```
 
-owner, 팀 이름, 언어를 만들고 팀 시간대를 확인합니다. 그다음은 리눅스 안내의 [첫 설정](INSTALL-LINUX.md#5-첫-설정)
-목록을 따릅니다: 권한, AI 연결, 팀 초대, 첫 스킬, 첫 백업.
+설치 프로그램의 마지막 줄에 나오는 `ssh -L`과 `sudo cat` 안내는 화면 없는 리눅스 서버용입니다. 윈도우에서는 이 PC에서
+`http://127.0.0.1:47820/setup` 을 여세요.
+
+owner, 팀 이름, 언어를 만들고 팀 시간대를 확인합니다. 그다음 순서: 폴더 권한, AI 연결, 팀 초대, 첫 스킬, 첫 백업.
 
 ## 다른 컴퓨터와 휴대폰에서 접속
 
@@ -117,16 +119,18 @@ owner, 팀 이름, 언어를 만들고 팀 시간대를 확인합니다. 그다�
 
 가장 간단한 방법은 무료 Cloudflare Tunnel입니다. 단계별 안내:
 [Connect your own domain with Cloudflare Tunnel](site/operate/windows-pc.md#connect-your-own-domain-with-cloudflare-tunnel)(영어).
-`127.0.0.1:47820`에 닿는 다른 터널이나 리버스 프록시도 됩니다(리눅스 안내의 [첫 설정](INSTALL-LINUX.md#5-첫-설정) 3단계).
-어느 쪽이든 리눅스 안에서 호스트 이름을 등록합니다.
+터널 프로그램(cloudflared)은 그 안내처럼 리눅스 안에서 돌립니다. 그래야 리눅스 서버와 똑같이 `127.0.0.1:47820`으로
+서버에 닿습니다. 그다음 리눅스 안에서 호스트 이름을 등록합니다.
 
 ```powershell
 wsl -d TrinaAX --cd / -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh repair --public-host team.example.com"
 ```
 
-터널 프로그램은 리눅스 안(`wsl -d TrinaAX --cd / -u root`)에서도, 윈도우에서도(`127.0.0.1:47820`으로 서버에 닿습니다) 돌릴
-수 있습니다. PC의 포트를 사무실 네트워크에 여는 방법(WSL 미러 네트워킹, `netsh portproxy`)은 필요 없고 여기서 다루지
-않습니다. https가 생기지 않습니다.
+이 명령은 설치 프로그램을 다시 실행(`repair`)하고 서버를 다시 시작합니다. 35초쯤 아무도 쓸 수 없습니다. 끝에
+`installed mycel <버전> (...)` 줄이 나옵니다. 그 뒤의 `ssh -L`, `sudo ...` 안내는 리눅스 서버용이니 이 PC에서는
+건너뛰세요.
+
+PC의 포트를 사무실 네트워크에 여는 방법(WSL 미러 네트워킹, `netsh portproxy`)은 필요 없고 여기서 다루지 않습니다.
 
 ## 스크립트가 리눅스에서 바꾸는 것
 
@@ -175,7 +179,7 @@ wsl -d TrinaAX --cd / -u root -- bash -c "cd /root/trina-ax-kit && ./install-lin
 - **절전**: PC가 절전 중이면 서버가 응답하지 못합니다. 스크립트가 "전원 연결 시 절전 안 함"으로 바꿀 수 있습니다(화면은
   여전히 꺼집니다). 노트북이라면 덮개를 닫을 때의 동작도 정하세요(제어판 › 전원 옵션 › 덮개를 닫으면 수행되는 작업
   선택 › 전원 연결 시 아무 것도 안 함).
-- **멈춰 있는 동안**에는 서버의 어떤 것도 돌지 않습니다. 예약 작업, 휴대폰 알림, 릴레이가 기다리고, 하루 백업은 리눅스가
+- **멈춰 있는 동안**에는 서버의 어떤 것도 돌지 않습니다. 예약 작업과 휴대폰 알림이 기다리고, 하루 백업은 리눅스가
   다시 돌면 따라잡습니다.
 - **확인**: `wsl -l -v`에 `TrinaAX`가 `Running`으로 보이고, `wsl -d TrinaAX --cd / -u root -- mycel-ctl status`가 서버 상태를
   보여 줍니다.
@@ -260,6 +264,8 @@ if (Test-Path $f) {
 Unregister-ScheduledTask -TaskPath '\TrinaAX\' -TaskName 'Keep the Trina AX server running' -Confirm:$false
 wsl --unregister TrinaAX            # 팀의 모든 데이터가 든 리눅스 디스크를 지웁니다
 Remove-Item -Recurse "$env:ProgramData\TrinaAX"
+# 스크립트가 .wslconfig를 만든 경우에만(전에 없었고, 옆에 .wslconfig.trina-backup-<날짜>가 없을 때)
+Remove-Item $env:USERPROFILE\.wslconfig
 ```
 
 그다음, 원래대로 돌리고 싶다면:
