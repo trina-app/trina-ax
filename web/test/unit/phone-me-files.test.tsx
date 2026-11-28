@@ -286,7 +286,7 @@ describe('Files rows on a phone', () => {
     }
   })
 
-  test('a computer: no long press, a click opens the folder', async () => {
+  test('a computer: a long press selects nothing (it opens the row\'s menu, MenuButton useRowMenu), a click opens the folder', async () => {
     phone = false
     const m = await page()
     try {
@@ -300,6 +300,10 @@ describe('Files rows on a phone', () => {
       await m.settle(650)
       await pointer(shared, 'pointerup')
       expect(count(m)).toBeNull()
+      // a touch screen wider than a phone: the row's "···" menu, as on every list row
+      await m.until(() => m.container.ownerDocument!.body.querySelector('[role="menu"]'), 'the row menu')
+      // (the finger lifting is no click on the row; a later one opens it)
+      await m.settle(850)
       await m.click(shared)
       await m.until(() => opened('shared'), 'shared opened')
     } finally {

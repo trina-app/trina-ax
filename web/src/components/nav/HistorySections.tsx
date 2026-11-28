@@ -11,6 +11,7 @@
 //   - a mouse may drag a chat onto a section; its "⋯" has Add chats · Rename · Move up · Move down · Delete section.
 import clsx from 'clsx'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useRowMenu } from '../rooms/MenuButton'
 import { useLocation } from 'react-router-dom'
 import type { Chat, NavFolder } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
@@ -97,6 +98,8 @@ function HistorySection({ section, rows, row, filtered }: { section: NavFolder; 
   const mark = strongestMark(marked, view)
   const [more, setMore] = useState<{ cursor: string | null; busy: boolean; done: boolean }>({ cursor: null, busy: false, done: false })
   const left = !filtered && !more.done && count > rows.length
+  // a right-click (a long press, the menu key) on the header opens its "⋯"
+  const menu = useRowMenu()
   const readMore = async () => {
     setMore((m) => ({ ...m, busy: true }))
     try {
@@ -116,7 +119,8 @@ function HistorySection({ section, rows, row, filtered }: { section: NavFolder; 
       count={count}
       pill={mark ? <span data-testid="history-section-marker"><SessionMarker marker={mark.marker} label={reasonText(mark.marker.reason, t)} /></span> : undefined}
       keep={openRow ? <ul>{row(openRow)}</ul> : undefined}
-      action={<SectionMenu section={section} buttonClassName="size-6 max-md:size-11" />}
+      action={<SectionMenu section={section} buttonClassName="size-6 max-md:size-11" open={menu.open} />}
+      headProps={menu.row}
       labelTestId="trina-label"
       className={clsx('has-[[aria-expanded=true]]:[content-visibility:visible]', drop.over && DROP_OVER)}
       {...drop.props}

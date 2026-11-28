@@ -78,7 +78,7 @@ import { ChatFaces, PrivateIcon, SharedIcon, otherWriters } from '../components/
 import { whoSeesProject } from '../components/projectWho'
 import { useChatMenuItems } from '../components/chat/chatMenuItems'
 import { MoveToProjectDialog } from '../components/chat/ChatProject'
-import { MenuButton } from '../components/rooms/MenuButton'
+import { MenuButton, useRowMenu, type RowMenuOpen } from '../components/rooms/MenuButton'
 import { ProjectRoomButton } from '../components/rooms/ProjectRoomButton'
 import { onWindowFocus } from '../lib/attention'
 import { ProjectForm } from '../components/ProjectForm'
@@ -118,9 +118,9 @@ const PHONE = '(max-width: 767.98px)'
 
 
 /** A card's "…" on the list (components/rooms/MenuButton.tsx: arrow keys, Esc, a bottom sheet on phones). On a computer
- * it shows on hover and keyboard focus, on a touch screen always. A phone's row (`row`: useRowMenu's signals) has it
- * always, 44 px, before the chevron (as the AI chat rows in the 트리나 tab have theirs), and a long press opens it too. */
-function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, row }: { project: Project; onRenamed: (p: Project) => void; onDeleted: (d: Exclude<Deleted, null>) => void; onMembers: () => void; row?: { openSignal: number; openRequest: number } }) {
+ * it shows on hover and keyboard focus, on a touch screen always. `open`: the card's right-click, long press and menu
+ * key (MenuButton useRowMenu, on the card's <li>) open it too. */
+function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, open }: { project: Project; onRenamed: (p: Project) => void; onDeleted: (d: Exclude<Deleted, null>) => void; onMembers: () => void; open: RowMenuOpen }) {
   const t = useT()
   const phone = useMediaQuery(PHONE)
   // the item goes with the menu: the keyboard waits on "…", and a dialog an item opens gives it back there; a "…" not on
@@ -136,23 +136,6 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, row }: {
     void fn()
   }
   const items = useProjectMenuItems(p, { testId: 'project-card', select, onRenamed, onDeleted, onMembers })
-  if (row)
-    return (
-      <MenuButton
-        label={t('rooms.menu.rowLabel', { name: p.name })}
-        tip={t('rooms.menu.label')}
-        items={items}
-        sheetTitle={p.name}
-        // in the room the row keeps for it before its chevron (phone/PhoneList.tsx): 44 px from the screen's edge
-        className="absolute inset-y-0 right-11 flex items-center"
-        buttonClassName="size-11 hover:bg-surface"
-        buttonRef={more}
-        focusBack={focusBack}
-        openSignal={row.openSignal}
-        openRequest={row.openRequest}
-        testId="project-card-menu"
-      />
-    )
   return (
     <MenuButton
       label={t('rooms.menu.rowLabel', { name: p.name })}
@@ -165,8 +148,19 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, row }: {
       compact={!phone}
       buttonClassName="pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-has-[:focus-visible]:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100"
       buttonRef={more}
+      {...open}
       testId="project-card-menu"
     />
+  )
+}
+
+/** A project's card on the list: its <li>, with the card's right-click, long press and menu key (useRowMenu) */
+function ProjectCard({ project: p, children }: { project: Project; children: (open: RowMenuOpen) => ReactNode }) {
+  const menu = useRowMenu()
+  return (
+    <li className="group relative" {...menu.row} data-testid="project-card" data-project-id={p.id}>
+      {children(menu.open)}
+    </li>
   )
 }
 
@@ -318,17 +312,19 @@ export function ProjectList() {
                 {g.list.map((p) => {
                   const i = items!.indexOf(p)
                   return (
-                    <li key={p.id} className="group relative" data-testid="project-card">
+                    <ProjectCard key={p.id} project={p}>{(open) => (
+                    <>
                       {/* the card stays marked while its "…" menu is open */}
-                      <Link to={`/projects/${p.id}`} className={`block h-full rounded-2xl border border-line p-4 transition group-has-[[aria-expanded=true]]:bg-hover hover:bg-hover ${g.quiet ? 'bg-subtle' : 'bg-surface'}`} data-row-focus>
+                      <Link to={`/projects/${p.id}`} className={`block h-full rounded-2xl border border-line p-4 transition group-has-[[aria-expanded=true]]:bg-hover hover:bg-hover pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] ${g.quiet ? 'bg-subtle' : 'bg-surface'}`} data-row-focus>
                         {/* clear of the "…" in the card's corner; the icon stays on the first line of a long name */}
                         <span className="flex items-start gap-2 pr-8 font-medium max-md:pr-10">
                           <FolderKanban size={16} className="mt-1 shrink-0 text-accent-text" aria-hidden /> <span className="min-w-0 break-words">{p.name}</span>
                         </span>
                         <ProjectCardLines project={p} />
                       </Link>
-                      <ProjectCardMenu project={p} onRenamed={renamed} onDeleted={onDeleted(p, i)} onMembers={() => setMembers(p)} />
-                    </li>
+                      <ProjectCardMenu project={p} onRenamed={renamed} onDeleted={onDeleted(p, i)} onMembers={() => setMembers(p)} open={open} />
+                    </>
+                    )}</ProjectCard>
                   )
                 })}
               </ul>
