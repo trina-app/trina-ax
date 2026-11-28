@@ -7,6 +7,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import type { Database } from 'bun:sqlite'
+import { onlyWaitingForLimit } from '../credentials/resolve'
 import { subscriptionTokenStatus } from '../proxy/subscription'
 
 export { CLAUDE_OAUTH_TOKEN_FILE } from '../proxy/subscription'
@@ -66,7 +67,8 @@ export interface EngineCheckOptions {
 
 function fromConnections(engine: EngineLogin['engine'], s: CredentialSummary): EngineLogin {
   if (s.usable > 0) return { engine, installed: true, loggedIn: true, method: `AI connections: ${s.usable}`, reason: s.expiring > 0 ? 'credential_expiring' : null }
-  const reason = s.total === 0 ? 'credential_none' : s.reasons.length && s.reasons.every((r) => r === 'limited' || r === 'over_limit') ? 'credential_limited' : 'credential_unusable'
+  // (one rule with Admin > Providers: a limited connection beside one switched off is still only limited)
+  const reason = s.total === 0 ? 'credential_none' : onlyWaitingForLimit(s.reasons) ? 'credential_limited' : 'credential_unusable'
   return { engine, installed: true, loggedIn: false, method: null, reason }
 }
 

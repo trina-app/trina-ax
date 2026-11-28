@@ -1,0 +1,214 @@
+# Self-host on a Windows PC (WSL2)
+
+[한국어](INSTALL-WINDOWS.ko.md) · [Linux server](INSTALL-LINUX.en.md) · [IT checklist](for-admins.md)
+
+Your team server can run on a Windows PC that stays on. Windows runs a small Debian Linux inside it (WSL2, the
+Windows Subsystem for Linux), and the normal [Linux server](INSTALL-LINUX.en.md) runs in that Linux. One script sets
+it all up. It is the same server as on a Linux machine: same updates, same backups, same security checks.
+
+This way is new. It was tested on a Windows 11 PC with 8 GB of memory (2026-11-27: install, the AI's sandbox,
+documents, a real AI answer). A dedicated Linux server or VM is still the first choice for a team that has one.
+
+## Steps at a glance
+
+1. Check the [Requirements](#requirements).
+2. Sign in to Windows with the account that will keep the server, an administrator account.
+3. [Run the setup script](#run-the-setup-script). The first time, Windows restarts once and the script goes on by itself.
+4. Open the setup page on this PC, create the owner and the team ([First run](#first-run)).
+5. Give the server an https address so the team can reach it ([Reach it from other computers](#reach-it-from-other-computers-and-phones)).
+
+## Requirements
+
+| Item | Requirement |
+|---|---|
+| Windows | Windows 11 (recommended), or Windows 10 version 22H2 (build 19045) with its updates. Home, Pro and Enterprise all work |
+| Processor | 64-bit (x64 or ARM64), with virtualization turned on in the BIOS/UEFI (Intel VT-x, AMD-V / SVM). Most PCs have it on |
+| Memory | **16 GB recommended, 8 GB minimum.** In the test, Linux used up to 2.4 GB during one AI answer with documents. On 8 GB the PC is slow for other work |
+| Disk | At least 20 GB free on drive C:, plus room for the team's files and backups |
+| Account | A Windows administrator account. The server belongs to that account: it runs while that account is signed in |
+| Network | Internet for the download, updates and the AI provider |
+| Power | The PC stays on and plugged in. The script asks before it turns off sleep on power |
+
+WSL2 with systemd needs the current WSL from Microsoft (version 2.4.4 or newer); the script installs or updates it.
+Windows 10 no longer gets regular updates from Microsoft, so prefer Windows 11.
+
+## Run the setup script
+
+1. Open **Windows PowerShell as administrator**: Start menu, type `PowerShell`, right-click **Windows PowerShell**,
+   **Run as administrator**.
+2. Download the script of the latest release and run it:
+
+   ```powershell
+   cd $env:USERPROFILE\Downloads
+   $V = (Invoke-RestMethod https://api.github.com/repos/trina-app/trina-ax/releases/latest).tag_name
+   Invoke-WebRequest "https://raw.githubusercontent.com/trina-app/trina-ax/$V/scripts/windows/install-wsl-server.ps1" -OutFile install-wsl-server.ps1
+   powershell -ExecutionPolicy Bypass -File .\install-wsl-server.ps1
+   ```
+
+   It is a plain text file: open it in Notepad first if you want to see what it does. `-WhatIf` shows every change
+   it would make and changes nothing:
+   `powershell -ExecutionPolicy Bypass -File .\install-wsl-server.ps1 -WhatIf`
+
+3. Answer its questions. It takes 15 to 40 minutes on a new PC, most of it the server's packages. Leave the window open.
+
+What the script does, in order. Run it again at any time: finished steps are skipped.
+
+1. **Checks this PC**: Windows version, 64-bit, memory, virtualization, free disk, and that the window runs as the
+   account signed in to Windows. It stops with a plain message when something is missing.
+2. **Turns on two Windows features**: Virtual Machine Platform and Windows Subsystem for Linux. The first time this
+   needs **one restart**. The script asks, restarts, and after you sign in again it goes on by itself in a new window
+   (a one-time task, "Continue the Trina AX setup after the restart"). If no window opens, run the same command again.
+3. **Installs or updates WSL**, and sets how much memory Linux may use in `%UserProfile%\.wslconfig` (see
+   [Memory](#memory)). A `.wslconfig` you already have is kept: it only gets a memory line when it has none, after a
+   copy (`.wslconfig.trina-backup-<date>`).
+4. **Installs Debian as a WSL distro named `TrinaAX`** (`-Distro <name>` for another name) with systemd on. Your
+   other WSL distros are not touched. The first time, Windows may also open a "Welcome to WSL" window; close it.
+5. **Installs curl and Python 3** in it: a new Debian has neither, and the download and its check need them.
+6. **Downloads the server kit and checks it exactly as the Linux guide does** ([Download, verify,
+   check](INSTALL-LINUX.en.md#download-verify-check)): the checksum from the release's `SHA256SUMS`, the kit's
+   signature (`mycel-ctl verify-bundle`) and the installer's own check. It never skips a check and never installs an
+   unsigned kit. Then it runs the normal installer (`install-linux.sh install`, with Claude Code and Codex). The
+   unpacked kit stays in `/root/trina-ax-kit` inside Linux for later repairs.
+7. **Keeps the server running**: a task "Keep the Trina AX server running" (Task Scheduler, folder TrinaAX) starts at
+   your sign-in and keeps Linux on (see [Keeping it running](#keeping-it-running)). It asks whether this PC should
+   stop sleeping while it is plugged in.
+8. **Checks the server** at `http://localhost:47820` and offers to open the setup page.
+
+Options: `-Version 0.21.0` (a given release instead of the latest), `-Engine claude` (only Claude Code), `-MemoryGB 6`
+(the memory limit), `-KeepAwake Yes|No` and `-OpenSetup Yes|No` (answer those questions ahead).
+
+The script itself comes from the release's source. What it downloads and installs (the kit) is checked against the
+release signature, as on Linux.
+
+## First run
+
+The script offers to open `http://localhost:47820/setup` with the one-time setup code filled in. To see the code
+yourself (keep it private):
+
+```powershell
+wsl -d TrinaAX -u root -- cat /var/lib/mycel/setup/code
+```
+
+Create the owner, the team name and the language; check the team's time zone. Then follow the Linux guide's
+[First run](INSTALL-LINUX.en.md#first-run) list: permissions, AI connection, invite the team, first skill, first backup.
+
+## Reach it from other computers and phones
+
+The server answers only on this PC (`localhost`). Colleagues and the phone apps need an **https address**, as with
+any self-hosted server: a tunnel or reverse proxy that reaches `127.0.0.1:47820` and a certificate the phones trust.
+Set it up as in the Linux guide's [First run](INSTALL-LINUX.en.md#first-run) (step 3), from inside Linux:
+
+```powershell
+wsl -d TrinaAX -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh repair --public-host team.example.com"
+```
+
+A tunnel program can run inside Linux (`wsl -d TrinaAX -u root`) or on Windows (it reaches the server at
+`localhost:47820`). Opening the PC's port to the office network (WSL's mirrored networking, `netsh portproxy`) is not
+needed and not covered here: it gives no https.
+
+## Keeping it running
+
+- **Signed in**: WSL stops Linux about 15 seconds after the last window that uses it closes; the server's own services
+  do not count. The task "Keep the Trina AX server running" keeps one hidden connection open while your account is
+  signed in. **Locking the screen is fine. Signing out stops the server**, and so does a restart until you sign in
+  again.
+- **After Windows updates**: Windows restarts for updates and waits at the sign-in screen. Turn on Settings ›
+  Accounts › Sign-in options › **Use my sign-in info to automatically finish setting up after an update**, and check
+  the server after update nights. Set the PC's active hours so restarts happen outside work time.
+- **Sleep**: the server cannot answer while the PC sleeps. The script can set "never sleep while plugged in" (the
+  screen still turns off). On a laptop, also set what closing the lid does (Control Panel › Power Options › Choose
+  what closing the lid does › Do nothing, when plugged in).
+- **Check**: `wsl -l -v` lists `TrinaAX` as `Running`; `wsl -d TrinaAX -u root -- mycel-ctl status` shows the server.
+- **Stop it for a while**: disable the task in Task Scheduler (folder TrinaAX), then `wsl --terminate TrinaAX`.
+  Enable the task again (or sign out and in) to start it.
+
+## Memory
+
+WSL gives Linux at most half of the PC's memory unless `.wslconfig` says otherwise. The script writes a limit when
+the file has none: 5 GB on an 8 GB PC, 6 GB on 12 GB, 8 GB on 16 GB, 12 GB on 24 GB, 16 GB on 32 GB or more. To change
+it, edit the `memory=` line under `[wsl2]` in `%UserProfile%\.wslconfig` and run `wsl --shutdown` (the server comes
+back within a minute through the task). If answers fail or LibreOffice pages time out, give Linux more memory or use
+a PC with 16 GB.
+
+## Where the data is
+
+Everything of the server (team files, chat history, the database, backups, AI connections) is inside the Linux
+distro's virtual disk, a file `ext4.vhdx` in a folder under `%LocalAppData%\wsl\`. It grows as the team adds files.
+
+- **`wsl --unregister TrinaAX` deletes that disk and with it all of the team's data, at once and for good.** Never
+  run it on a server in use without a copy elsewhere.
+- Do not delete the folder with disk-cleanup tools, and keep it out of folders that sync to the cloud (OneDrive):
+  a synced copy of an open disk file is not a backup.
+- Resetting or reinstalling Windows deletes it too.
+
+## Backups
+
+The in-app backups (Admin › System › Backups) are inside the same virtual disk: they protect against mistakes, not
+against a broken PC. Copy an encrypted archive off the PC regularly, as in [Backup and restore](BACKUP-RESTORE.md#make-a-backup-now):
+
+```powershell
+wsl -d TrinaAX -u root
+```
+
+Then, inside Linux, the Linux commands of that page (`trina_admin backup --scope full`, `trina_admin archive --out
+/var/lib/mycel/data/off-host.tar.zst.age --password-stdin`), and copy the archive to Windows and on to another disk
+or storage:
+
+```sh
+cp /var/lib/mycel/data/off-host.tar.zst.age /mnt/c/Users/Public/
+rm /var/lib/mycel/data/off-host.tar.zst.age
+```
+
+A copy of the whole Linux disk is possible too, with the server stopped: disable the task, `wsl --terminate TrinaAX`,
+then `wsl --export TrinaAX D:\TrinaAX-backup.tar` (it holds the secrets: keep it as safe as the PC). `wsl --import`
+makes a distro from it again.
+
+## Updates
+
+The server updates itself from the release feed, as on Linux ([Upgrade and rollback](INSTALL-LINUX.en.md#upgrade-and-rollback)).
+WSL updates with Windows Update (or `wsl --update`). Keep Debian's security updates on as the Linux guide says
+([Requirements](INSTALL-LINUX.en.md#requirements)): for example
+`wsl -d TrinaAX -u root -- apt-get install -y unattended-upgrades`.
+
+## Uninstall and roll back
+
+A setup that stopped half-way: run the script again. Finished steps are skipped and the server install starts again
+from a new download.
+
+Remove the server and **keep the data** (the Linux installer's uninstall; a later install finds the data again):
+
+```powershell
+wsl -d TrinaAX -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh uninstall"
+```
+
+Remove **everything**, after you made and checked an off-PC backup:
+
+```powershell
+Unregister-ScheduledTask -TaskPath '\TrinaAX\' -TaskName 'Keep the Trina AX server running' -Confirm:$false
+wsl --unregister TrinaAX            # deletes the Linux disk with all of the team's data
+Remove-Item -Recurse "$env:ProgramData\TrinaAX"
+```
+
+Then, if you want them back as they were:
+
+- `.wslconfig`: put back the copy `%UserProfile%\.wslconfig.trina-backup-<date>`, or delete the two lines the script
+  added under `[wsl2]` (or the whole file, if the script made it).
+- Sleep: Settings › System › Power › Screen and sleep, or `powercfg /change standby-timeout-ac 30`.
+- The Windows features: leave them on (other programs use WSL), or turn off "Virtual Machine Platform" and "Windows
+  Subsystem for Linux" in Windows Features and restart.
+
+## Troubleshooting
+
+| What you see | What to do |
+|---|---|
+| `Virtualization is off in this PC's firmware` | Restart into the BIOS/UEFI setup and turn on Intel VT-x or AMD-V / SVM |
+| `0x80370102` or `0x8007019e` from WSL | Virtualization or the WSL feature is off: run the script again, restart when it asks |
+| `This window runs as ..., but ... is signed in` | Sign in to Windows with the administrator account that keeps the server; do not elevate with another account's password |
+| The install stops at a download | The PC needs internet to github.com, deb.debian.org, downloads.claude.ai, updates.trina.app. A company proxy: see [Behind an HTTP proxy](INSTALL-LINUX.en.md#behind-an-http-proxy) |
+| `wsl -d TrinaAX` asks for a user name | Debian's first start. Close it, or create a user; the server does not need one. Use `-u root` for the commands here |
+| The server stops after a while | Is the task running (Task Scheduler › TrinaAX)? Are you still signed in? Did the PC sleep? |
+| The installer warned `this kernel offers no Landlock` | Update WSL (`wsl --update`) and run the script again. (Up to 0.20 the installer read a file WSL does not have and warned even though Landlock worked) |
+| `mycel-ctl status` shows the Claude connection as a warning | The subscription waits for its usage limit to end; it comes back by itself |
+
+More: `wsl -d TrinaAX -u root -- mycel-ctl status`, Admin › System › Diagnostics, the Linux guide's
+[Troubleshooting](INSTALL-LINUX.en.md#troubleshooting-and-faq) and [Troubleshooting](TROUBLESHOOTING.md).

@@ -6,6 +6,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { EngineStatus } from '@mycel/shared/api'
 import { checkEngine, type EngineEnv } from '../../server/src/admin/engines'
+import { onlyWaitingForLimit } from '../../server/src/credentials/resolve'
+import { checkEngines } from '../../server/src/system/engines'
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'engine-limited-'))
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }))
@@ -53,5 +55,30 @@ describe('managed engine status with limited connections', () => {
     // none at all: the no-account line
     const none = await checkEngine('claude-code', env(() => ({ total: 0, usable: 0, reasons: [] })), true, 'en')
     expect(none.detail).toContain('no AI account yet')
+  })
+})
+
+// QA on WSL2 (2026-11-27): `mycel-ctl status` said engine.claude-code fail while the team's Claude subscription only
+// waited for its usage limit to end. The diagnostics (system/engines.ts) took "limited" only when every connection
+// was limited, Admin > Providers (above) when one is and none is refused: one rule now (credentials/resolve.ts).
+describe('the diagnostics read limited connections with the same rule as Admin > Providers', () => {
+  const managed = (reasons: string[]) => checkEngines({
+    authMode: 'managed', roleAccount: true, claudeBin: claude, codexBin: null, secretsDir: dir,
+    managed: { 'claude-code': { total: reasons.length, usable: 0, expiring: 0, reasons }, codex: { total: 0, usable: 0, expiring: 0, reasons: [] } },
+  }).then((r) => r.find((e) => e.engine === 'claude-code')!.reason)
+  test('limited, also beside one switched off, not allowed here or with sharing off: credential_limited (warn)', async () => {
+    for (const r of [['limited'], ['over_limit'], ['limited', 'disabled'], ['over_limit', 'kind_off'], ['limited', 'sharing_off']])
+      expect(`${r}: ${await managed(r)}`).toBe(`${r}: credential_limited`)
+  })
+  test('a refused, expired or signed-out one beside it, or nothing waiting for a limit: credential_unusable (fail)', async () => {
+    for (const r of [['limited', 'invalid'], ['limited', 'needs_reconnect'], ['over_limit', 'expired'], ['disabled'], ['no_credit']])
+      expect(`${r}: ${await managed(r)}`).toBe(`${r}: credential_unusable`)
+    expect(await managed([])).toBe('credential_none')
+  })
+  test('both screens call the one rule', () => {
+    const src = (f: string) => fs.readFileSync(path.join(import.meta.dir, '../../server/src', f), 'utf8')
+    for (const f of ['system/engines.ts', 'admin/engines.ts']) expect(`${f}: ${src(f).includes('onlyWaitingForLimit(')}`).toBe(`${f}: true`)
+    expect(onlyWaitingForLimit(['limited', 'disabled'])).toBe(true)
+    expect(onlyWaitingForLimit(['limited', 'invalid'])).toBe(false)
   })
 })

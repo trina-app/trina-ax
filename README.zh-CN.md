@@ -104,7 +104,7 @@ https://github.com/user-attachments/assets/073b18ae-403c-4139-9518-1eed8e21a931
 - **在线试用：** 无需安装，用一个虚构团队体验（AI 已关闭）。[打开演示](https://ax.trina.app/demo/zh/)
 - **Trina 托管：** 不用自己运维服务器。免费试用 14 天，之后按月订阅。[价格](https://ax.trina.app/pricing)
 - **应用：** [Mac、Windows、Linux、iPhone、Android](https://ax.trina.app/download)，也可以直接用浏览器。
-- **自托管：** 部署在你们自己的 Linux 服务器、Docker 或办公室的 Mac 上，免费。[Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [办公室 Mac](docs/OFFICE.en.md) · [用 AI Agent 安装](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
+- **自托管：** 部署在你们自己的 Linux 服务器、Docker 或办公室的 Mac 上，免费。[Linux](docs/INSTALL-LINUX.en.md) · [Windows 电脑](docs/INSTALL-WINDOWS.md) · [Docker](docs/INSTALL-DOCKER.md) · [办公室 Mac](docs/OFFICE.en.md) · [用 AI Agent 安装](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
 
 <b>用 Docker 自托管</b>（Linux，或装了 OrbStack 的 Mac）
 

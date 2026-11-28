@@ -104,7 +104,7 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 - **Try it in your browser:** nothing to install; a fictional team with the AI off. [Open the demo](https://ax.trina.app/demo/)
 - **Trina hosting:** no server to run. 14-day free trial, then a monthly plan. [Pricing](https://ax.trina.app/pricing)
 - **Apps:** [Mac, Windows, Linux, iPhone, Android](https://ax.trina.app/download), or any browser.
-- **Self-host:** your own Linux server, Docker or an office Mac. Free. [Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [Office Mac](docs/OFFICE.en.md) · [Install with your AI agent](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
+- **Self-host:** your own Linux server, a Windows PC, Docker or an office Mac. Free. [Linux](docs/INSTALL-LINUX.en.md) · [Windows PC](docs/INSTALL-WINDOWS.md) · [Docker](docs/INSTALL-DOCKER.md) · [Office Mac](docs/OFFICE.en.md) · [Install with your AI agent](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
 
 <b>Self-host with Docker</b> (Linux, or a Mac with OrbStack)
 
