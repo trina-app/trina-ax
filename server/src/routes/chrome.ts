@@ -111,14 +111,14 @@ export const chromeRoutes: RouteModule = {
 
     // the extension's live connection: the token comes in the first frame (chrome/links.ts), never in a header or address
     kit.raw('GET', CHROME_WS_PATH, async (c) => {
-      if ((c.req.header('upgrade') ?? '').toLowerCase() !== 'websocket') fail('bad_request', 'WebSocket upgrade expected')
+      if ((c.req.header('upgrade') ?? '').toLowerCase() !== 'websocket') fail('bad_request')
       const server = (c.env as { server?: { upgrade(req: Request, o: { data: WsData; headers?: HeadersInit }): boolean } } | undefined)?.server
-      if (!server) fail('unavailable', 'WebSockets are not available on this connection')
+      if (!server) fail('unavailable')
       // only a browser extension opens it (a page of a website cannot pretend to be one: the browser sets Origin)
       const origin = c.req.header('origin') ?? ''
       if (!/^(chrome|moz)-extension:\/\/[a-z0-9-]{1,64}$/.test(origin)) fail('forbidden')
       const offered = (c.req.header('sec-websocket-protocol') ?? '').split(',').map((s) => s.trim())
-      if (!offered.includes(CHROME_WS_PROTOCOL)) fail('bad_request', 'protocol expected')
+      if (!offered.includes(CHROME_WS_PROTOCOL)) fail('bad_request')
       const ip = (c as unknown as AppContextC).get('info').ip ?? 'unknown'
       // sockets waiting for their first frame per address (one script cannot hold the server's sockets open)
       if (!rt.chrome.mayOpen(ip)) fail('rate_limited', undefined, { retryAfter: 10 })
@@ -137,7 +137,7 @@ export const chromeRoutes: RouteModule = {
       }
       const original = (c.env as { upgradeReq?: Request } | undefined)?.upgradeReq ?? c.req.raw
       const ok = server!.upgrade(original, { data, headers: { 'Sec-WebSocket-Protocol': CHROME_WS_PROTOCOL } })
-      if (!ok) fail('bad_request', 'WebSocket upgrade failed')
+      if (!ok) fail('bad_request')
       return new Response(null)
     })
   },
