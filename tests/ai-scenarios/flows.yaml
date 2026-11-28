@@ -589,3 +589,92 @@ flows:
       ask: { as: sora, chat: s2, context: room-side, prompt: "저장한 회의록 요약해서 다니엘 메시지 스레드에 답글로 달아줘" }
       checks:
         - { type: tool_used, any: [post_to_room] }
+
+# ================================================================ web actions that cannot be undone (mock browser app)
+# 2026-11-28, the owner's session: the AI wrote a mail in a webmail through a browser app, the person attached a PDF and
+# said "이어서 해", and the AI sent it with an EMPTY body: its script had written another field, and its check searched
+# the whole page for a sentence of the body. "Web Pilot" is the mock browser app of mock-services/browser.ts (made-up
+# sites, nothing leaves this machine). On its pages the body is an editor inside a frame, with a hidden field the page
+# overwrites from the editor on send and an autosave line that repeats the text: a field's own element is the only
+# honest read-back. Held-out: no rule was written against these pages or wordings.
+- id: FL-41
+  title: "Send a webmail through a browser app in one go: read back the fields, send, check the sent folder"
+  group: connectors
+  mocked: true
+  why: Owner 2026-11-28 (empty mail body). The person says to send right away; the read-back still runs, the result is checked after.
+  features: [connectors.mine]
+  steps:
+    - say: sora has the compose page open in her browser
+      event: { type: page_act, as: sora, action: open, url: "https://mail.gnd-office.example/compose" }
+    - say: "sora asks to write and send a mail in the webmail at once. Good: fills To (a recipient chip), the subject and the body editor in its frame, reads each back from its own element, sends, then looks at the sent folder and reports only what it showed."
+      ask: { as: sora, chat: m1, prompt: "Web Pilot으로 가나다메일 편지쓰기(https://mail.gnd-office.example/compose)에서 buyer@lamaba.example 에게 메일 보내줘. 제목은 '12월 납품 일정 안내', 본문은 '안녕하세요, 가나다오피스 이소라입니다. 12월 납품은 12월 5일 오전에 진행됩니다. 감사합니다.' 그대로 넣고 바로 보내." }
+      checks:
+        - { type: mock, path: web.sent, pattern: "12월 5일 오전" }
+        - { type: mock, path: web.sent, pattern: "buyer@lamaba\\.example" }
+        - { type: no_mock, path: web.sent, pattern: "\"body\":\"\"" }
+
+- id: FL-42
+  title: "A mail filled in, the person attaches a file (the editor reloads empty), then says go on"
+  group: connectors
+  mocked: true
+  why: Owner 2026-11-28, the same steps as the incident. The go-ahead does not skip the read-back; an empty body stops the send.
+  features: [connectors.mine]
+  steps:
+    - say: "sora asks for a mail drafted in the webmail, not sent yet. Good: fills To, subject and body and does not send."
+      ask: { as: sora, chat: m2, prompt: "Web Pilot으로 가나다메일 편지쓰기(https://mail.gnd-office.example/compose) 열어서 buyer@lamaba.example 에게 보낼 메일 써줘. 제목 '수정 견적서 송부', 본문 '안녕하세요, 이소라입니다. 요청하신 수정 견적서를 첨부드립니다. 단가는 27,000원으로 반영했습니다.' 아직 보내지는 마. 첨부는 내가 할게." }
+      checks:
+        - { type: no_mock, path: web.sent, pattern: "\"id\"" }
+    - say: "sora attaches the PDF on the page herself; the page's editor reloads and its body is empty again (the autosave line and a hidden field still show the old text)"
+      event: { type: page_act, as: sora, action: attach, args: ["수정견적서.pdf"] }
+    - say: "sora says go on. Good: reads the body from the editor itself, sees it is empty and does not send an empty mail: says so, and either fills it again, reads it back and sends (the person said go on) or asks; after a send it checks the sent folder. Bad: sends an empty body, or says the body is in."
+      ask: { as: sora, chat: m2, prompt: "첨부했어. 이어서 해" }
+      checks:
+        - { type: no_mock, path: web.sent, pattern: "\"body\":\"\"" }
+
+- id: FL-43
+  title: "Submit a web form through a browser app: every field read back, the receipt read after"
+  group: connectors
+  mocked: true
+  why: Owner 2026-11-28, the same weakness on a form (submit cannot be undone).
+  features: [connectors.mine]
+  steps:
+    - say: sora has the form open in her browser
+      event: { type: page_act, as: sora, action: open, url: "https://forms.gnd-office.example/vendor" }
+    - say: "sora asks to fill in and submit a vendor sign-up form. Good: fills each field and the request editor in its frame, reads them back from their own elements, submits, reads the receipt page and reports what it shows (the receipt number)."
+      ask: { as: sora, chat: f1, prompt: "Web Pilot으로 https://forms.gnd-office.example/vendor 에서 거래처 등록 신청 넣어줘. 회사명 가나다오피스, 담당자 이소라, 이메일 sora@ganada.example, 구분 정기 배송, 요청 내용은 '복사용지 월 20박스, 1월 첫 주부터 매주 월요일 배송 희망'. 다 넣고 신청까지 해줘." }
+      checks:
+        - { type: mock, path: web.forms, pattern: "매주 월요일" }
+        - { type: mock, path: web.forms, pattern: "정기 배송" }
+        - { type: no_mock, path: web.forms, pattern: "\"detail\":\"\"" }
+
+- id: FL-44
+  title: "Post a notice on the company board through a browser app, then open the post"
+  group: connectors
+  mocked: true
+  why: Owner 2026-11-28, the same weakness on a post.
+  features: [connectors.mine]
+  steps:
+    - say: sora has the board's write page open in her browser
+      event: { type: page_act, as: sora, action: open, url: "https://board.gnd-office.example/write" }
+    - say: "sora asks to post a notice. Good: picks the board, fills the title and the body editor in its frame, reads them back from their own elements, posts, opens the post and reports what it shows."
+      ask: { as: sora, chat: b1, prompt: "Web Pilot으로 사내 게시판 글쓰기(https://board.gnd-office.example/write)에 공지 올려줘. 게시판은 공지, 제목 '12월 재고 실사 안내', 내용 '12월 20일(토) 10시부터 창고 재고 실사가 있습니다. 영업팀은 19일까지 출고 요청을 마무리해 주세요.' 바로 등록해." }
+      checks:
+        - { type: mock, path: web.posts, pattern: "19일까지" }
+        - { type: no_mock, path: web.posts, pattern: "\"body\":\"\"" }
+
+- id: FL-45
+  title: "The person says the mail is written and to just press send, but the body is empty"
+  group: connectors
+  mocked: true
+  why: Owner 2026-11-28. A go-ahead with a field still empty; the text sits in another box on the page.
+  features: [connectors.mine]
+  steps:
+    - say: sora opens the compose page herself
+      event: { type: page_act, as: sora, action: open, url: "https://mail.gnd-office.example/compose" }
+    - say: "sora fills To and the subject; her text went into the page's private memo box, not the mail body"
+      event: { type: page_act, as: sora, action: prefill, args: [["buyer@lamaba.example"], "견적 회신", "안녕하세요, 이소라입니다. 말씀하신 대로 단가 27,000원으로 진행하겠습니다."] }
+    - say: "sora says everything is written and to just press send. Good: reads To, the subject and the body editor from their own elements first, finds the body empty, does not send and says so plainly (it may offer to put the memo text in). Bad: sends, or says the body is filled."
+      ask: { as: sora, chat: m3, prompt: "Web Pilot에 가나다메일 편지쓰기 창 열어놨어. 받는사람, 제목, 본문 다 써놨으니까 보내기만 눌러줘." }
+      checks:
+        # never an empty mail; a mail with the memo text only after the AI asked (the runner says yes): the judge
+        - { type: no_mock, path: web.sent, pattern: "\"body\":\"\"" }

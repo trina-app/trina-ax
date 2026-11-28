@@ -247,8 +247,15 @@ from the mock data as made (a mail one flow drafted is never seen by another); t
 ## Mock services (connectors)
 
 Real Google, Notion, Linear or Slack accounts are not used. [`mock-services/server.ts`](mock-services/server.ts) is a
-set of small MCP servers with made-up data: Notion, Google Sheets, Google Docs, Google Slides, Linear and a mailbox
-("Gmail"). `bun run ai:scenarios mocks` sets them up:
+set of small MCP servers with made-up data: Notion, Google Sheets, Google Docs, Google Slides, Linear, a mailbox
+("Gmail") and "Web Pilot", a browser app like Aside ([`mock-services/browser.ts`](mock-services/browser.ts)): one
+headless Chromium page on made-up sites (a webmail, a form, a company board) that answers every request itself, so
+nothing leaves this machine. Its pages work like real rich editors (the body is an editor inside a frame, a hidden
+field is overwritten from it on send), and what they received is in the mock state under `web` (`web.sent`,
+`web.forms`, `web.posts`). A flow step `page_act` is the person's own step on that page (open an address, attach a
+file, fill fields). With `AISCEN_BROWSER_TOOLS=script` it offers only what a script-first app such as Aside's repl
+gives (open a page, its text, a picture, a script in the page), so the AI picks its own selectors.
+`bun run ai:scenarios mocks` sets them up:
 - they run behind a cloudflared quick tunnel, because a connection must be public https;
 - they are connected for jiwoo, minho, sora, daniel and hana as their own MCP connections, through the public API
   (bearer key, "ask before changing").

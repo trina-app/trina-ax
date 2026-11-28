@@ -8,6 +8,7 @@
 // A connection needs a public https address (integrations/connections/net.ts), so the CLI puts a cloudflared quick
 // tunnel in front of it (tunnel.ts). Only fictional data passes through it.
 import fs from 'node:fs'
+import { BROWSER_TOOLS, initialWeb, MockBrowser, type WebState } from './browser'
 
 type Json = Record<string, unknown>
 /** a mail the AI drafts or sends; attachments by base64 or by link (a team file's share link) */
@@ -24,7 +25,7 @@ endstream endobj
 trailer<</Root 1 0 R>>
 %%EOF
 `)
-interface Tool { name: string; description: string; inputSchema: Json; readOnly: boolean; run(a: Json, s: State): unknown }
+interface Tool { name: string; description: string; inputSchema: Json; readOnly: boolean; run(a: Json, s: State): unknown | Promise<unknown> }
 export interface State {
   notion: { pages: { id: string; title: string; body: string; updatedBy?: string }[]; db: { id: string; client: string; status: string; amount: number }[] }
   sheets: { sheets: { id: string; title: string; rows: (string | number)[][] }[] }
@@ -32,6 +33,8 @@ export interface State {
   slides: { decks: { id: string; title: string; slides: { title: string; body: string }[] }[] }
   linear: { issues: { id: string; title: string; state: string; comments: string[] }[] }
   mail: { inbox: { id: string; from: string; subject: string; body: string; date: string; attachments?: { id: string; filename: string; mime: string }[] }[]; drafts: Mail[]; sent: Mail[] }
+  /** what the mock browser's made-up sites received (browser.ts): mails sent, forms, posts */
+  web: WebState
   calls: { service: string; tool: string; args: Json; at: string }[]
 }
 
@@ -60,6 +63,7 @@ export function initialState(): State {
       drafts: [],
       sent: [],
     },
+    web: initialWeb(),
     calls: [],
   }
 }
@@ -153,6 +157,11 @@ export const SERVICES: Record<string, { title: string; tools: Tool[] }> = {
         run: (a, s) => { const d = a.draft_id ? s.mail.drafts.find((x) => x.id === a.draft_id) : { id: id('m'), to: String(a.to), subject: String(a.subject), body: String(a.body), attachments: attachmentsOf(a) }; if (!d) return { error: 'no such draft' }; s.mail.sent.push({ ...d, id: id('sent') }); return { sent: true, attachments: d.attachments?.length ?? 0 } } },
     ],
   },
+  /** an app on the person's computer that drives their browser (as Aside and the like do), on made-up sites only */
+  browser: {
+    title: 'Web Pilot (mock)',
+    tools: BROWSER_TOOLS.map((t) => ({ ...t, run: (a: Json) => browserOf().call(t.name, a) })),
+  },
 }
 
 /** the shared meeting-notes page of FL-28 (fictional) */
@@ -162,11 +171,23 @@ const NOTES_PAGE = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><
 <h2>할 일</h2><ol><li>이소라: 계약서 최종본 발송 (11/20)</li><li>Daniel: 샘플 전달 (11/20 오전)</li><li>박민호: 결제 조건 확인 (11/19)</li></ol>
 </body></html>`
 
+/** the one mock browser of this process (started on its first call) */
+let browser: MockBrowser | null = null
+let stateFile = ''
+function browserOf(): MockBrowser {
+  browser ??= new MockBrowser(
+    () => JSON.parse(fs.readFileSync(stateFile, 'utf8')) as State,
+    (f) => { const s = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as State; s.web ??= initialWeb(); f(s.web); fs.writeFileSync(stateFile, JSON.stringify(s, null, 1)) },
+  )
+  return browser
+}
+
 function arg(n: string) { const i = process.argv.indexOf(`--${n}`); return i >= 0 ? process.argv[i + 1] : undefined }
 
 if (import.meta.main) {
   const port = Number(arg('port') ?? 19875)
   const file = arg('state')!
+  stateFile = file
   const key = arg('key')!
   if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify(initialState(), null, 1))
   const load = (): State => JSON.parse(fs.readFileSync(file, 'utf8'))
@@ -180,6 +201,12 @@ if (import.meta.main) {
       if (note) return new Response(NOTES_PAGE, { headers: { 'content-type': 'text/html; charset=utf-8' } })
       // a meeting-notes service's share link, /s/<id> (flow FL-28)
       if (req.method === 'GET' && /^\/s\/[A-Za-z0-9]{8,40}\/?$/.test(url.pathname)) return new Response(`<!doctype html><html><head><meta charset="utf-8"><title>일요일 회의록</title></head><body><h1>일요일 회의록 (11/15)</h1><ul><li>라마바카페 연간계약: 단가 27,000원 확정, 계약서 최종본 금요일까지 (민호)</li><li>샘플 전달: 금요일 오전 (다니엘)</li><li>박람회 부스 신청: 11/25 마감 (하나)</li></ul></body></html>`, { headers: { 'content-type': 'text/html; charset=utf-8' } })
+      // the person's own step on the mock browser's page (flow event page_act): with the key, never from the AI's tools
+      if (url.pathname === '/browser/act' && req.method === 'POST') {
+        if (req.headers.get('authorization') !== `Bearer ${key}`) return new Response('unauthorized', { status: 401 })
+        const b = await req.json() as { action: string } & Json
+        try { return Response.json({ ok: true, result: await browserOf().act(b.action, b) }) } catch (e) { return Response.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, { status: 400 }) }
+      }
       const svc = /^\/([a-z]+)\/mcp$/.exec(url.pathname)?.[1]
       const def = svc ? SERVICES[svc] : undefined
       if (!def) return new Response('not found', { status: 404 })
@@ -196,14 +223,19 @@ if (import.meta.main) {
         const t = def.tools.find((x) => x.name === name)
         if (!t) return reply({ content: [{ type: 'text', text: `unknown tool ${name}` }], isError: true })
         const s = load()
-        const out = t.run(args, s)
-        s.calls.push({ service: svc!, tool: name, args, at: new Date().toISOString() })
-        save(s)
+        let out: unknown
+        try { out = await t.run(args, s) } catch (e) { return reply({ content: [{ type: 'text', text: e instanceof Error ? e.message.split('\n')[0] : String(e) }], isError: true }) }
+        // the browser writes what its sites received to the file itself: read it again before adding the call
+        const after = svc === 'browser' ? load() : s
+        after.calls.push({ service: svc!, tool: name, args, at: new Date().toISOString() })
+        save(after)
         const special = (out as { __content?: unknown[] } | null)?.__content
         return reply({ content: special ?? [{ type: 'text', text: JSON.stringify(out) }] })
       }
       return Response.json({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: 'method not found' } })
     },
   })
+  // `mocks down` stops this process by its pid: the headless browser goes with it
+  for (const sig of ['SIGTERM', 'SIGINT'] as const) process.on(sig, () => { void (browser?.close() ?? Promise.resolve()).finally(() => process.exit(0)) })
   console.log(`[mock-services] on 127.0.0.1:${port}, state ${file}`)
 }
