@@ -522,3 +522,123 @@ describe('QA 2026-11-28: profile names, Stop, language', () => {
     } finally { stop(); win.close(); e.ws.close() }
   })
 })
+
+// docs/decisions/20261128-browser-profiles-every-turn.md: the owner's Chrome said "online", yet a desktop-app turn said
+// no Chrome was connected (the profiles came only behind a Settings switch, default off)
+describe('every turn gets the linked profiles; in the desktop app its own browser is one more ("app")', () => {
+  /** the desktop window answers its browser.call frames */
+  function serveDesk(sock: TestSocket) {
+    const done = new Set<string>()
+    const timer = setInterval(() => {
+      for (const f of sock.frames) {
+        if (f.type !== 'browser.call' || done.has(f.data.call.callId)) continue
+        done.add(f.data.call.callId)
+        sock.send({ type: 'browser.ack', callId: f.data.call.callId })
+        sock.send({ type: 'browser.result', result: { callId: f.data.call.callId, ok: true, content: [{ type: 'text', text: 'desk ok' }] } })
+      }
+    }, 20)
+    return () => clearInterval(timer)
+  }
+  const deskCalls = (sock: TestSocket, turnId: string) => sock.frames.flatMap((f) => f.type === 'browser.call' && f.data.call.turnId === turnId ? [f.data.call as BrowserCall] : [])
+
+  test('a desktop-app turn, nothing toggled: an unnamed call goes to the online Chrome, "app" to the app\'s browser; the prompt lists both', async () => {
+    unlinkAllOf('alice')
+    h.ctx.db.query("INSERT INTO user_browser_target (user_id, target, updated_at) VALUES ('alice', 'app', '2026-11-28') ON CONFLICT(user_id) DO UPDATE SET target = 'app'").run()
+    const { token } = await link('alice', 'Work', undefined)
+    h.ctx.db.query("UPDATE chrome_links SET email = 'alice@work.example' WHERE user_id = 'alice'").run()
+    const e = await ext(token)
+    await e.until(() => e.frames.find((f) => f.type === 'hello'))
+    const desk = await h.ws('alice', { windowId: 'win-desk-dddd1', client: 'desktop', pane: 1 })
+    await desk.next('hello')
+    const s1 = serve(e, () => ({})), s2 = serveDesk(desk)
+    try {
+      const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
+      const content = fakeLines(
+        { tool: 'navigate', args: { url: 'https://example.org/' } },
+        { tool: 'navigate', args: { url: 'https://example.com/', profile: 'app' } },
+        { tool: 'read_page', args: {} },
+        { tool: 'tabs_context', args: { profile: 'Work' } },
+      ) + '\n@fake {"echo":"system"}'
+      const r = await h.api('alice', { window: 'win-desk-dddd1', client: 'desktop' }).call(API.sendMessage, { params: { id: chat }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
+      const done = await desk.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+      expect(e.calls().filter((c) => c.turnId === r.turnId).map((c) => c.tool)).toEqual(['navigate', 'tabs_context'])
+      expect(deskCalls(desk, r.turnId).map((c) => c.tool)).toEqual(['navigate', 'read_page'])
+      for (const c of deskCalls(desk, r.turnId)) expect('profile' in c.args).toBe(false)
+      const sys = done.data.message.content as string
+      expect(sys).toContain("## Browser (the user's own Chrome)")
+      expect(sys).toContain('"Work" (id ')
+      expect(sys).toContain('account alice@work.example')
+      expect(sys).toContain('  - "app": the browser built into this')
+      expect(sys).toContain('That request wins over a memory')
+      // each step says where it ran
+      const steps = done.data.message.steps as { tool: string; label: string }[]
+      expect(steps.filter((s) => s.tool === 'navigate').map((s) => s.label.split(' · ').at(-1))).toEqual(["profile 'Work'", 'app browser'])
+    } finally { s1(); s2(); desk.close(); e.ws.close(); h.ctx.db.query("DELETE FROM user_browser_target WHERE user_id = 'alice'").run() }
+  })
+
+  test('a desktop-app turn with the linked profile closed: an unnamed call uses the app\'s browser; naming the closed one is refused with how to open it', async () => {
+    unlinkAllOf('alice')
+    await link('alice', 'Work')
+    const desk = await h.ws('alice', { windowId: 'win-desk-dddd2', client: 'desktop', pane: 1 })
+    await desk.next('hello')
+    const s2 = serveDesk(desk)
+    try {
+      const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
+      const content = fakeLines({ tool: 'navigate', args: { url: 'https://example.org/' } }, { tool: 'navigate', args: { url: 'https://example.org/', profile: 'Work' } }) + '\n@fake {"echo":"system"}'
+      const r = await h.api('alice', { window: 'win-desk-dddd2', client: 'desktop' }).call(API.sendMessage, { params: { id: chat }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
+      const done = await desk.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+      expect(deskCalls(desk, r.turnId).map((c) => c.tool)).toEqual(['navigate'])
+      const out = done.data.message.content as string
+      expect(out).toContain('The browser profile "Work" is not open now')
+      expect(out).toContain('(not open now)')
+      expect(out).toContain('If the profile they mean is not open now, say so plainly and how to connect it')
+    } finally { s2(); desk.close() }
+  })
+
+  test('a web turn with the linked profile closed: no browser tools, and the AI is told the profiles exist and how to connect', async () => {
+    unlinkAllOf('alice')
+    await link('alice', 'Work')
+    const win = await h.ws('alice', { windowId: 'win-web-dddd3' })
+    await win.next('hello')
+    try {
+      const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
+      const r = await h.api('alice', { window: 'win-web-dddd3', client: 'web' }).call(API.sendMessage, { params: { id: chat }, body: { content: '@fake {"echo":"tools"}\n@fake {"say":" | "}\n@fake {"echo":"system"}', clientMessageId: cm(), attachmentIds: [] } })
+      const done = await win.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+      const [tools, sys] = (done.data.message.content as string).split(' | ')
+      expect(tools!.split(',')).not.toContain('navigate')
+      expect(sys).toContain("## Browser (the user's own browser profiles)")
+      expect(sys).toContain('"Work" (id ')
+      expect(sys).toContain('say plainly that it is not connected right now and how to connect it')
+      expect(sys).not.toContain('There is no browser in this app')
+    } finally { win.close() }
+  })
+
+  test('pickProfile: a linked profile before the app\'s browser; several open: ask; none open: the app; nothing at all: how to open one', async () => {
+    const { pickProfile, APP_PROFILE_ID } = await import('../../server/src/chrome/profiles')
+    const p = (linkId: string, online: boolean, app?: boolean) => ({ linkId, label: linkId, email: null, online, sites: [] as string[], onlyListed: false, ...(app ? { app } : {}) })
+    const app = p(APP_PROFILE_ID, true, true)
+    const ready = (x: { online: boolean }) => x.online
+    const pick = (ps: ReturnType<typeof p>[], raw: Record<string, unknown> = { url: 'https://example.org/' }) => pickProfile(ps, null, ready, 'navigate', raw)
+    expect(pick([p('work', true), app])).toMatchObject({ profile: { linkId: 'work' } })
+    expect(pick([app, p('work', true)])).toMatchObject({ profile: { linkId: 'work' } })
+    expect(pick([p('work', true), p('home', true), app])).toMatchObject({ why: 'which one' })
+    expect(pick([p('work', false), app])).toMatchObject({ profile: { linkId: APP_PROFILE_ID } })
+    expect(pick([p('work', true), app], { url: 'https://example.org/', profile: 'app' })).toMatchObject({ profile: { linkId: APP_PROFILE_ID } })
+    expect(pick([p('work', false)])).toMatchObject({ why: 'none open' })
+    expect(pick([p('work', false), app], { url: 'https://example.org/', profile: 'work' })).toMatchObject({ why: 'offline' })
+    // a linked profile the person named "app": which one is meant, never the app's browser by itself (review)
+    expect(pick([p('l-app', true), app].map((x) => x.linkId === 'l-app' ? { ...x, label: 'App' } : x), { url: 'https://example.org/', profile: 'app' })).toMatchObject({ why: 'same name' })
+    // an address pinned to a closed profile in the desktop app: refused, and the AI hears the app's browser is there if the user wants it
+    const pinned = pick([{ ...p('work', false), sites: ['example.org'] }, app])
+    expect(pinned).toMatchObject({ why: 'pinned offline' })
+    expect((pinned as { refused: string }).refused).toContain('profile "app" once they say so')
+    // the MCP apps' path (no app profile) is as before
+    expect(pick([p('work', true)])).toMatchObject({ profile: { linkId: 'work' } })
+  })
+
+  test('Settings › Browser has no "Use my Chrome" switch any more (PUT /api/chrome/target is gone)', async () => {
+    const r = await h.req('alice', '/api/chrome/target', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ target: 'chrome' }) })
+    expect(r.status).toBe(404)
+    expect('target' in (await h.api('alice').call(API.chromeLinks, {}))).toBe(false)
+  })
+})
