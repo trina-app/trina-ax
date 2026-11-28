@@ -1,5 +1,5 @@
 {
-  "version": "0.2.0",
+  "version": "0.2.1",
   "protocol": "mycel.chrome.v1",
   "paths": {
     "ws": "/api/chrome/ws",
