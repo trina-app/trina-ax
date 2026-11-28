@@ -56,7 +56,7 @@ let appReturnPort: number | null = null
 let appReturnKey: string | null = null
 /** settled once both are known (at most 1.5 s): the page's calls wait for it, so a Connect pressed right after the
  * page opened already carries the key (a start without it would be held without the app's proof) */
-let appReturnReady: Promise<unknown> = Promise.resolve()
+let appReturnReady: Promise<unknown> | null = null
 try {
   const back = desktop()?.codeReturn
   if (back) {
@@ -64,7 +64,7 @@ try {
       back.port().then((p) => { appReturnPort = appReturnPortOf(p) }),
       back.key ? back.key().then((k) => { appReturnKey = appReturnKeyOf(k) }) : null,
     ])
-    appReturnReady = Promise.race([both, new Promise((r) => setTimeout(r, 1500))])
+    appReturnReady = Promise.race([both, new Promise((r) => setTimeout(r, 1500))]).then(() => { appReturnReady = null })
   }
 } catch { /* no bridge */ }
 
@@ -127,7 +127,9 @@ function noteDemoLimit(res: Response) {
 // uploads (fetchWithProgress below) are not wrapped: no seat refusal comes that way
 // (an answer that says Trina is updating starts the window's wait for it: lib/serverUpdating.ts)
 const fetchWithWindow = (async (input: RequestInfo | URL, init?: RequestInit) => afterWrite(init, async () => {
-  await appReturnReady
+  // only in the desktop app, only until the bridge answered: no extra tick for any other call (a browser's sends
+  // keep their order)
+  if (appReturnReady) await appReturnReady
   const res = await fetch(input, inWindow(init))
   noteAnswer(res)
   noteDemoLimit(res)
