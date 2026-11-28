@@ -44,8 +44,7 @@ In:
      the challenge) and moves the tab to `<team>/connect-chrome/done#code=…` (fragment: never sent to a server). The
      extension reads that tab's address (it has access to the team origin), closes the tab and redeems the code **with
      the verifier** (PKCE): a copied address or code is useless anywhere else.
-   - No typed code (review: phishable both ways). One team per extension, one Chrome per person: a new link replaces the
-     person's earlier one.
+   - No typed code (review: phishable both ways). One team per extension install; a person links many profiles (13).
    - Redeem: `POST /api/chrome/redeem {code, verifier, label, version}` (no session) answers a link token (32 random
      bytes; only its sha256 in `chrome_links`), the person's name, the team's name and every address of the team (its
      public address, office and relay names). The extension keeps them in `chrome.storage.local` (never `sync`).
@@ -59,13 +58,13 @@ In:
    - Revocation: Disconnect in Settings or in the popup, a new link, the person's sessions all ending (sign out
      everywhere, password change, disabled, deleted), and 30 days unused. A revoked link's socket closes at once (close
      code `4401`) and the extension forgets its token.
-3. **Server**: migration `464_b_chrome_links.sql` (`chrome_links`, `chrome_pair_codes`, `user_browser_target`),
+3. **Server**: migration `464_b_chrome_links.sql` (`chrome_links`, `chrome_link_sites`, `chrome_pair_codes`, `user_browser_target`),
    `server/src/chrome/` (store, routes, socket registry), the browser relay sending a call to a Chrome link instead of a
    desktop window (`CallRelay` gets a small transport interface; the hub stays as it is), routing in the turn, the site
    card for Chrome, prompt words, i18n.
-4. **Which Chrome a turn may drive**: only the Chrome linked by the person whose turn it is, never another member's. A
-   turn from the web or the desktop app (not a phone, not a scheduled run, not a guest, not a restricted chat) uses the
-   person's Chrome when it is online and (in the desktop app) they turned on "Use my Chrome" (one switch, Settings ›
+4. **Which Chrome a turn may drive**: only profiles linked by the person whose turn it is, never another member's. A
+   turn from the web, the desktop app or the person's own scheduled run (not a phone, not a guest, not a restricted
+   chat) uses the person's profiles when one is online and (in the desktop app) they turned on "Use my Chrome" (one switch, Settings ›
    Browser; the owner asked for the choice). Each step's label says "in your Chrome". In a shared chat the browser's notice once per place (`confirmSharedBrowser`) and the change
    card (`confirmSharedBrowserChange`) apply exactly as for the desktop browser: another person's message never drives
    my Chrome without my card.
@@ -120,10 +119,76 @@ In:
 Out (later):
 - Publishing in the Chrome Web Store (a developer account costs $5: the owner's OK) and Edge Add-ons; the store link in
   Settings is filled in then (until then Settings links to the docs page with the unpacked install steps).
-- A phone driving the person's Chrome, scheduled runs using Chrome (nobody watches them), Chrome for guests.
+- A phone driving the person's Chrome, Chrome for guests.
 - The long-poll fallback for networks that block WebSockets (the extension says it cannot connect).
 - A side panel chat inside Chrome (the chat stays in the app).
 - Firefox and Safari.
+
+### Beyond Claude in Chrome (the owner, 2026-11-28, after the first review)
+
+13. **Many identities.** Each browser profile (Chrome, Edge, Brave: one extension install each) links on its own, with
+    the name the person gives it at Connect ("업무 메일", "Personal"). A person links up to 20; revoking one never
+    touches another. Each profile has its own site list: its Always answers, and sites the person adds; one switch
+    "Only these sites" limits the profile to that list (anything else is refused there, never asked). Settings shows
+    one list "Your browsers", one row per profile. A short line recommends one profile per identity; nothing forces it.
+    - **The AI picks the profile per tool call, with no human step** (the owner; Claude in Chrome needs its `/chrome` menu
+      to switch browsers): every browser tool takes an optional `profile` (the profile's name or id), and the Browser
+      rules list the person's profiles (name, id, open or not, the sites allowed there; no sites in a shared chat). One
+      run can read in profile A and write mail in profile B back to back. Without `profile` a call goes to the profile the
+      run used last, else to the one profile whose sites hold the address (two profiles holding it is no pin), else to
+      the only open one; else the AI is told to pass `profile` and to ask the user once when the task does not say which
+      account. A named or pinned profile that is not open is refused, never swapped for another.
+    - Tabs, site permissions and runs are per profile: a tab id of profile A means nothing in B, and an Always in A never
+      opens anything in B.
+    - The accounts signed in inside a profile are not read (that needs Chrome's `identity.email` permission); the name
+      says it, and the AI learns the rest from the pages.
+14. **Many runs at once.** Chats, scheduled tasks and sub-agents can use browsers at the same time. Each run (a chat or a
+    scheduled run, `BrowserCall.run`) gets its own **background window** in the profile, its tabs in a group named after
+    it; the extension never focuses or raises a window and never touches the person's own tabs. A run sees and drives
+    only its own tabs (another run's tab id is "no such tab"); a tab the person drags into a run's group joins that run.
+    At most 4 runs at once per profile; a fifth is told at once that the profile is busy. The popup lists the running
+    runs, each with its own Stop; closing a run's window stops that run only.
+15. **Approvals that don't block automation (Rule A).** An Always on the Chrome site card is kept for that profile and
+    site (`chrome_link_sites`), and holds in every chat and in the person's scheduled runs. The person's other web
+    Always answers (`user_allowed_sites`) and "Allow all websites" do not open anything in a profile (blast radius: a
+    profile holds a real account). A scheduled run uses only what its profiles already allow: no site card (a site
+    nobody allowed is refused with one line saying how to allow it), no `javascript_tool`. "Only these sites" limits a
+    profile to its list: anything else is refused there, never asked. What the scheduled task's own instruction asks
+    for counts as the person's OK for the buying, sending or deleting it names; anything else it does not do. No new
+    card kind.
+
+### Plan review, round 2 (2026-11-28)
+
+Applied: one place for a profile's Always (its own list only; the person-wide list and Allow all do not count there), a
+pinned or named profile that is offline is refused (no fallback), two profiles holding a site is no pin, `run` set by
+the server on every Chrome call, the 21st link refused (`links_full`, nothing removed), a re-link of the same install
+replaces its own row (`previous`), a busy profile answers at once, tabs a run's tab opens join that run, no site lists
+in a shared chat, titles cut to 30 characters, scheduled runs with no site card and no script. Not taken: fixing the
+profile at a run's first call and a card before switching (the owner wants the AI to switch per call with no human
+step; the profile's own site rules are the guard, and a page cannot widen them); cutting "Only these sites" and
+scheduled runs (the owner asked for both). To check in QA: background windows and their screenshots on macOS and
+Windows (fallback: one AI window per profile with a group per run).
+
+### Reference extensions (read 2026-11-28; ideas, not wording or assets)
+
+| | Claude in Chrome | BrowserAgent | Dassi | Ours |
+|---|---|---|---|---|
+| Pairing | signed in to claude.ai; Claude Code through a native host and a bridge, same account and org | none (local models) | Google sign-in; own API key | signed-in team page + PKCE code; no native host, so hosted teams work |
+| Where the chat is | side panel | side panel | side panel | the team app's chat (web or desktop); the popup only shows state and Stop |
+| Agent working | its tabs in a colored group | not verified | screenshots to check | a background window per run, its group named after the chat, badge, Chrome's debugging bar |
+| Stop | not documented ("stop the task") | not verified | not verified | per run in the popup, the chat's Stop, closing the window or the debugging bar |
+| Approvals | auto (default) or manual; per-site for the session; asks on money and downloads; admin lists | optional host access | "approval gates" (not verified) | per profile and site, Always is final (Rule A); hard blocks for account security, team pages; no auto-approve of new sites |
+| Profiles | reported to lose the connection with several profiles; one browser per session, `/chrome` to switch | not verified | not verified | many profiles, each named; the AI picks one per call |
+| Many tasks | one session per group | not verified | multiple tabs | many runs at once, each in its own window, never focus |
+| Scheduling | daily/weekly, Chrome must be open; signing out deletes them | none | "scheduled skills" | the team's scheduled tasks use a profile's own Always answers; refused with how-to otherwise |
+| Permissions | 17 incl. debugger, tabs, nativeMessaging, `<all_urls>` | sidePanel, activeTab, scripting, tabs, optional hosts | not verified | debugger, tabGroups, storage, alarms, activeTab, optional host for the team only |
+| Complaints seen | auto-click worries, lost connection with several profiles, worker going idle, org mismatch | too few ratings | pricing unclear | answered by: manual first-site cards, named profiles, ping + alarm reconnect, the popup names team and account |
+
+Take: tab groups as the visible mark of what the AI owns; a hand-over at sign-in pages and CAPTCHAs; a clear
+"connected to which team, as whom, in which profile" line and reconnect as a normal state; optional host access instead
+of `<all_urls>`. Skip: a side-panel chat (the chat is the team app, so one place for history and cards), auto-approve of
+new sites (Rule A keeps one Always per site instead), local models and own API keys (the team's AI connection is the
+one), the `tabs` and `<all_urls>` permissions.
 
 ## Steps
 
