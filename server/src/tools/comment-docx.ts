@@ -44,7 +44,7 @@ export const COMMENT_DOCX_DESCRIPTION =
   'Add Word comments (review notes in the margin, as Review > New Comment makes them) to an existing .docx, next to the paragraph that holds ' +
   'the given text, with the person as the author. Everything else in the file stays exactly as it was. Read the file in this chat first. ' +
   'Without `output` the result is a new version of the same file (the previous one stays in its history). Comments already in a .docx show ' +
-  'when you read it. Tracked changes (suggested edits) cannot be made here: say so plainly, and offer a comment instead.'
+  'when you read it. This tool makes no tracked changes (suggested edits): when your instructions say to build documents with the document skills, make them with the docx skill; otherwise say so plainly, and offer a comment instead.'
 
 /** where an `output` saves: a .docx ("x" and "x/" save x.docx) */
 export { commentDocxOutput }

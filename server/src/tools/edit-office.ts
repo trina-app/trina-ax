@@ -116,7 +116,7 @@ export const EDIT_OFFICE_DESCRIPTION =
   'insert_picture (a signature, seal or logo picture at a label: over floats it behind the text, centred, which keeps the layout, e.g. a seal over "(seal)" next to a name; ' +
   'after puts it in the line after the text; next_to puts it into the table cell right of the label; over or after with x_mm and y_mm puts it at that spot of the page that text is on; the result gives it an id, and move_picture with that id and dx_mm, dy_mm moves it). When someone asks to sign or stamp a Word document, use insert_picture, never a rebuilt document, ' +
   'with the person\'s own signature or seal (one they sent or keep in their own folder) or the picture they name; never pick someone else\'s signature or seal, or the company\'s, on your own: ask which picture to use. ' +
-  'Excel: cell (one cell: number, text, true/false, null, or a formula starting with "="), append_rows (after the last row), insert_picture at a cell, move_picture; rows are never inserted in the middle. ' +
+  'Excel: cell (one cell: number, text, true/false, null, or a formula starting with "="), append_rows (after the last row), insert_picture at a cell, move_picture; this tool never inserts rows in the middle. ' +
   'Formulas are calculated when the file is opened in Excel or LibreOffice. ' +
   'PowerPoint: find/replace (optionally on one slide), shape_text, duplicate_slide, add_slide (from a layout), replace_picture, insert_picture (slide + x/y mm, or centred), move_picture (read the slide as an image, then move or resize the same picture). ' +
   'Pictures (insert_picture, replace_picture) are PNG, JPEG or WebP files in the team folder or this chat. ' +
@@ -124,7 +124,7 @@ export const EDIT_OFFICE_DESCRIPTION =
   'nothing is saved and the reason says what to give instead (shape, layout and picture names are listed there). ' +
   'Without `output` the result is a new version of the same file (the previous one stays in its history). ' +
   'A file of this chat (chat:files/<file_id>/<name>) is changed the same way: without `output` it gets a new version, opened from the same file in the chat, and the earlier version stays (read with versions: true). ' +
-  'Every call that changes a file saves it: never call it just to try something out. It cannot change speaker notes, charts, tables in a deck, comments or anything not listed here: say so in plain words ("I can\'t add speaker notes to this deck here"), never naming this tool, instead of calling it.'
+  'Every call that changes a file saves it: never call it just to try something out. It does not change speaker notes, charts, tables in a deck, comments or anything not listed here: do not call it for those. When your instructions say to build documents with the document skills, change such a part with that file\'s skill instead; otherwise say so in plain words ("I can\'t add speaker notes to this deck here"), never naming this tool.'
 
 const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): Record<Locale, string> => ({ ko, en, id, ja, es, zh })
 /** the card before a picture that is not the asker's own goes into a document (a signature or seal someone else sent,

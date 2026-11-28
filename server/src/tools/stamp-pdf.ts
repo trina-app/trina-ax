@@ -60,7 +60,7 @@ export const STAMP_PDF_DESCRIPTION = 'Put an image (a company seal, a signature,
   'Otherwise the new file is "<name> (stamped).pdf" next to the original unless you give output. ' +
   'To find a spot (next to a name or "(seal)"), read that page with pages and as_images first; the page image shows the whole page. ' +
   'After stamping, read the new file\'s page with as_images to check the placement before you answer. ' +
-  'It cannot change the text of a PDF; a PDF locked with a password cannot be stamped.'
+  'It does not change the text of a PDF (edit_pdf replace_text does); a PDF locked with a password cannot be stamped.'
 
 /**
  * A PDF the AI made in this turn (make_file or a PDF tool; not one it saved from the web or a room) whose bytes are

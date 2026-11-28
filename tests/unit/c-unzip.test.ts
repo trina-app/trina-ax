@@ -268,12 +268,12 @@ describe('refused, nothing saved', () => {
     await nothing('drive.zip', zip([{ name: 'C:\\evil.txt', data: 'x' }]), /outside its folder/)
   })
   test('encrypted, damaged, a bomb, a lying header, too many bytes, not a zip', async () => {
-    await nothing('locked.zip', zip([{ name: 'a.txt', data: 'x', flags: 1 }]), /password-protected/)
+    await nothing('locked.zip', zip([{ name: 'a.txt', data: 'x', flags: 1 }]), /password-protected, so this tool cannot unzip it .*If you have box_shell, ask the user for the password/)
     const good = zip([{ name: 'a.txt', data: 'hello' }])
     await nothing('cut.zip', good.subarray(0, good.length - 10), /damaged/)
     await nothing('bomb.zip', zip([{ name: 'zeros.bin', data: Buffer.alloc(30 * 1024 * 1024) }]), /too large or too complex.*expands more than 100 times/)
     await nothing('huge.zip', zip([{ name: 'big.bin', data: 'x', usize: 300 * 1024 * 1024 }]), /too large or too complex/)
-    await nothing('rar.rar', Buffer.from('Rar!\x1a\x07\x00 not really'), /only \.zip, \.tar, \.tar\.gz \/ \.tgz and \.gz files can be unzipped/)
+    await nothing('rar.rar', Buffer.from('Rar!\x1a\x07\x00 not really'), /unzips only \.zip, \.tar, \.tar\.gz \/ \.tgz and \.gz files\. Nothing was saved\. If you have box_shell, open it there/)
     // the header says 5 bytes, the data inflates to more: that file is not saved
     const r = await turn('alice')('unzip_file', { path: (put(`${D}/bad/liar.zip`, zip([{ name: 'liar.txt', data: 'much more than five', usize: 5 }])), `${D}/bad/liar.zip`) })
     expect(r.isError).toBe(true)

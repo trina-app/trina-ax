@@ -483,6 +483,20 @@ export interface ToolOutput { images?: { type: 'image'; mimeType: 'image/png' | 
 
 export const BINARY_WRITE = new Set(['hwp', 'hwpx', 'docx', 'pptx', 'xlsx', 'xls', 'pdf', 'odt', 'ods', 'zip', 'png', 'jpg', 'jpeg', 'gif'])
 
+/** Which tool changes or makes a file write and edit refuse (the error named only text files, and the AI saved a .md
+ * where a .docx was asked; chat/chat-file-write.ts names edit_office the same way for a chat file). A guest's turn has
+ * no edit_office (chat/guest-tools.ts), so it is named "when you have it"; edit_office refuses .xls, .odt and .ods
+ * (tools/edit-office.ts). `connector`: a call outside a chat turn (turnId null: the <app> MCP connector), which has none of these tools. */
+export function binaryWriteHint(e: string, connector = false): string {
+  if (connector) return 'upload the finished file instead (upload_file or create_upload_link, when you have them)'
+  if (['docx', 'pptx', 'xlsx'].includes(e)) return 'change an existing Word, Excel or PowerPoint file with edit_office when you have it, and make a new one with make_file'
+  if (['xls', 'odt', 'ods'].includes(e)) return 'this older or OpenDocument format cannot be changed here; make a new .docx or .xlsx with make_file'
+  if (e === 'hwp' || e === 'hwpx') return 'change a Hangul file with edit_hwp, and make a new one (.hwpx) with make_file'
+  if (e === 'pdf') return 'change a PDF with edit_pdf (replace_text for words, stamp_image for a seal), and make a new one with make_file'
+  if (e === 'zip') return 'make a zip with make_zip'
+  return 'resize or convert a picture with resize_images (other changes with box_shell, when you have it), and make a new one with make_file (format "png")'
+}
+
 /** Files shared with a person one by one, for the read tools (files/shares.ts). */
 export interface SharedReads {
   /** the file at this path shared with `user` by a grant (not one the folder rules let them read), or null */
@@ -2362,7 +2376,7 @@ export class FileService {
   /** shared by AI write and human save. `seen` = hashes the writer last saw. */
   writeBytes(ctx: ToolCtx, input: string, data: Buffer, seen: Map<string, string>, tool: string): ToolOutput {
     const r = authorize(this.fx, this.rules(), ctx.user, input, 'write', { createDirs: true })
-    if (BINARY_WRITE.has(ext(r.rel)) && tool !== 'human') throw new ToolError(`'${ext(r.rel)}' files cannot be written as text; write .md/.csv/.txt instead`)
+    if (BINARY_WRITE.has(ext(r.rel)) && tool !== 'human') throw new ToolError(`'${ext(r.rel)}' files cannot be written as text: ${binaryWriteHint(ext(r.rel), ctx.turnId === null)}`)
     this.limits(ctx, r.rel, data.length)
     if (r.exists) {
       if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
@@ -2400,7 +2414,7 @@ export class FileService {
     this.notTheList(ctx, a.file_path)
     const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'write', { mustExist: true })
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
-    if (isOffice(r.rel) || BINARY_WRITE.has(ext(r.rel))) throw new ToolError('only text files can be edited')
+    if (isOffice(r.rel) || BINARY_WRITE.has(ext(r.rel))) throw new ToolError(`only text files can be edited: ${binaryWriteHint(ext(r.rel), ctx.turnId === null)}`)
     const cur = readRegular(r.abs, undefined, r.st).bytes
     refuseLegacyText(r.rel, cur, 'edit')
     if (cur.subarray(0, 8000).includes(0)) throw new ToolError('binary file; cannot edit')
