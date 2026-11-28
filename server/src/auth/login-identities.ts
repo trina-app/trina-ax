@@ -44,6 +44,20 @@ export function googleConnectedUsers(db: Database): string[] {
  * Google Drive and Google apps in direct mode (part A2: Google skips its account picker), else null. Google only uses
  * it to pick the account: a hint, never a check, and never logged. A plain address only (the row keeps what Google said
  * at the last sign-in). */
+/** The Google address a sign-in of this person is expected to come back with: their Google sign-in's, else their
+ * account's email (lower case), or null when neither is known. A return page connects a personal Google sign-in at once
+ * only for that address (google-drive/oauth.ts finish, google-apps/service.ts finish); any other goes to the confirm
+ * card, which shows the Google account (a leaked sign-in address consented with someone else's Google). */
+export function expectedGoogleEmail(db: Database, userId: string): string | null {
+  const own = googleLoginHint(db, userId) ?? (db.query('SELECT email FROM users WHERE id = ?').get(userId) as { email: string | null } | null)?.email ?? null
+  const e = own?.trim().toLowerCase()
+  return e ? e : null
+}
+/** True when the Google account a sign-in came back with is the person's expected one (expectedGoogleEmail). */
+export function isExpectedGoogleEmail(db: Database, userId: string, google: string | null | undefined): boolean {
+  const want = expectedGoogleEmail(db, userId), got = google?.trim().toLowerCase()
+  return !!want && !!got && want === got
+}
 export function googleLoginHint(db: Database, userId: string): string | null {
   const r = db.query("SELECT email FROM login_identities WHERE user_id = ? AND provider = 'google'").get(userId) as { email: string | null } | null
   const email = r?.email?.trim()

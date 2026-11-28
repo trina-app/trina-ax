@@ -38,8 +38,9 @@ send emails". Some lines have a box. Keep **every** box ticked and choose **Cont
 is refused: "Some permissions were not ticked. Connect again and keep every box ticked."
 
 #### Confirm the account
-Back in Trina AX, check the account shown ("Connect this account?") and choose **Connect this account**. The page now
-says **Connected** at the top right and **Connected as** your address under the name.
+In a browser, the tab Google opened says **Connected**: close it and go back to the first tab. In the desktop app,
+check the account shown ("Connect this account?") and choose **Connect this account**. The page now says
+**Connected** at the top right and **Connected as** your address under the name.
 
 ![Gmail's page after connecting: Connected at the top right with a ⋯ menu, and Connected as bob@acme.example.com under the name](../images/connect/google-member-connected.webp "Gmail, connected")
 :::

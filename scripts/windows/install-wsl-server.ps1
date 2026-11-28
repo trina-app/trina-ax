@@ -206,6 +206,14 @@ function Get-DistroName([switch]$Running) {
     $all = Get-DistroName
     return @($names | Where-Object { $all -contains $_ })
 }
+# step 4: what happens to a distro of our name that a failed install left. 'remove' only when the list answered before
+# the step and had no such distro, and the probe inside it ran and said "empty" (no server folder, no upload, no
+# home folders); any other answer, a probe that failed or said something else included: 'keep' (and the setup stops)
+function Get-LeftoverAction([bool]$AbsentBefore, $Probe) {
+    if (-not $AbsentBefore -or $null -eq $Probe) { return 'keep' }
+    if ($Probe.Code -eq 0 -and "$($Probe.Out)".Trim() -eq 'empty') { return 'remove' }
+    return 'keep'
+}
 # the distro's WSL version (1 or 2) from "wsl -l -v": "* TrinaAX   Running   2"
 function Get-DistroWslVersion([string]$Name) {
     $r = Invoke-Wsl @('--list', '--verbose')
@@ -265,6 +273,9 @@ set -euo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 BASE=/var/lib/mycel
 UPLOAD=/root/.trina-upload
+# apt's own output (dpkg's "Reading database ... 5%") goes to this log, not to the setup window: the window shows the
+# installer's lines and its heartbeat (scripts/system/packages.sh PK_APT_TO_LOG; Windows QA 2026-11-28)
+export PK_APT_TO_LOG=1 PK_APT_LOG=/var/log/trina-packages-apt.log
 cmd=${1:-}
 [ $# -eq 0 ] || shift
 port() { python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["port"])' "$BASE/root/install.json" 2>/dev/null || echo 47820; }
@@ -315,10 +326,10 @@ user default root'
       dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q 'install ok installed' || need+=("$p")
     done
     if [ ${#need[@]} -eq 0 ]; then echo "curl and Python 3 are installed"; exit 0; fi
-    echo "installing ${need[*]} (for the download and its check)"
+    echo "installing ${need[*]} (for the download and its check; apt's output: $PK_APT_LOG)"
     export DEBIAN_FRONTEND=noninteractive
-    apt-get update -qq
-    apt-get install -y -qq --no-install-recommends "${need[@]}"
+    { apt-get update -qq && apt-get install -y -qq --no-install-recommends "${need[@]}"; } >> "$PK_APT_LOG" 2>&1 \
+      || { echo "apt-get failed; its last lines ($PK_APT_LOG):" >&2; tail -n 5 "$PK_APT_LOG" >&2; exit 1; }
     ;;
   state)
     # none: not installed. ok <version>: installed and the server answers. broken <version>: installed, no answer
@@ -691,12 +702,29 @@ if ($null -eq $merged) {
 # ---- 4. the Debian distro ----
 Write-Step "4/8  Debian for the server (WSL distro `"$Distro`")"
 $haveDistro = (Get-DistroName) -contains $Distro
+# a distro of this name that a failed install leaves may go only when the list said there was none before this step
+# (asked twice: a list that does not answer is "unknown", never "none")
+$absentBefore = (-not $haveDistro) -and (((Invoke-Wsl @('--list', '--quiet')).Code -eq 0) -or ((Invoke-Wsl @('--list', '--quiet')).Code -eq 0))
 if (-not $haveDistro) {
     if (Test-Change $Distro 'install Debian as a new WSL distro (wsl --install --distribution Debian --name ... --no-launch --web-download)') {
-        # --no-launch: no first-start prompt for a Linux user name (everything here runs as root)
-        $code = Invoke-WslLive @('--install', '--distribution', 'Debian', '--name', $Distro, '--no-launch', '--web-download')
-        $haveDistro = (Get-DistroName) -contains $Distro
-        if (-not $haveDistro) { Exit-Setup "Installing Debian failed (wsl.exe exit code $code). Check the internet connection and run this again." }
+        # --no-launch: no first-start prompt for a Linux user name (everything here runs as root). One more try when it
+        # fails: on a clean PC it stopped once with exit code -1 after 22 s and the same command worked again (Windows QA
+        # 2026-11-28). A distro the failed try left goes first only when Get-LeftoverAction says 'remove'; else STOP.
+        $installed = $false
+        for ($try = 1; $try -le 2; $try++) {
+            $code = Invoke-WslLive @('--install', '--distribution', 'Debian', '--name', $Distro, '--no-launch', '--web-download')
+            if ($code -eq 0 -and ((Get-DistroName) -contains $Distro)) { $installed = $true; break }
+            if ($try -eq 2) { break }
+            if ((Get-DistroName) -contains $Distro) {
+                $probe = Invoke-Wsl @('-d', $Distro, '--cd', '/', '-u', 'root', '--exec', '/bin/sh', '-c', "if [ -e $LinuxBase ] || [ -e /root/.trina-upload ] || ls -A /home 2>/dev/null | grep -q .; then echo keep; else echo empty; fi")
+                if ((Get-LeftoverAction -AbsentBefore $absentBefore -Probe $probe) -ne 'remove') { break }
+                $null = Invoke-Wsl @('--unregister', $Distro)
+            }
+            Write-Note "Installing Debian stopped (wsl.exe exit code $code). Trying once more in 10 seconds."
+            Start-Sleep -Seconds 10
+        }
+        if (-not $installed) { Exit-Setup "Installing Debian failed (wsl.exe exit code $code). This happens now and then on a new PC: run this script again (finished steps are skipped). If it keeps failing, check the internet connection and run  wsl --update ." }
+        $haveDistro = $true
         Write-Ok "Debian installed as `"$Distro`""
     }
 } else { Write-Ok "`"$Distro`" is installed" }

@@ -125,7 +125,7 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
     let r: CallbackOutcome = { ok: false, reason: 'provider_unavailable' }
     const cc = c as unknown as AppContextC
     const auth = cc.get('auth')
-    try { r = await googleDriveOf(ctx).callbackOutcome({ state: c.req.query('state'), code: c.req.query('code'), error: c.req.query('error'), handoff: c.req.query('handoff') }, auth ? { userId: auth.user.id, sessionId: auth.session.id } : undefined) } catch {}
+    try { r = await googleDriveOf(ctx).callbackOutcome({ state: c.req.query('state'), code: c.req.query('code'), error: c.req.query('error'), handoff: c.req.query('handoff') }, auth ? { userId: auth.user.id, sessionId: auth.session.id } : undefined, { finish: true }) } catch {}
     c.header('Cache-Control', 'no-store'); c.header('Referrer-Policy', 'no-referrer')
     c.header('Content-Security-Policy', GOOGLE_RETURN_CSP)
     // in the person's language, with why it did not work (google-drive/callback-page.ts); static words and same-origin

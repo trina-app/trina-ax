@@ -71,6 +71,7 @@ test('Drive: the return page in the person\'s language with the real reason; suc
 })
 
 test('Drive: a browser not signed in (the desktop app\'s system browser) or signed in as someone else gets what to do', async () => {
+  h.ctx.db.query("UPDATE users SET email='alice@example.test' WHERE username='olga'").run()
   const f = await c.call('POST', base + '/authorize', {}), cb = fake.authorize(f.authorizationUrl)
   // nobody signed in: the language the sign-in screen picked (else the team default)
   let p = await page(await h.fetch(cbUrl(cb), { headers: { 'x-mycel-locale': 'ko' } }))
@@ -83,13 +84,15 @@ test('Drive: a browser not signed in (the desktop app\'s system browser) or sign
   p = await page(await other.raw('GET', cbUrl(cb)))
   expect(p.html).toContain('<html lang="en">')
   expect(p.html).toContain('as someone else')
-  // the flow is still open: the right browser finishes it, and the page does not say it is connected yet
+  // the flow is still open: the browser of the session that started it finishes it right here (no second trip to the
+  // first tab), and the page says so; never "the app" in a browser
   p = await page(await c.raw('GET', cbUrl(cb)))
   expect(p.status).toBe(200)
-  expect(p.html).toContain('Almost done')
-  expect(p.html).toContain('confirm the account')
-  expect(p.html).not.toMatch(/received|Connected\b/)
-  expect((await c.call('GET', `${base}/flows/${f.flowId}`)).state).toBe('ready')
+  expect(p.html).toContain('<h1>Connected</h1>')
+  expect(p.html).toContain('close this tab and go back to the first one')
+  expect(p.html).not.toMatch(/received|the .* app/)
+  expect((await c.call('GET', `${base}/flows/${f.flowId}`)).state).toBe('completed')
+  expect((await c.call('GET', base)).status).toBe('connected')
 })
 
 test('Drive: 20 sign-ins started in an hour: its own reason in the refusal, which the app words as "about an hour" (QA TC-3034)', async () => {
@@ -97,4 +100,20 @@ test('Drive: 20 sign-ins started in an hour: its own reason in the refusal, whic
   const r = await c.raw('POST', base + '/authorize', {})
   expect(r.status).toBe(429)
   expect((await r.json()).error.message).toBe('drive_signin_limit')
+})
+
+test('a browser sign-in that still waits for its confirm (a Drive share, a team account) points to the first tab, never "the app" (Windows QA 2026-11-28)', () => {
+  const ko = googleReturnPage('ok', 'ko').html
+  expect(ko).toContain('원래 탭으로 돌아가 ‘이 계정 연결’을 누르세요')
+  expect(ko).not.toContain('앱으로')
+  for (const l of LOCALES) {
+    const { html, status } = googleReturnPage('ok', l)
+    expect(status).toBe(200)
+    expect(html).not.toMatch(/\bapp\b|アプリ|aplikasi|aplicación|应用|앱/)
+  }
+  // started in the desktop app: the app is still named
+  expect(googleReturnPage('ok', 'ko', { app: 'desktop', origin: 'https://team.example' }).html).toContain('앱으로 돌아가세요')
+  // connected in this tab
+  expect(googleReturnOf({ ok: true, done: 'connected' }, true)).toBe('connected')
+  expect(googleReturnPage('connected', 'ko').html).toContain('연결됐어요')
 })

@@ -214,6 +214,10 @@ export const ConnectionStatus = z.object({
    * reach it anyway at its /in/ addresses (docs/DECISIONS.md "Apps posting in rooms", owner decision 8). Older servers
    * omit it */
   appsAnywhere: z.boolean().optional(),
+  /** a Linux server inside WSL on a Windows PC (server/src/system/wsl.ts): no office network reaches it, so without the
+   * relay or a public address only this PC opens the team ("This PC only", not "Office network only"). Older servers
+   * omit it */
+  wsl: z.boolean().optional(),
 })
 export type ConnectionStatus = z.infer<typeof ConnectionStatus>
 /** Team name at a relay: becomes <name>.<relay domain>. ASCII lowercase letters, digits and inner hyphens (tab 6). */

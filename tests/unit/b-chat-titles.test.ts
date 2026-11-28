@@ -312,6 +312,111 @@ describe('set_title in real turns', () => {
     expect(source(chat.id)).toBe('auto')
   })
 
+  // a continuation ("새 채팅에서 이어 하기", chat/fork.ts) is named by its first new message as a new chat is
+  // (docs/decisions/20261128-fork-retitle-first-message.md): three continuations of one chat no longer all read
+  // "<original> (이어서)"
+  const fork = (chatId: string) => h.api('alice').call(API.forkChat, { params: { id: chatId }, body: {} })
+  const named = async (engine?: 'codex') => {
+    const chat = await h.api('alice').call(API.createChat, { body: engine ? { engine } : {} })
+    await ask(h, alice, 'alice', chat.id, 'launch plan\n' + fake({ tool: 'set_title', args: { title: 'Launch plan' }, sayResult: true }))
+    expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).title).toBe('Launch plan')
+    return chat
+  }
+  const SUFFIXED = ['Launch plan (continued)', 'Launch plan (이어서)']
+
+  test('a continuation keeps "(이어서)" until its first new message, then gets that message\'s placeholder and the AI\'s title live, under its original', async () => {
+    const orig = await named()
+    const f = await fork(orig.id)
+    expect(SUFFIXED).toContain(f.title)
+    expect(source(f.id)).toBe('fork')
+    expect(f.forkParents).toEqual([orig.id])
+    // nothing changes before the first new message
+    const before = await h.api('alice').call(API.getChat, { params: { id: f.id } })
+    expect(before.title).toBe(f.title)
+    expect(before.forkedFrom).toEqual({ title: 'Launch plan', chatId: orig.id })
+
+    const content = '예산 표 만들어줘\n' + fake({ echo: 'tools' }, { say: ' | ' }, { tool: 'set_title', args: { title: '예산 표' }, sayResult: true }, { say: ' | ' }, { echo: 'system' })
+    const sent = await h.api('alice').call(API.sendMessage, { params: { id: f.id }, body: { content, clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+    // the placeholder replaces the whole title (no "(이어서)" kept); the row stays under its original (forkParents)
+    const placeholder = await alice.next('chat.updated', (x) => x.data.chatId === f.id && x.data.chat?.title === '예산 표 만들어줘')
+    expect(placeholder.data.chat!.forkParents).toEqual([orig.id])
+    const live = await alice.next('chat.updated', (x) => x.data.chatId === f.id && x.data.chat?.title === '예산 표', 20_000)
+    expect(live.data.chat!.forkParents).toEqual([orig.id])
+    const done = await alice.next('message.done', (x) => x.data.messageId === sent.assistantMessage.id, 20_000)
+    const [offered, result, system] = done.data.message.content.split(' | ')
+    expect(offered!.split(',')).toContain('set_title')
+    expect(JSON.parse(result!)).toEqual({ ok: true, title: '예산 표' })
+    expect(system).toContain('carried over from an earlier chat')
+    expect(source(f.id)).toBe('ai')
+    const after = await h.api('alice').call(API.getChat, { params: { id: f.id } })
+    expect(after.title).toBe('예산 표')
+    // the line back still names the original; the history tree does not read titles
+    expect(after.forkedFrom).toEqual({ title: 'Launch plan', chatId: orig.id })
+    expect(after.forkParents).toEqual([orig.id])
+    const list = (await h.api('alice').call(API.listChats, { query: {} })).items
+    expect(list.find((c) => c.id === f.id)?.forkParents).toEqual([orig.id])
+    // the original is not renamed
+    expect((await h.api('alice').call(API.getChat, { params: { id: orig.id } })).title).toBe('Launch plan')
+  })
+
+  test('a continuation counts only its own messages: a greeting first, the AI names it with the second, not the third', async () => {
+    const f = await fork((await named()).id)
+    const first = await ask(h, alice, 'alice', f.id, 'hello\n' + fake({ echo: 'tools' }))
+    expect(tools(first.done.content)).toContain('set_title')
+    expect((await h.api('alice').call(API.getChat, { params: { id: f.id } })).title).toBe('hello')
+    expect(source(f.id)).toBe('auto')
+    const second = await ask(h, alice, 'alice', f.id, fake({ echo: 'tools' }, { say: ' | ' }, { tool: 'set_title', args: { title: 'Pricing page' }, sayResult: true }))
+    expect(tools(second.done.content)).toContain('set_title')
+    expect((await h.api('alice').call(API.getChat, { params: { id: f.id } })).title).toBe('Pricing page')
+    const third = await ask(h, alice, 'alice', f.id, fake({ echo: 'tools' }))
+    expect(tools(third.done.content)).not.toContain('set_title')
+  })
+
+  test('a continuation the person renamed keeps its name: no placeholder, no set_title', async () => {
+    const f = await fork((await named()).id)
+    await h.api('alice').call(API.updateChat, { params: { id: f.id }, body: { title: '내 이어서' } })
+    expect(source(f.id)).toBe('user')
+    const r = await ask(h, alice, 'alice', f.id, '다음 단계 알려줘\n' + fake({ echo: 'tools' }))
+    expect(tools(r.done.content)).not.toContain('set_title')
+    expect((await h.api('alice').call(API.getChat, { params: { id: f.id } })).title).toBe('내 이어서')
+  })
+
+  test('a continuation of a Codex chat is named through the same tool', async () => {
+    const f = await fork((await named('codex')).id)
+    expect(f.engine).toBe('codex')
+    const r = await ask(h, alice, 'alice', f.id, 'hiring numbers\n' + fake({ tool: 'set_title', args: { title: 'Hiring numbers' }, sayResult: true }))
+    expect(JSON.parse(r.done.content)).toEqual({ ok: true, title: 'Hiring numbers' })
+    expect((await h.api('alice').call(API.getChat, { params: { id: f.id } })).title).toBe('Hiring numbers')
+    expect(source(f.id)).toBe('ai')
+  })
+
+  test('a continuation renamed while its first message is on the way (the chat row read before the send\'s awaits) keeps the new name', async () => {
+    const f = await fork((await named()).id)
+    const rt = h.rt()
+    const stale = rt.store.chatRow(f.id)!
+    expect(stale.title_source).toBe('fork')
+    await h.api('alice').call(API.updateChat, { params: { id: f.id }, body: { title: '내 이름' } })
+    const started = rt.createTurn({ chat: stale, userId: 'alice', locale: 'ko', windowId: null, clientKind: null, engine: stale.engine as never, model: stale.model,
+      user: { parentId: stale.active_leaf_id, content: '다음 단계\n' + fake({ echo: 'tools' }), attachments: [], clientMessageId: 'cm-' + crypto.randomUUID() } })
+    await waitFor(() => (h.ctx.db.query('SELECT status FROM messages WHERE id = ?').get(started.assistantMessage.id) as { status: string }).status !== 'streaming', { timeoutMs: 30_000 })
+    expect((await h.api('alice').call(API.getChat, { params: { id: f.id } })).title).toBe('내 이름')
+    expect(source(f.id)).toBe('user')
+    const answer = h.ctx.db.query('SELECT content FROM messages WHERE id = ?').get(started.assistantMessage.id) as { content: string }
+    expect(tools(answer.content)).not.toContain('set_title')
+  })
+
+  test('regenerating a copied answer in a continuation names nothing: no placeholder, no set_title', async () => {
+    const orig = await h.api('alice').call(API.createChat, { body: {} })
+    await ask(h, alice, 'alice', orig.id, 'launch plan\n' + fake({ echo: 'tools' }))
+    const f = await fork(orig.id)
+    const copied = (await h.api('alice').call(API.listMessages, { params: { id: f.id }, query: {} })).items.find((m) => m.role === 'assistant')!
+    const r = await h.api('alice').call(API.regenerate, { params: { id: f.id, messageId: copied.id }, body: {} })
+    const done = await alice.next('message.done', (x) => x.data.messageId === r.assistantMessage.id, 20_000)
+    expect(tools(done.data.message.content)).not.toContain('set_title')
+    expect((await h.api('alice').call(API.getChat, { params: { id: f.id } })).title).toBe(f.title)
+    expect(source(f.id)).toBe('fork')
+  })
+
   test('a scheduled run is not offered set_title and keeps its title', async () => {
     const rt = h.rt()
     const now = new Date()

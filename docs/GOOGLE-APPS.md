@@ -196,6 +196,13 @@ that still works (`drive_team_shares.owner_user_id`, tokens kept). Google revoke
 revoking one app's token could end the others made with the same Google app; Google Drive's own Disconnect follows the
 same rule. The answer says `revoked`, `unavailable` or `not_needed`.
 
+A sign-in through the hosting service's shared Google app (broker mode) is never revoked from a team server, whatever
+else is left here: that one Google app serves every hosted team and registered server, so Google would end the same
+person's sign-ins on their other Trina servers too. The server forgets the token and answers `kept`; the page offers
+Google's own third-party connections page to remove Trina's access everywhere
+([docs/decisions/20261128-google-broker-grant-kept.md](decisions/20261128-google-broker-grant-kept.md)). The rule above
+is for a company's own Google app.
+
 ## How it is built
 
 - **A person's connection** is a personal row of `integrations` with `google_app` set, one per person and app
