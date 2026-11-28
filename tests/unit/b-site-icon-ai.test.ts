@@ -9,7 +9,7 @@ import { API } from '@mycel/shared/api'
 import { checkTeamIcon, imageInfo } from '@mycel/shared'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
-import { makePng, pngOf } from '../lib/images'
+import { makeJpeg, makePng, pngOf } from '../lib/images'
 import { noteEgressIp } from '../../server/src/tools/egress'
 import { getChatRuntime } from '../../server/src/chat/runtime'
 import { findPdfBrowser, htmlPdfUnavailable } from '../../server/src/files/html-pdf'
@@ -158,7 +158,7 @@ describe('logo_look: the guard on addresses the AI names, the checks, the cap', 
     try {
       const r = await lookFor('c-look-1', U('acme.example', '/touch.png'), show)
       expect(r.text).toMatch(/^Picture L1 from http:\/\/acme\.example:\d+\/touch\.png: 128×128 px/)
-      expect(checkTeamIcon(new Uint8Array(Buffer.from(r.png!, 'base64')), 'image/png').ok).toBe(true)
+      expect(checkTeamIcon(new Uint8Array(Buffer.from(r.image!.data, 'base64')), 'image/png').ok).toBe(true)
       expect((await lookFor('c-look-1', U('acme.example', '/tiny.png'), show)).text).toContain('too small (32 px; at least 64 px)')
       expect((await lookFor('c-look-1', U('acme.example', '/wide.png'), show)).text).toContain('too wide or too tall (400×100')
       expect((await lookFor('c-look-1', 'ftp://acme.example/x.png', show)).text).toBe('Only http and https addresses can be opened.')
@@ -171,7 +171,7 @@ describe('logo_look: the guard on addresses the AI names, the checks, the cap', 
       // the image switch says no: a note, and no id (it can never be chosen unseen)
       const off = await lookFor('c-look-1', U('acme.example', '/m-512.png'), () => 'Images are off for this team.')
       expect(off).toMatchObject({ text: 'Images are off for this team.', isError: true })
-      expect(off.png).toBeUndefined()
+      expect(off.image).toBeUndefined()
       expect(t.state.looks).toHaveLength(1)
     } finally { t.end() }
   })
@@ -185,7 +185,12 @@ describe('logo_look: the guard on addresses the AI names, the checks, the cap', 
       expect(r.text).toContain('(the rules\' pick)')
       expect(hits).toEqual([])
       expect(t.state.ruleShown).toBe(true)
+      expect(r.image?.mimeType).toBe('image/png')
     } finally { t.end() }
+    // a picture kept as it is (no ffmpeg: an opaque JPEG) goes to the model with its own type, never called a PNG
+    const jpeg = makeJpeg(128, 128)
+    const j = _teamIconTaskForTest('c-look-2b', { net: net(), rule: { ...ruleOf(U('acme.example', '/rule.jpg')), bytes: jpeg, type: 'image/jpeg' }, ffmpeg: null })
+    try { expect((await lookFor('c-look-2b', U('acme.example', '/rule.jpg'), show)).image?.mimeType).toBe('image/jpeg') } finally { j.end() }
   })
 
   test('private, link-local, this server\'s exit address, a redirect into a private one: never fetched, one plain line', async () => {
@@ -215,7 +220,7 @@ describe('logo_look: the guard on addresses the AI names, the checks, the cap', 
       const r = await lookFor('c-look-4', U('acme.example', '/logo.svg'), show)
       if (FFMPEG) {
         expect(r.text).toMatch(/^Picture L1 from .*\/logo\.svg \(an SVG, drawn\): 256×256 px/)
-        expect(checkTeamIcon(new Uint8Array(Buffer.from(r.png!, 'base64')), 'image/png').ok).toBe(true)
+        expect(checkTeamIcon(new Uint8Array(Buffer.from(r.image!.data, 'base64')), 'image/png').ok).toBe(true)
       } else expect(r.text).toContain('could not be prepared as a tile')
     } finally { t.end() }
     const n = _teamIconTaskForTest('c-look-5', { net: net(), ffmpeg: FFMPEG, browser: null })

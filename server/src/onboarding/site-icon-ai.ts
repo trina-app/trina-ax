@@ -125,7 +125,7 @@ interface TaskState {
 const tasks = new Map<string, TaskState>()
 
 /** What logo_look gives the AI: words, and the picture it would set when there is one. */
-export type LookResult = { text: string; png?: string; isError?: boolean; summary: string }
+export type LookResult = { text: string; image?: { data: string; mimeType: TeamIconType }; isError?: boolean; summary: string }
 
 const absolute = (raw: string, base?: URL): string | null => {
   try {
@@ -137,6 +137,8 @@ const absolute = (raw: string, base?: URL): string | null => {
 }
 const LOGO_WORD = /(^|[^a-z])(logo|brand|symbol|wordmark|emblem|icon)([^a-z]|$)|로고|ロゴ|标志/i
 const short = (u: string) => (u.length > 160 ? `${u.slice(0, 160)}…` : u)
+/** a page's attribute word as the list shows it: lower case letters, digits, '-', '/', '+' and spaces, at most 40 */
+const word = (s: string) => s.toLowerCase().replace(/[^a-z0-9\-/+ ]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 40)
 
 /** The pictures a page names as icons or logos, best first: the rules' own candidates, then what the rules skip (SVG,
  * mask icons, wide logos, an <img> whose alt says logo). Addresses only, never the page's text. */
@@ -153,7 +155,8 @@ export function pageLogoAddresses(html: string, pageUrl: string): { manifest: st
     const a = attrsOf(tag.attrs)
     if (tag.name === 'link') {
       const rel = (a.rel ?? '').toLowerCase()
-      if (/(^|\s)(icon|mask-icon|apple-touch-icon)(\s|$)/.test(rel)) push(absolute(a.href ?? '', page), `${rel.trim()}${a.type ? `, ${a.type}` : ''}`)
+      // (the page's own words, cut and cleaned: only which picture it is)
+      if (/(^|\s)(icon|mask-icon|apple-touch-icon)(\s|$)/.test(rel)) push(absolute(a.href ?? '', page), `${word(rel)}${a.type ? `, ${word(a.type)}` : ''}`)
     } else if (tag.name === 'img') {
       const src = largestSrc(a.srcset ?? a['data-srcset'] ?? '') ?? a['data-src'] ?? a.src ?? ''
       const url = src && !/^data:/i.test(src) ? absolute(src, page) : null
@@ -195,7 +198,8 @@ async function prepare(raw: Uint8Array, st: TaskState): Promise<{ ok: true; byte
 const shown = (st: TaskState, url: string, p: { bytes: Uint8Array<ArrayBuffer>; type: TeamIconType; width: number; height: number }, extra = ''): LookResult => {
   const id = `L${st.looks.length + 1}`
   st.looks.push({ id, url, bytes: p.bytes, type: p.type, width: p.width, height: p.height })
-  return { text: `Picture ${id} from ${short(url)}${extra}: ${p.width}×${p.height} px as the team logo, shown below. Answer with "${id}" to use it.`, png: Buffer.from(p.bytes).toString('base64'), summary: `${LOGO_LOOK} ${short(url)} -> ${id} ${p.width}x${p.height}` }
+  // its own type (without ffmpeg an opaque JPEG or WebP is kept as it is, and so may be the rules' pick)
+  return { text: `Picture ${id} from ${short(url)}${extra}: ${p.width}×${p.height} px as the team logo, shown below. Answer with "${id}" to use it.`, image: { data: Buffer.from(p.bytes).toString('base64'), mimeType: p.type }, summary: `${LOGO_LOOK} ${short(url)} -> ${id} ${p.width}x${p.height}` }
 }
 
 /**

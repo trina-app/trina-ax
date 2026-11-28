@@ -354,7 +354,24 @@ export function TeamIconRow() {
   // stays busy with one line under it until then
   const [checking, setChecking] = useState(false)
   const stopWatch = useRef<(() => void) | null>(null)
-  useEffect(() => () => stopWatch.current?.(), [])
+  // `resumed`: a run found when the screen opened (maybe the onboarding press's, whose own toast says it): no toast here
+  const watch = (resumed = false) => {
+    stopWatch.current?.()
+    setBusy('site')
+    stopWatch.current = watchSiteRun({
+      now: resumed,
+      onSet: () => { void refreshMe(); if (!resumed) toast({ level: 'success', text: t('teamIcon.fromSiteDone') }) },
+      onNone: (message) => setError(message),
+      onEnd: () => { setChecking(false); setBusy(null) },
+    })
+  }
+  // a run still going when the screen opens again (pressed here, left, back): the same line until it ends
+  useEffect(() => {
+    let live = true
+    api.call(API.teamIconSiteRun).then((r) => { if (live && r.status === 'running') { setChecking(true); watch(true) } }, () => {})
+    return () => { live = false; stopWatch.current?.() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const fromSite = async () => {
     setError(null)
     setBusy('site')
@@ -364,11 +381,7 @@ export function TeamIconRow() {
       if ('pending' in r) {
         pending = true
         setChecking(true)
-        stopWatch.current = watchSiteRun({
-          onSet: () => { void refreshMe(); toast({ level: 'success', text: t('teamIcon.fromSiteDone') }) },
-          onNone: (message) => setError(message),
-          onEnd: () => { setChecking(false); setBusy(null) },
-        })
+        watch()
         return
       }
       await refreshMe()

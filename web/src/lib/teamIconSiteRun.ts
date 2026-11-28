@@ -9,18 +9,15 @@ export const SITE_RUN_POLL_MS = 2_000
 /** the server's run ends within about 90 s (the rules 30 s, the AI 60 s); a little more for the last poll */
 export const SITE_RUN_WATCH_MS = 120_000
 
-let watching: { stop: () => void } | null = null
-
-/** Watch the caller's run until it ends: `onSet` with the new logo's version, `onNone` with the server's words; nothing
- * when it was lost (a restart: idle) or the time is up. One watch at a time (a new press replaces the old watch). */
-export function watchSiteRun(o: { onSet: (version: string, run: Extract<TeamIconSiteRun, { status: 'set' }>) => void; onNone?: (message: string) => void; onEnd?: () => void; pollMs?: number; maxMs?: number }): () => void {
-  watching?.stop()
+/** Watch the caller's run until it ends: `onSet` with the new logo's version, `onNone` with the server's words; `onEnd`
+ * always once, also when it was lost (a restart: idle) or the time is up. Each screen keeps its own watch (the server
+ * runs one at a time; two windows may watch the same run). The returned function stops it quietly (an unmount). */
+export function watchSiteRun(o: { onSet: (version: string, run: Extract<TeamIconSiteRun, { status: 'set' }>) => void; onNone?: (message: string) => void; onEnd?: () => void; pollMs?: number; maxMs?: number; now?: boolean }): () => void {
   let live = true
   let timer: ReturnType<typeof setTimeout> | undefined
   const until = Date.now() + (o.maxMs ?? SITE_RUN_WATCH_MS)
-  const end = () => { if (!live) return; live = false; clearTimeout(timer); if (watching === me) watching = null; o.onEnd?.() }
-  const me = { stop: () => { live = false; clearTimeout(timer); if (watching === me) watching = null } }
-  watching = me
+  const end = () => { if (!live) return; live = false; clearTimeout(timer); o.onEnd?.() }
+  const me = { stop: () => { live = false; clearTimeout(timer) } }
   const tick = async () => {
     if (!live) return
     let r: TeamIconSiteRun | null = null
@@ -31,6 +28,6 @@ export function watchSiteRun(o: { onSet: (version: string, run: Extract<TeamIcon
     if (r?.status === 'idle' || Date.now() >= until) return end()
     timer = setTimeout(() => void tick(), o.pollMs ?? SITE_RUN_POLL_MS)
   }
-  timer = setTimeout(() => void tick(), o.pollMs ?? SITE_RUN_POLL_MS)
+  timer = setTimeout(() => void tick(), o.now ? 0 : o.pollMs ?? SITE_RUN_POLL_MS)
   return me.stop
 }

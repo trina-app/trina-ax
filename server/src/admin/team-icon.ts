@@ -129,30 +129,35 @@ export function saveTeamIconIfAbsent(dataDir: string, bytes: Uint8Array<ArrayBuf
 /**
  * Store checked bytes as the logo only if the logo is still `expected` (its version; null: none), for a result that lands
  * a while after the press (the team logo's AI help, admin/team-icon-site.ts): a logo someone set meanwhile always wins.
- * With a version it is not a check, then a write: the file is renamed aside, compared, and the new bytes are linked in
- * only where nothing took the place meanwhile (else the old one is linked back unless a newer one is there). Null: the
- * logo changed meanwhile (or the bytes are no logo).
+ * Not a check, then a write: the new bytes are written and synced to a temporary file first; then the logo is renamed
+ * aside, compared, and the new file is linked in where nothing took the place meanwhile. Any failure after the rename
+ * links the old logo back (unless a newer one is there): the logo there is never lost. Null: the logo changed
+ * meanwhile, a failure (the old one stays), or the bytes are no logo.
  */
 export function replaceTeamIconIf(dataDir: string, bytes: Uint8Array<ArrayBuffer>, type: string, expected: string | null): TeamIconFile | null {
   if (expected === null) return saveTeamIconIfAbsent(dataDir, bytes, type)
   const r = checkTeamIcon(bytes, type)
   if (!r.ok) return null
-  cache.delete(dataDir)
   const target = teamIconFile(dataDir)
-  const aside = `${target}.${crypto.randomBytes(6).toString('hex')}.swap`
-  try { fs.renameSync(target, aside) } catch { return null }
+  const id = crypto.randomBytes(6).toString('hex')
+  const tmp = `${target}.${id}.tmp`, aside = `${target}.${id}.swap`
+  let moved = false, placed = false
   try {
+    const fd = fs.openSync(tmp, 'wx', 0o600)
+    try { fs.writeSync(fd, bytes); fs.fsyncSync(fd) } finally { fs.closeSync(fd) }
+    try { fs.renameSync(target, aside); moved = true } catch { return null }
     let old: Uint8Array | null = null
     try { old = new Uint8Array(fs.readFileSync(aside)) } catch { /* unreadable: put back */ }
-    if (!old || versionOf(old) !== expected) {
-      try { fs.linkSync(aside, target) } catch { /* a newer logo is there now: it stays */ }
-      return null
-    }
-    const set = saveTeamIconIfAbsent(dataDir, bytes, type)
-    // a logo that landed in the moment between: it stays, and so the old one is not put back
-    return set
+    if (!old || versionOf(old) !== expected) return null
+    try { fs.linkSync(tmp, target); placed = true } catch { return null }
+    return { bytes, type: r.type, width: r.width, height: r.height, version: versionOf(bytes) }
+  } catch {
+    return null
   } finally {
+    // the old logo back unless the new one is in place or a newer one took the place (EEXIST: it stays)
+    if (moved && !placed) try { fs.linkSync(aside, target) } catch { /* a newer logo is there */ }
     fs.rmSync(aside, { force: true })
+    fs.rmSync(tmp, { force: true })
     cache.delete(dataDir)
   }
 }

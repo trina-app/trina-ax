@@ -225,7 +225,7 @@ function logoLookTool(exec: TurnExec): Tool {
       const url = (args as { url?: unknown } | null)?.url
       const r = await lookFor(exec.spec.chatId, url, (bytes) => exec.rt.files.toolImage({ user: { id: exec.spec.userId }, turnId: exec.spec.turnId, files: exec.files }, bytes))
       const content: McpContent[] = [{ type: 'text', text: r.text }]
-      if (r.png) content.push({ type: 'image', data: r.png, mimeType: 'image/png' })
+      if (r.image) content.push({ type: 'image', data: r.image.data, mimeType: r.image.mimeType })
       return { content, ...(r.isError ? { isError: true } : {}), summary: r.summary }
     },
   }

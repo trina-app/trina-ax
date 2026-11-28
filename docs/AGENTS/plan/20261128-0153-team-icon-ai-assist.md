@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 01:53
 - Branch: `feat/team-icon-ai-assist`, stacked on `feat/team-icon-from-site` (PR #711, head 97be1e5b0)
-- Status: in progress
+- Status: done
 - Where: server/src/onboarding (new `site-icon-ai.ts`, `svg-raster.ts`), the restricted-turn plumbing in
   server/src/chat (turn.ts, tools.ts), admin/team-icon-site.ts, onboarding/welcome-result.ts, the two web screens.
   Why: the website-logo feature (#711) is rules only; the owner asked for the team's own AI to check and to find
@@ -111,4 +111,15 @@ mock: the pending toast. QA: 23 sites, rules-only vs AI, screenshots.
 
 ## Result
 
-(filled in at the end)
+Built as planned, with two changes found while building: the onboarding press also runs the AI when the reading kept
+nothing (a bot check gives the draft no page, so there was no draft to take a staged icon from), and it asks the AI
+once per website (the welcome row's `teamIconAiSite`) so an undone logo stays undone on a later save.
+
+QA (2026-11-28, a private local copy, the real admin route, the 24 sites of #711's QA): the Claude Code QA token was at
+its weekly limit, so the run used **Codex** (this Mac's ChatGPT login, local-login mode). Rules only: 14 icons, 9
+none, 1 shared platform. With the AI: the 14 rule picks were all kept (verify yes, 8–12 s each); 8 of the 9 "none"
+sites got a logo (fritzcoffeecompany, terarosa, mmmg, sixshop, tokopedia, gojek, kopikenangan, patagonia: 20–50 s,
+from app-store pages, Wikimedia Commons, the trademark office and the companies' other domains); andersson-bell stayed
+none (only a 19 px wordmark and a 28 px favicon exist). Verify no: a product photo staged as the rules' pick for
+patagonia was rejected and the AI found the real mark instead. The onboarding press answered in 0.05 s; the logo
+landed 22–26 s later. Screenshots: the session scratchpad's ticon-ai-shots/.
