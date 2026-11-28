@@ -3,7 +3,10 @@
 // token became a chat title on screen, 2026-10-28). The AI that answers then names the chat with the set_title tool
 // (tools.ts), offered only while the title is still automatic, in the chat's first two messages and never in a
 // scheduled run. A rename by the person ends that for good. Where a title came from is chats.title_source:
-// 'auto' | 'ai' | 'user' | 'schedule' | 'legacy' (made before the column existed; never renamed by the AI).
+// 'auto' | 'ai' | 'user' | 'schedule' | 'legacy' (made before the column existed; never renamed by the AI) | 'fork' (a
+// continuation's "<original> (이어서)", chat/fork.ts: its first new message replaces it with that message's placeholder
+// and makes it 'auto', chat/runtime.ts; copied messages never count as the chat's first ones,
+// docs/decisions/20261128-fork-retitle-first-message.md).
 import type { Database } from 'bun:sqlite'
 import { hideThreadRef, SIDE_CHAT_QUICK, sideQuickOf, sideQuoteOf, skillLabel, type Attachment } from '@mycel/shared/api'
 import { hasSecret, maskSecrets } from '@mycel/shared'
@@ -142,18 +145,19 @@ export function cleanAiTitle(raw: string): AiTitle {
   return { ok: true, title: cutTitle(s, AI_TITLE_MAX) }
 }
 
-/** Whether this turn may name the chat (set_title): the title is still automatic, the chat is at its first or second
- * message, and nobody is reading along live in a scheduled run. */
+/** Whether this turn may name the chat (set_title): the title is still automatic (a continuation's "(이어서)" title
+ * too), the chat is at its first or second message of its own (a continuation's copied messages do not count), and
+ * nobody is reading along live in a scheduled run. */
 export function titleToolOffered(db: Database, chatId: string, clientKind: string | null): boolean {
   if (clientKind === 'schedule') return false
-  const r = db.query(`SELECT title_source AS s, (SELECT COUNT(*) FROM messages WHERE chat_id = chats.id AND role = 'user') AS n
+  const r = db.query(`SELECT title_source AS s, (SELECT COUNT(*) FROM messages WHERE chat_id = chats.id AND role = 'user' AND fork_copy = 0) AS n
     FROM chats WHERE id = ? AND deleted_at IS NULL`).get(chatId) as { s: string; n: number } | null
-  return !!r && r.s === 'auto' && r.n <= AI_TITLE_MESSAGES
+  return !!r && (r.s === 'auto' || r.s === 'fork') && r.n <= AI_TITLE_MESSAGES
 }
 
 /** The AI's title, only while the title is still automatic (a rename by the person in the meantime wins). */
 export function setAiTitle(db: Database, chatId: string, title: string): boolean {
-  return db.query("UPDATE chats SET title = ?, title_source = 'ai' WHERE id = ? AND title_source = 'auto' AND deleted_at IS NULL").run(title, chatId).changes > 0
+  return db.query("UPDATE chats SET title = ?, title_source = 'ai' WHERE id = ? AND title_source IN ('auto', 'fork') AND deleted_at IS NULL").run(title, chatId).changes > 0
 }
 
 /** A chat started from a skill ("/card-news …", a skill chip or a skill's form) whose title is still the placeholder of
