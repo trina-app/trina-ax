@@ -17,8 +17,9 @@ bunx tsc -p chrome-extension/tsconfig.json --noEmit
 bun test tests/unit/chrome-ext-*.test.ts
 ```
 
-The version is `EXTENSION_VERSION` in `build.ts` (semver, plain numbers: the Web Store needs them). Bump it for each
-upload.
+The version is `EXTENSION_VERSION` in `build.ts` (semver, plain numbers: the Web Store needs them). A change to anything
+the zip is built from needs `bun run chrome:bump patch|minor|major` in the same PR (`chrome:check` and a guard test say
+so). Releases have their own tag `chrome-v<version>`: [docs/RELEASE-CI.md](../docs/RELEASE-CI.md) section 16.
 
 ## Install for QA (unpacked)
 
@@ -85,19 +86,10 @@ What the guards cannot cover from an extension (`chrome.debugger` sees one tab's
 - The office-network check after a page loads skips a response whose server port differs from the address's (a proxy);
   a proxy listening on exactly 80 or 443 would see its pages stopped.
 
-## Publishing to the Chrome Web Store (not done)
+## Publishing
 
-Needs a Chrome Web Store developer account (one-time USD 5 fee): the owner's decision and account.
-
-1. Register at https://chrome.google.com/webstore/devconsole with the team's Google account; pay the fee; verify the
-   contact e-mail.
-2. `bun chrome-extension/build.ts --zip`; upload `release/<artifactBase>-chrome-<version>.zip` as a new item.
-3. Store listing: paste from [store/listing-en.md](store/listing-en.md) (and add the Korean listing from
-   [store/listing-ko.md](store/listing-ko.md)); upload `store/store-icon-128.png`, `store/promo-small-440x280.png`
-   and the 1280x800 screenshots in [store/screenshots/](store/screenshots/) (en-*, ko-* for the Korean listing).
-4. Privacy practices tab: paste from [store/privacy-practices.md](store/privacy-practices.md); link the privacy policy
-   (https://ax.trina.app/privacy or the site's current policy page).
-5. Distribution: public or unlisted (unlisted until the first customers try it), all regions.
-6. Submit for review. The `debugger` permission gets an in-depth review; expect several days.
-7. After approval put the store link into Settings › Browser (web) in place of the unpacked-install docs link.
-   Edge Add-ons (https://partner.microsoft.com/dashboard/microsoftedge) takes the same zip.
+The store item exists (0.1.0 was uploaded by hand with the listing from [store/](store/)). Later versions go out through
+the tag `chrome-v<version>` and `.github/workflows/chrome-extension.yml` (Chrome Web Store API; Edge Add-ons when turned
+on): how to cut one, the one-time store sign-in and the compatibility rules are in
+[docs/RELEASE-CI.md](../docs/RELEASE-CI.md) section 16. The listing text, screenshots and privacy answers stay in the
+dashboard (the API does not change them): update them there by hand from [store/](store/).

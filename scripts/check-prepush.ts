@@ -136,6 +136,8 @@ if (import.meta.main) {
     { name: 'features:check', cmd: ['bun', 'run', 'features:check'], hint: () => [] },
     { name: 'check:docs', cmd: ['bun', 'run', 'check:docs'], env: baseEnv, hint: () => [] },
     { name: 'check:migrations', cmd: ['bun', 'run', 'check:migrations'], env: baseEnv, hint: () => [] },
+    // a change to what the Chrome extension's zip is built from bumps its version (docs/RELEASE-CI.md 16)
+    { name: 'chrome:check', cmd: ['bun', 'run', 'chrome:check'], env: { CHROME_BASE: BASE }, hint: () => [] },
     { name: 'check:i18n', cmd: ['bun', 'run', 'check:i18n'], hint: () => [] },
     { name: 'test guards', cmd: ['bun', 'test', ...GUARD_TESTS.map((f) => `./${f}`)], hint: () => [] },
   ]
