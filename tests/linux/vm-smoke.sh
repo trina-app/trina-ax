@@ -214,6 +214,14 @@ else
   if [[ "$KIT_STATE" == present ]]; then check "kit seed present" test -f "$SEED/root/VERSION"
   else skip "kit seed present" "template built with --allow-missing-kit (not for production)"; fi
 fi
+# ---- no inbound connection (Lightsail plan L11): mycel-ctl firewall apply loads an input chain with policy drop on a
+# hosted server. Only an enrolled VM has the table loaded (the firewall timer starts with the mycel units).
+if [[ $ENROLLED == 1 ]] && vm; then
+  check "inbound firewall: input chain policy drop (hosted)" bash -c 'nft list chain inet mycel input | grep -q "hook input priority filter; policy drop;"'
+  check "inbound firewall: no rule opens a tcp port" bash -c '! nft list chain inet mycel input | grep -q "tcp dport"'
+else
+  skip "inbound firewall" "not enrolled or a container (the table is loaded after enroll)"
+fi
 check "mycel units not enabled in the template" bash -c '[[ '"$ENROLLED"' == 1 ]] || ! ls /etc/systemd/system/*.wants/mycel-* 2>/dev/null | grep -v "/mycel-link\.service$" | grep -q .'
 
 echo "vm-smoke: $PASSN passed, $FAILN failed, $SKIPN skipped"

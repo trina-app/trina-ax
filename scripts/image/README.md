@@ -328,6 +328,46 @@ bun scripts/release/publish-qcow2.ts publish  --version <v> --manifest dist/imag
 
 Local test without AWS and R2: `bun test tests/unit/image-qcow2.test.ts`.
 
+### The Lightsail twin: an instance snapshot (paid team servers in Seoul)
+
+Lightsail cannot import an AMI. The job `lightsail` of the same workflow builds the image again on Lightsail, for the
+hostd `lightsail` driver (trina-cloud `docs/research/lightsail-paid-teams.md` §6–7):
+
+```sh
+scripts/image/build-lightsail.sh --account <id> --template-version <tv> --kit <kit.tar.gz> \
+  --enroll-bin native/bin/linux-amd64/mycel-enroll --link-bin native/bin/linux-amd64/mycel-link --out dist/image
+bun scripts/image/lightsail-feed.ts publish --version <v> --manifest dist/image/teamax-<tv>.lightsail.json
+scripts/image/build-lightsail.sh --prune --account <id> --protect-template <tv>
+```
+
+- The stage is the AMI's (`build-ami.sh --stage-only`), and the template version is the AMI's (`team-image.json`).
+- Builder: `CreateInstances` of blueprint `debian_13` on bundle `medium_3_0` (the smallest paid bundle: a snapshot
+  launches only to the same or a larger bundle), tags `ax:managed=image-build`, `ax:template`. Its launch script is
+  POSIX `sh` (Lightsail puts its own `#!/bin/sh` part before it; no `#cloud-config`): it downloads the stage from R2
+  (`ci/lightsail-build/`, a presigned URL, not served by the feed), checks the sha256 pinned in the script, and starts
+  `lightsail-guest.sh` as a unit after `cloud-final.service`. That runs `customize.sh` on the live system, removes what
+  the builder's first boot made (cloud-init's `admin` user with the Lightsail key pair, the Lightsail SSH CA key, host
+  keys, host name), seals the image (cloud-init clean, machine-id, journal, random seed), runs the checks of
+  `ami-chroot.sh`, uploads a one-line result to a presigned R2 URL and powers off. No SSH: openssh is purged.
+- The job: no public ports and IMDSv2 on the builder once it runs; waits for `stopped` + an `ok` result (a stopped
+  builder without a result fails); `CreateInstanceSnapshot` `teamax-<tv>` (tags `ax:managed=image`, `ax:template`,
+  `ax:built-by=release-ci`, `ax:blueprint-version`); deletes the builder; writes
+  `teamax-<tv>.lightsail.json` = `{"v":1,"kind":"lightsail","templateVersion","region","snapshotName","fromBundleId","blueprintId","blueprintVersion","kitVersion","builtAt"}`
+  with `.sha256` and the `.sig` of "Signing and installTemplate", beside the AMI manifest. `team-image.json` is not
+  changed. hostd checks the signature, then the snapshot's state, tags, `fromBundleId` and attached disks.
+- A re-run reuses an `available` snapshot with the right tags. A failure deletes only the builder of its state file
+  (`lightsail-build-<tv>.state`), and only when it carries `ax:managed=image-build`.
+- Prune: the rules of `ami-prune.sh` (`ami-prune-select.ts`), for snapshots with `ax:managed=image` and
+  `ax:built-by=release-ci` only; a template that any instance carries in `ax:template` stays (hostd's replace path).
+- IAM: the managed policy `docs/runbooks/team-image-lightsail-iam-policy.json` on the CI role (its own policy: the
+  role's inline policy is near the 10,240-character limit for all inline policies). It never acts on an instance with
+  `ax:tenant` or the listed test boxes, and never retags a resource with another `ax:managed`.
+- The image also has `99-axdata-mount.rules`: a filesystem labelled `axdata` that appears at any time (the data disk
+  that hostd attaches after the instance runs) pulls in `var-lib-mycel.mount` (§6.3, phase 0 P4).
+
+Local check: `scripts/image/build-lightsail.sh --dry-run --allow-missing-kit --template-version 0.0.0-kitless-d13-<date>`
+(prints every AWS call, writes the launch script and the manifest with `.dry-run`), `bun test tests/unit/image-lightsail.test.ts`.
+
 ### Several regions: the v2 manifest
 
 `build-ami.sh` builds the AMI in one region and writes a v1 manifest (one `region`, one `imageId`). An ax-hostd that

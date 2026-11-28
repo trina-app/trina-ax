@@ -30,6 +30,9 @@
 #   --dry-run                   print every aws command, run none, make nothing
 #   --yes, -y                   no confirmation prompt (needed when stdin is not a terminal)
 #   --cleanup STATEFILE         remove what a failed run left behind (only the ids in its state file), then exit
+#   --stage-only DIR            no AWS call: check the kit and the binaries, write the stage folder (customize.sh,
+#                               files/, system/, kit/, bin/, dev-env-srt/) to DIR/ax-image and exit. build-lightsail.sh
+#                               uses it, so the AMI and the Lightsail image are made from the same stage
 #   --manifest-v2 …             (first argument) no build: run ami-manifest-v2.sh with the other arguments. It copies
 #                               a built AMI to more regions and/or writes the signed v2 manifest
 #                               teamax-<templateVersion>.v2.ami.json for a hostd with several regions (see its --help)
@@ -59,7 +62,7 @@ if [[ "${1:-}" == --manifest-v2 ]]; then shift; exec "${BASH:-/bin/bash}" "$HERE
 
 KIT=""; ENROLL_BIN=""; LINK_BIN=""; SUBNET=""; REGION=ap-northeast-2; PROFILE=""; ACCOUNT_WANT=""; SOURCE_AMI=""
 BUILDER_TYPE=t3a.medium; SSH_CIDR=""; DATE="$(date -u +%Y%m%d)"; SIGN_KEY=""; OUT="$REPO/dist/image"; ROOT_GB=20
-TEST=0; EXTRA_TAGS=(); ALLOW_MISSING_KIT=0; DRY=0; YES=0; CLEANUP_STATE=""; APT_SNAPSHOT=""
+TEST=0; EXTRA_TAGS=(); ALLOW_MISSING_KIT=0; DRY=0; YES=0; CLEANUP_STATE=""; APT_SNAPSHOT=""; STAGE_ONLY=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --kit) KIT="$2"; shift 2 ;;
@@ -83,7 +86,8 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY=1; shift ;;
     --yes|-y) YES=1; shift ;;
     --cleanup) CLEANUP_STATE="$2"; shift 2 ;;
-    -h|--help) sed -n '2,51p' "$0"; exit 0 ;;
+    --stage-only) STAGE_ONLY="$2"; shift 2 ;;
+    -h|--help) sed -n '2,54p' "$0"; exit 0 ;;
     *) echo "build-ami: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -156,7 +160,7 @@ cleanup_state() {
   fi
 }
 
-[[ $DRY == 1 || -n "$ACCOUNT_WANT" ]] || die "--account <12-digit id> is required (the account to build in; see --help)"
+[[ $DRY == 1 || -n "$STAGE_ONLY" || -n "$ACCOUNT_WANT" ]] || die "--account <12-digit id> is required (the account to build in; see --help)"
 [[ -z "$ACCOUNT_WANT" || "$ACCOUNT_WANT" =~ ^[0-9]{12}$ ]] || die "--account is a 12-digit AWS account id"
 # the account of the AWS session; with --account, stop when it is another one
 check_account() {
@@ -179,14 +183,16 @@ fi
 [[ "$ROOT_GB" =~ ^[0-9]+$ && $ROOT_GB -ge 8 ]] || die "--root-gb is a whole number of GiB, at least 8"
 # a signed manifest is installable; a kitless image must never be
 [[ $ALLOW_MISSING_KIT == 0 || -z "$SIGN_KEY" ]] || die "--sign-key and --allow-missing-kit exclude each other (a kitless AMI is never for production)"
+[[ -n "$STAGE_ONLY" ]] && SUBNET="${SUBNET:-subnet-0}"
 [[ -n "$SUBNET" ]] || die "--subnet-id is required (a subnet with internet access whose NACL lets SSH in; see --help)"
 [[ "$SUBNET" =~ ^subnet-[0-9a-f]+(,subnet-[0-9a-f]+)*$ ]] || die "--subnet-id looks wrong: $SUBNET"
 IFS=, read -r -a SUBNETS <<<"$SUBNET"
 [[ -z "$SOURCE_AMI" || "$SOURCE_AMI" =~ ^ami-[0-9a-f]+$ ]] || die "--source-ami looks wrong: $SOURCE_AMI"
 [[ "$BUILDER_TYPE" =~ ^t3a\.(medium|large)$ ]] || die "--builder-type is t3a.medium or t3a.large"
 for kv in ${EXTRA_TAGS[@]+"${EXTRA_TAGS[@]}"}; do [[ "$kv" =~ ^[A-Za-z0-9:._/-]+=[A-Za-z0-9:._/@+-]*$ ]] || die "--tag $kv: use K=V with plain characters"; done
-for t in aws ssh scp ssh-keygen tar od; do have "$t" || die "missing $t"; done
-if [[ $DRY != 1 ]]; then
+if [[ -n "$STAGE_ONLY" ]]; then for t in tar od; do have "$t" || die "missing $t"; done
+else for t in aws ssh scp ssh-keygen tar od; do have "$t" || die "missing $t"; done; fi
+if [[ $DRY != 1 && -z "$STAGE_ONLY" ]]; then
   AWSV="$(aws --version 2>&1 | awk '{ print $1; exit }')"
   [[ "$AWSV" == aws-cli/2* ]] || die "aws CLI v2 required (found ${AWSV:-nothing})"
 fi
@@ -287,6 +293,14 @@ for f in "${SRT_FILES[@]}"; do
   cp -p "$REPO/scripts/dev-env/srt/$f" "$STAGE/dev-env-srt/"
 done
 cp "$HERE/ami-chroot.sh" "$WORK/stage/ami-chroot.sh"
+if [[ -n "$STAGE_ONLY" ]]; then
+  [[ ! -e "$STAGE_ONLY/ax-image" ]] || die "$STAGE_ONLY/ax-image exists already"
+  mkdir -p "$STAGE_ONLY"
+  cp -a "$STAGE" "$STAGE_ONLY/ax-image"
+  echo "$KIT_VERSION" > "$STAGE_ONLY/kit-version"
+  say "stage for kit $KIT_VERSION ($KIT_STATE) in $STAGE_ONLY/ax-image"
+  exit 0
+fi
 
 TEMPLATE_VERSION="$KIT_VERSION-d13-$DATE"
 AMI_NAME="${NAME_PREFIX}teamax-$TEMPLATE_VERSION"
