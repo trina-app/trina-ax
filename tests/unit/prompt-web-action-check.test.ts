@@ -50,14 +50,16 @@ describe('the rule', () => {
     expect(buildTurnPrompt(A.ctx.files, input({ browserInDesktopApp: true }))).not.toContain(WEB_ACTION_CHECK_RULE)
   })
 
-  test('in the connected services section (an app that drives a browser is a connection), instructions and context', async () => {
+  test('in the connected services section (an app that drives a browser is a connection): the instructions, not the context of every message', async () => {
     const c = await A.json('/api/integrations', { method: 'POST', as: 'alice', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'mcp', name: 'Pilot', url: `${fake.base}/mcp-open?pilot`, auth: 'none' }) })
     expect(c.body.status).toBe('connected')
     const user: Person = 'alice'
     const chat = A.chat(user)
     const built = integrationToolProvider(A.ctx).build({ userId: user, chatId: chat, turnId: A.turn(user, chat), browser: false, scheduled: false })
     expect(count(built.prompt ?? '', WEB_ACTION_CHECK_RULE)).toBe(1)
-    expect(count(built.context ?? '', WEB_ACTION_CHECK_RULE)).toBe(1)
+    // the context sent with every message of a resumed session has its budget (c-integration-deferred-tools): the
+    // session keeps the rule from its first instructions
+    expect(built.context ?? '').not.toContain(WEB_ACTION_CHECK_RULE)
     // nothing connected: not there
     const none = integrationToolProvider(A.ctx).build({ userId: 'bob', chatId: A.chat('bob'), turnId: A.turn('bob', A.chat('bob')), browser: false, scheduled: false })
     expect(none.prompt ?? '').not.toContain(WEB_ACTION_CHECK_RULE)

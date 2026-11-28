@@ -75,7 +75,7 @@ prompt unit tests, under Bun 1.3.12. The AI scenario flows FL-41..45 before and 
 ## Result
 
 - `WEB_ACTION_CHECK_RULE` (server/src/chat/web-action-rule.ts) in the in-app browser section, the Chrome section and
-  "Connected services" (instructions and the context of every message); `ONCE_RULE` and `CHOSEN_TOOL_RULE` in every
+  "Connected services" (its instructions only: the context sent with every message has its budget); `ONCE_RULE` and `CHOSEN_TOOL_RULE` in every
   turn. Prompt pins re-recorded. Unit test `tests/unit/prompt-web-action-check.test.ts`.
 - Scenario runner: mock browser app "Web Pilot" (`mock-services/browser.ts`, a team connection that runs without
   asking, as an Always-allowed app would; `AISCEN_BROWSER_TOOLS=script` offers only a script tool, as Aside's repl),
