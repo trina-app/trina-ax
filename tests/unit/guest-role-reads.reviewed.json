@@ -176,8 +176,8 @@
  },
  {
   "file": "onboarding/member-welcome.ts",
-  "sql": "SELECT 1 FROM users WHERE id = ? AND role = 'owner' AND deleted_at IS NULL",
-  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+  "sql": "SELECT role, guest, status, deleted_at, created_at FROM users WHERE id = ?",
+  "reason": "ensureOwnCard reads guest next to role and returns for any guest (u.guest) before it looks at the role, so a guest never gets a late card"
  },
  {
   "file": "onboarding/my-setup.ts",

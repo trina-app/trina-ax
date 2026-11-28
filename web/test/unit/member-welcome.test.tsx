@@ -7,7 +7,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import type { MemberWelcome } from '@mycel/shared/api'
+import type { MemberWelcome, WelcomeProgress } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import Home from '../../src/pages/Home'
 import { joinTitle } from '../../src/pages/Auth'
@@ -18,6 +18,9 @@ import { useAiAccess } from '../../src/store/aiAccess'
 import { useChats } from '../../src/store/chats'
 import { useMemberWelcome } from '../../src/store/memberWelcome'
 import { useSession } from '../../src/store/session'
+import { useWelcome } from '../../src/store/welcome'
+import { useUi } from '../../src/store/ui'
+import { forgetStepsSeen, markStepsSeen } from '../../src/lib/welcome'
 import { OrganizeTeamFiles } from '../../src/components/onboarding/OrganizeTeamFiles'
 import { MySetupShowAgain } from '../../src/components/onboarding/CardHide'
 import { ALL_SET_SHOW_MS } from '../../src/components/onboarding/MemberWelcome'
@@ -41,16 +44,27 @@ const card = (over: Partial<MemberWelcome> = {}): MemberWelcome => ({
 })
 
 let welcome: MemberWelcome | null = card()
+/** what PATCH { show } brings back (the card that was hidden) */
+let shown: MemberWelcome | null = null
 /** the answer's other fields (hidden, organizeFiles) */
 let extra: Record<string, unknown> = {}
 let access: Record<string, unknown> = { usable: true, action: 'ask_owner', requested: false }
 let calls: { key: string; body: any }[] = []
+/** the team setup's progress (GET /api/onboarding/welcome): the owner card's setup row reads it */
+let progress: WelcomeProgress | null = null
+/** started: 회사 소개 done, the rest open */
+const started = (): WelcomeProgress => ({
+  startedAt: '2026-11-25T00:00:00.000Z', updatedAt: '2026-11-25T00:00:00.000Z', teamType: null,
+  steps: { profile: 'done', result: null, skills: null, files: null, tools: null, invite: null }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
+})
+/** made by the setup for the owner and never opened (a server we set up for a customer) */
+const neverOpened = (): WelcomeProgress => ({ ...started(), steps: { profile: null, result: null, skills: null, files: null, tools: null, invite: null } })
 const routes: Record<string, (body: any) => Response> = {
   'GET /api/me/welcome': () => json(200, { welcome, ...extra }),
   'PATCH /api/me/welcome': (b: { hide?: true; show?: true; asked?: true; tools?: true }) => {
     if (b.tools && welcome) welcome = { ...welcome, steps: { ...welcome.steps, tools: true } }
     if (b.hide) { extra = { hidden: true }; welcome = null }
-    if (b.show) { extra = {}; welcome = card() }
+    if (b.show) { extra = {}; welcome = shown ?? card() }
     if (b.asked && welcome) welcome = { ...welcome, steps: { ...welcome.steps, asked: true } }
     return json(200, { welcome })
   },
@@ -67,6 +81,8 @@ const routes: Record<string, (body: any) => Response> = {
   'GET /api/skills/examples': () => json(200, { skills: [{ path: 'skills/quote/SKILL.md', name: 'quote', title: 'Customer quote', summary: 'A quote for a customer', source: { kind: 'team' } }], teamFolder: null, landing: null, ranTeamSkill: false, hasProfile: false }),
   'GET /api/files/tree': () => json(200, { path: '', access: 'read', entries: [], nextCursor: null }),
   'GET /api/me/credentials': () => json(200, { items: [], allowedKinds: ['anthropic-api-key'], anthropicGateway: null }),
+  'GET /api/onboarding/welcome': () => json(200, { progress }),
+  'GET /api/admin/credentials': () => json(200, { items: [], memberOwn: false, sharedSubscriptions: true, allowedKinds: ['anthropic-oauth', 'anthropic-api-key'], pricesAsOf: '2026-11-01', anthropicGateway: null }),
 }
 const called = (key: string) => calls.filter((c) => c.key === key)
 const g = globalThis as Record<string, unknown>
@@ -87,6 +103,11 @@ beforeAll(() => {
 })
 afterEach(() => {
   welcome = card()
+  shown = null
+  progress = null
+  useWelcome.getState().reset()
+  forgetStepsSeen()
+  useUi.setState({ toasts: [] })
   extra = {}
   access = { usable: true, action: 'ask_owner', requested: false }
   calls = []
@@ -105,6 +126,9 @@ afterAll(() => {
 })
 
 const signIn = (prefs: Record<string, unknown> = {}) => useSession.setState({ status: { kind: 'signed-in', me: meOf(prefs) } } as never)
+/** an owner or admin; the steps were on screen in this tab already, so a landing on Home stays on Home */
+const signInAs = (role: 'owner' | 'admin') => { markStepsSeen('mina'); useSession.setState({ status: { kind: 'signed-in', me: { ...meOf(), user: { ...meOf().user, role } } } } as never) }
+const order = (m: Awaited<ReturnType<typeof mount>>) => [...m.get('member-welcome-rows').children].map((li) => li.getAttribute('data-testid'))
 function Where() { const l = useLocation(); return <p data-testid="where">{l.pathname}</p> }
 const home = () => mount(<MemoryRouter><Routes><Route path="/" element={<Home />} /><Route path="*" element={<Where />} /></Routes></MemoryRouter>)
 const text = (m: Awaited<ReturnType<typeof home>>, id: string) => m.get(id).textContent ?? ''
@@ -161,8 +185,8 @@ describe('the card on Home', () => {
     } finally { await m.unmount() }
   })
 
-  test('the owner\'s own card: its own words, three rows (tools, photo, files), no count, no hi or ask', async () => {
-    signIn()
+  test('the owner\'s card once the team setup is over: its own words, tools and ask counted, no hi, no setup row', async () => {
+    signInAs('owner')
     welcome = card({ kind: 'owner', inviter: null })
     const m = await home()
     try {
@@ -170,23 +194,129 @@ describe('the card on Home', () => {
       expect(m.get('member-welcome').getAttribute('data-kind')).toBe('owner')
       expect(text(m, 'member-welcome-title')).toBe('Your turn now, Mina')
       expect(text(m, 'member-welcome-line')).toBe('The team is set up. These are just for you.')
-      expect(text(m, 'member-welcome-progress')).toBe('Only you see this')
-      expect([...m.get('member-welcome-rows').children].map((li) => li.getAttribute('data-testid'))).toEqual(['member-welcome-tools', 'member-welcome-photo'])
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 0 of 2 required')
+      expect(order(m)).toEqual(['member-welcome-tools', 'member-welcome-ask', 'member-welcome-photo'])
+      expect(m.find('member-welcome-setup')).toBeNull()
       expect(m.find('member-welcome-rooms')).toBeNull()
-      // the one thing at the top: no goal card under it
+      // the one thing at the top: no goal card, no standalone setup row under it
+      await new Promise((r) => setTimeout(r, 20))
       expect(m.find('team-goal')).toBeNull()
+      expect(m.find('welcome-resume')).toBeNull()
     } finally { await m.unmount() }
   })
 
-  test('the owner\'s card waits while no AI answers the owner: the no-AI line comes first', async () => {
-    signIn()
-    welcome = card({ kind: 'owner', inviter: null })
+  test('the owner\'s card while the team setup is open: "Let\'s get you started", the setup row first ("Continue team setup · 2/5" to /welcome), one card on Home', async () => {
+    signInAs('owner')
+    welcome = card({ kind: 'owner', inviter: null, setupOpen: true })
+    progress = started()
+    const m = await home()
+    try {
+      await m.until(() => m.find('member-welcome-setup'), 'the setup row')
+      expect(text(m, 'member-welcome-title')).toBe("Let's get you started, Mina")
+      expect(text(m, 'member-welcome-line')).toBe('These are just for you.')
+      expect(m.get('member-welcome-setup').getAttribute('data-state')).toBe('resume')
+      expect(text(m, 'member-welcome-setup-text')).toBe('Continue team setup · 2/5')
+      expect(m.get('member-welcome-setup-button').getAttribute('href')).toBe('/welcome')
+      expect(text(m, 'member-welcome-setup-button')).toBe('Continue')
+      // the setup row sits over the count, outside the rows
+      expect(m.get('member-welcome-setup').nextSibling).toBe(m.get('member-welcome-progress'))
+      expect(order(m)).toEqual(['member-welcome-tools', 'member-welcome-ask', 'member-welcome-photo'])
+      // one card on Home: the standalone setup row and the goal stay out
+      await new Promise((r) => setTimeout(r, 20))
+      expect(m.find('welcome-resume')).toBeNull()
+      expect(m.find('team-goal')).toBeNull()
+      expect(m.get('home-column').querySelectorAll('[data-testid="member-welcome"]').length).toBe(1)
+      expect(m.find('no-ai-card')).toBeNull()
+    } finally { await m.unmount() }
+  })
+
+  test('a setup nobody opened yet: "Start team setup · 1/5"; both personal rows done while it is open: the card stays, not all set', async () => {
+    signInAs('owner')
+    welcome = card({ kind: 'owner', inviter: null, setupOpen: true, steps: { rooms: true, hi: false, photo: false, asked: true, tools: true } })
+    progress = neverOpened()
+    const m = await home()
+    try {
+      await m.until(() => m.find('member-welcome-setup'), 'the setup row')
+      expect(m.get('member-welcome-setup').getAttribute('data-state')).toBe('start')
+      expect(text(m, 'member-welcome-setup-text')).toBe('Start team setup · 1/5')
+      expect(text(m, 'member-welcome-setup-button')).toBe('Start')
+      expect(text(m, 'member-welcome-progress')).toBe('Your setup is done · the team setup is left')
+      expect(m.get('member-welcome').getAttribute('data-state')).toBe('open')
+    } finally { await m.unmount() }
+  })
+
+  test('a phone with only 내 스킬 left, put off for a computer: the setup row says so, no button', async () => {
+    signInAs('owner')
+    phoneWidth()
+    welcome = card({ kind: 'owner', inviter: null, setupOpen: true })
+    progress = { ...started(), skillsLater: true, steps: { profile: 'done', result: null, skills: 'skipped', files: 'done', tools: 'skipped', invite: 'done' } } as WelcomeProgress
+    const m = await home()
+    try {
+      await m.until(() => m.find('member-welcome-setup'), 'the setup row')
+      expect(m.get('member-welcome-setup').getAttribute('data-state')).toBe('computer')
+      expect(text(m, 'member-welcome-setup')).toBe('Continue the team setup on your computer')
+      expect(m.find('member-welcome-setup-button')).toBeNull()
+    } finally { await m.unmount() }
+  })
+
+  test('no AI and the owner can connect it: the card shows, the AI row first in the team\'s words with Home\'s button; no setup row, no no-AI line', async () => {
+    signInAs('owner')
+    welcome = card({ kind: 'owner', inviter: null, setupOpen: true })
+    progress = neverOpened()
     access = { usable: false, action: 'connect_team', requested: false }
     const m = await home()
     try {
-      await m.until(() => m.find('no-ai-card'), 'the no-AI line')
-      expect(m.find('member-welcome')).toBeNull()
+      await m.until(() => m.find('welcome-ai-claude'), 'the AI row\'s button')
+      expect(order(m)).toEqual(['member-welcome-ask', 'member-welcome-tools', 'member-welcome-photo'])
+      expect(text(m, 'member-welcome-ask')).toContain('Connect an AI so Trina can help you right away')
+      expect(text(m, 'welcome-ai-claude')).toBe('Connect Claude')
+      expect(m.find('member-welcome-setup')).toBeNull()
+      expect(m.find('no-ai-card')).toBeNull()
     } finally { await m.unmount() }
+  })
+
+  test('no AI, an admin: the AI row first too (a member\'s "Tell {owner}" stays in its place)', async () => {
+    signInAs('admin')
+    access = { usable: false, action: 'connect_team', requested: false }
+    const m = await home()
+    try {
+      await m.until(() => m.find('welcome-ai-claude'), 'the AI row\'s button')
+      expect(order(m)).toEqual(['member-welcome-ask', 'member-welcome-tools', 'member-welcome-hi', 'member-welcome-photo'])
+    } finally { await m.unmount() }
+  })
+
+  test('Hide: an undo toast; Undo brings the card back', async () => {
+    signIn()
+    shown = card()
+    const m = await home()
+    try {
+      await m.until(() => m.find('member-welcome'), 'the card')
+      await act(async () => { m.get('member-welcome-hide').click() })
+      await m.until(() => !m.find('member-welcome') && useUi.getState().toasts.length > 0, 'hidden, with a toast')
+      const t = useUi.getState().toasts.at(-1)!
+      expect(t.text).toBe(en('homeCards.hiddenMySetup'))
+      expect(t.action?.label).toBe(en('common.undo'))
+      expect(called('PATCH /api/me/welcome').at(-1)?.body).toEqual({ hide: true })
+      await act(async () => { t.action!.run() })
+      await m.until(() => m.find('member-welcome'), 'the card back')
+      expect(called('PATCH /api/me/welcome').at(-1)?.body).toEqual({ show: true })
+    } finally { await m.unmount() }
+  })
+
+  test('Hide the server refused: no "hidden" toast, the card comes back from a fresh read', async () => {
+    signIn()
+    const patch = routes['PATCH /api/me/welcome']!
+    routes['PATCH /api/me/welcome'] = () => json(500, { error: { code: 'internal', message: 'x' } })
+    const m = await home()
+    try {
+      await m.until(() => m.find('member-welcome'), 'the card')
+      const before = useUi.getState().toasts.length
+      await act(async () => { m.get('member-welcome-hide').click() })
+      await m.until(() => called('PATCH /api/me/welcome').length > 0 || null, 'tried')
+      await m.until(() => m.find('member-welcome'), 'the card back')
+      expect(useUi.getState().toasts.filter((x) => x.text === en('homeCards.hiddenMySetup'))).toHaveLength(0)
+      expect(useUi.getState().toasts.length).toBe(before)
+    } finally { routes['PATCH /api/me/welcome'] = patch; await m.unmount() }
   })
 
   test('no inviter ("Add directly"): the line without "invited you"', async () => {

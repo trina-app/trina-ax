@@ -231,14 +231,25 @@ export function NoAiCard() {
 /** The owner's and an admin's line: the first of the team's ways as the one button, the rest under "다른 방법". */
 function ConnectTeamLine({ className }: { className: string }) {
   const t = useT()
-  const { ways, shown, setOpen, checking, error, dialog } = useTeamWays()
-  const [first, ...rest] = shown
   return (
     <section aria-labelledby="no-ai-line" className={className} data-testid="no-ai-card" data-action="connect_team">
       <p id="no-ai-line" className="text-sm leading-6 text-pretty text-muted max-md:basis-full" data-testid="no-ai-line">{t('home.noAi.connect')}</p>
-      {!ways && !error && <span aria-hidden className="h-9 w-32 animate-pulse rounded-lg bg-subtle" />}
+      <TeamWaysButtons />
+    </section>
+  )
+}
+
+/** The team's ways as Home's no-AI line has them ("Claude 연결하기" first, the rest under "다른 방법"), each opening its
+ * dialog: the line, and the My setup card's AI row (MemberWelcome.tsx). `small`: a card row's button (44 px on a phone). */
+export function TeamWaysButtons({ small }: { small?: boolean }) {
+  const t = useT()
+  const { ways, shown, setOpen, checking, error, dialog } = useTeamWays()
+  const [first, ...rest] = shown
+  return (
+    <>
+      {!ways && !error && <span aria-hidden className={clsx('w-32 animate-pulse rounded-lg bg-subtle', small ? 'h-8' : 'h-9')} />}
       {first && (
-        <Button variant="primary" busy={checking === first.id} disabled={checking !== null} onClick={() => setOpen(first)} data-testid={`welcome-ai-${first.id}`}>
+        <Button variant="primary" size={small ? 'sm' : undefined} className={small ? 'max-md:min-h-11' : undefined} busy={checking === first.id} disabled={checking !== null} onClick={() => setOpen(first)} data-testid={`welcome-ai-${first.id}`}>
           {first.id === 'claude' ? t('home.noAi.claude') : t(first.label)}
         </Button>
       )}
@@ -249,6 +260,6 @@ function ConnectTeamLine({ className }: { className: string }) {
       )}
       {error && <div className="basis-full text-left"><ErrorNote>{error}</ErrorNote></div>}
       {dialog}
-    </section>
+    </>
   )
 }

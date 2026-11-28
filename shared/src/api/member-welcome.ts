@@ -5,7 +5,9 @@
 // while they joined in the last MEMBER_WELCOME_DAYS days and have not finished or hidden it: who invited them, how many
 // people are here, and four rows (the rooms they are in, say hi, a photo, ask Trina what they can do here). The team's
 // creator gets it once the team setup reaches its end screen ("My setup", docs/decisions/20261120-my-setup-card.md:
-// kind 'owner', its 14 days from then); people who joined before it existed never get it. Progress and Hide are stored
+// kind 'owner', its 14 days from then); a new owner or admin who never had a connection of their own gets it on their
+// first read, while the team setup is still open too (docs/decisions/20261128-owner-personal-onboarding.md); people
+// who joined before it existed never get it. Progress and Hide are stored
 // per person on the server, so they follow the person across devices. Only the caller's own card: there is no way to
 // read or change anyone else's.
 import { z } from 'zod'
@@ -22,8 +24,9 @@ export const WelcomeRoom = z.object({ id: Uuid7, kind: z.enum(['all', 'team']), 
 export type WelcomeRoom = z.infer<typeof WelcomeRoom>
 
 export const MemberWelcome = z.object({
-  /** 'owner': the team's creator after the team setup (rows: tools, photo, files; only tools counts); 'member' (absent
-   * from older servers): someone who joined (tools, hi and asked count) */
+  /** 'owner': the team's owner (rows: the team setup's way back while it is open, tools, asked, photo, files; tools and
+   * asked count; older servers: tools, photo, files, only tools counts); 'member' (absent from older servers): someone
+   * who joined, or an admin (tools, hi and asked count) */
   kind: z.enum(['member', 'owner']).optional(),
   team: z.string(),
   /** who invited them (the link's or the invite's maker); null: "Add directly", or that account is gone */
@@ -44,6 +47,9 @@ export const MemberWelcome = z.object({
   /** a demo (the scripted demo build, web/demo/server.ts; a free-roam instance): no "Connect your tools" and no
    * "Open the desktop app" / files row (neither can be done there), and tools is not counted (sent done) */
   demo: z.literal(true).optional(),
+  /** the caller is the owner and the team setup is open (started, neither finished nor hidden): the owner card leads
+   * with its way back, and is not all set until it ends. Absent: not open, someone else, or an older server */
+  setupOpen: z.literal(true).optional(),
   /** every counted row is done: the card says "You're all set" (for a few minutes, then it is gone for good) */
   allSet: z.boolean(),
 })
@@ -67,7 +73,7 @@ export const MemberWelcomeUpdate = z.strictObject({ hide: z.literal(true).option
 
 export const MEMBER_WELCOME = {
   getMemberWelcome: endpoint({ method: 'GET', path: '/api/me/welcome', auth: 'user', owner: 'B', response: MemberWelcomeResponse,
-    summary: 'My setup card on Home (invited people, and the owner after the team setup) while it still shows (14 days, not hidden, not finished); else null.' }),
+    summary: 'My setup card on Home (invited people, and new owners and admins) while it still shows (14 days, not hidden, not finished); else null.' }),
   updateMemberWelcome: endpoint({ method: 'PATCH', path: '/api/me/welcome', auth: 'user', owner: 'B', body: MemberWelcomeUpdate, response: MemberWelcomeResponse,
     summary: 'Hide my setup card or show it again, or record that I asked Trina what I can do here or that the team connected every tool it offers me. Mine only.' }),
 } as const

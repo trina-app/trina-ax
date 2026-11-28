@@ -197,3 +197,18 @@ test('a row from before this change (no openedAt) behaves as opened: an upload r
   expect((await c.call('POST', '/api/onboarding/files/landed', { path: newSharedFile('d.md') })).recorded).toBe(true)
   expect((await c.call('GET', '/api/onboarding/welcome')).progress.steps.files).toBe('done')
 })
+
+test('a setup row nobody opened (a server we set up for a customer): the owner\'s first read is the owner card, setupOpen true, and it opens nothing', async () => {
+  h = await harness('b-welcome-at-setup-late-card')
+  const c = await setupWith()
+  expect(welcomeOpened(h.ctx)).toBe(false)
+  const w = (await c.call('GET', '/api/me/welcome')).welcome
+  expect(w).toMatchObject({ kind: 'owner', setupOpen: true, allSet: false })
+  // reading the card is not a move in the steps
+  expect(welcomeOpened(h.ctx)).toBe(false)
+  // a server made without the steps (account create-owner): the card, with no setup to continue
+  h.ctx.db.query("DELETE FROM settings WHERE key = ?").run(WELCOME_SETTING)
+  const again = (await c.call('GET', '/api/me/welcome')).welcome
+  expect(again).toMatchObject({ kind: 'owner' })
+  expect(again.setupOpen).toBeUndefined()
+})
