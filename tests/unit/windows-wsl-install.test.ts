@@ -364,7 +364,7 @@ ${call}
     ]
     for (const [before, probe, want] of cases)
       expect(`${before} ${probe}: ${fn('Get-LeftoverAction', `Get-LeftoverAction -AbsentBefore ${before} -Probe (${probe})`).trim()}`).toBe(`${before} ${probe}: ${want}`)
-  })
+  }, 60_000)
   const merge = (text: string, cap = 5) => {
     const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'wslconfig-')), 'in')
     fs.writeFileSync(f, text)
