@@ -204,6 +204,7 @@ put_file "$FILES/20auto-upgrades" /etc/apt/apt.conf.d/20auto-upgrades 0644
 put_file "$FILES/52unattended-upgrades-ax" /etc/apt/apt.conf.d/52unattended-upgrades-ax 0644
 put_file "$FILES/needrestart-ax.conf" /etc/needrestart/conf.d/ax.conf 0644
 put_file "$FILES/90-axdata-resize.rules" /etc/udev/rules.d/90-axdata-resize.rules 0644
+put_file "$FILES/99-axdata-mount.rules" /etc/udev/rules.d/99-axdata-mount.rules 0644
 put_file "$FILES/axdata-resize" /usr/local/sbin/axdata-resize 0755
 put_file "$FILES/var-lib-mycel.mount" /etc/systemd/system/var-lib-mycel.mount 0644
 put_file "$FILES/mycel-enroll.service" /etc/systemd/system/mycel-enroll.service 0644

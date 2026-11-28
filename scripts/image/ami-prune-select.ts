@@ -32,6 +32,8 @@ export interface PruneInput {
   minAgeDays: number
   protectTemplates: string[]
   now: Date
+  /** the ids that can be decided (default: AMI ids). The Lightsail images (lightsail-feed.ts) are snapshot names */
+  idRe?: RegExp
 }
 export interface PruneDecision { id: string; template: string; release: string; action: 'keep' | 'remove'; reasons: string[]; snapshots: string[] }
 
@@ -83,7 +85,7 @@ export function selectPrune(p: PruneInput): PruneDecision[] {
       const snapshots = (img.snaps ?? []).filter((s): s is string => !!s && /^snap-[0-9a-f]+$/.test(s))
       return { id: img.id, template, release, action: reasons.length ? 'keep' : 'remove', reasons, snapshots } satisfies PruneDecision
     })
-    .filter((d) => /^ami-[0-9a-f]+$/.test(d.id))
+    .filter((d) => (p.idRe ?? /^ami-[0-9a-f]+$/).test(d.id))
     .sort((a, b) => (isSemver(a.release) && isSemver(b.release) ? Bun.semver.order(b.release, a.release) : 0) || a.template.localeCompare(b.template))
 }
 
