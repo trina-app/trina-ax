@@ -22,8 +22,8 @@ a team that has one.
 2. Sign in to Windows with the account that will keep the server, an administrator account.
 3. [Run the setup script](#run-the-setup-script). The first time, Windows restarts once and the script goes on by itself.
 4. Open the setup page on this PC, create the owner and the team ([First run](#first-run)).
-5. Give the server an https address so colleagues' computers and phones can reach it: the Trina relay (a claim code
-   from us) or a tunnel of your own ([Reach it from other computers](#reach-it-from-other-computers-and-phones)).
+5. Only this PC uses it? You are done. For colleagues' computers and phones, give the server an https address on a
+   domain of your own, for example with a Cloudflare Tunnel ([Reach it from other computers](#reach-it-from-other-computers-and-phones)).
 
 ## Requirements
 
@@ -110,13 +110,13 @@ Create the owner, the team name and the language; check the team's time zone. Th
 ## Reach it from other computers and phones
 
 The server answers only on this PC (`127.0.0.1`). Colleagues and the phone apps need an **https address** (a web
-address that starts with `https://`, with a certificate phones trust), as with any self-hosted server. Two ways:
+address that starts with `https://`, with a certificate phones trust) on a domain of your own, as with any
+self-hosted software. Using it only on this PC needs none of this.
 
-- **The Trina relay** (the simplest): an address like `yourteam.trina.app`. The server connects out to the relay, so
-  nothing on the PC or the office router is opened. Ask for a claim code at contact@trina.app, then enter the team name
-  and the code in **Admin › System › Change connection** (connection type **Trina AX relay**).
-- **Your own address**: a tunnel or reverse proxy that reaches `127.0.0.1:47820`. Set it up as in the Linux guide's
-  [First run](INSTALL-LINUX.en.md#first-run) (step 3), and register its host name from inside Linux:
+The simplest way is a free Cloudflare Tunnel: step by step, in plain words, in
+[Connect your own domain with Cloudflare Tunnel](site/operate/windows-pc.md#connect-your-own-domain-with-cloudflare-tunnel).
+Any other tunnel or reverse proxy that reaches `127.0.0.1:47820` works too (see the Linux guide's
+[First run](INSTALL-LINUX.en.md#first-run), step 3). Either way, register the host name from inside Linux:
 
 ```powershell
 wsl -d TrinaAX --cd / -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh repair --public-host team.example.com"
@@ -151,7 +151,7 @@ first.
 |---|---|
 | Browser on this PC | `http://127.0.0.1:47820`: Windows forwards it to the server inside WSL |
 | Desktop app on this PC | Paste `http://127.0.0.1:47820` on the app's first screen (it takes `http://` for this PC's own address only). An invite link or **Open in the app** does not carry a `127.0.0.1` address: paste it |
-| Colleagues' computers, phone apps | Need the https address ([above](#reach-it-from-other-computers-and-phones)): the official relay (outbound only, works from WSL) or a tunnel to `127.0.0.1:47820`. The phone apps need https with a public certificate |
+| Colleagues' computers, phone apps | Need the https address ([above](#reach-it-from-other-computers-and-phones)): your own domain through a tunnel to `127.0.0.1:47820`. The phone apps need https with a public certificate |
 | Sign-in to Canva, Intercom, Square (and Microsoft from the desktop app) | On this PC at `http://127.0.0.1:47820` the browser signs in by itself: the return to `127.0.0.1` reaches the server (Windows QA 2026-11-28). On the https address, from any computer, the web says to use the desktop app, as on Linux: the app catches the return on `127.0.0.1` of the PC where the browser is |
 | Other MCP connectors' sign-in | The browser returns to the server's own address; on this PC through `127.0.0.1`, for others through the https address. Connectors that want client metadata (CIMD) need the https address |
 | Google Drive, Sign in with Google, Slack | Need the https address (Google and Slack accept only `https://` return addresses), as on Linux |

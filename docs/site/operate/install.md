@@ -11,7 +11,7 @@ There are five ways to run Trina AX. Pick the one that fits who will look after 
 | **Who runs it** | Trina, in AWS Seoul, Virginia or Singapore | Your IT | The person whose Windows account keeps it | Your office operator | You |
 | **AI** | Your authorized Claude or OpenAI connection | Same | Same | Claude (no Codex) | Off |
 | **OS isolation** | Yes | Yes | Yes, in Linux inside Windows (WSL2); runs while that account is signed in | Runs as the signed-in user | No |
-| **Reach from outside the office** | Yes | Your network setup | The Trina relay or a tunnel | Optional: a Tailscale address (devices on your tailnet, no certificate to install) or a Cloudflare Tunnel address | No |
+| **Reach from outside the office** | Yes | Your network setup | Your own domain with a tunnel ([steps](windows-pc.md#connect-your-own-domain-with-cloudflare-tunnel)) | Optional: a Tailscale address (devices on your tailnet, no certificate to install) or a Cloudflare Tunnel address | No |
 
 ## Get started
 

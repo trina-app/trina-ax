@@ -39,18 +39,50 @@ Answer its questions (Enter means yes) and leave the window open. The first time
 #### Create your team
 At the end the script offers to open the setup page on this PC and copies a one-time setup code for you. Paste the code into the page, then create your owner account and your team, and pick its language.
 
-#### Give the team an address
-Right now only this PC can open Trina AX (at `http://127.0.0.1:47820`). Colleagues' computers and the phone apps need a secure web address that starts with `https://`. Two ways:
+#### Use it on this PC, or give it your own address
+**Only on this PC?** You are done: open `http://127.0.0.1:47820` in the browser or the desktop app on this PC. Nothing else to set up.
 
-- **The Trina relay** gives you an address like `yourteam.trina.app`. Ask us for a claim code at contact@trina.app, then pick **Trina AX relay** in **Admin › System › Change connection** and enter your team name and the code. Nothing on the PC or the office router needs to be opened.
-- **Your own address**, through a tunnel or a web server you already run. This needs someone technical; the [full guide](../../INSTALL-WINDOWS.md#reach-it-from-other-computers-and-phones) has the details.
-
-Then invite your team from the app.
+**For colleagues' computers and the phone apps**, the server needs a secure web address of your own that starts with `https://`, such as `https://team.yourcompany.com`, the way other self-hosted software does. The simplest way is a free Cloudflare Tunnel to a domain you own: follow [Connect your own domain with Cloudflare Tunnel](#connect-your-own-domain-with-cloudflare-tunnel) below. Then invite your team from the app.
 :::
 
 :::tip
 The script is a plain text file. To see what it would change without changing anything, run it with `-WhatIf` at the end of the last line. Running it again is safe: finished steps are skipped.
 :::
+
+## Connect your own domain with Cloudflare Tunnel
+
+A tunnel lets people reach the server at `https://team.yourcompany.com` without opening anything on the PC or the office router: a small Cloudflare program on the PC connects out to Cloudflare, and Cloudflare gives the address a certificate that computers and phones trust. You need a domain (for example `yourcompany.com`) and a free Cloudflare account.
+
+:::steps
+#### Put your domain on Cloudflare
+Sign up at [cloudflare.com](https://www.cloudflare.com) and add your domain (the free plan is enough). Cloudflare tells you which two name servers to set where you bought the domain. Wait until Cloudflare shows the domain as active; this can take a few hours.
+
+#### Create the tunnel
+In the Cloudflare dashboard, open **Networking › Tunnels** and choose **Create a tunnel**. Give it a name such as `trina-office` and create it. On the next screen Cloudflare shows install commands for each system. You need only the long token in them: the text after `service install`. Copy it.
+
+#### Install the Cloudflare program next to the server
+On the PC, open **Windows PowerShell as administrator** again and paste this line, with your token in place of `YOUR_TOKEN`:
+
+```powershell
+wsl -d TrinaAX --cd / -u root -- bash -c "curl -fsSL -o /tmp/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb && dpkg -i /tmp/cloudflared.deb && cloudflared service install YOUR_TOKEN"
+```
+
+It installs Cloudflare's program inside the server's Linux, where it starts with the server. (On a PC with an ARM processor, write `arm64` instead of `amd64`.) Back in the dashboard the tunnel turns **Healthy**; choose **Continue**.
+
+#### Point your address at the server
+On the tunnel's **Routes** tab choose **Add route › Published application**. Type a subdomain (for example `team`), pick your domain, and in **Service URL** enter `http://127.0.0.1:47820`. Choose **Add route**.
+
+#### Tell Trina AX its address
+In the same PowerShell window, with your address in place of `team.yourcompany.com`:
+
+```powershell
+wsl -d TrinaAX --cd / -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh repair --public-host team.yourcompany.com"
+```
+
+Open `https://team.yourcompany.com` on another computer or a phone and sign in. Your team uses this address in the browser and the apps; the invite links use it too.
+:::
+
+The address works only while the PC is on and signed in, like the server itself. Cloudflare's own guide: [Create a tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/get-started/create-remote-tunnel/).
 
 ## Keep it running
 
