@@ -367,6 +367,10 @@ export class MockServer {
   chromeLinks = new Map<string, import('@mycel/shared/api').ChromeLink[]>()
   chromeTargets = new Map<string, 'app' | 'chrome'>()
   chromeCodes: { userId: string; challenge: string; code: string }[] = []
+  /** the questions a person's own MCP apps wait on in their browser profile (/browser-ask/<id>; POST /__test/browser-ask
+   * seeds one), and the connections whose browser work was resumed */
+  browserAsks = new Map<string, { userId: string; view: import('@mycel/shared/api').BrowserAskView; decision: string | null }>()
+  browserResumed: string[] = []
   /** the team lets members turn it on: both team keys, like the server */
   webTeam() { return this.settings.browserAllowAll && this.settings.webAllowAll }
   passwords = new Map<string, string>()
@@ -708,6 +712,8 @@ export class MockServer {
     this.chromeLinks = new Map()
     this.chromeTargets = new Map()
     this.chromeCodes = []
+    this.browserAsks = new Map()
+    this.browserResumed = []
     this.fileList = mockFileList()
     this.presence = new Map()
     this.presenceSent = []
@@ -3043,6 +3049,22 @@ export class MockServer {
     },
     chromeTarget: (c) => {
       this.chromeTargets.set(c.user.id, c.body.target)
+      return undefined
+    },
+    // like server/src/routes/chrome.ts: only the person it is for, while open; another's, answered or expired: 404
+    browserAsk: (c) => {
+      const a = this.browserAsks.get(c.params.id)
+      if (!a || a.userId !== c.user.id || a.decision || Date.parse(a.view.expiresAt) < Date.now()) fail('not_found', 404, 'Not found')
+      return a!.view
+    },
+    browserAskDecide: (c) => {
+      const a = this.browserAsks.get(c.params.id)
+      if (!a || a.userId !== c.user.id || a.decision || Date.parse(a.view.expiresAt) < Date.now()) fail('not_found', 404, 'Not found')
+      a!.decision = c.body.decision
+      return undefined
+    },
+    resumeRemoteConnectorBrowser: (c) => {
+      this.browserResumed.push(c.params.id)
       return undefined
     },
     chromePair: (c) => {
@@ -6561,6 +6583,19 @@ export class MockServer {
       for (const u of this.users.filter((x) => body.username === undefined || x.username === body.username)) {
         this.chromeLinks.set(u.id, links.map((l, i) => ({ id: `chrome-${u.id}-${i}`, label: l.label, email: l.email ?? null, browser: l.browser ?? null, createdAt: now(), lastSeenAt: l.lastSeenAt ?? null, online: l.online === true, version: '0.1.0', sites: l.sites ?? [], onlyListed: l.onlyListed === true })))
         if (body.target === 'app' || body.target === 'chrome') this.chromeTargets.set(u.id, body.target)
+      }
+    } else if (p === '/__test/browser-ask') {
+      // {username?, id?, kind?, always?, url?, profile?, client?}: an open question for that person (else the first user)
+      const u = this.users.find((x) => body.username === undefined ? true : x.username === body.username)
+      if (u) {
+        const id = typeof body.id === 'string' ? body.id : uuidv7()
+        const url = typeof body.url === 'string' ? body.url : 'https://example.com/'
+        const kind = body.kind === 'address' || body.kind === 'office' ? body.kind : 'site'
+        this.browserAsks.set(id, { userId: u.id, decision: null, view: {
+          id, client: { name: typeof body.client === 'string' ? body.client : 'Claude Code', connectedAt: now(), connectionId: 'conn-1' },
+          profile: typeof body.profile === 'string' ? body.profile : 'Work', host: new URL(url).hostname, url, kind,
+          always: body.always !== false, site: kind === 'site' ? new URL(url).hostname : null, expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+        } })
       }
     } else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
     else if (p === '/__test/file-list') this.fileList = { ...this.fileList, ...(body as Partial<FileListStatus>) }

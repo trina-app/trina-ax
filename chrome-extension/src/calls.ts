@@ -29,6 +29,8 @@ const kept = new Map<string, { result: BrowserResult; at: number; bytes: number 
 let keptBytes = 0
 /** runs the person stopped: their calls are refused until `until`, with that sentence */
 const stoppedRuns = new Map<string, { until: number; why: string }>()
+/** calls the person stopped (not a deadline or the turn's own stop): their result says stopped, so an MCP app pauses */
+const stoppedCalls = new Set<string>()
 
 export function runningCalls(): CallCtx[] {
   return [...running.values()]
@@ -56,7 +58,7 @@ export function stopRun(runId: string, why = STOPPED): void {
   live.stoppedAt = Date.now()
   stoppedRuns.set(runId, { until: Date.now() + STOP_HOLD_MS, why })
   while (stoppedRuns.size > 200) stoppedRuns.delete(stoppedRuns.keys().next().value!)
-  for (const c of running.values()) if (c.run.id === runId) cancel(c, why)
+  for (const c of running.values()) if (c.run.id === runId) { stoppedCalls.add(c.callId); cancel(c, why) }
 }
 
 /** Chrome's debugging bar was closed: every run of this profile stops (the bar is the browser's, not one task's). */
@@ -103,7 +105,7 @@ async function runOnce(call: BrowserCall): Promise<BrowserResult> {
   if (!call.run) return errorResult(call.callId, 'This browser call names no run (no run); nothing was done. The team server is older than this extension.')
   const runId = call.run.id
   const stopped = stoppedRuns.get(runId)
-  if (stopped && stopped.until > Date.now()) return errorResult(call.callId, stopped.why)
+  if (stopped && stopped.until > Date.now()) return { ...errorResult(call.callId, stopped.why), stopped: true }
   if (stopped) stoppedRuns.delete(runId)
   const remaining = call.deadline - (Date.now() + live.clockOffset)
   if (remaining <= 0) return errorResult(call.callId, 'The browser call arrived after its deadline; nothing was done.')
@@ -126,12 +128,14 @@ async function runOnce(call: BrowserCall): Promise<BrowserResult> {
     const out = await Promise.race([runTool(ctx, parsed.call), aborted])
     // what happened between calls (a page the guard stopped, a file picker it closed) goes to the AI now
     const said = [...ctx.notes, ...takeNotices(ctx.tabs)]
-    return toResult(call.callId, said.length ? { ...out, content: [{ type: 'text', text: said.join('\n') }, ...out.content] } : out)
+    const r = toResult(call.callId, said.length ? { ...out, content: [{ type: 'text', text: said.join('\n') }, ...out.content] } : out)
+    return stoppedCalls.has(call.callId) ? { ...r, ok: false, stopped: true } : r
   } catch (e) {
     return errorResult(call.callId, `Error: ${String((e as Error)?.message ?? e).split('\n')[0]}`)
   } finally {
     clearTimeout(deadline)
     running.delete(call.callId)
+    stoppedCalls.delete(call.callId)
     changed()
   }
 }

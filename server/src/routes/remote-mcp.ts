@@ -27,8 +27,9 @@ export const remoteMcpRoutes: RouteModule = {
     const oauth = () => remoteOAuthOf(ctx)
     const ip = (c: Context) => (c as unknown as AppContextC).get('info').ip
     kit.handle(REMOTE_MCP.getRemoteConnectorConsent, ({ auth, params }) => browser(() => oauth().consent(params.id, auth)))
-    kit.handle(REMOTE_MCP.decideRemoteConnectorConsent, ({ auth, params, body }) => browser(() => oauth().decide(params.id, auth, body.allow, { write: body.write, rooms: body.rooms, roomsWrite: body.roomsWrite })))
+    kit.handle(REMOTE_MCP.decideRemoteConnectorConsent, ({ auth, params, body }) => browser(() => oauth().decide(params.id, auth, body.allow, { write: body.write, rooms: body.rooms, roomsWrite: body.roomsWrite, browser: body.browser })))
     kit.handle(REMOTE_MCP.listRemoteConnectors, ({ auth }) => browser(() => oauth().connections(auth)))
+    kit.handle(REMOTE_MCP.resumeRemoteConnectorBrowser, ({ auth, params }) => browser(() => oauth().resumeBrowser(params.id, auth)))
     kit.handle(REMOTE_MCP.revokeRemoteConnector, ({ auth, params }) => browser(() => oauth().disconnect(params.id, auth)))
     const resourceMetadata = (c: Context) => {
       try { oauth().ingress('metadata', ip(c)); return json(oauth().protectedMetadata()) } catch (e) { return oauthError(e) }

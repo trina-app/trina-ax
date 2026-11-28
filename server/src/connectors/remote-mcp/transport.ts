@@ -8,6 +8,8 @@ import { remoteToolsOf } from './tools'
 import { UPLOAD_MAX_BASE64_RAW } from './upload'
 import { connectorInstructions } from './guide'
 import { SESSION_ID } from './scope'
+import { BROWSER_GUIDE, BROWSER_TOOL_NAMES, remoteBrowserOf, type BrowserOut, type Elicit } from './browser'
+import { BROWSER_SCOPE } from './policy'
 
 /** Ordinary /mcp messages stay at 1 MiB. Only an upload_file call (base64 bytes plus a JSON envelope) and a share_skills
  * call (the skills' files) may be larger. */
@@ -72,7 +74,11 @@ export async function mcpRequest(ctx: AppContext, request: Request, ip: string |
     const grant = oauth.authenticate(token) // A streamed body must not outlive its authorization.
     const validId = (v: unknown) => typeof v === 'string' ? v.length <= 128 : typeof v === 'number' && Number.isSafeInteger(v)
     if (!msg || typeof msg !== 'object' || Array.isArray(msg) || msg.jsonrpc !== '2.0' || ('id' in msg && !validId(msg.id))) return json({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid request' } }, 400)
-    if (!('method' in msg) && validId(msg.id) && ('result' in msg || 'error' in msg)) return new Response(null, { status: 202, headers: noStore })
+    if (!('method' in msg) && validId(msg.id) && ('result' in msg || 'error' in msg)) {
+      // a client's answer to one of our requests (an elicitation): only this grant's own, matched by its random id
+      remoteBrowserOf(ctx).answerElicit(grant.id, msg.id)
+      return new Response(null, { status: 202, headers: noStore })
+    }
     if (typeof msg.method !== 'string' || msg.method.length > 100 || (msg.params !== undefined && (!msg.params || typeof msg.params !== 'object' || Array.isArray(msg.params)))) return json({ jsonrpc: '2.0', id: msg.id ?? null, error: { code: -32600, message: 'Invalid request' } }, 400)
     if (size > MCP_BODY_MAX && !(msg.method === 'tools/call' && (msg.params?.name === 'upload_file' || msg.params?.name === 'share_skills') && 'id' in msg)) return json({ error: 'invalid_request' }, 413)
     if (!('id' in msg)) return new Response(null, { status: 202, headers: noStore }) // notifications never execute tools
@@ -80,11 +86,22 @@ export async function mcpRequest(ctx: AppContext, request: Request, ip: string |
     if (session !== null && msg.method !== 'initialize' && !SESSION_ID.test(session)) throw new OAuthError('invalid_request')
     const reply = (value: unknown) => json({ jsonrpc: '2.0', id: msg.id, result: value })
     // a new session each time, whatever the request carried: a new session starts with nothing read
-    if (msg.method === 'initialize') return json({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: PROTOCOLS.includes(msg.params?.protocolVersion) ? msg.params.protocolVersion : PROTOCOLS.at(-1), capabilities: { tools: {} }, serverInfo: { name: 'team-ax', version: ctx.version }, instructions: connectorInstructions(ctx, grant.user_id) } }, 200, { 'mcp-session-id': secret('tax_mcp_s_') })
+    if (msg.method === 'initialize') {
+      const sid = secret('tax_mcp_s_')
+      // what this session's client can do (URL elicitation: the browser's asks, browser.ts)
+      remoteBrowserOf(ctx).noteSession(grant.id, sid, msg.params?.capabilities)
+      const browser = (JSON.parse(grant.scopes) as string[]).includes(BROWSER_SCOPE)
+      return json({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: PROTOCOLS.includes(msg.params?.protocolVersion) ? msg.params.protocolVersion : PROTOCOLS.at(-1), capabilities: { tools: {} }, serverInfo: { name: 'team-ax', version: ctx.version }, instructions: connectorInstructions(ctx, grant.user_id) + (browser ? ' ' + BROWSER_GUIDE : '') } }, 200, { 'mcp-session-id': sid })
+    }
     if (msg.method === 'ping') return reply({})
     if (msg.method === 'tools/list') return reply({ tools: remoteToolsOf(ctx).list(grant) })
     if (msg.method === 'tools/call') {
       if (typeof msg.params?.name !== 'string' || msg.params.name.length > 80) return json({ jsonrpc: '2.0', id: msg.id, error: { code: -32602, message: 'Invalid params' } })
+      if (BROWSER_TOOL_NAMES.has(msg.params.name)) {
+        // a client that opens URL elicitations gets the answer as a stream: the ask's link first, then the result
+        if (remoteBrowserOf(ctx).urlElicitation(grant.id, session)) return browserStream(ctx, grant.id, msg.id, (elicit, signal) => remoteToolsOf(ctx).browser(token, msg.params.name, msg.params.arguments, signal, session, elicit), request.signal)
+        return reply(await remoteToolsOf(ctx).browser(token, msg.params.name, msg.params.arguments, request.signal, session))
+      }
       return reply(await remoteToolsOf(ctx).call(token, msg.params.name, msg.params.arguments, request.signal, session))
     }
     return json({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: 'Method not found' } })
@@ -92,4 +109,46 @@ export async function mcpRequest(ctx: AppContext, request: Request, ip: string |
     if (error instanceof OAuthError && error.status === 401) return json({ error: 'invalid_token' }, 401, { 'www-authenticate': `Bearer resource_metadata="${oauth.enabled()}/.well-known/oauth-protected-resource/mcp", scope="mcp:read"` })
     return oauthError(error)
   }
+}
+
+/** SSE comments this often while a browser call waits for the person (proxies and tunnels end silent streams) */
+export const KEEPALIVE_MS = 15_000
+
+/**
+ * A browser tool call answered as text/event-stream (MCP Streamable HTTP): an `elicitation/create` in URL mode for
+ * each ask (its id random, answered only by this grant: browser.ts answerElicit), keep-alive comments, then
+ * `notifications/elicitation/complete` when the page decided, then the result. The client's answer to an elicitation
+ * only says it showed the link: the person decides on the Trina page.
+ */
+export function browserStream(ctx: AppContext, grantId: string, id: unknown, run: (elicit: Elicit, signal: AbortSignal) => Promise<BrowserOut>, outer: AbortSignal): Response {
+  const enc = new TextEncoder()
+  const abort = new AbortController()
+  outer.addEventListener('abort', () => abort.abort(), { once: true })
+  const body = new ReadableStream<Uint8Array>({
+    start(c) {
+      let open = true
+      const send = (s: string) => { if (!open) return; try { c.enqueue(enc.encode(s)) } catch { open = false } }
+      const message = (m: unknown) => send(`event: message\ndata: ${JSON.stringify(m)}\n\n`)
+      const tick = setInterval(() => send(': keep-alive\n\n'), KEEPALIVE_MS)
+      ;(tick as { unref?: () => void }).unref?.()
+      const forgets: (() => void)[] = []
+      const elicit: Elicit = (url, text) => {
+        const el = remoteBrowserOf(ctx).newElicit(grantId, () => {})
+        forgets.push(el.forget)
+        message({ jsonrpc: '2.0', id: el.id, method: 'elicitation/create', params: { mode: 'url', elicitationId: el.id, url, message: text } })
+        return { complete: () => message({ jsonrpc: '2.0', method: 'notifications/elicitation/complete', params: { elicitationId: el.id } }) }
+      }
+      run(elicit, abort.signal).then(
+        (result) => message({ jsonrpc: '2.0', id, result }),
+        (e) => message({ jsonrpc: '2.0', id, error: { code: -32603, message: e instanceof OAuthError ? e.code : 'Internal error' } }),
+      ).finally(() => {
+        clearInterval(tick)
+        for (const f of forgets) f()
+        open = false
+        try { c.close() } catch { /* the client went */ }
+      })
+    },
+    cancel() { abort.abort() },
+  })
+  return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream', ...noStore, 'x-accel-buffering': 'no' } })
 }

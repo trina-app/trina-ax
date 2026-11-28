@@ -67,6 +67,7 @@ const DECIDED: Record<string, RailItem | null> = {
   'scheduled/:id': 'ai',
   welcome: 'ai',
   'connectors/authorize': 'ai',
+  'browser-ask/:id': 'ai',
   'slack/link': null,
   'slack/signin-return': null,
   'slack/done': null,

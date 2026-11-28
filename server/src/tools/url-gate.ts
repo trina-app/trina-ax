@@ -509,6 +509,23 @@ function plainAddress(site: string | null, marks: readonly string[], userinfo: b
   return !!site && !marks.length && !userinfo && from?.origin !== 'echo'
 }
 
+/**
+ * An address a site allowance covers without a person looking at it, with no conversation to go by (a person's own MCP
+ * app driving their browser, connectors/remote-mcp/browser.ts): a site name, a query of at most
+ * MAX_UNCONFIRMED_QUERY characters, no long random-looking part, no long name before the site, no user name or
+ * password. Anything else is shown to the person in full first (it can carry data out to an allowed site).
+ */
+export function plainBrowserAddress(rawUrl: string): boolean {
+  const url = normUrl(rawUrl)
+  if (!url) return false
+  const parsed = new URL(url)
+  if (parsed.search.slice(1).length > MAX_UNCONFIRMED_QUERY) return false
+  const site = siteOf(url)
+  const longName = longSubdomain(url, site)
+  const opaque = opaqueParts(decodedUrl(url).replace(/^https?:\/\//i, '')).filter((m) => !longName.some((n) => n.includes(m)))
+  return plainAddress(site, [...longName, ...opaque], !!(parsed.username || parsed.password), null)
+}
+
 /** Rule ①d may apply to this call: a chat, the turn's own person (whose switch it is, never another member's), a turn
  * that says so (TurnPerson.allSitesHere: watched, from the person's app; or their own scheduled run) and not a confidential chat. Rooms, shared
  * chats and chats that read rooms are included (the owner's call, 2026-11-11). */
