@@ -1,6 +1,6 @@
 // A connection's browser pause (migration 135, docs/decisions/20261128-mcp-browser-tools.md): the person pressed Stop
 // in their browser on one of the app's tasks, so every browser call of that connection waits until `until` or until
-// Resume in Settings › Trina AX MCP. Per connection, not per session: a client can start a new session at any time.
+// Resume in Settings › <app> MCP. Per connection, not per session: a client can start a new session at any time.
 import type { Database } from 'bun:sqlite'
 
 /** how long a Stop pauses a connection's browser calls */

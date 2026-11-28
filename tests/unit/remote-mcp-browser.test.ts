@@ -7,7 +7,7 @@ import type { BrowserCall } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { remoteOAuthOf, type RemoteOAuth } from '../../server/src/connectors/remote-mcp/oauth'
 import { remoteToolsOf } from '../../server/src/connectors/remote-mcp/tools'
-import { BROWSER_WAIT, remoteBrowserOf, RUNS_PER_CONNECTION } from '../../server/src/connectors/remote-mcp/browser'
+import { BROWSER_WAIT, remoteBrowserOf, RUNS_PER_CONNECTION, SESSIONS_PER_GRANT } from '../../server/src/connectors/remote-mcp/browser'
 import { BrowserAsks, cleanClientName, ASKS_OPEN_MAX } from '../../server/src/chrome/asks'
 import { plainBrowserAddress } from '../../server/src/tools/url-gate'
 import { updateTeamSettings } from '../../server/src/admin/settings'
@@ -30,7 +30,8 @@ const { ext, link, serve, authOf, connect } = mcpBrowserKit(() => h, () => oauth
 const tools = () => remoteToolsOf(h.ctx)
 const call = (token: string, name: string, args: unknown = {}, session: string | null = 'sess-a') => tools().browser(token, name, args, undefined, session)
 const textOf = (r: { content: { type: string; text?: string }[] }) => r.content.filter((c) => c.type === 'text').map((c) => c.text).join('\n')
-const wipe = (user: string) => { h.ctx.db.query('DELETE FROM chrome_links WHERE user_id = ?').run(user); h.ctx.db.query('DELETE FROM remote_mcp_browser_pauses').run() }
+/** a clean start for `user`: no links, no pauses, a fresh minute of the rate limits */
+const wipe = (user: string) => { h.ctx.db.query('DELETE FROM chrome_links WHERE user_id = ?').run(user); h.ctx.db.query('DELETE FROM remote_mcp_browser_pauses').run(); h.ctx.db.query('DELETE FROM remote_mcp_limits').run() }
 
 describe('scope and tools', () => {
   test('B-01/B-03: without mcp:browser no browser tool is listed or callable; B-33: no scripts or network bodies', async () => {
@@ -327,5 +328,78 @@ describe('results', () => {
     let limited = false
     for (let i = 0; i < 125 && !limited; i++) limited = textOf(await call(c.token, 'list_browser_profiles', {}, `rate-${i}`)).includes('Too many browser calls')
     expect(limited).toBe(true)
+  })
+})
+
+describe('security review fixes', () => {
+  test('a fragment or a long readable path is not plain', () => {
+    expect(plainBrowserAddress('https://example.com/docs#intro')).toBe(true)
+    expect(plainBrowserAddress('https://example.com/#' + 'the customer notes say renewal at risk '.repeat(3))).toBe(false)
+    expect(plainBrowserAddress('https://example.com/' + 'words/'.repeat(80))).toBe(false)
+  })
+
+  test('the extension\'s run.stopped pauses the app at once, also before its next result; another person\'s run id does nothing', async () => {
+    wipe('alice')
+    const w = await link('alice', 'Frame')
+    const e = await ext(w.token)
+    const stop = serve(e)
+    try {
+      const c = connect('alice', true)
+      expect((await call(c.token, 'tabs_context', {})).isError).toBeFalsy()
+      const runId = e.calls()[0]!.run!.id
+      const bob = await link('bob', 'Bob frame'), eb = await ext(bob.token)
+      eb.send({ type: 'run.stopped', runId })
+      await Bun.sleep(150)
+      expect(h.ctx.db.query('SELECT COUNT(*) AS n FROM remote_mcp_browser_pauses WHERE grant_id = ?').get(c.grantId)).toEqual({ n: 0 })
+      e.send({ type: 'run.stopped', runId })
+      await Bun.sleep(150)
+      expect(textOf(await call(c.token, 'tabs_context', {}, 'another-session'))).toContain('stopped this app\'s browser work')
+      eb.ws.close()
+    } finally { stop(); e.ws.close() }
+  })
+
+  test('Disconnect drops the app\'s open asks: an old ask link cannot keep an Always afterwards', async () => {
+    wipe('alice')
+    const w = await link('alice', 'Drop')
+    const e = await ext(w.token)
+    const stop = serve(e, () => ({ ok: false, needSite: { host: 'drop.example' } }))
+    try {
+      const c = connect('alice', true)
+      const r = await call(c.token, 'navigate', { url: 'https://drop.example/' })
+      const id = /browser-ask\/([0-9a-f]{32})/.exec(textOf(r))![1]!
+      oauth.disconnect(c.grantId, authOf('alice'))
+      const late = await h.req('alice', `/api/chrome/asks/${id}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ decision: 'always' }) })
+      expect(late.status).toBe(404)
+      expect(h.ctx.db.query('SELECT COUNT(*) AS n FROM chrome_link_sites WHERE link_id = ?').get(w.linkId)).toEqual({ n: 0 })
+    } finally { stop(); e.ws.close() }
+  })
+
+  test('a once for a public site is not an office once', () => {
+    const asks = new BrowserAsks()
+    asks.allowOnce('g', `l\0site\0intra.example.com`)
+    expect(asks.onceHosts('g', 'l', 'site')).toEqual(['intra.example.com'])
+    expect(asks.onceHosts('g', 'l', 'office')).toEqual([])
+  })
+
+  test('two profiles with one name: the app must pass the id', async () => {
+    wipe('alice')
+    const a = await link('alice', 'Person 1'), b = await link('alice', 'Person 1')
+    const ea = await ext(a.token), eb = await ext(b.token)
+    const s1 = serve(ea), s2 = serve(eb)
+    try {
+      const c = connect('alice', true)
+      expect(textOf(await call(c.token, 'tabs_context', { profile: 'Person 1' }))).toContain('Several browser profiles are named "Person 1"')
+      expect((await call(c.token, 'tabs_context', { profile: b.linkId })).isError).toBeFalsy()
+      expect(eb.calls().length).toBe(1); expect(ea.calls().length).toBe(0)
+    } finally { s1(); s2(); ea.ws.close(); eb.ws.close() }
+  })
+
+  test('one app with many session ids keeps at most SESSIONS_PER_GRANT; others are not crowded out', async () => {
+    wipe('alice')
+    const c = connect('alice', true), other = connect('alice', true, 'Codex')
+    for (let i = 0; i < SESSIONS_PER_GRANT + 10; i++) await call(c.token, 'list_browser_profiles', {}, `flood-${i}`)
+    const map = (remoteBrowserOf(h.ctx) as unknown as { sessions: Map<string, Map<string, unknown>> }).sessions
+    expect((map.get(c.grantId)?.size ?? 0) <= SESSIONS_PER_GRANT).toBe(true)
+    expect(textOf(await call(other.token, 'list_browser_profiles', {}, 'fine'))).not.toContain('too many')
   })
 })

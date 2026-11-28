@@ -98,6 +98,9 @@ export const ChromeClientFrame = z.discriminatedUnion('type', [
   z.object({ type: z.literal('label'), label: ChromeLinkLabel }),
   /** the person pressed Disconnect in the extension: the link ends */
   z.object({ type: z.literal('unlink') }),
+  /** the person stopped a run of one of their MCP apps (`mcp:` run ids only, which only a server that knows this frame
+   * sends): that app's connection pauses its browser calls (docs/decisions/20261128-mcp-browser-tools.md) */
+  z.object({ type: z.literal('run.stopped'), runId: z.string().min(1).max(100) }),
 ])
 export type ChromeClientFrame = z.infer<typeof ChromeClientFrame>
 /** close codes: the token is unknown or revoked (the extension forgets it), replaced by a newer connection of the same link */
@@ -108,7 +111,7 @@ export const ChromeWsClose = { revoked: 4401, replaced: 4409, badRequest: 4400 }
 export const BROWSER_ASK_PATH = '/browser-ask'
 export const BrowserAskView = z.object({
   id: z.string(),
-  /** the app as Settings › Trina AX MCP shows it */
+  /** the app as Settings › <app> MCP shows it */
   client: z.object({ name: z.string(), connectedAt: z.string(), connectionId: z.string() }),
   profile: z.string(),
   host: z.string(),

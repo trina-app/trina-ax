@@ -1,10 +1,11 @@
 // What a person's own MCP app (Claude Code, Codex, Claude) needs them to decide in their browser profiles
 // (docs/decisions/20261128-mcp-browser-tools.md): a site nobody allowed in that profile, an address that is not plain,
-// an office-network address. The person decides on one Trina page (/browser-ask/<id>, web/src/pages/BrowserAsk.tsx);
+// an office-network address. The person decides on one <app> page (/browser-ask/<id>, web/src/pages/BrowserAsk.tsx);
 // the app never decides (an MCP client can answer its own elicitation). Asks live in memory for ASK_MS: a restart
 // drops them, and the app's next call asks again. A "once" answer is kept for the connection for ONCE_MS: a plain
 // address covers its host, an address that is not plain only itself.
 import crypto from 'node:crypto'
+import { PRODUCT } from '@mycel/shared'
 
 export const ASK_MS = 10 * 60_000
 export const ONCE_MS = 10 * 60_000
@@ -20,7 +21,7 @@ export interface BrowserAsk {
   id: string
   userId: string
   grantId: string
-  /** the connection as Settings › Trina AX MCP shows it */
+  /** the connection as Settings › <app> MCP shows it */
   client: { name: string; connectedAt: string }
   linkId: string
   profile: string
@@ -36,7 +37,7 @@ export interface BrowserAsk {
 }
 
 /** the key a once-answer is kept under: a plain address its host, any other address itself */
-export const onceKey = (linkId: string, kind: AskKind, host: string, url: string) => `${linkId}\0${kind === 'address' ? 'url\0' + url : 'host\0' + host}`
+export const onceKey = (linkId: string, kind: AskKind, host: string, url: string) => `${linkId}\0${kind === 'address' ? 'url\0' + url : kind + '\0' + host}`
 
 /** a client name as people see it: no control or format characters, one line, at most 30 characters */
 export function cleanClientName(name: string): string {
@@ -77,7 +78,7 @@ export class BrowserAsks {
     if (same) return same
     const open = [...this.asks.values()].filter((a) => a.decision === null)
     if (open.filter((a) => a.grantId === o.grantId).length >= ASKS_OPEN_MAX || open.filter((a) => a.userId === o.userId).length >= ASKS_OPEN_MAX) {
-      return `Not asked: ${ASKS_OPEN_MAX} questions for the user are already waiting in Trina. Wait until the user answers them, then try again.`
+      return `Not asked: ${ASKS_OPEN_MAX} questions for the user are already waiting in ${PRODUCT.displayName}. Wait until the user answers them, then try again.`
     }
     if (this.made.filter((m) => m.grantId === o.grantId).length >= ASKS_HOUR_MAX || this.made.filter((m) => m.userId === o.userId).length >= ASKS_HOUR_MAX) {
       return `Not asked: this app already asked the user ${ASKS_HOUR_MAX} times in the last hour. Stop and tell the user what you need.`
@@ -122,10 +123,10 @@ export class BrowserAsks {
   }
 
   /** the hosts a once-answer opens now for this connection in this profile (what the extension is told it may use) */
-  onceHosts(grantId: string, linkId: string): string[] {
+  onceHosts(grantId: string, linkId: string, kind: 'site' | 'office' = 'site'): string[] {
     const m = this.once.get(grantId)
     if (!m) return []
-    const t = this.now(), pre = `${linkId}\0host\0`
+    const t = this.now(), pre = `${linkId}\0${kind}\0`
     return [...m].filter(([k, until]) => until > t && k.startsWith(pre)).map(([k]) => k.slice(pre.length))
   }
 

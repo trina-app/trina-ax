@@ -28,7 +28,9 @@ export function pickProfile<P extends ChromeProfile>(ps: readonly P[], current: 
   const args = withoutProfile(raw)
   if (asked) {
     const k = asked.toLowerCase()
-    const p = ps.find((x) => x.linkId === asked) ?? ps.find((x) => x.label.toLowerCase() === k) ?? (ps.filter((x) => x.email?.toLowerCase() === k).length === 1 ? ps.find((x) => x.email?.toLowerCase() === k) : undefined)
+    const byName = ps.filter((x) => x.label.toLowerCase() === k)
+    if (!ps.some((x) => x.linkId === asked) && byName.length > 1) return { refused: `Several browser profiles are named "${byName[0]!.label}": pass the id of the one you mean (${byName.map((x) => x.linkId).join(', ')}), or ask the user which account to use.`, why: 'same name' }
+    const p = ps.find((x) => x.linkId === asked) ?? byName[0] ?? (ps.filter((x) => x.email?.toLowerCase() === k).length === 1 ? ps.find((x) => x.email?.toLowerCase() === k) : undefined)
     if (!p) return { refused: `No browser profile named "${asked.slice(0, 80)}". The user's profiles: ${names || 'none'}.`, why: 'unknown' }
     if (!ready(p)) return { refused: `The browser profile "${p.label}" is not open now (its browser is closed or offline). Do not use another profile instead; tell the user to open it, or ask which profile to use.`, why: 'offline' }
     return { profile: p, args }

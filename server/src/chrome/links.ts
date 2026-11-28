@@ -37,6 +37,10 @@ export class ChromeLinks implements WindowTransport {
   mayOpen(ip: string): boolean { return (this.waiting.get(ip) ?? 0) < PREAUTH_PER_IP }
   private windowListeners: ((userId: string, windowId: string, state: 'open' | 'closed') => void)[] = []
   private frameListeners: FrameListener[] = []
+  private stopListeners: ((userId: string, runId: string) => void)[] = []
+
+  /** the person stopped a run in their browser (only MCP apps' runs are reported: remote-mcp/browser.ts) */
+  onRunStopped(l: (userId: string, runId: string) => void) { this.stopListeners.push(l) }
 
   constructor(private ctx: AppContext, private unlinkHook: (userId: string, linkId: string) => void = () => {}) {}
 
@@ -176,6 +180,11 @@ export class ChromeLinks implements WindowTransport {
             audit(this.ctx.db, { actor: me.userId, action: 'chrome.link_update', target: me.linkId, detail: { label: true, via: 'extension' } })
           } catch (e) { this.ctx.log.warn('chrome label failed', { err: e }) }
           this.send(me, { type: 'label', label: parsed.label })
+          return
+        }
+        case 'run.stopped': {
+          if (!this.stillLinked(me)) return
+          for (const l of this.stopListeners) try { l(me.userId, parsed.runId) } catch (e) { this.ctx.log.warn('chrome run stop listener failed', { err: e }) }
           return
         }
         case 'unlink': {

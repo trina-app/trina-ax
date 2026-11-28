@@ -509,6 +509,9 @@ function plainAddress(site: string | null, marks: readonly string[], userinfo: b
   return !!site && !marks.length && !userinfo && from?.origin !== 'echo'
 }
 
+/** a fragment (#…) longer than this, or a path longer than this, is not plain (plainBrowserAddress) */
+const MAX_FRAGMENT_PLAIN = 40, MAX_PLAIN_PATH = 400
+
 /**
  * An address a site allowance covers without a person looking at it, with no conversation to go by (a person's own MCP
  * app driving their browser, connectors/remote-mcp/browser.ts): a site name, a query of at most
@@ -520,6 +523,12 @@ export function plainBrowserAddress(rawUrl: string): boolean {
   if (!url) return false
   const parsed = new URL(url)
   if (parsed.search.slice(1).length > MAX_UNCONFIRMED_QUERY) return false
+  // the fragment never reaches the site's server, but its page reads it: the same limits as a query (normUrl drops it)
+  let frag = ''
+  try { frag = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(rawUrl.trim()) ? rawUrl.trim() : `https://${rawUrl.trim()}`).hash.slice(1) } catch { frag = '' }
+  if (frag.length > MAX_FRAGMENT_PLAIN || opaqueParts(decodedUrl('https://x/' + frag).slice('https://x/'.length)).length) return false
+  // a long path of readable words carries data as well as a query does
+  if (decodedUrl(url).length - parsed.origin.length > MAX_PLAIN_PATH) return false
   const site = siteOf(url)
   const longName = longSubdomain(url, site)
   const opaque = opaqueParts(decodedUrl(url).replace(/^https?:\/\//i, '')).filter((m) => !longName.some((n) => n.includes(m)))

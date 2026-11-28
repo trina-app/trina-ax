@@ -54,8 +54,13 @@ export function cancelCall(callId: string): void {
 }
 
 /** Stop one run: its running calls end, and its calls for the next two minutes are refused with `why`. */
+/** told when the person stops a run (link.ts tells the server about an MCP app's run) */
+let onStopped: ((runId: string) => void) | null = null
+export function setRunStoppedHandler(f: (runId: string) => void) { onStopped = f }
+
 export function stopRun(runId: string, why = STOPPED): void {
   live.stoppedAt = Date.now()
+  try { onStopped?.(runId) } catch { /* the server learns it from the next result */ }
   stoppedRuns.set(runId, { until: Date.now() + STOP_HOLD_MS, why })
   while (stoppedRuns.size > 200) stoppedRuns.delete(stoppedRuns.keys().next().value!)
   for (const c of running.values()) if (c.run.id === runId) { stoppedCalls.add(c.callId); cancel(c, why) }

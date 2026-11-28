@@ -109,6 +109,10 @@ export function isTeamAdmin(db: Database, userId: string): boolean {
  */
 /** The name an outside app registered (`client_name`, at most 80 characters), for the activity log: an admin reads
  * which app it was, not the grant's id (QA TC-204). null when the grant or its app is gone. */
+/** told when a connection is revoked (Disconnect, too many, a reused refresh token) */
+const grantEnded = new Set<(grantId: string) => void>()
+export function onGrantEnded(l: (grantId: string) => void): () => void { grantEnded.add(l); return () => { grantEnded.delete(l) } }
+
 export function grantApp(db: Database, grantId: string): string | null {
   const r = db.query('SELECT c.name FROM remote_mcp_grants g JOIN remote_mcp_clients c ON c.id=g.client_id WHERE g.id=?').get(grantId) as { name: string } | null
   return r?.name ?? null
@@ -357,6 +361,8 @@ export class RemoteOAuth {
   }
   revokeGrant(id: string) {
     this.db.query('UPDATE remote_mcp_grants SET revoked_at=COALESCE(revoked_at,?) WHERE id=?').run(this.now(), id)
+    // what lives in memory for it (the browser's asks, once-answers, sessions: remote-mcp/browser.ts) goes now
+    for (const l of grantEnded) try { l(id) } catch { /* a listener that throws changes nothing */ }
     // its own session row ends now: the session sweep removes it, and the grant, its codes and tokens cascade away
     // with it (until then a replay finds the grant revoked; after, finds nothing: invalid_grant either way)
     this.db.query('UPDATE sessions SET expires_at=? WHERE id=(SELECT session_id FROM remote_mcp_grants WHERE id=?) AND connector=1').run(iso(this.now()), id)
