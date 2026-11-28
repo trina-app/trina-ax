@@ -307,7 +307,7 @@ const obj = (props: Json, required: string[] = []) => ({ type: 'object', propert
 const str = { type: 'string' }
 const frame = { type: 'string', description: 'Optional: the frame to act in, by its name or the iframe\'s selector (e.g. "#editor"), as snapshot lists it' }
 /** the app's tools, as a browser-driving app offers them (reads first, then the steps that change the page) */
-export const BROWSER_TOOLS: { name: string; description: string; inputSchema: Json; readOnly: boolean }[] = [
+const ALL_TOOLS: { name: string; description: string; inputSchema: Json; readOnly: boolean }[] = [
   { name: 'open_page', description: 'Open a web address in the user\'s browser and return the page\'s visible text.', inputSchema: obj({ url: str }, ['url']), readOnly: true },
   { name: 'page_text', description: 'The visible text of the open page.', inputSchema: obj({}), readOnly: true },
   { name: 'snapshot', description: 'The open page\'s buttons, links, fields and editors (also inside frames), each with a selector and its current value.', inputSchema: obj({}), readOnly: true },
@@ -317,3 +317,9 @@ export const BROWSER_TOOLS: { name: string; description: string; inputSchema: Js
   { name: 'press', description: 'Press a key (e.g. "Enter") in an element by CSS selector.', inputSchema: obj({ selector: str, key: str, frame }, ['selector', 'key']), readOnly: false },
   { name: 'run_script', description: 'Run JavaScript in the open page (or a frame) and return its result: an expression, or a function body with return.', inputSchema: obj({ code: str, frame }, ['code']), readOnly: false },
 ]
+/** AISCEN_BROWSER_TOOLS=script: only what a script-first app gives (open, the page's text, a picture, a script in the
+ * page), as Aside's repl does; the AI then picks its own selectors, as it did in the incident. Default: every tool
+ * (a snapshot that lists the fields and editors with their values, click, fill, press). */
+export const BROWSER_TOOLS = process.env.AISCEN_BROWSER_TOOLS === 'script'
+  ? ALL_TOOLS.filter((t) => ['open_page', 'page_text', 'screenshot', 'run_script'].includes(t.name))
+  : ALL_TOOLS
