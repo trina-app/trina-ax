@@ -236,6 +236,7 @@ const NOTICE_TEXT: Record<Extract<CreateView, { screen: 'notice' }>['notice'], U
   onHold: 'notice.onHold', capacityFull: 'notice.capacityFull', waitlist: 'notice.waitlist', waitlistDone: 'notice.waitlistDone',
   networkLimit: 'notice.networkLimit', emailUnverified: 'notice.emailUnverified', noFreeRegion: 'notice.noFreeRegion',
   provisionFailed: 'notice.provisionFailed', noFree: 'notice.noFree', noTeam: 'notice.noTeam', offline: 'notice.offline', failed: 'notice.failed',
+  claimLimit: 'notice.claimLimit',
 }
 const ACTION_TEXT: Record<NonNullable<Extract<CreateView, { screen: 'notice' }>['action']>, UiKey> = {
   open: 'notice.open', plans: 'notice.plans', console: 'notice.console', resume: 'notice.resume', waitlist: 'notice.waitlistJoin', retry: 'notice.retry', again: 'notice.again',

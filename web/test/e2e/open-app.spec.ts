@@ -17,11 +17,13 @@ async function shot(page: Page, name: string) {
 }
 
 /** a desktop app's bridge, as much of it as these pages read (shared/src/desktop-bridge.ts) */
-async function fakeDesktop(page: Page, o: { store?: boolean; locale?: string } = {}) {
-  await page.addInitScript(({ store, locale }) => {
+async function fakeDesktop(page: Page, o: { store?: boolean; locale?: string; finishSetup?: boolean } = {}) {
+  await page.addInitScript(({ store, locale, finishSetup }) => {
     const noop = () => {}
     ;(window as unknown as { mycelDesktop: unknown }).mycelDesktop = {
       bridgeVersion: 1, appVersion: '0.5.10', platform: 'darwin', ...(store ? { store: true } : {}), ...(locale ? { locale } : {}),
+      // an app with "Get a new link" (docs/decisions/20261128-owner-claim-recovery.md): the calls are counted
+      ...(finishSetup ? { finishTeamSetup: () => { const w = window as unknown as { __finish?: number }; w.__finish = (w.__finish ?? 0) + 1 } } : {}),
       browser: { run: async (c: { callId: string }) => ({ callId: c.callId, ok: false, content: [], error: 'no pane' }), cancel: noop },
       pane: { open: noop, close: noop, toggle: noop, getState: async () => ({ open: false, tabs: [], driving: false }), onState: () => noop },
       connection: { get: async () => ({ route: 'remote', origin: location.origin, teamAddress: 'https://acme.trina.app', fingerprintMismatch: false }), onChange: () => noop },
@@ -30,7 +32,7 @@ async function fakeDesktop(page: Page, o: { store?: boolean; locale?: string } =
       // the page draws the team address under its card (DesktopTeamLine) instead of the app's strip
       hostLine: noop,
     }
-  }, { store: o.store === true, locale: o.locale ?? null })
+  }, { store: o.store === true, locale: o.locale ?? null, finishSetup: o.finishSetup === true })
 }
 
 /** a fresh code for olga, made by her browser's cookie session */
@@ -348,7 +350,22 @@ test.describe('/app-setup (a team made from the desktop app)', () => {
     await p2.route('**/api/setup/console/preview', (r) => r.fulfill({ status: 410, json: { error: { code: 'gone', message: 'x' } } }))
     await p2.goto(`/app-setup#c=${CLAIM}`)
     await expect(p2.getByRole('heading', { name: 'This link has expired' })).toBeVisible()
+    // an app from before "Get a new link": the steps in words; the password sign-in stays, quieter
+    await expect(p2.getByText('To get a new link, open the', { exact: false })).toBeVisible()
+    await expect(p2.getByTestId('app-setup-new-link')).toHaveCount(0)
+    await expect(p2.getByTestId('app-setup-login')).toHaveText('Sign in with your password')
     await c2.close()
+    // an app with it: Get a new link asks the app (which asks the hosting service itself); the page hands it nothing
+    const c4 = await browser.newContext({ userAgent: MAC_CHROME, locale: 'en-US' })
+    const p4 = await c4.newPage()
+    await fakeDesktop(p4, { finishSetup: true })
+    await p4.route('**/api/setup/console/preview', (r) => r.fulfill({ status: 410, json: { error: { code: 'gone', message: 'x' } } }))
+    await p4.goto(`/app-setup#c=${CLAIM}`)
+    await expect(p4.getByRole('heading', { name: 'This link has expired' })).toBeVisible()
+    await expect(p4.getByText('The app can get you a new one now.')).toBeVisible()
+    await p4.getByTestId('app-setup-new-link').click()
+    expect(await p4.evaluate(() => (window as unknown as { __finish?: number }).__finish)).toBe(1)
+    await c4.close()
     // a plain browser: nothing asked, the claim leaves the address
     const c3 = await browser.newContext({ userAgent: MAC_CHROME, locale: 'en-US' })
     const p3 = await c3.newPage()
@@ -359,6 +376,22 @@ test.describe('/app-setup (a team made from the desktop app)', () => {
     await expect.poll(() => new URL(p3.url()).hash).toBe('')
     expect(asked).toBe(0)
     await c3.close()
+  })
+
+  // live QA 2026-11-28: a Google owner never saw the username made from the e-mail
+  test('a Google owner: no password, and the username line says Google or e-mail work too', async ({ page, browser }) => {
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+    const ctx = await browser.newContext({ userAgent: MAC_CHROME, locale: 'en-US' })
+    const p = await ctx.newPage()
+    await fakeDesktop(p)
+    await p.route('**/api/setup/console/preview', (r) => r.fulfill({ status: 200, json: { ...PREVIEW, google: true } }))
+    await p.goto(`/app-setup#c=${CLAIM}`)
+    await expect(p.getByRole('heading', { name: 'Welcome to Acme Studio, Alex Kim' })).toBeVisible()
+    await expect(p.getByTestId('app-setup-username')).toContainText('Your username is alex')
+    await expect(p.getByTestId('app-setup-username')).toContainText('You can also sign in with Google or your email.')
+    await expect(p.getByTestId('app-setup-password')).toHaveCount(0)
+    await expect(p.getByTestId('app-setup-continue')).toBeEnabled()
+    await ctx.close()
   })
 
   // QA 0202 (desktop 0.20.2): the page was English in a Korean app; a reload said "expired"; opening the team again

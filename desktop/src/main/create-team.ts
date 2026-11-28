@@ -13,6 +13,11 @@ import { debug } from './debug'
 
 interface Pending { teamId: string; name: string }
 
+/** a finish-setup after an owner claim is ignored for this long: the page's own "Get a new link" (S5 expired, Google
+ * no_owner), and a link from outside the app, which also never replaces S5 on screen (main.ts) */
+export const FINISH_PAGE_GAP_MS = 30_000
+export const FINISH_LINK_GAP_MS = 2 * 60_000
+
 export interface CreateTeamOptions {
   signin: ConsoleSignIn
   /** the Mac App Store build: read and open only (no create, resume, retry or waiting list) */
@@ -25,6 +30,8 @@ export interface CreateTeamOptions {
   /** open a team in the app's window at this page (remembered first if new) */
   openTeam: (origin: string, label: string, path: string) => Promise<void>
   pollMs?: number
+  /** tests only: the gaps after a claim (FINISH_PAGE_GAP_MS, FINISH_LINK_GAP_MS) */
+  finishGapMs?: { page: number; link: number }
 }
 
 export class CreateTeam {
@@ -38,6 +45,14 @@ export class CreateTeam {
   private nameShownAt = 0
   /** a team whose setup failed over its address (slug_conflict): S3's button retries it with the new address */
   private slugRetry: AppTeam | null = null
+  /** "Get a new link" (finishSetup): 'direct' (the team page's own button): the account's running team opens at once
+   * (a new owner claim); 'confirm' (a link from outside the app): it stops at "You already have a team · Open it", and
+   * only the person's press there asks for a claim */
+  private finishing: false | 'direct' | 'confirm' = false
+  /** when the last owner claim was issued (a finish-setup soon after it is ignored: it would revoke the claim on screen) */
+  private claimAt = 0
+  /** an owner-claim request is under way: one at a time */
+  private claiming = false
 
   constructor(private readonly o: CreateTeamOptions) {}
 
@@ -59,9 +74,30 @@ export class CreateTeam {
   /** "Create a team for free" (S0), and the app's start with a team being made */
   start() {
     const run = this.next()
+    this.finishing = false
     const p = this.pending()
     if (!this.o.signin.token()) return this.askSignIn(p?.name ?? null)
     void this.fromMe(run)
+  }
+
+  /** "Get a new link" for a team whose owner account is not made yet (the setup page expired, or was closed before
+   * Continue; docs/decisions/20261128-owner-claim-recovery.md): this app's own console sign-in (S2 when its token is
+   * gone), then the owner claim of the account's own team, which revokes the older ones, opened in the app's window. Never
+   * a claim or an address from the caller. */
+  finishSetup(from: 'page' | 'link'): 'busy' | 'recent' | null {
+    // one at a time, and never right after a claim: each claim revokes the one on screen, and the console allows
+    // OWNER_CLAIM issues per hour (app-teams.ts); a link from outside waits longer than the page's own button
+    if (this.claiming || (this.finishing && this.v.screen !== 'off' && this.v.screen !== 'notice')) return 'busy'
+    const gap = from === 'link' ? this.o.finishGapMs?.link ?? FINISH_LINK_GAP_MS : this.o.finishGapMs?.page ?? FINISH_PAGE_GAP_MS
+    if (Date.now() - this.claimAt < gap) return 'recent'
+    const run = this.next()
+    this.finishing = from === 'page' ? 'direct' : 'confirm'
+    if (!this.o.signin.token()) {
+      this.askSignIn(this.pending()?.name ?? null)
+      return null
+    }
+    void this.fromMe(run)
+    return null
   }
 
   /** the store build's "Already made a team? Sign in", and Try again on S2: the two ways to sign in when there is no
@@ -117,6 +153,7 @@ export class CreateTeam {
   /** Back or Cancel: to the first-run screen (a team being made stays saved; reopening comes back to it) */
   cancel() {
     this.next()
+    this.finishing = false
     this.o.signin.cancel()
     this.slugRetry = null
     this.show({ screen: 'off' })
@@ -252,7 +289,7 @@ export class CreateTeam {
     }
     if (t) {
       if (t.state === 'provisioning') return this.starting(run, t)
-      if (t.state === 'active') return this.notice('hasTeam')
+      if (t.state === 'active') return this.finishing === 'direct' ? this.openOwned(run, t) : this.notice('hasTeam')
       return this.teamNotice(t)
     }
     if (me.waitlist) return this.notice('waitlist')
@@ -321,8 +358,16 @@ export class CreateTeam {
   private async openOwned(run: number, t: AppTeam) {
     const origin = new URL(t.url).origin
     if (t.setUp) return this.open(origin, t.name, '/')
+    if (this.claiming) return
     if (this.v.screen === 'notice') this.show({ ...this.v, busy: true })
-    const r = await this.o.signin.api('POST', appTeamPath(t.id, 'owner-claim'), { v: 1 })
+    this.claiming = true
+    let r: ApiAnswer
+    try {
+      r = await this.o.signin.api('POST', appTeamPath(t.id, 'owner-claim'), { v: 1 })
+    } finally {
+      this.claiming = false
+    }
+    if (r.status === 200) this.claimAt = Date.now()
     if (run !== this.run) return
     if (r.status === 200) {
       const page = claimPage(String((r.body as { url?: unknown } | null)?.url ?? ''), t.url)
@@ -337,12 +382,15 @@ export class CreateTeam {
       const page = oldSetupPage(e.fields.setupUrl, t.url)
       return page ? this.open(origin, t.name, page) : this.notice('failed')
     }
+    // too many new setup links this hour: its own words, and no button that would ask again
+    if (e?.code === 'rate_limited' || r.status === 429) return this.notice('claimLimit')
     if (e?.code === 'not_ready') return this.starting(run, { ...t, state: 'provisioning', provisioning: t.provisioning ?? { step: 3, error: null, waitingCapacity: false } })
     this.notice(r.status === null ? 'offline' : 'failed')
   }
 
   private async open(origin: string, label: string, path: string) {
     this.clearPending()
+    this.finishing = false
     debug('create: opening the new team', origin)
     this.show({ screen: 'off' })
     await this.o.openTeam(origin, label, path)

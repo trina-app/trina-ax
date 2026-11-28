@@ -171,6 +171,8 @@ const bridge: DesktopBridge = {
     open: () => ipcRenderer.invoke('bridge:sign-in-return-open'),
     close: (port) => ipcRenderer.send('bridge:sign-in-return-close', Number(port)),
   },
+  // a lost owner claim: the app's own create flow asks the console again (main.ts finishSetup); carries nothing
+  finishTeamSetup: () => ipcRenderer.send('bridge:finish-team-setup'),
   // a sign-in's one-time code back from the system browser (common/code-return.ts): its port, never its requests
   codeReturn: {
     port: () => ipcRenderer.invoke('bridge:code-return-port'),
