@@ -466,6 +466,33 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
     fs.rmSync(d, { recursive: true, force: true })
   })
 
+  test('an installer a person watches says every PK_APT_HEARTBEAT seconds that apt still runs; a sync and a quick apt say nothing', () => {
+    // QA on WSL2 (2026-11-27): the default packages took minutes with no output, and the install looked hung
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-hb-'))
+    const bin = path.join(d, 'bin'); fs.mkdirSync(bin)
+    // apt-get install takes 2.5 s; update, the space check and clean answer at once
+    fs.writeFileSync(path.join(bin, 'apt-get'), `#!/bin/sh\ncase "$*" in *assume-no*) exit 0 ;; install*) sleep 2.5 ;; esac\nexit 0\n`, { mode: 0o755 })
+    const env = { PATH: `${bin}:${PATH}`, PK_SYSTEMD_DIR: path.join(d, 'none') }
+    const watched = lib('PK_APT_HEARTBEAT=1 pk_apt_install -- unzip; echo "rc=$?"', env)
+    expect(watched.out).toContain('rc=0')
+    const lines = watched.err.split('\n').filter((l) => l.startsWith('packages: still installing packages'))
+    expect(lines.length).toBeGreaterThanOrEqual(1)
+    expect(lines.length).toBeLessThanOrEqual(3)
+    expect(lines[0]).toBe('packages: still installing packages … (1 s)')
+    // apt's exit code comes through, and the line stops with it (nothing after the call returns)
+    fs.writeFileSync(path.join(bin, 'apt-get'), `#!/bin/sh\ncase "$*" in *assume-no*) exit 0 ;; install*) sleep 1.5; exit 100 ;; esac\nexit 0\n`, { mode: 0o755 })
+    const failed = lib('PK_APT_HEARTBEAT=1 pk_apt_install -- unzip || echo "rc=$?"; sleep 2; echo done >&2', env)
+    expect(failed.out).toContain('rc=1')
+    expect(failed.err.trim().split('\n').at(-1)).toBe('done')
+    expect(failed.err.slice(failed.err.indexOf('apt-get install failed'))).not.toContain('still installing')
+    // without the variable (image builds, mycel-ctl update) and in a sync (PK_APT_UNIT=1), no line
+    expect(lib('pk_apt_install -- unzip', env).err).not.toContain('still')
+    expect(lib('PK_APT_HEARTBEAT=1 PK_APT_UNIT=1 pk_apt_install -- unzip', env).err).not.toContain('still')
+    // the installer turns it on for its package step
+    expect(read('scripts/install-linux.sh')).toMatch(/\n {4}PK_APT_HEARTBEAT=60\n[\s\S]*?\n {4}pk_apt_install -- "\$\{PKGS\[@\]\}"/)
+    fs.rmSync(d, { recursive: true, force: true })
+  })
+
   test('results: a full disk and an administrator\'s step are blocked, a failed download incomplete, the worse wins', () => {
     const r = lib(['ok ok', 'ok incomplete', 'incomplete ok', 'incomplete blocked', 'blocked incomplete', 'blocked ok'].map((x) => `pk_worse ${x}`).join('\n'))
     expect(r.out.trim().split('\n')).toEqual(['ok', 'incomplete', 'incomplete', 'blocked', 'blocked', 'blocked'])
