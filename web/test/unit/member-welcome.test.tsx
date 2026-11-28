@@ -303,6 +303,22 @@ describe('the card on Home', () => {
     } finally { await m.unmount() }
   })
 
+  test('Hide the server refused: no "hidden" toast, the card comes back from a fresh read', async () => {
+    signIn()
+    const patch = routes['PATCH /api/me/welcome']!
+    routes['PATCH /api/me/welcome'] = () => json(500, { error: { code: 'internal', message: 'x' } })
+    const m = await home()
+    try {
+      await m.until(() => m.find('member-welcome'), 'the card')
+      const before = useUi.getState().toasts.length
+      await act(async () => { m.get('member-welcome-hide').click() })
+      await m.until(() => called('PATCH /api/me/welcome').length > 0 || null, 'tried')
+      await m.until(() => m.find('member-welcome'), 'the card back')
+      expect(useUi.getState().toasts.filter((x) => x.text === en('homeCards.hiddenMySetup'))).toHaveLength(0)
+      expect(useUi.getState().toasts.length).toBe(before)
+    } finally { routes['PATCH /api/me/welcome'] = patch; await m.unmount() }
+  })
+
   test('no inviter ("Add directly"): the line without "invited you"', async () => {
     signIn()
     welcome = card({ inviter: null, people: 1 })

@@ -103,8 +103,9 @@ export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
   const setupOpen = owner && !!welcome.setupOpen
   // no AI, and this person can connect it (the owner, an admin): the AI row leads, over the tools
   const aiFirst = ai.loaded && !ai.usable && ai.action !== 'ask_owner' && !welcome.steps.asked
-  // Hide, with an undo toast (a mis-tap needs no trip to Settings › Profile)
-  const hideCard = () => void hide().then(() => toast({ level: 'info', text: t('homeCards.hiddenMySetup'), action: { label: t('common.undo'), run: () => void useMemberWelcome.getState().show().then((ok) => { if (!ok) toast({ level: 'error', text: t('error.network') }) }) } }))
+  // Hide, with an undo toast (a mis-tap needs no trip to Settings › Profile); a hide the server refused says nothing:
+  // the card comes back by itself
+  const hideCard = () => void hide().then((ok) => ok && toast({ level: 'info', text: t('homeCards.hiddenMySetup'), action: { label: t('common.undo'), run: () => void useMemberWelcome.getState().show().then((ok) => { if (!ok) toast({ level: 'error', text: t('error.network') }) }) } }))
   const people = t('memberWelcome.people', { n: welcome.people })
   const frame = 'md:rounded-2xl md:border md:border-line md:p-5'
   // "You're all set" a few seconds, then gone (Close ends it sooner)

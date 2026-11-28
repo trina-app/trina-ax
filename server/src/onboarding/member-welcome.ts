@@ -137,12 +137,13 @@ function hasOwnTool(db: Database, userId: string): boolean {
 
 /** They ever had a connection of their own, in any state: one there now (connected or not), or one made and ended
  * since (the audit keeps it: a disconnect deletes the row). A late card never appears the day after someone ended their
- * only tool. */
-function everHadOwnConnection(db: Database, userId: string): boolean {
+ * only tool. The audit is read from the account's creation on (`since`): nothing of theirs is older, and the range uses
+ * audit_log's only index (`at`), so this read on Home stays a short range, not a scan of the whole log. */
+function everHadOwnConnection(db: Database, userId: string, since: string): boolean {
   return !!db.query("SELECT 1 FROM integrations WHERE scope = 'personal' AND owner_user_id = ? LIMIT 1").get(userId)
     || !!db.query('SELECT 1 FROM drive_connections WHERE user_id = ? LIMIT 1').get(userId)
-    || !!db.query(`SELECT 1 FROM audit_log WHERE actor_id = ? AND (action IN ('drive.connected', 'google_app.connected')
-      OR (action = 'integration.create' AND json_extract(detail, '$.scope') = 'personal')) LIMIT 1`).get(userId)
+    || !!db.query(`SELECT 1 FROM audit_log WHERE at >= ? AND actor_id = ? AND (action IN ('drive.connected', 'google_app.connected')
+      OR (action = 'integration.create' AND json_extract(detail, '$.scope') = 'personal')) LIMIT 1`).get(since, userId)
 }
 
 /** The rows that count toward "done": the owner's card tools and asked, and not while the team setup is open
@@ -239,7 +240,7 @@ export function ensureOwnCard(ctx: AppContext, userId: string, now = Date.now())
     const owner = u.role === 'owner'
     // a row that still counts (shown, hidden, finished, outlived) stays; only an owner's hidden member row is replaced
     if (r && !(owner && !r.setup && r.hidden_at)) return
-    if (getTeamSettings(db).personalIntegrations === false || everHadOwnConnection(db, userId)) return
+    if (getTeamSettings(db).personalIntegrations === false || everHadOwnConnection(db, userId, u.created_at)) return
     const at = new Date(now).toISOString()
     if (!r) {
       db.query("INSERT INTO member_welcome (user_id, invited_by, via, joined_at, setup, apps_seen_at) VALUES (?, NULL, 'invite', ?, ?, ?) ON CONFLICT(user_id) DO NOTHING")
