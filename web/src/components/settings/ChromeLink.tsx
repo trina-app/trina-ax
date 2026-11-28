@@ -5,12 +5,13 @@
 // is one click in that profile). "Sites" under a row opens what the AI may use there without asking, as removable chips,
 // a field to add one, and one switch "Only these sites" (anything else is refused in that profile, never asked). No link:
 // how to connect; with links, one line on connecting another profile. Inside the desktop app, while one is linked: one
-// switch for where the AI's browser runs (PUT /api/chrome/target). The list is read again every 10 s while the page is
+// line that the AI uses these and the app's own browser, picking one per step (no switch: docs/decisions/
+// 20261128-browser-profiles-every-turn.md). The list is read again every 10 s while the page is
 // visible and when the window gets focus. The extension's own Connect opens /connect-chrome (pages/ConnectChrome.tsx).
 import { ChevronDown, Pencil, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { PRODUCT } from '@mycel/shared'
-import { ChromeLinkLabel, ChromeSite, type BrowserTarget, type ChromeLink } from '@mycel/shared/api'
+import { ChromeLinkLabel, ChromeSite, type ChromeLink } from '@mycel/shared/api'
 import { chromeProfileLabel, chromeStoreUrl } from '@mycel/shared/chrome-native'
 import type { DesktopBrowserProfile } from '@mycel/shared'
 import { useLocale, useT } from '../../i18n'
@@ -23,7 +24,7 @@ import { SettingRow } from './SettingRow'
 
 export const CHROME_REFRESH_MS = 10_000
 
-export interface ChromeLinkData { links: ChromeLink[]; target: BrowserTarget }
+export interface ChromeLinkData { links: ChromeLink[] }
 /** one change to a profile (PATCH /api/chrome/links/:id) */
 export type ChromeLinkPatch = { label?: string; onlyListed?: boolean; addSite?: string; removeSite?: string }
 
@@ -42,14 +43,13 @@ export function siteOf(typed: string): string | null {
 export interface ChromeLinkViewProps {
   /** null while the first read is under way */
   data: ChromeLinkData | null
-  /** inside the desktop app: the "Use my Chrome" switch (while a profile is linked) */
+  /** inside the desktop app: the line that the app's own browser is a choice too (while a profile is linked) */
   inApp: boolean
   /** the team's address as the person sees it (location.host) */
   host: string
-  /** what is being saved: a link's id, or 'target' */
+  /** what is being saved: a link's id */
   busy?: string | null
   onDisconnect(link: ChromeLink): void
-  onTarget(target: BrowserTarget): void
   /** resolves true when the change was kept */
   onPatch(link: ChromeLink, patch: ChromeLinkPatch): Promise<boolean>
   /** rows whose sites start open (tests, screenshots) */
@@ -75,7 +75,7 @@ export function linkOfProfile(p: DesktopBrowserProfile, links: ChromeLink[]): Ch
     ?? links.find((l) => sameBrowser(l) && l.label === label)
 }
 
-export function ChromeLinkView({ data, inApp, host, busy = null, onDisconnect, onTarget, onPatch, openIds = [], now = Date.now(), profiles, connecting = null, onConnectProfile, onConnectAll }: ChromeLinkViewProps) {
+export function ChromeLinkView({ data, inApp, host, busy = null, onDisconnect, onPatch, openIds = [], now = Date.now(), profiles, connecting = null, onConnectProfile, onConnectAll }: ChromeLinkViewProps) {
   const t = useT()
   const product = PRODUCT.displayName
   const appLinks = profiles !== undefined
@@ -106,12 +106,7 @@ export function ChromeLinkView({ data, inApp, host, busy = null, onDisconnect, o
               <a className="text-accent underline" href={chromeStoreUrl('chrome')} target="_blank" rel="noreferrer" data-testid="chrome-link-store">{t('settings.chrome.store')}</a>
             </p>
           )}
-          {inApp && (
-            <div className="mt-2" data-testid="chrome-target">
-              <SettingRow inline id="chrome-target-switch" title={t('settings.chrome.use')} desc={t(data.target === 'chrome' ? 'settings.chrome.useOn' : 'settings.chrome.useOff')}
-                control={<Switch id="chrome-target-switch" external describedBy="chrome-target-switch-desc" checked={data.target === 'chrome'} disabled={busy === 'target'} label={t('settings.chrome.use')} onChange={(v) => onTarget(v ? 'chrome' : 'app')} testId="chrome-target-switch" />} />
-            </div>
-          )}
+          {inApp && <p className="mt-3 text-sm text-muted" data-testid="chrome-uses-both">{t('settings.chrome.usesBoth')}</p>}
         </>
       )}
     </section>
@@ -335,20 +330,6 @@ export function ChromeLinkSettings() {
       setBusy(null)
     }
   }
-  const onTarget = async (target: BrowserTarget) => {
-    if (!data) return
-    const before = data.target
-    setData({ ...data, target })
-    setBusy('target')
-    try {
-      await api.call(API.chromeTarget, { body: { target } })
-    } catch (e) {
-      setData((d) => (d ? { ...d, target: before } : d))
-      fail(e)
-    } finally {
-      setBusy(null)
-    }
-  }
   const onConnectProfile = async (p: DesktopBrowserProfile) => {
     setConnecting(profileKey(p))
     try {
@@ -375,6 +356,6 @@ export function ChromeLinkSettings() {
       window.setTimeout(() => void read(), 3000)
     }
   }
-  return <ChromeLinkView data={data} inApp={isDesktop()} host={window.location.host} busy={busy} now={now} onDisconnect={(l) => void onDisconnect(l)} onTarget={(v) => void onTarget(v)} onPatch={onPatch}
+  return <ChromeLinkView data={data} inApp={isDesktop()} host={window.location.host} busy={busy} now={now} onDisconnect={(l) => void onDisconnect(l)} onPatch={onPatch}
     {...(cp ? { profiles, connecting, onConnectProfile: (p: DesktopBrowserProfile) => void onConnectProfile(p), onConnectAll: (ps: DesktopBrowserProfile[]) => void onConnectAll(ps) } : {})} />
 }

@@ -15,7 +15,7 @@ import { getTeamSettings } from '../admin/settings'
 import { isGuestUser } from '../credentials/guest-ai'
 import { bunConn, type ConnHooks } from './ws'
 import { chromeWindowOf } from '../chrome/links'
-import { addLinkSite, browserTarget, linkByToken, linkOf, linkSites, linksOf, mintCode, redeemCode, removeLinkSite, setBrowserTarget, unlink, updateLink, type LinkRow } from '../chrome/store'
+import { addLinkSite, linkByToken, linkOf, linkSites, linksOf, mintCode, redeemCode, removeLinkSite, unlink, updateLink, type LinkRow } from '../chrome/store'
 import { siteToKeep } from '@mycel/shared/web-site'
 import { coversTeam, teamHosts } from '../chrome/team-hosts'
 import { keepAsk, remoteBrowserOf } from '../connectors/remote-mcp/browser'
@@ -44,7 +44,7 @@ export const chromeRoutes: RouteModule = {
       id: l.id, label: l.label, email: l.email, browser: l.browser, createdAt: l.created_at, lastSeenAt: l.last_seen_at, online: rt.chrome.online(l.id), version: l.version,
       sites: linkSites(ctx.db, l.id), onlyListed: l.only_listed === 1,
     })
-    kit.handle(API.chromeLinks, ({ auth }) => ({ links: linksOf(ctx.db, auth.user.id).map(view), target: browserTarget(ctx.db, auth.user.id) }))
+    kit.handle(API.chromeLinks, ({ auth }) => ({ links: linksOf(ctx.db, auth.user.id).map(view) }))
 
     // a profile's name and site rules: only the person's own profile; every change is audited
     kit.handle(API.chromeUpdateLink, ({ c, auth, params, body }) => {
@@ -85,10 +85,6 @@ export const chromeRoutes: RouteModule = {
       const a = asks().decide(params.id, auth.user.id, body.decision, (x) => { if (body.decision !== 'no') keepAsk(ctx, x, body.decision) })
       if (!a) return fail('not_found')
       audit(ctx.db, { actor: auth.user.id, action: 'remote_mcp.browser_ask', target: a.grantId, detail: { decision: body.decision, kind: a.kind, host: a.host, profile: a.linkId } })
-    })
-
-    kit.handle(API.chromeTarget, ({ auth, body }) => {
-      setBrowserTarget(ctx.db, auth.user.id, body.target)
     })
 
     // the signed-in team page in that Chrome (web /connect-chrome): the person's own browser session only, never an app's

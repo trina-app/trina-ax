@@ -21,8 +21,8 @@ test('Settings › Browser on a computer: how to connect, then the linked Chrome
   await page.evaluate(() => window.dispatchEvent(new Event('focus')))
   await expect(section.getByTestId('chrome-link-label')).toHaveText('Chrome on Mac')
   await expect(section.getByTestId('chrome-link-state')).toHaveText('연결됨')
-  // a browser, not the desktop app: no switch for where the AI's browser runs
-  await expect(section.getByTestId('chrome-target')).toHaveCount(0)
+  // a browser, not the desktop app: no line about the app's own browser
+  await expect(section.getByTestId('chrome-uses-both')).toHaveCount(0)
   await section.getByTestId('chrome-link-disconnect').click()
   await expect(section.getByTestId('chrome-link-how')).toBeVisible()
   await expect(section.getByTestId('chrome-link-row')).toHaveCount(0)

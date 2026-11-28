@@ -161,3 +161,39 @@ test('Stop in the popup ends that run; Disconnect ends only that profile', async
   }
   throw new Error('the other profile did not stay linked and online')
 })
+
+// docs/decisions/20261128-browser-profiles-every-turn.md: the owner's bug on 0.21.0 (the extension said online, the
+// desktop app's AI said no Chrome was connected). Runs after the test above: only "Work mail" is linked and online.
+test('a desktop-app turn, nothing toggled: an unnamed call lands in the linked Chrome; "app" goes to the app\'s own browser', async () => {
+  // run alone (-t): end the second profile as the test above does
+  if ((await h.api('alice').call(API.chromeLinks, {})).links.some((x) => x.id === profiles[1]!.linkId)) await h.api('alice').call(API.chromeUnlink, { params: { id: profiles[1]!.linkId } })
+  await online(1)
+  const desk = await h.ws('alice', { windowId: 'win-desk-e2e01', client: 'desktop', pane: 1 })
+  await desk.next('hello')
+  // the desktop window answers its own browser's calls
+  const seen: string[] = []
+  const timer = setInterval(() => {
+    for (const f of desk.frames) {
+      if (f.type !== 'browser.call' || seen.includes(f.data.call.callId)) continue
+      seen.push(f.data.call.callId)
+      desk.send({ type: 'browser.ack', callId: f.data.call.callId })
+      desk.send({ type: 'browser.result', result: { callId: f.data.call.callId, ok: true, content: [{ type: 'text', text: 'the app browser answered' }] } })
+    }
+  }, 20)
+  try {
+    const url = `http://${SITE}:${site.port}/desk`
+    const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const r = await h.api('alice', { window: 'win-desk-e2e01', client: 'desktop' }).call(API.sendMessage, { params: { id: chat }, body: { content: `${url}\n${lines({ tool: 'navigate', args: { url } }, { tool: 'get_page_text', args: {} }, { tool: 'tabs_context', args: { profile: 'app' } })}`, clientMessageId: cm(), attachmentIds: [] } })
+    const done = await desk.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 120_000)
+    const said = done.data.message.content
+    if (process.env.E2E_DEBUG) console.log(said)
+    expect(said).toContain('Hello desk')
+    expect(said).toContain('the app browser answered')
+    // the page text came from the Chromium profile (the desktop window answered only tabs_context), and the steps say where
+    const steps = done.data.message.steps as { tool: string; label: string }[]
+    expect(steps.find((x) => x.tool === 'navigate')!.label).toContain("profile 'Work mail'")
+    expect(steps.find((x) => x.tool === 'tabs_context')!.label).toContain('app browser')
+    const deskTools = desk.frames.flatMap((f) => f.type === 'browser.call' && f.data.call.turnId === r.turnId ? [f.data.call.tool] : [])
+    expect(deskTools).toEqual(['tabs_context'])
+  } finally { clearInterval(timer); desk.close() }
+})

@@ -19,7 +19,7 @@ import { installDom, mount, removeDom } from './dom-host'
 const noop = () => {}
 const link = (o: Partial<ChromeLink> = {}): ChromeLink => ({ id: 'l1', label: 'Chrome on Mac', email: null, browser: null, createdAt: '2026-11-28T00:00:00.000Z', lastSeenAt: null, online: true, version: '0.1.0', sites: [], onlyListed: false, ...o })
 const view = (data: ChromeLinkData | null, inApp = false, now = Date.parse('2026-11-28T12:00:00.000Z'), openIds: string[] = []) =>
-  renderToStaticMarkup(<ChromeLinkView data={data} inApp={inApp} host="acme.trina.app" now={now} onDisconnect={noop} onTarget={noop} onPatch={async () => true} openIds={openIds} />)
+  renderToStaticMarkup(<ChromeLinkView data={data} inApp={inApp} host="acme.trina.app" now={now} onDisconnect={noop} onPatch={async () => true} openIds={openIds} />)
 const CHALLENGE = 'A'.repeat(43)
 const json = (body: unknown, code = 200) => new Response(code === 204 ? null : JSON.stringify(body), { status: code, headers: { 'content-type': 'application/json' } })
 const me = (): Me => ({
@@ -45,9 +45,9 @@ describe('where "Your Chrome" shows', () => {
 describe('Settings › Browser › On this computer (desktop app links profiles itself)', () => {
   const prof = (o: Partial<DesktopBrowserProfile> = {}): DesktopBrowserProfile => ({ browser: 'chrome', dir: 'Default', name: 'Work', email: 'mina@work.example', installed: true, ...o })
   const withProfiles = (data: ChromeLinkData, profiles: DesktopBrowserProfile[] | null) =>
-    renderToStaticMarkup(<ChromeLinkView data={data} inApp host="acme.trina.app" onDisconnect={noop} onTarget={noop} onPatch={async () => true} profiles={profiles} onConnectProfile={noop} onConnectAll={noop} />)
+    renderToStaticMarkup(<ChromeLinkView data={data} inApp host="acme.trina.app" onDisconnect={noop} onPatch={async () => true} profiles={profiles} onConnectProfile={noop} onConnectAll={noop} />)
   test('each profile with Connect (installed) or Add to Chrome (not yet), Connect all for two or more; no "how" text', () => {
-    const html = withProfiles({ links: [], target: 'app' }, [prof(), prof({ dir: 'Profile 1', name: 'Person 1', email: undefined, installed: false }), prof({ browser: 'edge', dir: 'Default', name: 'Home', email: undefined })])
+    const html = withProfiles({ links: [] }, [prof(), prof({ dir: 'Profile 1', name: 'Person 1', email: undefined, installed: false }), prof({ browser: 'edge', dir: 'Default', name: 'Home', email: undefined })])
     expect(html.match(/data-testid="chrome-profile-row"/g)?.length).toBe(3)
     expect(html).toContain(translate('en', 'settings.chrome.install'))
     // Connect all: only the profiles that have the extension (two here)
@@ -58,18 +58,18 @@ describe('Settings › Browser › On this computer (desktop app links profiles 
     expect(html).not.toContain('data-testid="chrome-link-how"')
   })
   test('a profile already linked (same account, else the same name) is only in the connected list; one left: no Connect all', () => {
-    const html = withProfiles({ links: [link({ label: 'Work', email: 'mina@work.example', browser: 'Chrome on Mac' })], target: 'app' }, [prof(), prof({ dir: 'Profile 2', name: 'Home', email: 'mina@home.example' })])
+    const html = withProfiles({ links: [link({ label: 'Work', email: 'mina@work.example', browser: 'Chrome on Mac' })] }, [prof(), prof({ dir: 'Profile 2', name: 'Home', email: 'mina@home.example' })])
     expect(html.match(/data-testid="chrome-profile-row"/g)?.length).toBe(1)
     expect(html).toContain('data-testid="chrome-links-title"')
     expect(html).not.toContain('data-testid="chrome-profiles-all"')
     // all linked: the section is gone
-    expect(withProfiles({ links: [link({ label: 'Work', email: 'mina@work.example' })], target: 'app' }, [prof()])).not.toContain('data-testid="chrome-profiles"')
+    expect(withProfiles({ links: [link({ label: 'Work', email: 'mina@work.example' })] }, [prof()])).not.toContain('data-testid="chrome-profiles"')
     expect(linkOfProfile(prof({ email: undefined, name: 'Person 1' }), [link({ label: 'Person 1' })])).toBeTruthy()
     // an Edge profile is not matched by a Chrome link of the same account
     expect(linkOfProfile(prof({ browser: 'edge' }), [link({ email: 'mina@work.example', browser: 'Chrome on Mac' })])).toBeUndefined()
   })
   test('the linked row names the account and the browser', () => {
-    const html = withProfiles({ links: [link({ label: 'Work', email: 'mina@work.example', browser: 'Chrome on Mac' })], target: 'app' }, [])
+    const html = withProfiles({ links: [link({ label: 'Work', email: 'mina@work.example', browser: 'Chrome on Mac' })] }, [])
     expect(html).toContain('data-testid="chrome-link-account"')
     expect(html).toContain('Chrome on Mac')
     expect(html).toContain('data-testid="chrome-profiles-none"')
@@ -78,7 +78,7 @@ describe('Settings › Browser › On this computer (desktop app links profiles 
 
 describe('Settings › Browser › Your Chrome', () => {
   test('no link: how to connect, with the team address; no row, no switch', () => {
-    const html = view({ links: [], target: 'app' })
+    const html = view({ links: [] })
     expect(html).toContain(translate('en', 'settings.chrome.title'))
     expect(html).toContain('data-testid="chrome-link-how"')
     expect(html).toContain('acme.trina.app')
@@ -86,14 +86,14 @@ describe('Settings › Browser › Your Chrome', () => {
     expect(html).not.toContain('data-testid="chrome-target"')
   })
   test('linked and online: its name, "Connected", Disconnect', () => {
-    const html = view({ links: [link()], target: 'app' })
+    const html = view({ links: [link()] })
     expect(html).toContain('Chrome on Mac')
     expect(html).toContain(translate('en', 'settings.chrome.online'))
     expect(html).toContain('data-testid="chrome-link-disconnect"')
     expect(html).not.toContain('data-testid="chrome-link-how"')
   })
   test('several profiles: one row each, the line on connecting another (each profile once, the store link)', () => {
-    const html = view({ links: [link(), link({ id: 'l2', label: '업무 메일', online: false })], target: 'app' })
+    const html = view({ links: [link(), link({ id: 'l2', label: '업무 메일', online: false })] })
     expect(html.match(/data-testid="chrome-link-row"/g)?.length).toBe(2)
     expect(html).toContain('업무 메일')
     expect(html).toContain('data-testid="chrome-link-another"')
@@ -104,13 +104,13 @@ describe('Settings › Browser › Your Chrome', () => {
     expect(html).toContain(translate('en', 'settings.chrome.sites', { n: 0 }))
   })
   test('a profile\'s sites, opened: removable chips, the field to add one, and the one switch "Only these sites"', () => {
-    const html = view({ links: [link({ sites: ['mail.google.com', 'naver.com'], onlyListed: true })], target: 'app' }, false, undefined, ['l1'])
+    const html = view({ links: [link({ sites: ['mail.google.com', 'naver.com'], onlyListed: true })] }, false, undefined, ['l1'])
     expect(html.match(/data-testid="chrome-link-site"/g)?.length).toBe(2)
     expect(html.match(/data-testid="chrome-link-site-remove"/g)?.length).toBe(2)
     expect(html).toContain('data-testid="chrome-link-site-input"')
     expect(new RegExp('<input[^>]*data-testid="chrome-link-only"[^>]*>').exec(html)?.[0]).toContain('checked')
     expect(html).toContain(translate('en', 'settings.chrome.onlyListedHint'))
-    const none = view({ links: [link({ onlyListed: true })], target: 'app' }, false, undefined, ['l1'])
+    const none = view({ links: [link({ onlyListed: true })] }, false, undefined, ['l1'])
     expect(none).toContain(translate('en', 'settings.chrome.sitesNoneOnly'))
   })
   test('a typed site as the server keeps it', () => {
@@ -122,16 +122,16 @@ describe('Settings › Browser › Your Chrome', () => {
     expect(siteOf('')).toBeNull()
   })
   test('linked, not online: when it was last used; never seen: "Not connected now"', () => {
-    expect(view({ links: [link({ online: false, lastSeenAt: '2026-11-28T09:00:00.000Z' })], target: 'app' })).toContain('Last used 3 hours ago')
-    expect(view({ links: [link({ online: false })], target: 'app' })).toContain(translate('en', 'settings.chrome.offline'))
+    expect(view({ links: [link({ online: false, lastSeenAt: '2026-11-28T09:00:00.000Z' })] })).toContain('Last used 3 hours ago')
+    expect(view({ links: [link({ online: false })] })).toContain(translate('en', 'settings.chrome.offline'))
   })
-  test('the desktop app with a linked Chrome: the switch, with the hint for its state; not in a browser, not without a link', () => {
-    const off = view({ links: [link()], target: 'app' }, true)
-    expect(off).toContain('data-testid="chrome-target-switch"')
-    expect(off).toContain(translate('en', 'settings.chrome.useOff'))
-    expect(view({ links: [link()], target: 'chrome' }, true)).toContain(translate('en', 'settings.chrome.useOn'))
-    expect(view({ links: [link()], target: 'app' }, false)).not.toContain('data-testid="chrome-target"')
-    expect(view({ links: [], target: 'chrome' }, true)).not.toContain('data-testid="chrome-target"')
+  test('the desktop app with a linked Chrome: no switch, one line that the AI uses both; not in a browser, not without a link', () => {
+    const app = view({ links: [link()] }, true)
+    expect(app).not.toContain('chrome-target')
+    expect(app).toContain('data-testid="chrome-uses-both"')
+    expect(app).toContain(translate('en', 'settings.chrome.usesBoth').split(' To choose')[0]!)
+    expect(view({ links: [link()] }, false)).not.toContain('chrome-uses-both')
+    expect(view({ links: [] }, true)).not.toContain('chrome-uses-both')
   })
 
   describe('with the server', () => {
@@ -148,7 +148,7 @@ describe('Settings › Browser › Your Chrome', () => {
       globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
         const key = `${init?.method ?? 'GET'} ${String(input).split('?')[0]}`
         calls.push(key)
-        if (key === 'GET /api/chrome/links') return json({ links, target: 'app' })
+        if (key === 'GET /api/chrome/links') return json({ links })
         if (key === 'DELETE /api/chrome/links/l1') { links = []; return json(null, 204) }
         if (key === 'PATCH /api/chrome/links/l1') {
           const b = JSON.parse(String(init?.body)) as { label?: string; addSite?: string }
