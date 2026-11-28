@@ -15,7 +15,7 @@
       { "title": "Akun Anda", "pages": ["use/settings-and-search", "use/sign-in-with-google"] }
     ] },
     { "title": "Menjalankan dan mengoperasikan", "groups": [
-      { "title": "Penyiapan", "pages": ["operate/install", "operate/configuration", "operate/google-own-app-self-installed"] },
+      { "title": "Penyiapan", "pages": ["operate/install", "operate/windows-pc", "operate/configuration", "operate/google-own-app-self-installed"] },
       { "title": "Menjaga tetap berjalan", "pages": ["operate/updates-and-releases", "operate/backups", "operate/troubleshooting"] },
       { "title": "Keamanan", "pages": ["operate/security"] }
     ] },
