@@ -172,7 +172,7 @@ func TestFirewallApplyWritesStatus(t *testing.T) {
 	}
 	st, err := fwstatus.Read(filepath.Join(tb.base, "run/firewall.json"), os.Getuid())
 	must(t, err)
-	if err := st.Check(time.Now(), 990, 47821); err != nil || st.Rules != 10 || st.NftVersion != "1.1.3" || len(st.Sha256) != 64 {
+	if err := st.Check(time.Now(), 990, 47821); err != nil || st.Rules != 17 || st.NftVersion != "1.1.3" || len(st.Sha256) != 64 {
 		t.Fatalf("status %+v %v", st, err)
 	}
 	// nft refuses the rules: loaded false, exit 1, the launcher would refuse turns

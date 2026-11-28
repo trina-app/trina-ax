@@ -81,7 +81,7 @@ func (f *fakeRunner) Run(ctx context.Context, name string, args []string, stdin 
 	case name == "mount":
 		*f.mounted = true
 		return nil, nil
-	case name == "systemctl":
+	case name == "systemctl", name == "udevadm":
 		return nil, nil
 	case name == "runuser":
 		if f.adminFn != nil {
