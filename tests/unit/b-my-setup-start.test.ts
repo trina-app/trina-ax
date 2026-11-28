@@ -1,7 +1,8 @@
 // When the owner's own My setup card starts (docs/decisions/20261120-my-setup-card.md; server/src/onboarding/my-setup.ts):
 // every way the team setup ends (the end screen through the shared-skills path, ✕ on the steps once it held), a lead
-// who was handed the team, owners whose setup ended before the card existed (on their next Home read, within 14 days of
-// that end), and the tools row with nothing left to connect.
+// who was handed the team, owners whose setup ended before the card existed (a late card on their next Home read while
+// the account is young: docs/decisions/20261128-owner-personal-onboarding.md), and the tools row with nothing left to
+// connect.
 import { afterEach, expect, test } from 'bun:test'
 import { addMember, harness, OWNER_PW, withOwner, type Client, type Harness } from './a-lib'
 import { DISMISS_HOLD_MS, endHeldDismissal, recordShared, updateWelcome, WELCOME_SETTING } from '../../server/src/onboarding/welcome'
@@ -45,13 +46,15 @@ test('✕ on the steps, once it held (endHeldDismissal), starts the card, its da
   expect(await welcome(owner)).toMatchObject({ kind: 'owner' })
 })
 
-test('a lead who was handed the team and then ends the setup: their hidden member row becomes the owner\'s card', async () => {
+test('a lead here longer than 30 days who was handed the team and then ends the setup: their hidden member row becomes the owner\'s card at the end', async () => {
   h = await harness('b-my-setup-start-3')
   const owner = await withOwner(h)
   const inv = await owner.call('POST', '/api/admin/invites', {})
   const c = h.client({ ip: '10.9.0.1' })
   const leah = (await c.call('POST', `/api/invites/${inv.token}/accept`, { username: 'leah', name: 'Leah Lead', password: 'tulip meadow 2026' })).me.user.id
   await c.call('GET', '/api/me')
+  // not new here: no late card at the handover (ensureOwnCard), the member row stays hidden
+  h.ctx.db.query("UPDATE users SET created_at = '2000-01-01T00:00:00.000Z' WHERE id = ?").run(leah)
   await owner.call('POST', '/api/admin/transfer-ownership', { userId: leah, password: OWNER_PW })
   expect(row(leah)).toMatchObject({ setup: 0 })
   expect(row(leah)!.hidden_at).not.toBeNull()
@@ -62,33 +65,36 @@ test('a lead who was handed the team and then ends the setup: their hidden membe
   expect(await welcome(c)).toMatchObject({ kind: 'owner', inviter: null })
 })
 
-test('backfill: an owner whose setup ended (or was closed) within 14 days and has no card gets one on the next Home read, its days from that end; older ones none', async () => {
+test('an owner whose setup ended before the card existed: a young account gets the late card on the next read, its days from that read; an old one none', async () => {
   h = await harness('b-my-setup-start-4')
   const owner = await withOwner(h)
   const id = ownerId()
   updateWelcome(h.ctx, id, {})
-  // ended 20 days ago, before this release: none
+  // ended 20 days ago, before this release, on an account made 40 days ago: none (backfillOwner's 14 days are gone; the
+  // 30-day window of the late card holds)
   setRow({ finishedAt: new Date(Date.now() - 20 * DAY).toISOString() })
+  h.ctx.db.query('UPDATE users SET created_at = ? WHERE id = ?').run(new Date(Date.now() - 40 * DAY).toISOString(), id)
   expect(await welcome(owner)).toBeNull()
   expect(row(id)).toBeNull()
-  // ended 3 days ago: the card, 3 days into its 14
-  const ended = new Date(Date.now() - 3 * DAY).toISOString()
-  setRow({ finishedAt: ended })
-  expect(await welcome(owner)).toMatchObject({ kind: 'owner' })
-  expect(row(id)).toMatchObject({ setup: 1, joined_at: ended })
+  // the same end on an account made 25 days ago: the card, fresh from this read
+  h.ctx.db.query('UPDATE users SET created_at = ? WHERE id = ?').run(new Date(Date.now() - 25 * DAY).toISOString(), id)
+  const w = await welcome(owner)
+  expect(w).toMatchObject({ kind: 'owner' })
+  expect(w.setupOpen).toBeUndefined()
+  expect(Date.now() - Date.parse(row(id)!.joined_at)).toBeLessThan(60_000)
   // hidden: stays hidden (nothing is made again)
   await owner.call('PATCH', '/api/me/welcome', { hide: true })
   expect(await welcome(owner)).toBeNull()
-  // closed with ✕ 5 days ago (no end screen), on another team: the card from the ✕
+  expect(row(id)!.hidden_at).not.toBeNull()
+  // closed with ✕ 5 days ago (no end screen, and its hold timer lost to a restart), on another team: the late card
   await h.close()
   h = await harness('b-my-setup-start-5')
   const o2 = await withOwner(h)
   const id2 = ownerId()
   updateWelcome(h.ctx, id2, {})
-  const closed = new Date(Date.now() - 5 * DAY).toISOString()
-  setRow({ dismissedAt: closed })
+  setRow({ dismissedAt: new Date(Date.now() - 5 * DAY).toISOString() })
   expect(await welcome(o2)).toMatchObject({ kind: 'owner' })
-  expect(row(id2)).toMatchObject({ joined_at: closed })
+  expect(row(id2)).toMatchObject({ setup: 1 })
   // a member never gets an owner's card that way (their own, added directly, stays a member's)
   const m = await addMember(h, o2, { username: 'mo' })
   expect((await welcome(m.client)).kind).toBe('member')
@@ -99,5 +105,7 @@ test('the tools row: every tool it offers is the team\'s for everyone, nothing l
   const owner = await withOwner(h)
   await owner.call('PATCH', '/api/onboarding/welcome', { finish: true })
   expect(await welcome(owner)).toMatchObject({ steps: { tools: false }, allSet: false })
-  expect((await owner.call('PATCH', '/api/me/welcome', { tools: true })).welcome).toMatchObject({ steps: { tools: true }, allSet: true })
+  // tools done; the owner's "ask" counts too
+  expect((await owner.call('PATCH', '/api/me/welcome', { tools: true })).welcome).toMatchObject({ steps: { tools: true }, allSet: false })
+  expect((await owner.call('PATCH', '/api/me/welcome', { asked: true })).welcome).toMatchObject({ steps: { tools: true, asked: true }, allSet: true })
 })

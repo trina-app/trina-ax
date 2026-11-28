@@ -34,7 +34,7 @@ import { integrationsOf } from '../integrations/connections/service'
 import { syncRoomsNow } from '../rooms/service'
 import { cancelDeletion, closeDeletionRequest } from '../auth/deletion-requests'
 import { notificationsOf, notifySignInChange, notifyTemplateOffers, settleDeletionRequestNotices } from '../notifications/service'
-import { recordJoin } from '../onboarding/member-welcome'
+import { ensureOwnCard, recordJoin } from '../onboarding/member-welcome'
 import { noteRemovedSignIns, runAccountCleanups } from '../auth/account-removal'
 import { purgePrivateChatsOf } from '../auth/sweeper'
 import { newId } from '../db'
@@ -673,7 +673,8 @@ export async function transferOwnership(c: Context<AppEnv>, ctx: AppContext, b: 
     // commit cannot leave the old owner's tokens serving the team unnoticed (retried at the server's start; the new
     // owner sees what is left and can end it from the Inbox)
     toEnd = b.end?.length ? toEndOf(ctx, me, b.end) : []
-    // the new owner's welcome card is over for good (onboarding/member-welcome.ts): Home shows the owner's own start
+    // the new owner's member card is over (onboarding/member-welcome.ts); after the commit ensureOwnCard makes it a
+    // fresh owner card when they are new here and never had a connection of their own, else it stays hidden
     ctx.db.query('UPDATE member_welcome SET hidden_at = COALESCE(hidden_at, ?) WHERE user_id = ?').run(at, b.userId)
     ctx.db.query('INSERT INTO owner_transfers (id, from_user, to_user, via, invite_id, at, to_end) VALUES (?, ?, ?, ?, ?, ?, ?)').run(transferId, me, b.userId, via, lead?.id ?? null, at, JSON.stringify(toEnd))
     const locked = setRecoveryLockIn(ctx, transferId, at)
@@ -686,6 +687,8 @@ export async function transferOwnership(c: Context<AppEnv>, ctx: AppContext, b: 
   // their entries again: an admin only the members')
   try { notificationsOf(ctx).forgetDeletionNotices({ userId: me }) } catch { /* the inbox row ages out */ }
   try { notificationsOf(ctx).forgetDeletionNotices({ requesterId: b.userId }) } catch { /* the inbox row ages out */ }
+  // the new owner's own card (never throws)
+  ensureOwnCard(ctx, b.userId, authOf(ctx).now())
   // committed: nothing below may turn it into an error. Access first, then both people and the admins are told (their
   // windows refresh their role), then the slow part: the connections asked to be ended (Google is called for a share)
   try { afterAccessChange(ctx, before, { actor: me, target: b.userId }) } catch (err) { c.get('log').error('access change after a handover failed', { err }) }

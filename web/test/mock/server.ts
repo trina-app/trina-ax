@@ -1108,9 +1108,10 @@ export class MockServer {
     if (!w) return null
     const from = `users/${userId}/${FROM_COMPUTER_DIR}/`
     const files = [...this.files].some(([p, n]) => n.type === 'file' && p.startsWith(from))
-    // "all set" once the counted rows are done (the owner's card: tools only; a member's: tools, hi and asked)
+    // "all set" once the counted rows are done (the owner's card: tools and asked, and the team setup over: setupOpen
+    // as seeded; a member's: tools, hi and asked), as the server's countedDone
     const steps = { ...w.steps, files }
-    const allSet = w.allSet || (steps.tools !== undefined && (w.kind === 'owner' ? !!steps.tools : !!steps.tools && steps.hi && steps.asked))
+    const allSet = w.allSet || (steps.tools !== undefined && (w.kind === 'owner' ? !w.setupOpen && !!steps.tools && steps.asked : !!steps.tools && steps.hi && steps.asked))
     return { ...w, steps, allSet }
   }
   memberWelcomeAnswer(userId: string, role: string) {

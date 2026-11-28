@@ -1,27 +1,34 @@
 // "My setup" ("내 설정"), the personal card at the top of Home (docs/DECISIONS.md "A welcome for invited people",
 // docs/decisions/20261120-my-setup-card.md; GET/PATCH /api/me/welcome, store/memberWelcome.ts). No wizard, no page, no
-// tour: one card while the person joined lately (the owner: since the team setup's end) and has not finished or hidden
-// it, and Home's other top things (the no-AI card, the goal card, "Ready in your team") stay out while it shows
-// ("Y — Home shows one thing at a time").
-// - A member: "Welcome to {team}, {first name}" and one line "{inviter} invited you · {n} people are here · You're in
-//   {rooms}" (the rooms a link to Chats; no inviter: without the first part). The owner ('owner'): "Now your own
-//   setup, {first name}" and "The team is set up. These are just for you."
-// - Hide at the card's top right, on the title's line (it closes the whole card, on every device; Settings › Profile
-//   can show it again while its days last), then "Get started · {done} of {total} required", a plain label over the
-//   rows (the owner's one counted row: "Only you see this"). It counts the required rows only; they come first, and the
-//   optional ones ("Optional · …" in their line) after them (owner 2026-11-21: "2 of 3" over five rows read wrong).
+// tour: one card while the person joined lately (a new owner or admin: since their first read, the creator's days
+// restarting at the team setup's end; docs/decisions/20261128-owner-personal-onboarding.md) and has not finished or
+// hidden it, and Home's other top things (the no-AI line, the goal card, "Ready in your team", the setup's own row)
+// stay out while it shows ("Y — Home shows one thing at a time").
+// - A member or an admin: "Welcome to {team}, {first name}" and one line "{inviter} invited you · {n} people are here ·
+//   You're in {rooms}" (the rooms a link to Chats; no inviter: without the first part). The owner ('owner'): "Your turn
+//   now, {first name}" and "The team is set up. These are just for you." once the team setup is over; while it is open
+//   (`setupOpen`) "Let's get you started, {first name}", "These are just for you." and, first, the setup's way back
+//   ("Continue team setup · 2/5", "Start team setup · 1/5" when no step was taken yet, or "Still to do: Team files";
+//   on a phone with only 내 스킬 left, "Continue the team setup on your computer"), hidden while no AI answers.
+// - Hide at the card's top right, on the title's line (it closes the whole card, on every device, with an undo toast;
+//   Settings › Profile can show it again while its days last), then "Get started · {done} of {total} required", a
+//   plain label over the rows (an owner with both done while the setup is open: "Your setup is done · the team setup is
+//   left"). It counts the required rows only; they come first, and the optional ones ("Optional · …" in their line)
+//   after them (owner 2026-11-21: "2 of 3" over five rows read wrong).
 // - A demo (`welcome.demo`: the scripted demo build, a free-roam instance) has no row a. and no row e.: neither can be
 //   done there (owner 2026-11-21), and tools is not counted.
 // - Rows, each with a done / not done circle, in this order (c. after d.):
 //   a. "Connect your tools" (counted; MyToolsRow.tsx): the team's recommended tools, then the usual ones, each [연결]
 //      with the person's own account, "팀 연결됨" for one the team connected for everyone (all of them the team's:
 //      nothing left to connect, done).
-//   b. a member's "Say hi to the team" ("👋 Hi, I'm {name}" posts that in the everyone room as them; done once they
-//      wrote any message in a room; then Open: that room).
+//   b. a member's or an admin's "Say hi to the team" ("👋 Hi, I'm {name}" posts that in the everyone room as them; done
+//      once they wrote any message in a room; then Open: that room). Never the owner's.
 //   c. "Add your photo" (optional, not counted: the photo picker in place, saved at once).
-//   d. a member's "Ask {AI} what you can do here" (one tap starts a normal chat with a fixed question, which opens;
-//      done once it ran). While no AI answers them, row d is the no-AI way out instead (ConnectAi.tsx): connect their
-//      own AI (or the team's, for an admin), or "Tell {owner}" once ("Told them" after).
+//   d. "Ask {AI} what you can do here" (one tap starts a normal chat with a fixed question, which opens; done once it
+//      ran). While no AI answers them, row d is the no-AI way out instead (ConnectAi.tsx): a member "Tell {owner}" once
+//      ("Told them" after), in its place; someone who can connect it (the owner, an admin) gets it as the FIRST row,
+//      over "Connect your tools", since nothing else in the card works without it: "Connect an AI so {AI} can help you
+//      right away" with the team's ways (Home's no-AI line's buttons), or "Connect your AI …" for their own.
 //   e. this computer's files (optional, not counted), by where the card is seen: the desktop app (useMyWorkFiles)
 //      "Bring work files from this computer", My files' own dialog (done once a file is in My files › From this
 //      computer; Undo makes it not done again); a Mac or Windows browser "Open the desktop app" (/open-app, lib/
@@ -31,7 +38,7 @@
 // Phones (below 768px): the same card without a frame, under the box like Home's other "one thing"; every control is a
 // 44 px target and a row's button wraps under its words when they need the width.
 import clsx from 'clsx'
-import { Check, Loader2 } from 'lucide-react'
+import { ArrowRight, Check, Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
@@ -47,7 +54,9 @@ import { useMeStrict, useSession } from '../../store/session'
 import { toast } from '../../store/ui'
 import { Button, buttonClass, useMediaQuery } from '../ui'
 import { PhonePickButton, useDevicePick } from '../DevicePick'
-import { ConnectAiButton } from './ConnectAi'
+import { ConnectAiButton, TeamWaysButtons } from './ConnectAi'
+import { useWelcome } from '../../store/welcome'
+import { setupRowWords, showResume, skillsWaitForComputer } from '../../lib/welcome'
 import { useMyWorkFiles } from './FindWorkFiles'
 import { runFolder } from '../../lib/workFiles'
 import { clientKind } from '../../lib/desktop'
@@ -64,12 +73,12 @@ export function roomList(rooms: Welcome['rooms'], everyone: string, locale: stri
   try { return new Intl.ListFormat(locale, { type: 'conjunction' }).format(names) } catch { return names.join(', ') }
 }
 
-/** The rows that count toward "{done} of {total} required": tools, and a member's hi and asked (the photo and the files
- * row are optional). A demo has no tools row: a member's hi and asked only. An older server sends no `tools`: its card
- * counts as before (the rooms, done, with hi and asked). */
+/** The rows that count toward "{done} of {total} required": tools and asked, and a member's hi (the photo and the files
+ * row are optional). A demo has no tools row. An older server sends no `tools`: its card counts as before (the rooms,
+ * done, with hi and asked). */
 export function countedSteps(w: Pick<Welcome, 'kind' | 'steps' | 'demo'>): { done: number; total: number } {
   const s = w.steps
-  const rows = w.kind === 'owner' ? (w.demo ? [] : [!!s.tools]) : w.demo ? [s.hi, s.asked] : s.tools === undefined ? [s.rooms, s.hi, s.asked] : [s.tools, s.hi, s.asked]
+  const rows = w.kind === 'owner' ? (w.demo ? [s.asked] : [!!s.tools, s.asked]) : w.demo ? [s.hi, s.asked] : s.tools === undefined ? [s.rooms, s.hi, s.asked] : [s.tools, s.hi, s.asked]
   return { done: rows.filter(Boolean).length, total: rows.length }
 }
 
@@ -87,9 +96,15 @@ export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
   const me = useMeStrict()
   const hide = useMemberWelcome((s) => s.hide)
   const drop = useMemberWelcome((s) => s.drop)
+  const ai = useAiAccess()
   const name = greetName(me.user.name, locale)
   const owner = welcome.kind === 'owner'
   const demo = !!welcome.demo
+  const setupOpen = owner && !!welcome.setupOpen
+  // no AI, and this person can connect it (the owner, an admin): the AI row leads, over the tools
+  const aiFirst = ai.loaded && !ai.usable && ai.action !== 'ask_owner' && !welcome.steps.asked
+  // Hide, with an undo toast (a mis-tap needs no trip to Settings › Profile)
+  const hideCard = () => void hide().then(() => toast({ level: 'info', text: t('homeCards.hiddenMySetup'), action: { label: t('common.undo'), run: () => void useMemberWelcome.getState().show().then((ok) => { if (!ok) toast({ level: 'error', text: t('error.network') }) }) } }))
   const people = t('memberWelcome.people', { n: welcome.people })
   const frame = 'md:rounded-2xl md:border md:border-line md:p-5'
   // "You're all set" a few seconds, then gone (Close ends it sooner)
@@ -125,12 +140,12 @@ export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
         {/* Hide closes the whole card: at its top right, on the title's line (a long title wraps before it) */}
         <div className="flex items-start gap-3">
           <h2 id={`${ids}-title`} className="min-w-0 flex-1 text-display font-semibold tracking-tight text-ink text-balance" data-testid="member-welcome-title">
-            {owner ? t('memberWelcome.ownerTitle', { name }) : t('memberWelcome.title', { team: welcome.team, name })}
+            {owner ? t(setupOpen ? 'memberWelcome.ownerStartTitle' : 'memberWelcome.ownerTitle', { name }) : t('memberWelcome.title', { team: welcome.team, name })}
           </h2>
-          <CardHide onClick={() => void hide()} label={t('memberWelcome.hideLabel')} testId="member-welcome-hide" className="mt-1 max-md:-mr-1.5 max-md:mt-0" />
+          <CardHide onClick={hideCard} label={t('memberWelcome.hideLabel')} testId="member-welcome-hide" className="mt-1 max-md:-mr-1.5 max-md:mt-0" />
         </div>
         <p className="mt-0.5 text-sm text-muted" data-testid="member-welcome-line">
-          {owner ? t('memberWelcome.ownerLine') : (
+          {owner ? t(setupOpen ? 'memberWelcome.ownerStartLine' : 'memberWelcome.ownerLine') : (
             <>
               {welcome.inviter ? t('memberWelcome.invited', { inviter: welcome.inviter.name, n: welcome.people }) : people}
               {rooms && <> · {rooms}</>}
@@ -138,18 +153,59 @@ export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
           )}
         </p>
       </div>
+      {setupOpen && <SetupRow />}
       <p className="mt-4 border-b border-line pb-2 text-xs font-medium text-muted max-md:mt-3 max-md:px-3" data-testid="member-welcome-progress">
-        {owner ? t('memberWelcome.onlyYou') : t('memberWelcome.progress', { done, total })}
+        {setupOpen && done === total ? t('memberWelcome.ownerSetupLeft') : t('memberWelcome.progress', { done, total })}
       </p>
       {/* the counted rows first, then the optional ones */}
       <ul className="divide-y divide-line" data-testid="member-welcome-rows">
+        {aiFirst && <AskRow welcome={welcome} />}
         {!demo && <ToolsRow done={!!welcome.steps.tools} />}
         {!owner && <HiRow welcome={welcome} name={me.user.name.trim()} />}
-        {!owner && <AskRow welcome={welcome} />}
+        {!aiFirst && <AskRow welcome={welcome} />}
         <PhotoRow done={welcome.steps.photo} />
         {!demo && <FilesRow done={!!welcome.steps.files} />}
       </ul>
     </section>
+  )
+}
+
+/** The team setup's way back, first in an owner's card while it is open (the card's own count is the person's; this
+ * one is the team's, so its words say "team"): "Continue team setup · 2/5" (→ /welcome at its step), "Start team setup
+ * · 1/5" while no step was taken (a setup made for them and never opened), or one step left named ("Still to do: Team
+ * files"). Hidden while no AI answers (the AI row leads instead: the steps would open on the AI step). On a phone with
+ * only 내 스킬 left, put off for a computer: "Continue the team setup on your computer", no button. Home's standalone
+ * row (WelcomeResume) shows only without a card. */
+function SetupRow() {
+  const t = useT()
+  const loaded = useWelcome((s) => s.loaded)
+  const progress = useWelcome((s) => s.progress)
+  const aiReady = useAiAccess((s) => s.loaded && s.usable)
+  const computer = !useMediaQuery('(max-width: 767.98px)')
+  useEffect(() => { void useWelcome.getState().load().catch(() => {}) }, [])
+  if (!loaded || !progress || !aiReady) return null
+  const line = 'mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-subtle px-3 py-2 max-md:mx-3'
+  if (!showResume(progress, computer)) {
+    if (!skillsWaitForComputer(progress)) return null
+    return (
+      <p className={clsx(line, 'min-h-11 text-sm text-muted')} data-testid="member-welcome-setup" data-state="computer">
+        <ArrowRight size={15} className="shrink-0 text-accent-text" aria-hidden />{t('memberWelcome.setupOnComputer')}
+      </p>
+    )
+  }
+  const words = setupRowWords(t, progress, aiReady, computer)
+  const fresh = Object.values(progress.steps).every((v) => v == null)
+  const text = words.count === null ? words.text : t(fresh ? 'memberWelcome.setupStart' : 'memberWelcome.setupResume')
+  return (
+    <div className={line} data-testid="member-welcome-setup" data-state={fresh ? 'start' : 'resume'}>
+      <p className="flex min-w-0 flex-[1_1_12rem] items-center gap-2 text-sm font-medium text-ink" data-testid="member-welcome-setup-text">
+        <ArrowRight size={15} className="shrink-0 text-accent-text" aria-hidden />
+        <span>{text}{words.count && <> <span className="font-normal text-faint tabular-nums"><span aria-hidden>· </span>{words.count}</span></>}</span>
+      </p>
+      <Link to="/welcome" className={buttonClass({ size: 'sm', className: tap })} data-testid="member-welcome-setup-button">
+        {t(fresh ? 'memberWelcome.setupStartButton' : 'memberWelcome.setupResumeButton')}
+      </Link>
+    </div>
   )
 }
 
@@ -333,9 +389,16 @@ function AskRow({ welcome }: { welcome: Welcome }) {
         </Row>
       )
     }
+    // the team's AI (the owner, an admin): the team's words and Home's no-AI buttons; one's own: "Connect your AI"
+    if (ai.action === 'connect_team')
+      return (
+        <Row id="ask" done={false} title={t('memberWelcome.noAiTeam', { ai: name })}>
+          <span className="flex flex-wrap items-center gap-2" data-testid="member-welcome-connect" data-action="connect_team"><TeamWaysButtons small /></span>
+        </Row>
+      )
     return (
       <Row id="ask" done={false} title={t('memberWelcome.noAiOwn', { ai: name })}>
-        <ConnectAiButton personal={ai.action === 'connect_own'} panel={ai.action === 'connect_team'} data-testid="member-welcome-connect" data-action={ai.action} />
+        <ConnectAiButton personal={ai.action === 'connect_own'} data-testid="member-welcome-connect" data-action={ai.action} />
       </Row>
     )
   }
