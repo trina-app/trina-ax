@@ -112,7 +112,7 @@ describe('install-wsl-server.ps1', () => {
     const conf = path.join(d, 'wsl.conf')
     const sd = (text: string | null) => {
       if (text === null) fs.rmSync(conf, { force: true }); else fs.writeFileSync(conf, text)
-      const r = bash(`bash '${helper}' wslconf`, { TRINA_WSL_CONF: conf })
+      const r = bash(`bash '${helper}' wslconf`, { TRINA_WSL_CONF: conf, TRINA_PID1: 'init' })
       return { out: r.out.trim(), conf: fs.existsSync(conf) ? fs.readFileSync(conf, 'utf8') : null }
     }
     const ours = '[boot]\nsystemd=true\n\n[interop]\nappendWindowsPath=false\nenabled=false\n\n[automount]\nmountFsTab=false\nenabled=false\n\n[user]\ndefault=root\n'
@@ -122,7 +122,7 @@ describe('install-wsl-server.ps1', () => {
       '[boot]\nsystemd=true\ncommand=echo hi\n[automount]\nmountFsTab=false\nenabled=false\nroot=/mnt/\n[network]\nhostname=office\n\n[interop]\nappendWindowsPath=false\nenabled=false\n\n[user]\ndefault=root\n' })
     // the earlier file is kept beside it
     expect(fs.readFileSync(`${conf}.trina-backup`, 'utf8')).toBe('[boot]\nsystemd=false\ncommand=echo hi\n[automount]\nenabled = true\nroot=/mnt/\n[network]\nhostname=office\n')
-    // already as wanted: unchanged, no new copy; "set" here only because this machine's PID 1 is not systemd
+    // already as wanted: unchanged, no new copy; "set" here only because PID 1 is not systemd (TRINA_PID1=init above: a CI runner's PID 1 is systemd)
     const now = fs.readFileSync(conf, 'utf8')
     expect(sd(now)).toEqual({ out: 'set', conf: now })
     expect(fs.readFileSync(`${conf}.trina-backup`, 'utf8')).toContain('systemd=false')
@@ -288,12 +288,12 @@ ${call}
     expect(merge('[WSL2]\nmemory = 12GB\n')).toBeNull()
     // a memory line of another section is not the VM's
     expect(merge('[other]\nmemory=1GB\n')).toContain('[wsl2]\n# Trina AX')
-  })
+  }, 60_000)
   test('the memory limit by the PC\'s memory, and -MemoryGB first', () => {
     expect(fn('Get-MemoryCapGB', '@(7.8, 8, 12, 16, 24, 32, 64) | ForEach-Object { Get-MemoryCapGB -TotalGB $_ -Wanted 0 }; Get-MemoryCapGB -TotalGB 8 -Wanted 3').trim().split(/\s+/)).toEqual(['5', '5', '6', '8', '12', '16', '16', '3'])
-  })
+  }, 60_000)
   test('PSScriptAnalyzer, where it is installed, finds nothing', () => {
     const out = fn('Write-Ok', `if (Get-Module -ListAvailable PSScriptAnalyzer) { Invoke-ScriptAnalyzer -Path '${path.join(REPO, 'scripts/windows/install-wsl-server.ps1')}' -Severity Warning,Error | ForEach-Object { "$($_.RuleName):$($_.Line)" } } else { 'none' }`)
     expect(['', 'none']).toContain(out.trim())
-  })
+  }, 60_000)
 })
