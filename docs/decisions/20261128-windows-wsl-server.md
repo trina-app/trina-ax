@@ -25,6 +25,13 @@
 - **`.wslconfig`:** written when absent; an existing file only gets a `memory=` line in `[wsl2]` when it has none, after
   a copy. 5 GB on an 8 GB PC (WSL's default is half), 8 GB on 16 GB. Never `wsl --shutdown` without asking when other
   distros run.
+- **Network:** WSL's default NAT mode; the script never sets `networkingMode=mirrored`. Checked in the code: the browser
+  on the PC reaches the server through localhost forwarding (`127.0.0.1`, IPv4); the loopback sign-in returns
+  (Canva, Intercom, Square) land in the desktop app on the person's own PC, not in the server; Google, Slack and phones
+  need the https address in any mode; ChatGPT (device code) and Claude (pasted code) return nothing to the PC; the relay
+  is outbound. Mirrored mode would only serve the desktop app's LAN direct connection (`--tls-port`), whose certificate
+  names WSL's own address and which also needs Hyper-V and Windows firewall rules, and it is Windows 11 22H2+ only and
+  changes every distro of the user. That connection is a known limit on Windows.
 - **Sleep:** changed only after a yes (`-KeepAwake`), AC only (`standby-timeout-ac 0`, `hibernate-timeout-ac 0`).
 - **Left out:** publishing the script as a signed release asset (the release owner; the kit it downloads is checked
   against the release signature); reaching the server from the LAN by mirrored networking or `netsh portproxy` (no

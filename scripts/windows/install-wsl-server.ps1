@@ -21,7 +21,7 @@ What it does, in order (docs/INSTALL-WINDOWS.md explains each step):
   6. Installs the server with the normal Linux installer (install-linux.sh), unless it is installed already.
   7. Adds a task that keeps the server running while you are signed in, and asks before it stops this PC from
      sleeping on power.
-  8. Prints the address (http://localhost:47820) and opens the setup page.
+  8. Prints the address (http://127.0.0.1:47820) and opens the setup page.
 
 Run it again at any time: steps that are done are skipped. -WhatIf shows what it would change and changes nothing.
 
@@ -489,6 +489,8 @@ if ($wslV) { Write-Ok "WSL $wslV" }
 
 $cfgPath = Join-Path $env:USERPROFILE '.wslconfig'
 $cap = Get-MemoryCapGB -TotalGB $ramGB -Wanted $MemoryGB
+# (the server offers video renders from 3.5 GB of Linux memory and keeps 25% of it for printing and converters)
+if ($cap -lt 4) { Write-Note "$cap GB is little for the server: answers with documents may fail, and below 4 GB it makes no videos." }
 $oldCfg = if (Test-Path -LiteralPath $cfgPath) { [IO.File]::ReadAllText($cfgPath) } else { '' }
 $merged = Get-MergedWslConfig $oldCfg $cap
 if ($null -eq $merged) {
@@ -611,7 +613,7 @@ Write-Step '8/8  Checking the server'
 if ($ready -and $installed) {
     $port = (Invoke-Helper port).Out
     if ($port -notmatch '^\d+$') { $port = '47820' }
-    $url = "http://localhost:$port"
+    $url = "http://127.0.0.1:$port"
     $ok = $false
     for ($i = 0; $i -lt 24 -and -not $ok; $i++) {
         try {
@@ -634,6 +636,7 @@ if ($ready -and $installed) {
         Write-Host "   $ProductName runs at $url on this PC." -ForegroundColor White
         if ($ok -and (Read-YesNo -Question 'Open it in the browser now?' -Answer $OpenSetup -Default $true)) { Start-Process $url }
     }
+    Write-Info "The Trina AX desktop app on this PC: paste $url as the team address on its first screen."
     Write-Info 'Other computers and phones reach it once you give it an https address: see "Reach it from other computers" in docs/INSTALL-WINDOWS.md.'
     Write-Info "Status:  wsl -d $Distro -u root -- mycel-ctl status"
 } elseif ($script:DryRun) {

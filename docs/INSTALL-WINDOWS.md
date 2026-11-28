@@ -72,7 +72,7 @@ What the script does, in order. Run it again at any time: finished steps are ski
 7. **Keeps the server running**: a task "Keep the Trina AX server running" (Task Scheduler, folder TrinaAX) starts at
    your sign-in and keeps Linux on (see [Keeping it running](#keeping-it-running)). It asks whether this PC should
    stop sleeping while it is plugged in.
-8. **Checks the server** at `http://localhost:47820` and offers to open the setup page.
+8. **Checks the server** at `http://127.0.0.1:47820` and offers to open the setup page.
 
 Options: `-Version 0.21.0` (a given release instead of the latest), `-Engine claude` (only Claude Code), `-MemoryGB 6`
 (the memory limit), `-KeepAwake Yes|No` and `-OpenSetup Yes|No` (answer those questions ahead).
@@ -82,7 +82,7 @@ release signature, as on Linux.
 
 ## First run
 
-The script offers to open `http://localhost:47820/setup` with the one-time setup code filled in. To see the code
+The script offers to open `http://127.0.0.1:47820/setup` with the one-time setup code filled in. To see the code
 yourself (keep it private):
 
 ```powershell
@@ -94,7 +94,7 @@ Create the owner, the team name and the language; check the team's time zone. Th
 
 ## Reach it from other computers and phones
 
-The server answers only on this PC (`localhost`). Colleagues and the phone apps need an **https address**, as with
+The server answers only on this PC (`127.0.0.1`). Colleagues and the phone apps need an **https address**, as with
 any self-hosted server: a tunnel or reverse proxy that reaches `127.0.0.1:47820` and a certificate the phones trust.
 Set it up as in the Linux guide's [First run](INSTALL-LINUX.en.md#first-run) (step 3), from inside Linux:
 
@@ -103,8 +103,31 @@ wsl -d TrinaAX -u root -- bash -c "cd /root/trina-ax-kit && ./install-linux.sh r
 ```
 
 A tunnel program can run inside Linux (`wsl -d TrinaAX -u root`) or on Windows (it reaches the server at
-`localhost:47820`). Opening the PC's port to the office network (WSL's mirrored networking, `netsh portproxy`) is not
+`127.0.0.1:47820`). Opening the PC's port to the office network (WSL's mirrored networking, `netsh portproxy`) is not
 needed and not covered here: it gives no https.
+
+## What works differently on Windows
+
+The server runs in WSL's default network mode (NAT). The script does not turn on WSL's mirrored networking: what it
+adds (the office network reaching WSL) only the desktop app's LAN direct connection would use, and that needs more
+(below). Use `127.0.0.1`, not `localhost`, on this PC: WSL forwards IPv4, and a browser may try `localhost` over IPv6
+first.
+
+| Feature | On Windows (WSL) |
+|---|---|
+| Browser on this PC | `http://127.0.0.1:47820`: Windows forwards it to the server inside WSL |
+| Desktop app on this PC | Paste `http://127.0.0.1:47820` on the app's first screen (it takes `http://` for this PC's own address only). An invite link or **Open in the app** does not carry a `127.0.0.1` address: paste it |
+| Colleagues' computers, phone apps | Need the https address ([above](#reach-it-from-other-computers-and-phones)): the official relay (outbound only, works from WSL) or a tunnel to `127.0.0.1:47820`. The phone apps need https with a public certificate |
+| Sign-in to Canva, Intercom, Square (and Microsoft from the desktop app) | Through the desktop app: it catches the sign-in return on `127.0.0.1` on the PC where the browser is. Works when the person signs in from the desktop app, on this PC or another one. The web alone says to use the desktop app, as on Linux |
+| Other MCP connectors' sign-in | The browser returns to the server's own address; on this PC through `127.0.0.1`, for others through the https address. Connectors that want client metadata (CIMD) need the https address |
+| Google Drive, Sign in with Google, Slack | Need the https address (Google and Slack accept only `https://` return addresses), as on Linux |
+| GitHub | The shared GitHub app returns only to team addresses of Trina's domains; a server on an address of its own needs its own GitHub app |
+| Claude and ChatGPT sign-in | Work: Claude's code is pasted back, ChatGPT signs in with a device code (no return to this PC) |
+| Desktop app's LAN direct connection (`--tls-port`) | **Not on WSL.** Its certificate names WSL's internal address, not the PC's LAN address, and the office network cannot reach WSL in NAT mode. Use the https address instead |
+| Updates | The server updates itself in the team's update window (Admin › Team settings, 03:00–05:00 by default). A PC that is off or signed out at night never updates: set the window to hours the PC is on, or run `wsl -d TrinaAX -u root -- mycel-ctl update`. An update restarts the server's services, never Windows or WSL |
+| Videos (HyperFrames) | Offered when Linux has at least 3.5 GB (the script's limit is 5 GB or more); one render takes about 1 GB. The server sizes its own limits from the memory Linux sees, which is the `.wslconfig` limit |
+| Backups | Inside the Linux disk on drive C:, like everything else ([Backups](#backups)) |
+| Free disk space | The server's free-space checks see the Linux disk (up to 1 TB), not drive C:. Watch C: yourself: when it is full, Linux cannot write either. The Linux disk does not shrink when files are deleted |
 
 ## Keeping it running
 
@@ -118,6 +141,8 @@ needed and not covered here: it gives no https.
 - **Sleep**: the server cannot answer while the PC sleeps. The script can set "never sleep while plugged in" (the
   screen still turns off). On a laptop, also set what closing the lid does (Control Panel › Power Options › Choose
   what closing the lid does › Do nothing, when plugged in).
+- **While it is stopped** nothing of the server runs: scheduled tasks, phone notifications and the relay wait, and the
+  daily backup catches up when Linux runs again.
 - **Check**: `wsl -l -v` lists `TrinaAX` as `Running`; `wsl -d TrinaAX -u root -- mycel-ctl status` shows the server.
 - **Stop it for a while**: disable the task in Task Scheduler (folder TrinaAX), then `wsl --terminate TrinaAX`.
   Enable the task again (or sign out and in) to start it.
