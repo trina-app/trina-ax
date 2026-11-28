@@ -39,7 +39,8 @@ Plan: docs/AGENTS/plan/20261128-1850-stale-approval-cards.md.
   regenerate or another branch closes the card as before.
 - **The race:** a press and a new message at the same moment. Both are one synchronous step on SQLite (recordAnswer and
   createTurn are transactions), so one wins whole: the press first starts its turn, which runs the call once, and the
-  message is refused while it runs (409; the app keeps it waiting and sends it after); the message first deletes the
+  message is refused while it runs (409; the app keeps it waiting and sends it after, also when that window had not heard
+  of the answer yet: web pages/Chat.tsx waitBehind); the message first deletes the
   card, and the press gets 409 "already answered" and runs nothing.
 - **Approved and running:** a pressed card's call runs again in its own turn; no new message can start beside a running
   turn, so it is never cancelled. A card answered while its asking answer is still ending is kept until the next turn

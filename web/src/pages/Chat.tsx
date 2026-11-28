@@ -537,7 +537,22 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
       return
     }
     if (shared) return sendShared(text, attachments, author)
-    await send({ chatId, content: text, attachments, author })
+    // an answer began a moment ago that this window has not heard of yet (a card pressed in another window or on the
+    // phone: docs/decisions/20261128-stale-approval-cards.md "The race"): the server turns the message away (409) and it
+    // waits under that answer like any message sent during one, never "not sent"
+    await send({ chatId, content: text, attachments, author, onConflict: () => waitBehind(text, attachments, author) })
+  }
+  /** a message the server turned away because an answer runs: it waits and goes when that answer is done */
+  const waitBehind = (text: string, attachments: Attachment[], author: { id: string; name: string }) => {
+    try {
+      useSendQueue.getState().enqueue(me.user.id, chatId, { content: text, attachments, author })
+      announce(t('outbox.waitingOne'))
+    } catch {
+      // too many waiting already: the text goes back into the box, with the reason
+      composer.current?.prepareDraft(text)
+      toast({ level: 'warn', text: t('outbox.full') })
+    }
+    void loadThread(chatId).catch(() => {})
   }
 
   /** A shared chat with nothing running or waiting. Someone else's question began a moment ago, or their messages wait
@@ -552,7 +567,8 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
       const local = useChats.getState().threads[chatId]?.messages.find((m) => m.local?.clientMessageId === clientMessageId)
       if (local) discardLocal(chatId, local.id)
       const reason = isApiError(e, 'conflict') ? e.body.params?.reason : null
-      if (reason === 'shared_chat_busy' || reason === 'shared_chat_next') {
+      // (no reason: my own answer began a moment ago in another window, a card pressed there; it waits the same way)
+      if (reason === 'shared_chat_busy' || reason === 'shared_chat_next' || !reason) {
         try {
           useSendQueue.getState().enqueue(me.user.id, chatId, { content: text, attachments, author })
           announce(t('outbox.waitingOne'))

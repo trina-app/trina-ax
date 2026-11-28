@@ -679,6 +679,8 @@ export class MockServer {
   }
 
   generation = 0
+  /** "busy-once" sends already turned away once (sendMessage: an answer started in another window a moment before) */
+  busyOnce = new Set<string>()
 
   /** seeded people (olga, bob) have no language of their own */
   usersFollowTeam = false
@@ -834,6 +836,7 @@ export class MockServer {
     this.credMemberOwn = true
     this.credSharedSubscriptions = false
     this.credLogins.clear()
+    this.busyOnce.clear()
     this.integrations = []
     this.plugins.reset()
     this.googleApps.reset()
@@ -3559,6 +3562,12 @@ export class MockServer {
       if ((this.allConfidential || /confidential/i.test(String(c.body.content))) && !chat.confidential) {
         chat.confidential = true
         this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
+      }
+      // like the server when an answer started a moment ago in another window (a card pressed there): the first send of
+      // a "busy-once" message is turned away with the plain 409 (routes/chats.ts busyCheck turnInProgress)
+      if (/^busy-once/.test(c.body.content) && !this.busyOnce.has(c.body.content)) {
+        this.busyOnce.add(c.body.content)
+        fail('conflict', 409, '이 채팅에서 답변이 아직 진행 중이에요. 끝나거나 중지한 뒤 보내 주세요.')
       }
       const parentId = c.body.parentId ?? this.activeLeaf.get(chat.id) ?? null
       const atts = (c.body.attachmentIds as string[]).map((id) => this.attachments.get(id)).filter(Boolean).map((a) => { const { data: _d, ...rest } = a!; return rest })

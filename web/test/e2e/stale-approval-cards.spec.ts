@@ -58,5 +58,22 @@ for (const width of [1440, 390]) {
       await expect(page.getByTestId('ask-card')).toHaveCount(0)
       expect(realErrors(errors)).toEqual([])
     })
+
+    test('a message turned away because an answer began elsewhere (a card pressed in another window) waits and goes, never "not sent"', async ({ page }) => {
+      await reset(page)
+      const errors = watchConsole(page)
+      await signIn(page)
+      await ask(page, 'hello')
+      await expect(answers(page).last()).toHaveAttribute('data-status', 'done')
+      await ask(page, 'busy-once the next mail')
+      // the server said 409 once; the message waited and went by itself: one answer for it, nothing marked not sent
+      await expect(answers(page)).toHaveCount(2)
+      await expect(answers(page).last()).toHaveAttribute('data-status', 'done')
+      await expect(page.getByTestId('user-message')).toHaveCount(2)
+      await expect(page.getByTestId('user-message').last()).toContainText('busy-once the next mail')
+      await expect(page.getByTestId('outbox')).toHaveCount(0)
+      await expect(page.getByTestId('send-failed')).toHaveCount(0)
+      expect(realErrors(errors).filter((e) => !/409/.test(e))).toEqual([])
+    })
   })
 }
