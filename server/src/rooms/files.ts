@@ -38,6 +38,7 @@
 // GET /api/rooms/:id/files/:fileId/hwp-preview) with the inline read's checks, made again on every call.
 import { createHash, randomBytes } from 'node:crypto'
 import fs from 'node:fs'
+import { moveOffLoop } from '../files/copy-off-loop'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
 import { which } from '../config'
@@ -221,11 +222,8 @@ export class RoomFiles {
       size = cleaned.byteLength
       stored = createHash('sha256').update(cleaned).digest('hex')
     }
-    // another disk than the uploads folder: a copy that does not hold the server up while a large file is written
-    try { fs.renameSync(src, dst) } catch {
-      try { await fs.promises.copyFile(src, dst) } catch (e) { fs.rmSync(dst, { force: true }); throw e }
-      fs.rmSync(src, { force: true })
-    }
+    // another disk or mount than the uploads folder (EXDEV): a copy that does not hold the server up (files/copy-off-loop.ts)
+    await moveOffLoop(src, dst)
     fs.chmodSync(dst, 0o600)
     // the room may have been archived, or the person taken out, while the copy ran
     try { this.member(userId, roomId) } catch (e) { fs.rmSync(dst, { force: true }); throw e }
