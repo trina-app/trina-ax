@@ -225,6 +225,7 @@ export class MockBrowser {
 
   /** the person's own step on the page (flow event page_act) */
   async act(action: string, args: Json): Promise<string> {
+    if (action === 'reset') { if (this.page && !this.page.isClosed()) await this.page.context().close().catch(() => {}); this.page = null; return 'reset' }
     const p = await this.ensure()
     if (action === 'open') { await p.goto(String(args.url)); await this.settle(p); return this.where(p) }
     await p.evaluate(([a, x]) => { const fn = (window as unknown as { __person?: Record<string, (...v: unknown[]) => void> }).__person?.[a as string]; if (!fn) throw new Error(`no person action ${a}`); fn(...(x as unknown[])) }, [action, args.args ?? []] as const)

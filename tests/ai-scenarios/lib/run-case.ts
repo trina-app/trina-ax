@@ -162,6 +162,32 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
       if (m && m.status !== 'streaming') break
     }
   }
+  // an answer to the AI's own question comes back as the person's next message, which starts another answer in this chat
+  // after this one ended: wait for it and keep it with this turn (its words, tools and cards). Unwatched, it went on in a
+  // later flow's time and acted on the mock browser page that flow had open (2026-11-28, FL-41 into FL-42).
+  const later: Message[] = []
+  if (!slow && m && cards.some((k) => k.origin === 'ai')) {
+    const t0 = Date.now()
+    while (Date.now() - t0 < Math.min(capMs, 10 * 60_000)) {
+      await Bun.sleep(2000)
+      let open: OpenTurnRequest[] = []
+      try { open = (await api.call(API.listTurnRequests, { params: { id: chatId } })).items } catch {}
+      for (const r of open) {
+        const req = r.request
+        if (answered.has(req.requestId) || req.kind !== 'ask_user') continue
+        answered.add(req.requestId)
+        const server = req.origin === 'server', opts = req.options ?? []
+        const answer = server ? pickCard(opts, (c as { cardMode?: CardMode }).cardMode ?? 'once') : opts.length && !req.allowText ? opts[0]!.value : (c.reply ?? GO_ON[c.lang])
+        cards.push({ kind: server ? 'server-card' : 'ai-question', origin: server ? 'server' : 'ai', question: req.question.slice(0, 400), answer, options: opts.map((o) => o.label), hasAlways: opts.some(isAlways) })
+        await api.call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: req.requestId, answer } }).catch(() => {})
+      }
+      const items = (await api.call(API.listMessages, { params: { id: chatId }, query: { limit: 50 } })).items
+      const at = items.findIndex((x) => x.id === answerId)
+      const after = items.filter((x, i) => x.role === 'assistant' && x.id !== answerId && (at < 0 || x.createdAt >= m!.createdAt) && i !== at)
+      if (after.length && after.every((x) => x.status !== 'streaming')) { later.splice(0, later.length, ...after); break }
+      if (!after.length && Date.now() - t0 > 30_000) break
+    }
+  }
   // the transcript can land a little after the answer ends: wait for this turn's lines (up to 20 s)
   let all = transcriptLines(env.dataDir, chatId)
   let t = readTranscript(all.slice(seenLines))
@@ -185,7 +211,7 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
     status: slow ? 'slow' : m?.status ?? 'timeout',
     error: slow ? `stopped after ${Math.round(capMs / 1000)} s (slow)` : m?.error ? `${m.error.code}: ${m.error.message}` : m ? null : 'no answer within 15 minutes',
     // an answer that ended in an error shows the app's message where the answer would be: that is what the person reads
-    answer: m?.content?.trim() ? m.content : m?.error ? `[app message] ${m.error.message}` : '',
+    answer: (m?.content?.trim() ? m.content : m?.error ? `[app message] ${m.error.message}` : '') + later.map((x) => `\n\n[after the person's answer to the question] ${x.content ?? ''}`).join(''),
     tools: t.tools,
     cards,
     saved: m?.files?.saved.map((f) => f.path) ?? [],

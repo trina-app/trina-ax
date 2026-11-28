@@ -270,6 +270,8 @@ export async function runFlow(f: Flow, env: Env): Promise<FlowResult> {
   const res: FlowResult = { id: f.id, runId: env.runId, commit: env.commit, startedAt: new Date().toISOString(), cardMode: env.cardMode ?? 'once', steps: [], firstBroken: null }
   const chats = new Map<string, { id: string; as: string; lines: number }>()
   const said_ = new Map<string, string[]>()
+  // the mock browser starts each mocked flow with no page open (no tab left from the flow before)
+  if (f.mocked && env.mockPort && env.mockKey) await fetch(`http://127.0.0.1:${env.mockPort}/browser/act`, { method: 'POST', headers: { authorization: `Bearer ${env.mockKey}`, 'content-type': 'application/json' }, body: JSON.stringify({ action: 'reset' }) }).catch(() => {})
   for (const [i, s] of f.steps.entries()) {
     const since = new Date().toISOString()
     const before = snapshot(env.teamRoot)
