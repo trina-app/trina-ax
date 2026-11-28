@@ -2233,6 +2233,7 @@ export const en: Record<MessageKey, string> = {
   "audit.act.chrome.pair_code": "Made a code to link a browser",
   "audit.act.chrome.unlink": "Disconnected a browser profile",
   "audit.act.chrome.link_update": "Changed a linked browser profile",
+  "audit.act.local_app.file_link": "An app on the computer downloaded a team file",
   'schedules.empty': 'No scheduled tasks',
   'schedules.next': 'Next run {time}',
   'schedules.completed': 'Completed',

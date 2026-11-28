@@ -2201,6 +2201,7 @@ export const zh: Record<MessageKey, string> = {
   "audit.act.chrome.pair_code": "生成了连接浏览器的代码",
   "audit.act.chrome.unlink": "断开了浏览器个人资料",
   "audit.act.chrome.link_update": "更改了已连接的浏览器个人资料",
+  "audit.act.local_app.file_link": "电脑上的应用下载了团队文件",
   "schedules.empty": "没有定时任务",
   "schedules.next": "下次运行：{time}",
   "schedules.completed": "已完成",

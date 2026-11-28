@@ -2232,6 +2232,7 @@ export const ko = {
   "audit.act.chrome.pair_code": "브라우저 연결 코드 만듦",
   "audit.act.chrome.unlink": "브라우저 프로필 연결 끊음",
   "audit.act.chrome.link_update": "연결된 브라우저 프로필 바꿈",
+  "audit.act.local_app.file_link": "컴퓨터의 앱이 팀 파일을 내려받음",
   'schedules.empty': '예약 작업이 없어요',
   'schedules.next': '다음 실행 {time}',
   'schedules.completed': '완료',
