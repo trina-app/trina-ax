@@ -35,7 +35,7 @@ import { browserSettingsBridge } from '../../lib/desktop'
 import { switchTeam, useTeamSwitchWay } from '../../lib/teamSwitch'
 import { connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { useLocale, useT } from '../../i18n'
-import { SETTINGS_GROUPS, browserTabShown, sectionMatches, settingsPageName, settingsTabs, type SettingsTab } from '../../pages/settingsTabs'
+import { SETTINGS_GROUPS, browserTabShown, chromeLinkHere, sectionMatches, settingsPageName, settingsTabs, type SettingsTab } from '../../pages/settingsTabs'
 import { useActivityUnread } from '../../store/inbox'
 import { useCachedRead } from '../../store/listCache'
 import { isAdmin, useMeStrict, useSession } from '../../store/session'
@@ -53,6 +53,7 @@ import { PhonePageBar } from '../phone/PhonePageBar'
 import { SettingsBarSlot, SettingsHold } from './SettingsBar'
 import type { MessageKey } from '../../i18n'
 import { useFreeRoam } from '../../store/demo'
+import { mobileApp } from '../../lib/mobile'
 import { FREE_ROAM_HIDDEN_PAGES } from '../../lib/freeRoam'
 
 const SettingsPane = lazy(() => import('../../pages/Settings'))
@@ -120,7 +121,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   const guestAiOff = useGuestAiOff()
   // a free-roam demo (store/demo.ts): no AI account, usage or developer pages
   const freeRoam = useFreeRoam()
-  const tabs = settingsTabs(browserTabShown(Boolean(browserSettingsBridge()), me.team.webAllowAll, webOn), Boolean(own), Boolean(sites), isGuestMe(me), guestAiOff, freeRoam)
+  const tabs = settingsTabs(browserTabShown(Boolean(browserSettingsBridge()), me.team.webAllowAll, webOn, chromeLinkHere({ phone, phoneApp: !!mobileApp(), freeRoam })), Boolean(own), Boolean(sites), isGuestMe(me), guestAiOff, freeRoam)
   const [query, setQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
   const q = query.trim().toLowerCase()

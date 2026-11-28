@@ -77,7 +77,37 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
     }
   }
 
-  if (r.kind === 'browser_site')
+  if (r.kind === 'browser_site') {
+    // a public site the AI wants to use in the person's own Chrome (docs/decisions/20261128-trina-in-chrome.md): its own
+    // title, and Always names the site it keeps for good (no `site`: no Always); the same answers as the office card
+    const chromeSite = r.chrome === true
+    const choices = (
+      <ChoiceRow
+        className="pt-1"
+        busy={busy}
+        error={error}
+        // the team's "Always allow" switch is off (Admin › Team AI settings): no Always on this card
+        choices={withAlways(
+          { label: t('browser.allowOnce'), onClick: () => void run({ kind: 'browser_site', decision: 'once' }) },
+          r.noAlways || (chromeSite && !r.site) ? null : { label: chromeSite ? t('ask.chromeAlways', { site: r.site! }) : t('browser.allowAlways'), onClick: () => void run({ kind: 'browser_site', decision: 'always' }), testId: 'site-card-always' },
+          { label: t('devEnvSite.deny'), onClick: () => void run({ kind: 'browser_site', decision: 'deny' }) },
+        )}
+      />
+    )
+    if (chromeSite)
+      return (
+        <div className="my-3 rounded-2xl border border-warn/40 px-4 py-3" role="group" aria-label={t('ask.chromeSiteTitle', { host: r.host, profile: r.profile ?? 'Chrome' })} data-testid="site-card" data-chrome="">
+          <p className="flex items-start gap-1.5 text-sm font-medium">
+            <Globe size={16} className="mt-0.5 shrink-0 text-warn" aria-hidden /> <span className="min-w-0 break-words">{t('ask.chromeSiteTitle', { host: r.host, profile: r.profile ?? 'Chrome' })}</span>
+          </p>
+          <div className="mt-1 space-y-2 text-sm">
+            <p className="truncate text-xs text-faint" title={r.url}>
+              {r.url}
+            </p>
+            {choices}
+          </div>
+        </div>
+      )
     return (
       <div className="my-3 rounded-2xl border border-warn/40 px-4 py-3" role="group" aria-label={t('ask.siteTitle')} data-testid="site-card">
         <p className="flex items-center gap-1.5 text-xs font-medium text-warn">
@@ -89,20 +119,11 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
             {r.url}
           </p>
           {r.reason && <p className="text-xs text-muted">{r.reason}</p>}
-          <ChoiceRow
-            className="pt-1"
-            busy={busy}
-            error={error}
-            // the team's "Always allow" switch is off (Admin › Team AI settings): no Always on this card
-            choices={withAlways(
-              { label: t('browser.allowOnce'), onClick: () => void run({ kind: 'browser_site', decision: 'once' }) },
-              r.noAlways ? null : { label: t('browser.allowAlways'), onClick: () => void run({ kind: 'browser_site', decision: 'always' }), testId: 'site-card-always' },
-              { label: t('devEnvSite.deny'), onClick: () => void run({ kind: 'browser_site', decision: 'deny' }) },
-            )}
-          />
+          {choices}
         </div>
       </div>
     )
+  }
 
   // a dev-environment command needs a site that is not allowed: only the person who owns the turn gets this card
   if (r.kind === 'dev_env_site')

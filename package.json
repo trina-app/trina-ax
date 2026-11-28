@@ -25,7 +25,7 @@
     "plugin:test-key": "bun scripts/plugins/test-key.ts",
     "check:plugin-release": "bun scripts/plugins/release-check.ts",
     "build:native": "bash native/build.sh",
-    "typecheck": "bunx tsc -p tsconfig.json --noEmit && bun run --cwd web typecheck && bun run --cwd desktop typecheck",
+    "typecheck": "bunx tsc -p tsconfig.json --noEmit && bun run --cwd web typecheck && bun run --cwd desktop typecheck && bunx tsc -p chrome-extension/tsconfig.json --noEmit",
     "test": "bun run scripts/test-all.ts",
     "test:unit": "bun test tests/unit",
     "queue": "bun scripts/ci/enqueue.ts",

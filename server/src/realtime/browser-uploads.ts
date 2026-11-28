@@ -7,6 +7,7 @@
 //   - it ends at the call's deadline, when the call is over (revokeCall), or on first use; nothing is written to disk;
 //   - all tickets waiting on this server hold at most MAX_PENDING_BYTES: a call over that is refused, not queued.
 import { randomBytes } from 'node:crypto'
+import { isChromeWindow } from './call-relay'
 
 /** bytes waiting in tickets on the whole server at most (each call is at most 100 MB: three such calls at once) */
 export const MAX_PENDING_BYTES = 300_000_000
@@ -53,12 +54,16 @@ export class BrowserUploads {
 
   /**
    * The bytes behind a ticket for this person, once. null (the route answers 404 for every case alike): no such
-   * ticket, another person's (theirs stays usable), expired, or the recheck failed (the ticket is gone then).
+   * ticket, another person's or another window kind's (it stays usable), expired, or the recheck failed (the ticket is
+   * gone then). `from`: the linked Chrome's window that asks (chrome:<linkId>); absent: the desktop app's page session.
    */
-  take(id: string, userId: string): { name: string; bytes: Buffer; sha256: string } | null {
+  take(id: string, userId: string, from?: string): { name: string; bytes: Buffer; sha256: string } | null {
     this.sweep()
     const t = this.tickets.get(id)
     if (!t || t.userId !== userId) return null
+    // a ticket made for the person's linked Chrome is taken only with that link's token, and the desktop's only through
+    // the team page's session (docs/decisions/20261128-trina-in-chrome.md)
+    if (isChromeWindow(t.windowId) ? from !== t.windowId : from !== undefined) return null
     this.drop(t)
     let ok = false
     try { ok = t.recheck() !== false } catch { ok = false }

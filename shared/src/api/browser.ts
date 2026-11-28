@@ -35,6 +35,12 @@ export const BrowserCall = z.object({
   sites: z.array(BrowserSiteKey).max(BROWSER_CALL_SITES_MAX).optional(),
   /** office-network addresses the person already allowed (the server's office card, for good or for this answer) */
   office: z.array(BrowserSiteKey).max(BROWSER_CALL_SITES_MAX).optional(),
+  /** the person's "Allow all websites" is on: every public site is allowed (the person's Chrome reads it; the desktop app
+   * keeps its own copy of the setting) */
+  anySite: z.literal(true).optional(),
+  /** the run this call belongs to (a chat, or a scheduled task's run): the person's Chrome gives each run its own background
+   * window and tab group named after it, and one run never sees another's tabs (docs/decisions/20261128-trina-in-chrome.md) */
+  run: z.object({ id: z.string().min(1).max(100), title: z.string().max(80) }).optional(),
 })
 export type BrowserCall = z.infer<typeof BrowserCall>
 
@@ -52,6 +58,10 @@ export const BrowserResult = z.object({
    * keeps it as the person's own allowance, so it holds on every computer and on the server's cards too. An older
    * server ignores it. */
   always: z.object({ sites: z.array(BrowserSiteKey).max(50).optional(), office: z.array(BrowserSiteKey).max(50).optional() }).optional(),
+  /** the person's Chrome did nothing because the call needs this site (host) and nobody allowed it: the server asks the
+   * person on its site card and sends the call again (docs/decisions/20261128-trina-in-chrome.md). `office`: an
+   * office-network address. */
+  needSite: z.object({ host: BrowserSiteKey, office: z.boolean().optional() }).optional(),
 })
 export type BrowserResult = z.infer<typeof BrowserResult>
 

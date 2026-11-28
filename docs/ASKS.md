@@ -61,16 +61,16 @@ switch); "ask every time" counts the rest (most are one-off confirms of the pers
 | My files and folders (내 파일·폴더) | 13 | 13 | 0 | 0 | 0 |
 | Sending and sharing (다른 사람에게 보내기·공유) | 19 | 9 | 10 | 0 | 0 |
 | Connectors (커넥터) | 16 | 6 | 10 | 0 | 0 |
-| Websites (웹사이트) | 8 | 5 | 3 | 0 | 0 |
+| Websites (웹사이트) | 10 | 7 | 3 | 0 | 0 |
 | Commands and dev environment (명령 실행·개발 환경) | 3 | 3 | 0 | 0 | 0 |
 | Memory, skills and schedules (기억·스킬·예약) | 13 | 8 | 5 | 0 | 0 |
 | Rooms (대화방) | 5 | 4 | 1 | 0 | 0 |
 | AI questions (AI의 질문) | 2 | 0 | 2 | 0 | 0 |
 | When guests are there (게스트가 있을 때) | 4 | 0 | 4 | 0 | 0 |
 | Screen confirm dialogs (화면 확인창) | 103 | 4 | 99 | 0 | 0 |
-| Sign-in, setup and updates (로그인·설정·업데이트) | 15 | 7 | 8 | 0 | 0 |
-| System permissions (시스템 권한) | 21 | 18 | 3 | 0 | 0 |
-| **all** | 220 | 75 | 145 | 0 | 0 |
+| Sign-in, setup and updates (로그인·설정·업데이트) | 16 | 8 | 8 | 0 | 0 |
+| System permissions (시스템 권한) | 22 | 19 | 3 | 0 | 0 |
+| **all** | 224 | 79 | 145 | 0 | 0 |
 
 ## Registry
 
@@ -144,6 +144,8 @@ switch); "ask every time" counts the rest (most are one-off confirms of the pers
 | id | where | trigger | text (en / ko) | buttons | always | revoke | scheduled | guests | reason | rule A |
 |---|---|---|---|---|---|---|---|---|---|---|
 | `site.office` | `server/src/chat/tools.ts:1708` | The in-app browser opens an office-network (private) address. Skipped when allowed in this answer or for good. | May the AI open the office-network address {host}? / 사내망 주소 {host}를 열어도 될까요? (`browserSite`, web `ask.siteTitle`) | Allow once / Always allow / Deny | per person per site (`browser_site_grants`); only while the team's Always switch is on (off: not used, the card sends `noAlways`) | Settings › 트리나에게 허용한 것 (site, office) | runs if granted, else refused | Always for good even with a guest | security | OK (fixed: follows the team switch; decision 20261123-ask-registry-findings) |
+| `chrome.site` | `server/src/chat/tools.ts` askChromeSite | The AI's call in one of the person's own browser profiles (the extension, decision 20261128-trina-in-chrome) needs a public site that profile does not allow yet (the extension answers `needSite`). Skipped: the profile's own sites (its Always answers and the sites the person added), allowed once in this answer for that profile. No card: a profile limited to "Only these sites" (refused), a scheduled run (refused with how to allow it). | May the AI use {host} in your browser profile '{profile}'? / AI가 내 브라우저 프로필 '{profile}'에서 {host}을(를) 써도 될까요? (`chromeSite`, web `ask.chromeSiteTitle`) | Allow once / Always allow this site ({site}) / Deny | per profile and site (`chrome_link_sites`; never the person-wide list, never another profile); none with the team switch off, in a confidential chat or for a host with no site to keep | Settings › Browser › that profile's Sites (Remove) | the profile's Always holds; else refused, never asked | same | security, sends-to-others | OK |
+| `chrome.site.office` | `server/src/chat/tools.ts` askChromeSite | The same for an office-network address (the extension saw a private address). | May the AI open the office-network address {host}? / 사내망 주소 {host}를 열어도 될까요? (`browserSite`) | Allow once / Always allow / Deny | per person per site (`browser_site_grants`, as `site.office`) | Settings › 트리나에게 허용한 것 (site, office) | refused unless granted | same | security | OK |
 | `desktop.site.web` | `desktop/src/ui/pane.ts:245` and `desktop/src/main/pane/net-guard.ts:98` | The desktop app's in-app browser opens or sends to a public site not yet allowed (site access "ask"). Skipped: Always, "all" on, once in this turn, and what the team server says the person already allowed for the call (`BrowserCall.sites`: their sites for good, the address the server card or their own message approved; docs/decisions/20261125-one-site-always-desktop-browser.md). | The AI wants to use {host} / AI가 {host}을(를) 쓰려고 해요 (`perm.site.title`) | Allow once / Always allow / Allow all websites (team allows) / Deny | "Always allow this site ({site})": the site the button names (shared `siteToKeep`, the address card's rule; a host with a long or random name before its site keeps only that host on this computer), saved on this computer and sent with the next call's result to be kept as the person's site for good on the server (`user_allowed_sites`, the row of `site.web`'s "Always allow this site"): it holds on every computer, every port and on the server's card | both places: the server's site in Settings › 트리나에게 허용한 것 (any app, DELETE `/api/ai-allowances/:id`), and this computer's copy in the pane's ⚙ › Allowed sites or Settings › Browser (desktop app); remove both to be asked again on this computer | only while the app is open; 180 s, then Deny | same | security, sends-to-others | OK (decision 8: kept on the device, listed in 트리나에게 허용한 것 in the desktop app; decision 20261123-ask-registry-findings) |
 | `desktop.site.private` | `desktop/src/ui/pane.ts:245` and `desktop/src/main/pane/net-guard.ts:121` | The in-app browser opens an office-network address the person did not open. Skipped: what the team server says the person already allowed (`BrowserCall.office`: the server's office card, for good or for this answer). | The AI wants to open the office-network address {host} / AI가 사내망 주소 {host}을(를) 열려고 해요 (`perm.private.*`) | Allow once / Always allow / Deny | per private host per team on this computer, and kept in the person's office grants on the server (`browser_site_grants`), sent to the app with every call to that host on every port | both places: the server's office grant in Settings › 트리나에게 허용한 것 (site, office), and this computer's copy in the pane's ⚙ › Allowed sites | as `desktop.site.web` | same | security | OK |
 | `desktop.browser.allowall` | `desktop/src/main/app-window.ts:1299` | Settings › Browser turns on "Allow all websites" (needs the team switch). | Let the AI open any website without asking in {team}? / {team}에서 AI가 묻지 않고 모든 웹사이트를 열게 할까요? (`allowAll.message`) | Cancel / Allow all websites | sets the person's own switch on this computer | Settings › Browser ("Ask for each new site") | n/a | n/a | security | OK |
@@ -329,6 +331,7 @@ step the person starts; scheduled runs never reach them. "hidden for guests" mea
 
 | id | where | trigger | text (en / ko) | buttons | always | revoke | scheduled | guests | reason | rule A |
 |---|---|---|---|---|---|---|---|---|---|---|
+| `chrome.pair.connect` | `web/src/pages/ConnectChrome.tsx` | The extension's Connect opened the team page in that browser profile (`/connect-chrome?challenge=…`, signed in). | Let {product}'s AI use this Chrome? / {product} AI가 이 Chrome을 쓰게 할까요? (`connectChrome.title`) | Connect / Cancel | the link itself (until Disconnect) | Settings › Browser › Disconnect, or the extension's Disconnect | n/a | not offered to guests | security | OK |
 | `desktop.team.outside` | `desktop/src/ui/welcome.ts:222` | Adding a team address that is not hosted and not known yet. | This address is not run by Trina. Make sure it is a server your company installed itself. / 트리나가 운영하는 주소가 아니에요… (`outside.body`) | Cancel / Connect | per address once added | Welcome › Remove from list | n/a | n/a | security | OK |
 | `desktop.team.renamed` | `desktop/src/ui/welcome.ts:222` | The team moved to a new address at its relay. | This team moved to {host}. Connect to the new address? / 팀 주소가 {host}(으)로 바뀌었어요… (`err.renamed`) | Cancel / Connect | per address | Welcome › Remove from list | n/a | n/a | security | OK |
 | `desktop.team.link` | `desktop/src/ui/welcome.ts:257` | A team or invite link for a team not open yet; yes armed after a short delay. | Connect to {host}? / {host}에 연결할까요? (`link.title`) | Cancel / Connect | none (each outside link) | n/a | n/a | n/a | security | OK |
@@ -349,6 +352,7 @@ step the person starts; scheduled runs never reach them. "hidden for guests" mea
 
 | id | where | trigger | text (en / ko) | buttons | always | revoke | scheduled | guests | reason | rule A |
 |---|---|---|---|---|---|---|---|---|---|---|
+| `ext.chrome.host` | `chrome-extension/src/popup.ts` | Connect in the extension's popup: Chrome asks to let it reach the one team address (optional host access). | Chrome's own question (the team's address) | Allow / Deny | Chrome keeps it for the extension | chrome://extensions › the extension › Site access, or removing the extension | n/a | n/a | security | OK |
 | `desktop.workfiles.consent` | `desktop/src/main/work-files.ts:188` and `desktop/src/common/work-consent.ts:54` | The team page asks "Find work files". Skipped when a yes of the last 90 days covers every place. | Bring your work files into {app} / 업무 파일을 {app}에 가져오기 (`workFiles.consentTitle`) | Not now / Find work files | per team, person and places, 90 days, on this computer | none in the app (90 days; new places ask again) | n/a | n/a | shows-private-to-others | OK |
 | `desktop.workfiles.add` | `desktop/src/main/work-files.ts:486` | Assistive-tech users only: adding the files the look found. | Add # files from this computer? / 이 컴퓨터의 파일 {n}개를 넣을까요? (`workFiles.addTitle`) | Cancel / Add # files | none | n/a | n/a | n/a | shows-private-to-others | OK |
 | `desktop.workfiles.pickroot` | `desktop/src/main/work-files.ts:365` | "Choose it yourself" after macOS kept the app out of Documents, Desktop or Downloads; the system folder window is the grant. | Choose your {folder} folder… (`workFiles.pickMessage`) | Open / Cancel | macOS keeps it while the app runs | n/a | n/a | n/a | shows-private-to-others | OK |
@@ -503,7 +507,7 @@ lines than the row fails the test; fewer passes.
 | `server/src/chat/shared-with-me-tool.ts` | 1 | `share.read` |
 | `server/src/chat/skill-files.ts` | 2 | `skill.files` |
 | `server/src/chat/stop-sharing.ts` | 3 | `unshare.files` |
-| `server/src/chat/tools.ts` | 33 | `dev.bulk`, `dev.login`, `dev.site`, `skill.move`, `skill.copy`, `memory.remember`, `ai.ask_user`, `ai.ask_user.in_call`, `site.office`, `helper` |
+| `server/src/chat/tools.ts` | 35 | `dev.bulk`, `dev.login`, `dev.site`, `skill.move`, `skill.copy`, `memory.remember`, `ai.ask_user`, `ai.ask_user.in_call`, `site.office`, `chrome.site`, `chrome.site.office`, `helper` |
 | `server/src/chat/turn.ts` | 34 | `room.change`, `room.read`, `room.change.widen`, `save.wider`, `share.read`, `share.skill`, `share.copy`, `share.save`, `share.chat_file`, `conn.shared`, `conn.shared.browser`, `browser.shared.change`, `skill.save`, `skill.save.name_taken`, `ai.ask_user`, `definition`, `helper` |
 | `server/src/devenv/tool.ts` | 1 | `dev.login` |
 | `server/src/integrations/connections/tools.ts` | 5 | `conn.shared`, `conn.write.noalways`, `conn.read.unsure`, `conn.write.own` |

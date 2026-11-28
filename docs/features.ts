@@ -70,6 +70,7 @@ export const FEATURES: Feature[] = [
   { id: 'chat.promo-video', name: 'Promo videos (MP4)', area: 'AI chat', endpoints: ['*PromoVideo'] },
   { id: 'chat.voice', name: 'Voice input and recordings to text', area: 'AI chat', endpoints: ['transcribe', 'transcribePiece', 'getJob', 'cancelJob'] },
   { id: 'chat.browser', name: 'The AI uses the browser (desktop app)', area: 'AI chat', endpoints: ['pollCalls', 'postResult', 'browserUpload'], screens: ['/settings/browser'] },
+  { id: 'chat.chrome-browser', name: 'The AI uses the person\'s own browser profiles (Chrome, Edge, Brave extension)', area: 'AI chat', endpoints: ['chromeLinks', 'chromeUnlink', 'chromeUpdateLink', 'chromeTarget', 'chromePair', 'chromeRedeem', 'chromeUpload'], screens: ['/connect-chrome', '/connect-chrome/done'] },
   { id: 'chat.web-access', name: 'Allow all websites for the AI', area: 'AI chat', endpoints: ['setMyWebAccess'] },
   { id: 'chat.memory', name: 'What the AI remembers about me', area: 'AI chat', endpoints: ['*Memor*'], screens: ['/settings/memory'] },
   { id: 'chat.allowances', name: 'What I allowed the AI in advance', area: 'AI chat', endpoints: ['*AiAllowance*', 'getAutoMode', 'setAutoMode'], screens: ['/settings/allowances'] },

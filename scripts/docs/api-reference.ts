@@ -59,6 +59,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   ACCESS_REQUESTS: 'Ask for access to a chat or project',
   LINK_NAMES: 'Names of links to things in this app (chips in messages)',
   PROBLEM_REPORTS: 'Problem reports to the Trina AX team (Settings › About, 👎 under an answer)',
+  CHROME: 'The AI\'s browser in the person\'s own Chrome (the extension linked to the team)',
 }
 
 const WHO: Record<Endpoint['auth'], string> = {
