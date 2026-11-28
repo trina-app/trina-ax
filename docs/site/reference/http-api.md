@@ -750,7 +750,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `GET` | `/api/me/welcome` | Signed in | My setup card on Home (invited people, and the owner after the team setup) while it still shows (14 days, not hidden, not finished); else null. |
+| `GET` | `/api/me/welcome` | Signed in | My setup card on Home (invited people, and new owners and admins) while it still shows (14 days, not hidden, not finished); else null. |
 | `PATCH` | `/api/me/welcome` | Signed in | Hide my setup card or show it again, or record that I asked Trina what I can do here or that the team connected every tool it offers me. Mine only. |
 
 ## Asking an admin to add an app

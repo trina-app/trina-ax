@@ -7,7 +7,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter, Route, Routes, useLocation, type InitialEntry } from 'react-router-dom'
-import type { WelcomeProgress, WelcomeUpdate } from '@mycel/shared/api'
+import type { MemberWelcome, WelcomeProgress, WelcomeUpdate } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import Home from '../../src/pages/Home'
 import { useAiAccess } from '../../src/store/aiAccess'
@@ -15,6 +15,8 @@ import { useChats } from '../../src/store/chats'
 import { useSession } from '../../src/store/session'
 import { useWelcome } from '../../src/store/welcome'
 import { useHandover } from '../../src/store/handover'
+import { useMemberWelcome } from '../../src/store/memberWelcome'
+import { aiName } from '../../src/lib/tabs'
 import { forgetStepsSeen, LANDING_STATE, markStepsSeen, stepsSeen } from '../../src/lib/welcome'
 import { installDom, mount, removeDom } from './dom-host'
 
@@ -40,7 +42,10 @@ let asked: unknown = { scope: 'none', items: [] }
 let ranTeamSkill = false
 /** GET /api/admin/handover (docs/DECISIONS.md "W6"): null answers 404 (no handover to show) */
 let handover: unknown = null
+/** GET /api/me/welcome: the My setup card (null: none) */
+let mySetup: MemberWelcome | null = null
 const routes: Record<string, (body: any) => Response> = {
+  'GET /api/me/welcome': () => json(200, { welcome: mySetup }),
   'GET /api/me/ai-access': () => json(200, access),
   'GET /api/admin/credentials': () => json(200, { items: [], memberOwn: false, sharedSubscriptions: true, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], pricesAsOf: '2026-11-01', anthropicGateway: null }),
   'GET /api/onboarding/welcome': () => json(200, { progress }),
@@ -84,6 +89,8 @@ afterEach(() => {
   asked = { scope: 'none', items: [] }
   ranTeamSkill = false
   handover = null
+  mySetup = null
+  useMemberWelcome.getState().reset()
   useHandover.getState().reset()
   localStorage.clear()
   useChats.getState().reset()
@@ -106,6 +113,23 @@ const boxAt = (e: InitialEntry): InitialEntry => e
 const home = () => mount(<MemoryRouter initialEntries={[boxAt('/')]}><Routes><Route path="/" element={<Home />} /><Route path="/new" element={<Home />} /></Routes></MemoryRouter>)
 
 describe('Home without AI', () => {
+  test('a new owner\'s My setup card: it shows without AI, its AI row first, and is the one thing (no no-AI line, no setup row)', async () => {
+    signIn('owner')
+    progress = putOff()
+    markStepsSeen('olga')
+    mySetup = { kind: 'owner', team: 'Acme', inviter: null, people: 1, rooms: [], owner: { id: 'olga', name: '올가' }, steps: { rooms: true, hi: false, photo: false, asked: false, tools: false }, setupOpen: true, allSet: false }
+    const m = await home()
+    try {
+      await m.until(() => m.find('member-welcome'), 'the card')
+      await m.until(() => m.find('welcome-ai-claude'), 'its AI row')
+      expect([...m.get('member-welcome-rows').children][0]!.getAttribute('data-testid')).toBe('member-welcome-ask')
+      expect(m.get('member-welcome-ask').textContent).toContain(ko('memberWelcome.noAiTeam', { ai: aiName(ko as Parameters<typeof aiName>[0]) }))
+      expect(m.find('no-ai-card')).toBeNull()
+      expect(m.find('welcome-resume')).toBeNull()
+      expect(m.find('member-welcome-setup')).toBeNull()
+    } finally { await m.unmount() }
+  })
+
   test('the owner after "나중에 하기": the connect card alone, no setup row, no suggestions, no line above the box; AI answers: the row is back at 2/5, the step it opens (a phone: its own five with the AI step)', async () => {
     signIn('owner')
     phoneWidth()

@@ -3,7 +3,9 @@
 // directly") gets dev's "{name} joined the team" line in the everyone room and the team.joined notice (docs/DECISIONS.md
 // "A new member is told to the team"; "Add directly" is the case this branch adds); the join pages name the inviter; no
 // connection template notice at join; the welcome card's state, for the caller only; the owner's own card ("My
-// setup", docs/decisions/20261120-my-setup-card.md), made when the team setup ends.
+// setup", docs/decisions/20261120-my-setup-card.md), made on the owner's first read while the setup is open and
+// restarted when it ends (docs/decisions/20261128-owner-personal-onboarding.md; the late-card rule in full:
+// b-owner-late-card.test.ts).
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -241,10 +243,17 @@ describe('the join pages name the inviter', () => {
 })
 
 describe('the card', () => {
-  test('the team\'s creator gets none before the setup ends; neither does someone who joined before it existed', async () => {
-    expect(await welcome(owner)).toBeNull()
+  test('the team\'s creator gets the owner card on the first read, the setup still open; someone here longer than 30 days without a row gets none', async () => {
+    expect(await welcome(owner)).toMatchObject({ kind: 'owner', inviter: null, setupOpen: true, allSet: false })
+    const ownerId = (h.ctx.db.query("SELECT id FROM users WHERE role = 'owner' LIMIT 1").get() as { id: string }).id
+    // made by that read: the owner's card, holding no connection template notices
+    const r = h.ctx.db.query('SELECT setup, apps_seen_at FROM member_welcome WHERE user_id = ?').get(ownerId) as { setup: number; apps_seen_at: string | null }
+    expect(r.setup).toBe(1)
+    expect(r.apps_seen_at).not.toBeNull()
     h.ctx.db.query('DELETE FROM member_welcome WHERE user_id = ?').run(adamId)
+    h.ctx.db.query("UPDATE users SET created_at = '2000-01-01T00:00:00.000Z' WHERE id = ?").run(adamId)
     expect(await welcome(adam)).toBeNull()
+    expect(h.ctx.db.query('SELECT 1 FROM member_welcome WHERE user_id = ?').get(adamId)).toBeNull()
   })
 
   test('rows: hi after any room message, photo, asked, tools; all set for a while, then gone for good', async () => {
@@ -331,28 +340,30 @@ describe('the card', () => {
 })
 
 describe('the owner\'s own card ("My setup")', () => {
-  test('made when the team setup ends: its own rows, only tools counts, 14 days from the end, Hide and show again', async () => {
-    // the setup unfinished: none
-    expect(await welcome(owner)).toBeNull()
-    await owner.call('PATCH', '/api/onboarding/welcome', {})
-    expect(await welcome(owner)).toBeNull()
-    // the end screen ("자료 없이 해 볼게요" ends the steps too)
-    await owner.call('PATCH', '/api/onboarding/welcome', { finish: true })
-    const w = await welcome(owner)
-    expect(w).toMatchObject({ kind: 'owner', inviter: null, steps: { tools: false }, allSet: false })
-    const row = h.ctx.db.query('SELECT setup, via, invited_by, joined_at FROM member_welcome WHERE user_id = (SELECT id FROM users WHERE role = \'owner\' LIMIT 1)').get() as { setup: number; via: string; invited_by: string | null; joined_at: string }
-    expect(row).toMatchObject({ setup: 1, via: 'invite', invited_by: null })
-    expect(Date.now() - Date.parse(row.joined_at)).toBeLessThan(60_000)
+  test('tools and asked count; an open setup holds "all set"; the end restarts its days; Hide and show again', async () => {
     const ownerId = (h.ctx.db.query("SELECT id FROM users WHERE role = 'owner' LIMIT 1").get() as { id: string }).id
-    // a second end keeps the row as it is
-    await owner.call('PATCH', '/api/onboarding/welcome', { finish: true })
-    expect((h.ctx.db.query('SELECT joined_at FROM member_welcome WHERE user_id = ?').get(ownerId) as { joined_at: string }).joined_at).toBe(row.joined_at)
+    // the card from the first read (above), 10 days into its 14, the setup still open
+    await owner.call('PATCH', '/api/onboarding/welcome', {})
+    h.ctx.db.query('UPDATE member_welcome SET joined_at = ? WHERE user_id = ?').run(new Date(Date.now() - 10 * 86_400_000).toISOString(), ownerId)
+    expect(await welcome(owner)).toMatchObject({ kind: 'owner', setupOpen: true, steps: { tools: false, asked: false }, allSet: false })
     // Hide and show again
     expect(await owner.call('PATCH', '/api/me/welcome', { hide: true })).toMatchObject({ welcome: null, hidden: true })
     expect((await owner.call('PATCH', '/api/me/welcome', { show: true })).welcome).toMatchObject({ kind: 'owner' })
-    // tools done: all set (hi and asked are a member's rows, never holding the owner's card back)
+    // both personal rows done (hi is never the owner's): still not all set while the setup is open
+    expect((await owner.call('PATCH', '/api/me/welcome', { asked: true })).welcome).toMatchObject({ steps: { asked: true, tools: false }, allSet: false })
     connectDrive(ownerId)
-    expect(await welcome(owner)).toMatchObject({ kind: 'owner', steps: { tools: true }, allSet: true })
+    expect(await welcome(owner)).toMatchObject({ steps: { tools: true, asked: true, hi: false }, setupOpen: true, allSet: false })
+    // the end screen ("자료 없이 해 볼게요" ends the steps too): the setup is over, the days restart from the end
+    await owner.call('PATCH', '/api/onboarding/welcome', { finish: true })
+    const row = h.ctx.db.query('SELECT setup, via, invited_by, joined_at FROM member_welcome WHERE user_id = ?').get(ownerId) as { setup: number; via: string; invited_by: string | null; joined_at: string }
+    expect(row).toMatchObject({ setup: 1, via: 'invite', invited_by: null })
+    expect(Date.now() - Date.parse(row.joined_at)).toBeLessThan(60_000)
+    const w = await welcome(owner)
+    expect(w).toMatchObject({ kind: 'owner', allSet: true })
+    expect(w.setupOpen).toBeUndefined()
+    // a second end keeps the row as it is
+    await owner.call('PATCH', '/api/onboarding/welcome', { finish: true })
+    expect((h.ctx.db.query('SELECT joined_at FROM member_welcome WHERE user_id = ?').get(ownerId) as { joined_at: string }).joined_at).toBe(row.joined_at)
     // the days count from the setup's end
     h.ctx.db.query("UPDATE member_welcome SET done_at = NULL, joined_at = '2000-01-01T00:00:00.000Z' WHERE user_id = ?").run(ownerId)
     expect(await welcome(owner)).toBeNull()
@@ -360,7 +371,7 @@ describe('the owner\'s own card ("My setup")', () => {
 })
 
 describe('a new owner', () => {
-  test('an invited person handed the team: their member card is over (the row hidden at the handover); with the team setup ended lately, the owner\'s card instead', async () => {
+  test('an invited person handed the team: their member card is over; new here and with no connection of their own, a fresh owner card at the handover', async () => {
     const inv = await owner.call('POST', '/api/admin/invites', {})
     const c = guest()
     const r = await c.call('POST', `/api/invites/${inv.token}/accept`, { username: 'leah', name: 'Leah Lead', password: PW })
@@ -368,13 +379,11 @@ describe('a new owner', () => {
     expect(await welcome(c)).not.toBeNull()
     await c.call('GET', '/api/me')
     await owner.call('POST', '/api/admin/transfer-ownership', { userId: id, password: OWNER_PW })
-    expect((h.ctx.db.query('SELECT hidden_at FROM member_welcome WHERE user_id = ?').get(id) as { hidden_at: string | null }).hidden_at).not.toBeNull()
-    // the team setup ended in this file's owner test, within 14 days: the new owner's next Home read is the owner's
-    // card (my-setup.ts, docs/decisions/20261120-my-setup-card.md), never the member's
+    // the hidden member row became the owner's card at the handover (ensureOwnCard), its days from then
+    expect(h.ctx.db.query('SELECT setup, hidden_at, invited_by FROM member_welcome WHERE user_id = ?').get(id)).toMatchObject({ setup: 1, hidden_at: null, invited_by: null })
     expect(await welcome(c)).toMatchObject({ kind: 'owner', inviter: null })
     // an owner never gets a member's card, even with a row that is not hidden (only the setup's own card, setup = 1)
     h.ctx.db.query('UPDATE member_welcome SET setup = 0, hidden_at = NULL WHERE user_id = ?').run(id)
-    h.ctx.db.query("UPDATE settings SET value = json_set(value, '$.finishedAt', '2000-01-01T00:00:00.000Z') WHERE key = 'onboarding.welcome'").run()
     expect(await welcome(c)).toBeNull()
   })
 })

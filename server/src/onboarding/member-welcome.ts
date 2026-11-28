@@ -9,12 +9,15 @@
 // for the person's first successful sign-in (firstSignIn, from auth/service.ts signIn), once: an account made by an
 // admin has not joined until its person is here, and one deleted or disabled before that is never announced. Its welcome days count from that sign-in. The
 // team's creator gets a row of their own when the team setup reaches its end screen ("My setup", my-setup.ts,
-// docs/decisions/20261120-my-setup-card.md: `setup = 1`, its days from then).
+// docs/decisions/20261120-my-setup-card.md: `setup = 1`, its days from then). Every other new owner and admin gets
+// theirs late, on their first read of the card (ensureOwnCard, docs/decisions/20261128-owner-personal-onboarding.md):
+// an account at most LATE_CARD_DAYS old that never had a connection of its own.
 //
 // welcomeOf is the card on Home, for the caller only: who invited them, how many people are here, their rooms and the
 // rows (tools: a connection of their own, counted; hi: any message of theirs in a room; photo: optional; asked: the
 // "what can I do here" chat; files: optional, a file in their My files › From this computer, which the desktop app's
-// row shows). The owner's card ('owner') counts only tools (its rows: tools, photo, files). It shows for
+// row shows). The owner's card ('owner') counts tools and asked (its rows: the team setup's way back while it is open,
+// tools, asked, photo, files; no hi), and is all set only once the team setup is over too (`setupOpen`). It shows for
 // MEMBER_WELCOME_DAYS after joining (the owner: after the setup's end), until hidden or done; once every counted row is
 // done it says "You're all set" for ALL_SET_MS, then it is gone for good. A card hidden while its days last can be
 // shown again (Settings › Profile: `hidden` in the answer, PATCH { show }). An admin's "팀 파일 정리하기" (Admin › Home)
@@ -34,14 +37,15 @@ import { profileOf } from '../auth/profiles'
 import { notifyTeamJoined } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
 import { filesOrganized } from './files-organize'
-import { DISMISS_HOLD_MS, readWelcome, welcomeOpened } from './welcome'
-import { startMySetup } from './my-setup'
+import { readWelcome, welcomeOpened } from './welcome'
 import { freeRoamOf } from '../demo/free-roam'
 
 export type JoinVia = 'team_link' | 'invite' | 'admin'
 const DAY_MS = 86_400_000
 /** how long "You're all set" shows after the last row was done */
 export const ALL_SET_MS = 10 * 60_000
+/** a late card (ensureOwnCard) only for an account made at most this many days ago */
+export const LATE_CARD_DAYS = 30
 
 interface Row { user_id: string; invited_by: string | null; via: JoinVia; joined_at: string; hidden_at: string | null; asked_at: string | null; done_at: string | null; apps_seen_at: string | null; added_by: string | null; announced_at: string | null; setup: number; tools_at: string | null }
 
@@ -131,8 +135,29 @@ function hasOwnTool(db: Database, userId: string): boolean {
     || !!db.query("SELECT 1 FROM drive_connections WHERE user_id = ? AND status = 'connected' LIMIT 1").get(userId)
 }
 
-/** The rows that count toward "done": the owner's card only "Connect your tools", a member's also hi and asked. */
-export const countedDone = (kind: 'owner' | 'member', s: MemberWelcome['steps']) => (kind === 'owner' ? [s.tools] : [s.tools, s.hi, s.asked]).every(Boolean)
+/** They ever had a connection of their own, in any state: one there now (connected or not), or one made and ended
+ * since (the audit keeps it: a disconnect deletes the row). A late card never appears the day after someone ended their
+ * only tool. The audit is read from the account's creation on (`since`): nothing of theirs is older, and the range uses
+ * audit_log's only index (`at`), so this read on Home stays a short range, not a scan of the whole log. */
+function everHadOwnConnection(db: Database, userId: string, since: string): boolean {
+  return !!db.query("SELECT 1 FROM integrations WHERE scope = 'personal' AND owner_user_id = ? LIMIT 1").get(userId)
+    || !!db.query('SELECT 1 FROM drive_connections WHERE user_id = ? LIMIT 1').get(userId)
+    || !!db.query(`SELECT 1 FROM audit_log WHERE at >= ? AND actor_id = ? AND (action IN ('drive.connected', 'google_app.connected')
+      OR (action = 'integration.create' AND json_extract(detail, '$.scope') = 'personal')) LIMIT 1`).get(since, userId)
+}
+
+/** The rows that count toward "done": the owner's card tools and asked, and not while the team setup is open
+ * (`setupOpen`: "all set" never shows over an unfinished team); a member's tools, hi and asked. */
+export const countedDone = (kind: 'owner' | 'member', s: MemberWelcome['steps'], setupOpen = false) =>
+  kind === 'owner' ? !setupOpen && [s.tools, s.asked].every(Boolean) : [s.tools, s.hi, s.asked].every(Boolean)
+
+/** The team setup is open for this owner: its row exists, is neither finished nor hidden (✕). Owner role only: an
+ * ex-owner, now an admin, who keeps an owner card is never held by steps they can no longer open. */
+function setupOpenFor(ctx: AppContext, role: string): boolean {
+  if (role !== 'owner') return false
+  const p = readWelcome(ctx)
+  return !!p && !p.finishedAt && !p.dismissedAt
+}
 
 type Shown = { row: Row; role: string; kind: 'owner' | 'member' } | null
 /** The card's row and the person's role while a card can be theirs (within its days, not done a while ago, not a
@@ -161,7 +186,8 @@ export function welcomeOf(ctx: AppContext, userId: string, now = Date.now()): Me
     // a team that lets nobody connect their own (personalIntegrations off), or every tool the row offers connected by
     // the team for everyone (tools_at, the card says so): nothing here to do, not held back by it
     tools: demo || hasOwnTool(db, userId) || getTeamSettings(db).personalIntegrations === false || !!r.tools_at }
-  const allSet = countedDone(c.kind, steps)
+  const setupOpen = c.kind === 'owner' && setupOpenFor(ctx, c.role)
+  const allSet = countedDone(c.kind, steps, setupOpen)
   if (allSet && !r.done_at) db.query('UPDATE member_welcome SET done_at = ? WHERE user_id = ? AND done_at IS NULL').run(new Date(now).toISOString(), userId)
   const ref = (id: string | null) => id ? db.query('SELECT id, name FROM users WHERE id = ? AND deleted_at IS NULL').get(id) as { id: string; name: string } | null : null
   const owner = db.query("SELECT id, name FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL ORDER BY created_at LIMIT 1").get() as { id: string; name: string } | null
@@ -175,6 +201,7 @@ export function welcomeOf(ctx: AppContext, userId: string, now = Date.now()): Me
     owner,
     steps,
     allSet,
+    ...(setupOpen ? { setupOpen: true as const } : {}),
     ...(demo ? { demo: true as const } : {}),
   }
 }
@@ -182,7 +209,7 @@ export function welcomeOf(ctx: AppContext, userId: string, now = Date.now()): Me
 /** The answer of GET/PATCH /api/me/welcome: the card, whether a hidden one can be shown again, and an admin's
  * "팀 파일 정리하기" for Admin › Home (no folder plan applied yet; the step needs the team's steps row). */
 export function welcomeAnswer(ctx: AppContext, userId: string, now = Date.now()): MemberWelcomeResponse {
-  backfillOwner(ctx, userId, now)
+  ensureOwnCard(ctx, userId, now)
   const welcome = welcomeOf(ctx, userId, now)
   const c = welcome ? null : cardRow(ctx.db, userId, now)
   const hidden = !!c?.row.hidden_at && !c.row.done_at
@@ -192,21 +219,37 @@ export function welcomeAnswer(ctx: AppContext, userId: string, now = Date.now())
 }
 
 /**
- * An owner whose team setup ended (its end screen, or ✕ on the steps held) before the card existed: their own card on
- * this read, its 14 days counted from that end, so one that ended longer ago gets none. Only while they have no owner
- * card (a hidden or finished one stays as it is). Never throws.
+ * A late card for a new owner or admin (docs/decisions/20261128-owner-personal-onboarding.md): on every read of the
+ * card (GET /api/me/welcome: Home, Settings › Profile, Admin › Home) and at a handover (admin/users.ts
+ * transferOwnership). An active owner or admin, not a guest, whose account is at most LATE_CARD_DAYS old, who never had
+ * a connection of their own (in any state), on a team that lets people connect their own and that is no demo, and who
+ * has no row yet, or only the hidden member row of an owner (the handover's hide): an owner gets the owner card
+ * (`setup = 1`), an admin a member row (no inviter). Its days count from this write (the first read, on any device: one
+ * synchronous INSERT, so two devices make one row). `apps_seen_at` is set with it: a late card holds no connection
+ * template notices (only the cards made at a join or at the setup's end do). Any other row stays as it is. Never throws.
  */
-function backfillOwner(ctx: AppContext, userId: string, now: number) {
+export function ensureOwnCard(ctx: AppContext, userId: string, now = Date.now()): void {
   try {
-    const owner = ctx.db.query("SELECT 1 FROM users WHERE id = ? AND role = 'owner' AND deleted_at IS NULL").get(userId)
-    if (!owner || ctx.db.query('SELECT 1 FROM member_welcome WHERE user_id = ? AND setup = 1').get(userId)) return
-    const p = readWelcome(ctx)
-    if (!p) return
-    const dismissed = p.dismissedAt && now - Date.parse(p.dismissedAt) >= DISMISS_HOLD_MS ? p.dismissedAt : null
-    const ended = p.finishedAt ?? dismissed
-    if (!ended || ended < welcomeSince(now)) return
-    startMySetup(ctx, userId, ended)
-  } catch (e) { ctx.log.warn('the owner\'s setup card was not backfilled', { err: e }) }
+    const db = ctx.db
+    // the demo company's people and a free-roam instance: the demo's own screen keeps Home
+    if (ctx.config?.demo || freeRoamOf(ctx)) return
+    const u = db.query('SELECT role, guest, status, deleted_at, created_at FROM users WHERE id = ?').get(userId) as { role: string; guest: number; status: string; deleted_at: string | null; created_at: string } | null
+    if (!u || u.guest || u.status !== 'active' || u.deleted_at || (u.role !== 'owner' && u.role !== 'admin')) return
+    if (u.created_at < new Date(now - LATE_CARD_DAYS * DAY_MS).toISOString()) return
+    const r = rowOf(db, userId)
+    const owner = u.role === 'owner'
+    // a row that still counts (shown, hidden, finished, outlived) stays; only an owner's hidden member row is replaced
+    if (r && !(owner && !r.setup && r.hidden_at)) return
+    if (getTeamSettings(db).personalIntegrations === false || everHadOwnConnection(db, userId, u.created_at)) return
+    const at = new Date(now).toISOString()
+    if (!r) {
+      db.query("INSERT INTO member_welcome (user_id, invited_by, via, joined_at, setup, apps_seen_at) VALUES (?, NULL, 'invite', ?, ?, ?) ON CONFLICT(user_id) DO NOTHING")
+        .run(userId, at, owner ? 1 : 0, at)
+      return
+    }
+    db.query(`UPDATE member_welcome SET setup = 1, invited_by = NULL, joined_at = ?, hidden_at = NULL, asked_at = NULL, done_at = NULL, tools_at = NULL, apps_seen_at = ?
+      WHERE user_id = ? AND setup = 0 AND hidden_at IS NOT NULL`).run(at, at, userId)
+  } catch (e) { ctx.log.warn('the late personal card was not made', { err: e }) }
 }
 
 /** Hide, show again (while its days last), "asked", or "tools" (every tool the row offers is the team's: nothing left
