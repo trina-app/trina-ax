@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-27 14:22
 - Branch: `plan/team-icon-from-site` (build branch: `feat/team-icon-from-site`)
-- Status: draft
+- Status: done
 - Where: server/src/onboarding (new `site-icon.ts`), server/src/admin/team-icon.ts, routes, web Welcome step and
   Admin › Team settings. Why: onboarding already reads the company website; its icon can become the team logo without
   the owner finding and uploading a file (docs/REPOSITORY-RULES.md: onboarding and admin areas).
@@ -253,4 +253,19 @@ Read as a security reviewer:
 
 ## Result
 
-Filled in at the end.
+Built as planned on `feat/team-icon-from-site`; decision `docs/decisions/20261128-team-icon-from-site.md` (named by the
+branch, dated the day it was written), note `changes/team-icon-from-site.md`.
+
+- Picker `server/src/onboarding/site-icon.ts`; staged as `<chat>/site-icon.{png,jpg,webp}` + `site-icon.json` by the
+  collector (first page with markup, not on a shared platform's page); `assets.icon: true` only when staged.
+- Onboarding: `placeBrand(..., { siteIcon: true })` from the owner's press only, before the sweep; `applySiteIcon` uses
+  the staged icon once (an undo stays undone). `saveTeamIconIfAbsent` links a temp file; `removeTeamIcon(dir, version)`
+  returns `stale` (409 on the route).
+- Admin: `POST /api/admin/team-icon/from-site` (admin/team-icon-site.ts): saved website only, single flight, generic
+  "not found", refused while the exit address is unknown unless `MYCEL_EXIT_ADDRESS_CHECK=off` (there web_fetch asks
+  a person, and this press is one).
+- Changed from the plan after QA: `<img>` logos count only by class, id or file name, never alt text alone, and only
+  in the page's first 400 tags (a portrait product photo with alt "… Logo Embroidery Hoodie" passed the 1.25 ratio).
+- QA (2026-11-28, private dev copy with its local relay, the real route): 23 public sites, 14 icons, 8 none, the shared
+  platform none by rule; screenshots at 1440 / 390, light / dark, all readable. No shop tested got a builder's default.
+
