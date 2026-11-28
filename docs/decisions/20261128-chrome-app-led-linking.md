@@ -36,12 +36,24 @@
 - **Why not External Extensions (install in every profile):** dropped by the review: Chrome shows each as a disabled
   "another program added an extension" prompt, Linux has no per-user path, and the store page in each profile is one
   click anyway.
-- **Residual risk:** a process of the same OS user can talk to the socket or start the helper; it still needs a live
-  nonce, which is only in the browser's command line (visible to that user's `ps` for a moment). The app cannot see
-  which profile presents a nonce (Chrome does not tell the helper); a nonce is spent once and names the profile it was
-  minted for. Every link through the app shows the notice with Undo and is audited (`chrome.link`). The app cannot
-  check the helper's signature by the socket's peer (Node has no peer pid, and any same-user process could run the
-  signed helper itself).
+- **Rule, checks on the way:** the nonce is also bound to the team on the app's screen when it opened the profile (a
+  team switch in between: `no_team`, Connect again). A release helper (built with the Developer ID team) talks only to
+  a socket served by a program signed by that team (the socket's peer pid, Security framework) and ignores the
+  development socket override, so a program of this user that takes the socket's place gets nothing to answer. A
+  profile is named after the browser's own profile name, never its email (the email shows next to it where only the
+  person sees it, never in a shared chat's prompt).
+- **Residual risk (security review finding 1, open for the owner):** a program running as the same OS user can rewrite
+  the per-user host manifest to point at its own program, open the pair page itself and answer with a server of its
+  own: the extension then links to that server with no click and its debugger permission drives that profile's tabs.
+  The extension cannot tell the real app from such a program (the manifest folder is the user's). The pair page shows
+  the team's name and address when it linked, and every link shows in Settings with Disconnect. The cure is one click
+  in the pair page ("Connect to <team> (<address>)") for a team address the profile has not used before; it was not
+  taken, because the owner asked for no click (Rule A). A program of the same user can already read that user's
+  files; what it gains here is a lasting hold on a signed-in browser profile.
+- **Residual risk, smaller:** the nonce is in the browser's command line for a moment (`ps`, this user only); the app
+  cannot see which profile presents a nonce (Chrome does not tell the helper); a nonce is spent once and names the
+  profile it was minted for. Every link through the app shows the notice with Undo (only for a link of this person
+  made in the last 5 minutes) and is audited (`chrome.link`).
 - **Left out:** the Windows and Linux helper (Windows: HKCU registry; the list and the store page could work there
   first), one install serving several teams, the store ids (filled in once the Chrome Web Store and Edge Add-ons gave
   them; until then a packaged app writes no host manifest, and its list offers only the store page).
