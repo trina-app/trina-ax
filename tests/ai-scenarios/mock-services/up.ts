@@ -1,5 +1,7 @@
 // Start the MOCK services (server.ts) behind a cloudflared quick tunnel, and connect them for the fixture's people as
-// their own MCP connections through the public API (kind mcp, a bearer key, "ask before changing"). Everything this
+// their own MCP connections through the public API (kind mcp, a bearer key, "ask before changing"; the browser app
+// "Always allow", as people set an app on their computer they let drive the browser: a card on every click and key
+// would measure the cards, not the work). Everything this
 // starts is recorded by pid in <home>/mocks.json and stopped by `down` (those pids only).
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -54,7 +56,7 @@ export async function mocksUp(o: { home: string; base: string; port?: number; lo
       const name = def.title.replace(' (mock)', '')
       for (const x of mine.filter((i) => i.name === name)) await api.call(API.deleteIntegration, { params: { id: x.id } }).catch(() => {})
       try {
-        const made = await api.call(API.createIntegration, { body: { kind: 'mcp', name, url: `${url}/${svc}/mcp`, auth: 'bearer', secret: key, writePolicy: 'ask', notes: 'Test connection to a mock service (AI scenarios).' } })
+        const made = await api.call(API.createIntegration, { body: { kind: 'mcp', name, url: `${url}/${svc}/mcp`, auth: 'bearer', secret: key, writePolicy: svc === 'browser' ? 'allow' : 'ask', notes: 'Test connection to a mock service (AI scenarios).' } })
         await api.call(API.refreshIntegration, { params: { id: made.id }, body: {} }).catch((e) => o.log(`refresh ${u}/${svc}: ${e instanceof Error ? e.message : e}`))
         ;(m.connected[u] ??= []).push(svc)
       } catch (e) { o.log(`connect ${u}/${svc}: ${e instanceof ApiError ? `${e.status} ${e.message}` : e}`) }
