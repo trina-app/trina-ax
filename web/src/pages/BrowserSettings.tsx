@@ -14,6 +14,8 @@
 //   elsewhere in the page's confirm. The server can make the desktop's browser stricter, never wider, so a value turned
 //   on elsewhere (an address card, another device) leaves this computer's browser asking: one line says so, with
 //   [Allow here too] (the app's window).
+// - "Your Chrome" (components/settings/ChromeLink.tsx; docs/decisions/20261128-trina-in-chrome.md): on a computer, under
+//   the rest (or alone, on the web while "Allow all websites" is not in play): the AI's browser in the person's own Chrome.
 // - A phone shows this as a part of 트리나에게 허용한 것 (`part`, pages/Settings.tsx): a heading and one switch for "Allow all
 //   websites" (the server value; a phone has no in-app browser), turned on after the same risk question.
 import clsx from 'clsx'
@@ -27,6 +29,7 @@ import { useMeStrict, useSession } from '../store/session'
 import { toast } from '../store/ui'
 import { Badge, Button, Skeleton, Switch, confirmDialog } from '../components/ui'
 import { Tooltip } from '../components/Tooltip'
+import { ChromeLinkSettings } from '../components/settings/ChromeLink'
 
 export interface BrowserSettingsViewProps {
   /** the desktop app's in-app browser setting; null while the app answers; undefined outside the desktop app */
@@ -183,8 +186,9 @@ export function confirmWebAllowAll(t: ReturnType<typeof useT>, locale: keyof typ
   })
 }
 
-/** The section: the desktop app's browser when `bridge` is there, the server value while the team allows it. */
-export function BrowserSettings({ bridge, part = false }: { bridge: BrowserSettingsBridge | null; part?: boolean }) {
+/** The section: the desktop app's browser when `bridge` is there, the server value while the team allows it, and "Your
+ * Chrome" on a computer (`chrome`, settingsTabs.ts chromeLinkHere). */
+export function BrowserSettings({ bridge, part = false, chrome = false }: { bridge: BrowserSettingsBridge | null; part?: boolean; chrome?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
@@ -193,6 +197,8 @@ export function BrowserSettings({ bridge, part = false }: { bridge: BrowserSetti
   const webOn = me.user.webAllowAll === true
   const [s, setS] = useState<DesktopBrowserSettings | null>(null)
   const [confirming, setConfirming] = useState(false)
+  const [webSeen, setWebSeen] = useState(webOn)
+  useEffect(() => { if (webOn) setWebSeen(true) }, [webOn])
   // read again when the team's policy or the person's value changes (the realtime notices refresh Me): the app then
   // re-reads GET /api/me itself and follows an off
   useEffect(() => {
@@ -300,7 +306,12 @@ export function BrowserSettings({ bridge, part = false }: { bridge: BrowserSetti
     if (!(await confirmDialog({ title: t('settings.browser.clearTitle'), body: t('settings.browser.clearBody'), confirm: t('settings.browser.clear'), danger: true }))) return
     bridge.clearSites().then((x) => x && setS(x), fail)
   }
-  return (
+  const chromeHere = chrome && !part
+  // on the web "Allow all websites" is here only while it is on (turned on by an address card), and stays after it is
+  // turned off here until the page closes, as the dialog keeps the section (SettingsDialog.tsx): else "Your Chrome" is
+  // the whole page
+  if (chromeHere && !bridge && !(teamWeb && webSeen)) return <div data-testid="browser-settings-chrome"><ChromeLinkSettings /></div>
+  const view = (
     <BrowserSettingsView
       settings={bridge ? s : undefined}
       web={teamWeb ? { on: webOn } : undefined}
@@ -313,4 +324,5 @@ export function BrowserSettings({ bridge, part = false }: { bridge: BrowserSetti
       asSwitch={part}
     />
   )
+  return chromeHere ? <>{view}<ChromeLinkSettings /></> : view
 }

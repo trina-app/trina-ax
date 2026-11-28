@@ -87,14 +87,13 @@ function fakeDesktop() {
 
 const desktop = (page: Page) => page.evaluate(() => (window as unknown as { __desktop: { s: { siteAccess: string; always: string[]; privateAlways: string[] }; dialogs: number } }).__desktop)
 
-test('in a normal browser there is no Browser section (the value lives in the desktop app)', async ({ page }) => {
+test('in a normal browser on a computer the Browser section holds only "Your Chrome" (the in-app browser\'s value lives in the desktop app)', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.goto('/settings')
-  await expect(page.getByRole('link', { name: '보안·기기' })).toBeVisible()
-  await expect(page.getByRole('link', { name: '브라우저', exact: true })).toHaveCount(0)
-  await page.goto('/settings/browser')
-  await expect(page).toHaveURL(/\/settings$/)
+  await page.getByRole('link', { name: '브라우저', exact: true }).click()
+  await expect(page).toHaveURL(/\/settings\/browser$/)
+  await expect(page.getByTestId('chrome-link')).toBeVisible()
   await expect(page.getByTestId('browser-settings')).toHaveCount(0)
 })
 
@@ -109,11 +108,11 @@ test('on the web the Browser section is there only while the person\'s own "Allo
   await page.getByTestId('browser-access-ask').click()
   await expect(page.getByTestId('browser-access-ask')).toBeChecked()
   await expect(page.getByTestId('browser-all-on')).toHaveCount(0)
-  // it does not vanish under the person's hand; the next time Settings opens it is gone
+  // it does not vanish under the person's hand; the next time Settings opens it is gone (the section keeps "Your Chrome")
   await expect(page.getByTestId('browser-settings')).toBeVisible()
-  await page.goto('/settings')
-  await expect(page.getByRole('link', { name: '보안·기기' })).toBeVisible()
-  await expect(page.getByRole('link', { name: '브라우저', exact: true })).toHaveCount(0)
+  await page.goto('/settings/browser')
+  await expect(page.getByTestId('chrome-link')).toBeVisible()
+  await expect(page.getByTestId('browser-settings')).toHaveCount(0)
 })
 
 test('desktop app: Settings > Browser shows the same setting; "all" only after the app\'s confirmation; the admin can turn the choice off', async ({ page }) => {

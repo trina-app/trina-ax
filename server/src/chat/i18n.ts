@@ -185,6 +185,8 @@ export const TEXT = {
   // a path in a tool call that named a file copied into this shared chat was the chat's copy (chat/copy-paths.ts;
   // review of #355): the AI tells the person, the creator too, that their own team file did not change
   copyPathMapped: t('이 경로는 이 채팅의 사본이에요. 원본 파일은 그대로예요.', 'This path is this chat\'s copy. The original file is unchanged.', 'Jalur ini adalah salinan di chat ini. File aslinya tidak berubah.', 'このパスはこのチャットのコピーです。元のファイルはそのままです。', 'Esta ruta es la copia de este chat. El archivo original no cambia.', '此路径是此聊天中的副本。原文件保持不变。'),
+  /** a public site the AI wants in the person's own Chrome (chat/tools.ts askChromeSite; docs/decisions/20261128-trina-in-chrome.md) */
+  chromeSite: t("AI가 내 브라우저 프로필 '{profile}'에서 {host}을(를) 써도 될까요?", "May the AI use {host} in your browser profile '{profile}'?", "Bolehkan AI memakai {host} di profil browser Anda '{profile}'?", "AIがあなたのブラウザープロフィール「{profile}」で{host}を使ってもよろしいですか？", "¿Puede la IA usar {host} en su perfil de navegador «{profile}»?", "允许AI在你的浏览器配置文件“{profile}”中使用{host}吗？"),
   browserSite: t('사내망 주소 {host}를 열어도 될까요?', 'May the AI open the office-network address {host}?', 'Bolehkan AI membuka alamat jaringan kantor {host}?', "AIが社内ネットワークのアドレス{host}を開いてもよろしいですか？", "¿Puede la IA abrir la dirección de red interna {host}?", "允许AI打开办公网络地址{host}吗？"),
   /** the desktop browser reached a page that shows a key (chat/browser-keys.ts): the AI hands over with this sentence */
   browserKeyHandOver: t('여기서부터는 직접 해 주세요. 키를 복사해서 연결 카드에 붙여 넣으면 돼요.', 'Please take it from here. Copy the key and paste it into the connection card.', 'Silakan lanjutkan sendiri dari sini. Salin kuncinya, lalu tempel di kartu koneksi.', 'ここからはご自身で操作してください。キーをコピーして、接続カードに貼り付けてください。', 'A partir de aquí, siga usted. Copie la clave y péguela en la tarjeta de conexión.', '接下来请你自己操作。把密钥复制下来，粘贴到连接卡片里就行。'),
@@ -662,6 +664,19 @@ export const TEXT = {
     "このチャットの他の人も、AIがあなたのブラウザーから取得した内容を見られます。ゲスト（チーム外の人）もいます。",
     'Las demás personas de este chat también pueden ver lo que la IA obtenga de su navegador, incluido un invitado (alguien de fuera del equipo).',
     '这个对话里的其他人也能看到 AI 从你的浏览器获取的内容，其中包括访客（团队以外的人）。'),
+  /** the same notice when the browser is the person's own Chrome (docs/decisions/20261128-trina-in-chrome.md) */
+  sharedBrowserWarnChrome: t('이 채팅의 다른 사람도 AI가 내 Chrome에서 가져온 내용을 볼 수 있어요. 내 Chrome은 내가 로그인한 계정 그대로 열려요.',
+    'Other people in this chat can also see what the AI gets from your own Chrome, which is signed in to your accounts.',
+    'Orang lain di obrolan ini juga bisa melihat apa yang AI ambil dari Chrome Anda sendiri, yang masuk dengan akun-akun Anda.',
+    "このチャットの他の人も、AIがあなた自身のChromeから取得した内容を見られます。Chromeはあなたのアカウントにログインしたままです。",
+    'Las demás personas de este chat también pueden ver lo que la IA obtenga de su propio Chrome, que tiene sus cuentas abiertas.',
+    '这个对话里的其他人也能看到 AI 从你自己的 Chrome 获取的内容，你的 Chrome 登录着你的账号。'),
+  sharedBrowserWarnChromeGuest: t('이 채팅의 다른 사람도 AI가 내 Chrome에서 가져온 내용을 볼 수 있어요. 내 Chrome은 내가 로그인한 계정 그대로 열려요. 여기에는 게스트(팀 밖의 사람)도 있어요.',
+    'Other people in this chat can also see what the AI gets from your own Chrome, which is signed in to your accounts, including a guest (someone outside the team).',
+    'Orang lain di obrolan ini juga bisa melihat apa yang AI ambil dari Chrome Anda sendiri, yang masuk dengan akun-akun Anda, termasuk tamu (orang di luar tim).',
+    "このチャットの他の人も、AIがあなた自身のChromeから取得した内容を見られます。Chromeはあなたのアカウントにログインしたままです。ゲスト（チーム外の人）もいます。",
+    'Las demás personas de este chat también pueden ver lo que la IA obtenga de su propio Chrome, que tiene sus cuentas abiertas, incluido un invitado (alguien de fuera del equipo).',
+    '这个对话里的其他人也能看到 AI 从你自己的 Chrome 获取的内容，你的 Chrome 登录着你的账号，其中包括访客（团队以外的人）。'),
   /** a shared chat where other people wrote or a guest is among the people: the asker's card before the AI acts in their
    * own browser (chat/turn.ts confirmSharedBrowserChange; docs/decisions/20261126-shared-chat-own-tools.md) */
   sharedBrowserConfirm: t('이 채팅에는 다른 사람이 쓴 메시지가 있어서, AI가 내 브라우저에서 무언가를 하기 전에 먼저 물어봐요. {ai}가 이 작업을 하려고 해요: {what}. 하게 할까요?',

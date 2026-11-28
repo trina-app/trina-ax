@@ -1,7 +1,7 @@
 // App-wide middleware, in order: request context -> security headers -> session -> CSRF -> (routes) -> access log.
 import type { Context, MiddlewareHandler } from 'hono'
 import { APP_RETURN_HEADER, APP_RETURN_KEY_HEADER, isInAppBrowserUserAgent } from '@mycel/shared'
-import { CSRF_HEADER, DEFAULT_LOCALE, LOCALE_HEADER, asLocale, uuidv7, type Locale } from '@mycel/shared/api'
+import { API, CSRF_HEADER, DEFAULT_LOCALE, LOCALE_HEADER, asLocale, uuidv7, type Locale } from '@mycel/shared/api'
 import { teamDefaultLocale } from '../admin/settings'
 import type { AppEnv } from './env'
 import { fail } from './errors'
@@ -18,12 +18,12 @@ function hasRoomApps(ctx: AppContext): boolean {
 
 /** Request path for logs: secrets in the path (invite and password reset links: the API and the web pages
  * /invite/<token>, /reset-password/<token> that the links open; an app's room address /in/<token>; a file_upload ticket
- * /api/browser/uploads/<ticket>) are replaced by
+ * /api/browser/uploads/<ticket> and /api/chrome/uploads/<ticket>) are replaced by
  * "***". */
 export function loggablePath(p: string): string {
   // an app's address may carry a token in its query too (a service that adds ?token=…): /in/ never logs a query
   if (/^\/in(\/|\?|$)/.test(p)) p = p.replace(/\?.*$/s, '')
-  return p.replace(/^(\/(?:api\/(?:invites|password-resets)|invite|reset-password|api\/connectors\/remote\/requests|api\/browser\/uploads|connector-uploads|connector-downloads|in)\/)[^/]+/, '$1***')
+  return p.replace(/^(\/(?:api\/(?:invites|password-resets)|invite|reset-password|api\/connectors\/remote\/requests|api\/browser\/uploads|api\/chrome\/uploads|connector-uploads|connector-downloads|in)\/)[^/]+/, '$1***')
 }
 
 /** An app's room address (rooms/apps/inbound.ts): POST /in/<a well-formed token>. */
@@ -275,9 +275,13 @@ export function originAllowed(origin: string, requestUrl: string, allowed: strin
  * invite / setup forms): the custom header must be present, Sec-Fetch-Site must not say cross-site, and an Origin,
  * when sent, must be this server or a configured public origin.
  */
+const CHROME_REDEEM_PATH = API.chromeRedeem.path
+
 export function csrf(ctx: AppContext): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    if (!SAFE.has(c.req.method) && c.req.path.startsWith('/api/') && c.get('auth')?.via !== 'bearer') {
+    // the linked Chrome's redeem (chrome/store.ts) comes from the extension's own origin and carries its own proof (a
+    // one-time code and the secret only that extension holds): no cookie is read there, so there is nothing to forge
+    if (!SAFE.has(c.req.method) && c.req.path.startsWith('/api/') && c.get('auth')?.via !== 'bearer' && c.req.path !== CHROME_REDEEM_PATH) {
       if (!c.req.header(CSRF_HEADER)) fail('csrf')
       if (c.req.header('sec-fetch-site') === 'cross-site') fail('csrf')
       const origin = c.req.header('origin')

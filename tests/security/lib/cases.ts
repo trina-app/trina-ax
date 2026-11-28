@@ -13,6 +13,7 @@ import { INTEGRATION_SPECS } from './integrations-cases'
 import { TEAM_ICON_SPECS } from './team-icon-cases'
 import { PEOPLE_SPECS } from './people-cases'
 import { REMOTE_MCP_SPECS } from './remote-mcp-cases'
+import { CHROME_SPECS } from './chrome-cases'
 import { PLUGIN_SPECS } from './plugin-cases'
 import { ROOM_SPECS } from './rooms-cases'
 import { ROOM_APP_SPECS } from './room-apps-cases'
@@ -140,6 +141,7 @@ export const SPECS: Record<string, Spec> = {
   ...TEAM_ICON_SPECS,
   ...PEOPLE_SPECS,
   ...REMOTE_MCP_SPECS,
+  ...CHROME_SPECS,
   ...PLUGIN_SPECS,
   ...ROOM_SPECS,
   ...ROOM_APP_SPECS,

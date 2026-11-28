@@ -18,6 +18,8 @@ import { newId } from '../db'
 import { Schedules } from './schedules'
 import { Hub, type HubOptions } from '../realtime/hub'
 import { BrowserRelay, type BrowserRelayOptions } from '../realtime/browser-relay'
+import { ChromeLinks } from '../chrome/links'
+import { unlink as unlinkChrome, unlinkAll as unlinkAllChrome } from '../chrome/store'
 import { LocalRelay } from '../realtime/local-relay'
 import { startPresence, type Presence, type PresenceOptions } from '../realtime/presence'
 import { startRoomTyping } from '../rooms/typing'
@@ -251,6 +253,8 @@ export class ChatRuntime {
   readonly schedules: Schedules
   readonly hub: Hub
   readonly relay: BrowserRelay
+  /** the Chromes people linked: their live connections (chrome/links.ts), windows `chrome:<linkId>` of the relay */
+  readonly chrome: ChromeLinks
   /** apps on the person's computer (realtime/local-relay.ts; integrations/connections/local.ts) */
   readonly localRelay: LocalRelay
   readonly presence: Presence
@@ -358,7 +362,13 @@ export class ChatRuntime {
     }
     this.hub = new Hub(ctx, o.hub)
     this.hub.onWindow((userId, windowId) => { try { this.windowCardsChanged(userId, windowId) } catch (e) { ctx.log.warn('chat update after a window change failed', { err: e }) } })
-    this.relay = new BrowserRelay(this.hub, ctx.log.child({ c: 'browser' }), o.relay)
+    this.chrome = new ChromeLinks(ctx, (userId, linkId) => { unlinkChrome(ctx.db, userId, linkId) })
+    // every session of a person ended (sign out everywhere, password changed, disabled, deleted): their Chrome too
+    this.hub.onUserEnded((userId) => {
+      try { unlinkAllChrome(ctx.db, userId) } catch (e) { ctx.log.warn('ending chrome links failed', { err: e }) }
+      this.chrome.dropUser(userId)
+    })
+    this.relay = new BrowserRelay(this.hub, ctx.log.child({ c: 'browser' }), o.relay, this.chrome)
     this.localRelay = new LocalRelay(this.hub, ctx.log.child({ c: 'local-apps' }), o.relay ? { windowGoneMs: o.relay.windowGoneMs, sweepMs: o.relay.sweepMs, pollStaleMs: o.relay.pollStaleMs, repollMs: o.relay.repollMs } : {})
     // online status from the same windows (docs/DECISIONS.md "접속 상태")
     this.presence = startPresence(this.hub, ctx, o.presence)
@@ -1541,6 +1551,7 @@ export class ChatRuntime {
       for (const e of execs) e.interruptForRequeue(cause)
       await Promise.race([Promise.all(execs.map((e) => e.done)), Bun.sleep(6000)])
       this.relay.close()
+      this.chrome.closeAll()
       this.localRelay.close()
       this.hub.close()
     })()

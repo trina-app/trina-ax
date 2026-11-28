@@ -4,8 +4,19 @@
 // deduplicated by callId on both sides, calls still open when a window reconnects are sent again, a window that stays
 // away fails the call, and only the person who owns the call can answer it. Subclasses name their frames.
 import type { ServerEventInput } from '@mycel/shared/api'
-import type { Hub } from './hub'
 import type { Logger } from '../log'
+
+/** What a relay needs from where its windows live: the realtime hub (desktop windows), or that plus the person's linked
+ * Chrome (chrome/links.ts, behind browser-relay.ts BrowserWindows). */
+export interface WindowTransport {
+  onWindow(l: (userId: string, windowId: string, state: 'open' | 'closed') => void): void
+  isWindowOpen(userId: string, windowId: string): boolean
+  paneOfWindow(userId: string, windowId: string): number | undefined
+  publishTo(userId: string, windowId: string, ev: ServerEventInput): unknown
+}
+/** window ids of linked Chromes (never a hub window's: those are the page's own random ids, without this prefix) */
+export const CHROME_WINDOW_PREFIX = 'chrome:'
+export const isChromeWindow = (windowId: string) => windowId.startsWith(CHROME_WINDOW_PREFIX)
 
 export interface WindowCall { callId: string; turnId?: string | null }
 
@@ -54,7 +65,7 @@ export abstract class CallRelay<C extends WindowCall, R> {
   private sweeper: ReturnType<typeof setInterval>
   protected o: Required<CallRelayOptions>
 
-  constructor(protected hub: Hub, protected log: Logger, private frames: CallFrames<C, R>, o: CallRelayOptions = {}) {
+  constructor(protected hub: WindowTransport, protected log: Logger, private frames: CallFrames<C, R>, o: CallRelayOptions = {}) {
     this.o = {
       callTimeoutMs: o.callTimeoutMs ?? 4 * 60_000,
       windowGoneMs: o.windowGoneMs ?? 60_000,
@@ -124,18 +135,24 @@ export abstract class CallRelay<C extends WindowCall, R> {
     if (p) for (const w of [...p.waiters]) w()
   }
 
-  /** The window has the call: it is not sent again after a reconnect. Only the caller's own calls. */
-  protected ack(userId: string, callId: string) {
-    const p = this.pending.get(callId)
-    if (p && p.userId === userId) p.acked = true
+  /** A call to a linked Chrome is answered only by that Chrome's own connection (`from`), never by a window of the page. */
+  private fromItsWindow(p: Pending<C, R>, from: string | undefined): boolean {
+    return !isChromeWindow(p.windowId) || from === p.windowId
   }
 
-  /** A result from the window (WebSocket frame or the long-poll's POST). Only the caller's own calls; once. */
-  result(userId: string, raw: unknown): boolean {
+  /** The window has the call: it is not sent again after a reconnect. Only the caller's own calls. */
+  ack(userId: string, callId: string, from?: string) {
+    const p = this.pending.get(callId)
+    if (p && p.userId === userId && this.fromItsWindow(p, from)) p.acked = true
+  }
+
+  /** A result from the window (WebSocket frame or the long-poll's POST; `from`: the window it came from, when known).
+   * Only the caller's own calls; once. */
+  result(userId: string, raw: unknown, from?: string): boolean {
     const r = this.frames.parse(raw)
     if (!r) return false
     const p = this.pending.get(r.callId)
-    if (!p || p.userId !== userId) return false
+    if (!p || p.userId !== userId || !this.fromItsWindow(p, from)) return false
     p.settle(r)
     return true
   }

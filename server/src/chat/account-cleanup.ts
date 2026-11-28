@@ -11,6 +11,8 @@ export function registerChatAccountCleanup(ctx: AppContext): void {
     rows: [
       'notification_inbox.user_id', 'notification_preferences.user_id', 'push_preferences.user_id', 'push_subscriptions.user_id',
       'chat_answer_notices.user_id', 'chat_card_approvals.user_id', 'chat_queue_users.user_id', 'browser_site_grants.user_id', 'chat_allowed_sites.user_id', 'user_allowed_sites.user_id',
+      // the Chromes they linked (chrome/store.ts): their link tokens, codes and browser choice
+      'chrome_links.user_id', 'chrome_pair_codes.user_id', 'user_browser_target.user_id',
       'project_notices.user_id', 'room_notices.user_id', 'room_app_notices.user_id', 'room_app_leaver_notices.user_id', 'room_thread_follows.user_id', 'room_hidden_answers.user_id', 'room_ai_grants.user_id',
       'schedule_outcomes.user_id', 'schedule_project_skips.user_id', 'schedule_template_requests.user_id', 'schedule_template_skips.user_id', 'schedules.user_id',
       'dev_env_jobs.user_id', 'dev_env_notices.user_id', 'dev_env_runs.user_id', 'dev_env_site_grants.user_id', 'dev_env_user_net.user_id',

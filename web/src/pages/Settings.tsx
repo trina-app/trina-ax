@@ -44,7 +44,7 @@ import { toast } from '../store/ui'
 import { ChangePasswordForm } from './Auth'
 import { MyCredentials } from './admin/Credentials'
 import { BrowserSettings } from './BrowserSettings'
-import { browserTabShown } from './settingsTabs'
+import { browserTabShown, chromeLinkHere } from './settingsTabs'
 import { browserSettingsBridge, clientKind, desktop, storeApp } from '../lib/desktop'
 import { mobileApp } from '../lib/mobile'
 import { pickTextSize, TEXT_SIZE_PERCENT, TEXT_SIZES, useTextSize } from '../lib/textSize'
@@ -89,6 +89,8 @@ export interface SettingsFold { browser: boolean; devEnvSites: boolean }
 export default function SettingsPane({ tab, fold }: { tab: string; fold?: SettingsFold }) {
   const me = useMeStrict()
   const browser = browserSettingsBridge()
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const chrome = chromeLinkHere({ phone, phoneApp: !!mobileApp(), freeRoam: useFreeRoam() })
   return (
     <>
       {tab === 'profile' && <Profile />}
@@ -97,7 +99,7 @@ export default function SettingsPane({ tab, fold }: { tab: string; fold?: Settin
       {tab === 'security-devices' && <Security all />}
       {tab === 'usage' && <MyUsage key={`${me.user.id}:${me.session.id}`} />}
       {/* the dialog decides whether the section is there (it stays after its switch is turned off) */}
-      {tab === 'browser' && browserTabShown(Boolean(browser), me.team.webAllowAll, true) && <BrowserSettings bridge={browser} />}
+      {tab === 'browser' && browserTabShown(Boolean(browser), me.team.webAllowAll, true, chrome) && <BrowserSettings bridge={browser} chrome={chrome} />}
       {tab === 'memory' && <Memories />}
       {tab === 'export' && !isGuestMe(me) && <MyExportSection />}
       {tab === 'allowances' && <AiAllowances key={`${me.user.id}:${me.session.id}`} folded={!!fold} />}

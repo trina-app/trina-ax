@@ -53,6 +53,7 @@ import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './compon
 import { StatusDialogHost } from './components/StatusMessage'
 import { AcceptInvite, ForcedPassword, GoogleReturn, InviteGoogleBack, InviteWhileSignedIn, Login, ResetPassword, Setup, signedInHome, TeamJoin } from './pages/Auth'
 import { AppSetup, AppSignIn, OpenApp } from './pages/OpenApp'
+import { ConnectChrome, ConnectChromeDone } from './pages/ConnectChrome'
 import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
 import { ImageViewerHost } from './components/ImageViewer'
@@ -366,6 +367,8 @@ function Gate() {
         {/* a team made from the desktop app: the hosting console's claim is after # (pages/OpenApp.tsx AppSetup) */}
         <Route path="/app-setup" element={<AppSetup />} />
         <Route path="/slack/done" element={<Suspense fallback={<Splash />}><SlackDone signedIn={false} /></Suspense>} />
+        {/* the code for the Chrome extension is after # (pages/ConnectChrome.tsx): never moved to the sign-in page */}
+        <Route path="/connect-chrome/done" element={<ConnectChromeDone />} />
         <Route path="*" element={<Navigate to={`/login${next}`} replace />} />
       </Routes>
     )
@@ -463,6 +466,9 @@ function Gate() {
         <Route path="/reset-password/:token" element={<ResetPassword />} />
         {/* after setup in a Mac or Windows browser: continue in the desktop app, or in the browser (pages/OpenApp.tsx) */}
         <Route path="/open-app" element={<NotForGuests><OpenApp /></NotForGuests>} />
+        {/* the <app> extension's Connect in Chrome (pages/ConnectChrome.tsx): the AI's browser in this Chrome */}
+        <Route path="/connect-chrome" element={<NotForGuests><ConnectChrome /></NotForGuests>} />
+        <Route path="/connect-chrome/done" element={<ConnectChromeDone />} />
         {/* the desktop app's one-time sign-in while someone is signed in: the code replaces that session */}
         <Route path="/app-signin" element={<AppSignIn />} />
         {/* a team made from the desktop app, right after its owner is made (pages/OpenApp.tsx AppSetup) */}
