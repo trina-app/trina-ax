@@ -121,8 +121,9 @@ export function forkChat(rt: ChatRuntime, userId: string, chatId: string, o: For
   const now = new Date().toISOString()
   const others = msgs.some((m) => m.role === 'user' && m.author_id !== userId)
   const c = db.query('SELECT session_tainted, others_words, room_outside, session_read_scope FROM chats WHERE id = ?').get(src.id) as { session_tainted: number; others_words: number; room_outside: number; session_read_scope: string | null }
-  // the line back says the original's title; the fork itself is "<title> (이어서)" (once: a fork of a fork keeps one), a
-  // name the person changes as any other
+  // the line back says the original's title; the fork itself is "<title> (이어서)" (once: a fork of a fork keeps one)
+  // until its first new message names it as a new chat's first message does (title_source 'fork', chat/title.ts;
+  // docs/decisions/20261128-fork-retitle-first-message.md), or the person renames it
   const fromTitle = o.title(src)
   const title = forkTitle(fromTitle, L)
 
@@ -151,7 +152,7 @@ export function forkChat(rt: ChatRuntime, userId: string, chatId: string, o: For
   db.transaction(() => {
     db.query(`INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at, seen_at, active_leaf_id,
         session_tainted, others_words, room_outside, session_read_scope, fork_of, fork_at, fork_title, fork_pending, fork_parent) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)`)
-      .run(forkId, userId, projectId, title, src.title_source === 'auto' ? 'ai' : src.title_source, o.engine, o.model, now, now, now, ids.get(msgs[msgs.length - 1]!.id)!,
+      .run(forkId, userId, projectId, title, 'fork', o.engine, o.model, now, now, now, ids.get(msgs[msgs.length - 1]!.id)!,
         // another person's words in it: the mark that keeps the person's Always for sends to what their own message names
         // (chat/shared-actions.ts othersWordsIn), as in the shared chat
         c.session_tainted || (others ? 1 : 0), c.others_words || (others ? 1 : 0), c.room_outside, c.session_read_scope, src.id, msgs[msgs.length - 1]!.id, fromTitle,

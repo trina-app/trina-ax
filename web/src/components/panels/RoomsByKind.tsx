@@ -20,6 +20,7 @@
 import clsx from 'clsx'
 import { EyeOff, Pin } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useRowMenu } from '../rooms/MenuButton'
 import { Link, useLocation } from 'react-router-dom'
 import type { NavFolder, Room } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
@@ -135,6 +136,8 @@ function ChatsSection({ s, shown, folded }: { s: Section; shown: Room[]; folded:
   const t = useT()
   const drop = useSectionDrop(s.folder ?? null)
   const takes = s.key !== 'pinned'
+  // a personal section's header: a right-click (a long press, the menu key) opens its "⋯"; the kinds' headers have none
+  const menu = useRowMenu({ off: !s.folder })
   const key = s.folder ? `section-${s.folder.id}` : s.key
   return (
     <PanelSection
@@ -146,7 +149,8 @@ function ChatsSection({ s, shown, folded }: { s: Section; shown: Room[]; folded:
       count={s.rooms.length}
       {...foldedLook(s.rooms, 'chats-panel-section-pill')}
       keep={folded && shown.length ? <RoomRows rooms={shown} section={s.key} /> : undefined}
-      action={s.folder ? <SectionMenu section={s.folder} buttonClassName="size-6" /> : s.key === 'pinned' ? undefined : <RoomSectionAction section={s.key} />}
+      action={s.folder ? <SectionMenu section={s.folder} buttonClassName="size-6" open={menu.open} /> : s.key === 'pinned' ? undefined : <RoomSectionAction section={s.key} />}
+      headProps={s.folder ? menu.row : undefined}
       labelTestId="chats-panel-label"
       // a row's open menu is drawn past the section's box: content-visibility clips what is inside (it contains paint),
       // so the section is drawn plainly while one is open

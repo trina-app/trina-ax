@@ -1,14 +1,17 @@
 // The popup: connect (when not linked), the pairing wait, and when linked who it works for, online or not, Stop
-// while the AI works, Disconnect. All words come from _locales (messages.ts) through chrome.i18n.
+// while the AI works, Disconnect. All words come from messages.ts: in the person's language once the team told it
+// (i18n.ts), else the browser's (chrome.i18n).
 import type { PopupStatus } from './worker'
-
-const t = (key: string, subs?: string[]) => chrome.i18n.getMessage(key, subs) || key
+import { t, uiLanguage, useLocale } from './i18n'
 const app = document.getElementById('app')!
 let activeOrigin: string | null = null
 let note = ''
 let otherOpen = false
-/** the name the person types for this browser profile at Connect (kept across re-renders) */
+/** the name the person types for this browser profile at Connect (kept across re-renders); empty: the profile's Google
+ * account, else "Chrome on Mac" */
 let label: string | null = null
+/** Connect also asks Chrome (once, in the same prompt) to let the extension read the profile's Google account */
+let askEmail = false
 /** renaming a linked profile: the name being typed, or null */
 let renaming: string | null = null
 
@@ -36,14 +39,16 @@ async function ask(msg: Record<string, unknown>): Promise<PopupStatus> {
   return chrome.runtime.sendMessage<PopupStatus>(msg)
 }
 
-/** Ask Chrome for access to this one team address, inside the click (a user gesture), then start pairing. */
+/** Ask Chrome for access to this one team address, inside the click (a user gesture), then start pairing. An empty name
+ * also asks, in the same prompt and only once, to read the profile's Google account: the profile is named after it. */
 function connectTo(o: string) {
   const name = label ?? ''
   const u = new URL(o)
   const pattern = `${u.protocol}//${u.hostname}/*`
+  const withEmail = askEmail && !name.trim()
   // the worker starts pairing when Chrome grants access, also if this popup closes while Chrome asks
-  void chrome.runtime.sendMessage({ type: 'want', origin: o, label: name }).catch(() => {})
-  chrome.permissions.request({ origins: [pattern] }).then(
+  void chrome.runtime.sendMessage({ type: 'want', origin: o, label: name, askEmail: withEmail }).catch(() => {})
+  chrome.permissions.request({ origins: [pattern], ...(withEmail ? { permissions: ['identity.email'] } : {}) }).then(
     async (granted) => {
       if (!granted) {
         note = t('permissionDenied')
@@ -60,6 +65,8 @@ function connectTo(o: string) {
 }
 
 function render(s: PopupStatus) {
+  useLocale(s.locale)
+  document.documentElement.lang = uiLanguage()
   app.replaceChildren()
   if (!s.linked && s.pair.state === 'waiting') {
     app.append(
@@ -72,12 +79,16 @@ function render(s: PopupStatus) {
   if (!s.linked) {
     app.append(el('h1', { textContent: t('notLinkedTitle') }), el('p', { textContent: t('notLinkedBody') }))
     if (s.pair.state === 'failed') app.append(el('p', { cls: 'error', textContent: s.pair.full ? t('linksFull') : t('pairFailed') }))
+    if (s.denied) note = t('permissionDenied')
     if (note) app.append(el('p', { cls: 'error', textContent: note }))
-    // each browser profile is its own link: the person names it ("Work mail"), shown in the team's list
-    if (label === null) label = s.suggestedLabel
-    const name = el('input', { type: 'text', value: label, maxLength: 60, spellcheck: false, oninput: () => (label = name.value) })
+    // each browser profile is its own link, shown in the team's list: named after its Google account when the extension
+    // may read it (else left empty: Connect asks once), else "Chrome on Mac"; the person can type any name ("Work mail")
+    askEmail = s.askEmail
+    if (label === null) label = s.email ?? ''
+    const name = el('input', { type: 'text', value: label, maxLength: 60, spellcheck: false, placeholder: s.askEmail ? t('nameAuto') : s.suggestedLabel, oninput: () => (label = name.value) })
     name.id = 'name'
     app.append(el('label', { cls: 'field', htmlFor: 'name' }, el('span', { textContent: t('nameLabel') }), name))
+    if (s.askEmail) app.append(el('p', { cls: 'note', textContent: t('nameAutoHint') }))
     if (activeOrigin) {
       app.append(el('button', { cls: 'primary', textContent: t('connectTo', [new URL(activeOrigin).host]), onclick: () => connectTo(activeOrigin!) }))
     } else app.append(el('p', { cls: 'note', textContent: t('openTeamFirst') }))
@@ -158,7 +169,7 @@ async function refresh() {
 }
 
 async function start() {
-  document.documentElement.lang = chrome.i18n.getUILanguage()
+  document.documentElement.lang = uiLanguage()
   // activeTab: the address of the page in front, given for this click only
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => [])
   activeOrigin = tab?.url ? origin(tab.url) : null

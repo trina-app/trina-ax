@@ -70,3 +70,17 @@ test('paused: the line until when, and Resume lets it use the browser again', as
     expect(calls.filter((c) => c.method === 'POST').map((c) => c.url)).toEqual(['/api/connectors/remote/conn-1/browser-resume'])
   } finally { await m.unmount() }
 })
+
+test('an app connecting elsewhere shows up without a reload: the quiet notice reads the list again (QA 2026-11-28 H)', async () => {
+  const { integrationsChanged } = await import('../../src/store/live')
+  items = []
+  const m = await mount(page())
+  try {
+    await m.until(() => calls.some((c) => c.url.startsWith('/api/connectors/remote')), 'the first read')
+    expect(m.find('connector-item')).toBeNull()
+    items = [conn({ id: 'conn-2', clientName: 'Claude' })]
+    integrationsChanged.emit()
+    const row = await m.until(() => m.find('connector-item'), 'the new connection')
+    expect(row.textContent).toContain('Claude')
+  } finally { await m.unmount() }
+})

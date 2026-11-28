@@ -13,6 +13,7 @@ import type { AppContext } from '../context'
 import type { AppEnv } from '../http/env'
 import { relayApiBase } from '../relay-client/client'
 import { saveClaimCode } from '../relay-client/registration'
+import { runsOnWsl } from './wsl'
 
 /** Our relay (tab 6, shared/src/service-hosts.ts). The production relay is not running yet (WORKPLAN "막힌 것"). */
 export const OFFICIAL_RELAY_URL: string = SERVICE_HOSTS.officialRelayUrl
@@ -154,7 +155,7 @@ export function connectionStatus(ctx: AppContext): ConnectionStatus {
   // office mode: the fingerprint the desks compare is the office CA's (tls/ca.crt next to the server certificate)
   const fpFile = cfg.tls ? (cfg.office ? path.join(path.dirname(cfg.tls.certFile), 'ca.crt') : cfg.tls.certFile) : null
   const direct = { enabled: !!cfg.tls, port: cfg.tls?.port ?? 8443, fingerprintSha256: fpFile ? certFingerprint(fpFile) : null }
-  const extra = { teamName: cfg.relay.teamName, availableModes: availableModes(cfg), appsAnywhere: appsAnywhere(ctx) }
+  const extra = { teamName: cfg.relay.teamName, availableModes: availableModes(cfg), appsAnywhere: appsAnywhere(ctx), wsl: runsOnWsl() }
   if (ctx.services.relay) {
     const s = ctx.services.relay.status()
     return { ...s, direct: s.direct.fingerprintSha256 || !direct.enabled ? s.direct : direct, ...extra, publicAddress: publicAddress(cfg, s.address) }

@@ -15,6 +15,7 @@
 import clsx from 'clsx'
 import { Pin } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useRowMenu } from '../rooms/MenuButton'
 import { useLocation } from 'react-router-dom'
 import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
@@ -121,6 +122,8 @@ export function TrinaList({ peek, viewState }: { peek: ChatPeek; viewState: Rece
   const recent = useMemo(() => chats.filter((c) => !isUnused(c) && !c.pinnedAt && !sections.sectioned.has(c.id)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [chats, sections.sectioned])
   // a chat dragged onto 트리나 기록 leaves its section
   const dropOut = useSectionDrop(null, 'chats')
+  // a right-click (a long press, the menu key) on the 트리나 기록 header opens its "⋯"
+  const headMenu = useRowMenu()
 
   // the filtered list reads the chats itself: a filter on never waits for the groups
   if (!groups && !filtered) {
@@ -145,7 +148,7 @@ export function TrinaList({ peek, viewState }: { peek: ChatPeek; viewState: Rece
       {/* always there once read, empty or not: its header has the filter and the "⋯", its "더 보기" the next page (the first
           page may be all pinned chats). One tree with or without a filter, so the filter's open menu survives a choice */}
       {(loaded || filtered) && (
-        <PanelSection id="trina-recent" foldKey="trina:recent" label={t('sidebar.aiChats', { name: aiName(t) })} action={<HistoryHeadActions state={viewState} folded={folded} trash />} keep={filtered ? <HistoryFilterLine state={viewState} /> : undefined} labelTestId="trina-label" data-testid="trina-other" className={clsx(dropOut.over && DROP_OVER)} {...dropOut.props} data-drop={dropOut.over ? '' : undefined}>
+        <PanelSection id="trina-recent" foldKey="trina:recent" label={t('sidebar.aiChats', { name: aiName(t) })} action={<HistoryHeadActions state={viewState} folded={folded} trash open={headMenu.open} />} headProps={headMenu.row} keep={filtered ? <HistoryFilterLine state={viewState} /> : undefined} labelTestId="trina-label" data-testid="trina-other" className={clsx(dropOut.over && DROP_OVER)} {...dropOut.props} data-drop={dropOut.over ? '' : undefined}>
           {filtered ? (
             <>
               <HistoryFilterLine state={viewState} />

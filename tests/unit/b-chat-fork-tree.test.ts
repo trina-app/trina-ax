@@ -190,8 +190,10 @@ describe('the tree', () => {
     const out = await h.api('alice').call(API.updateChat, { params: { id: f1.id }, body: { forkParent: null } })
     expect(out.forkParents).toBeUndefined()
     expect(out.forkedFrom).toEqual({ title: (await getChat('alice', a.id)).title, chatId: a.id })
-    // a continuation of a continuation keeps one "(continued)"
-    expect((await getChat('alice', f2.id)).title).toBe(out.title)
+    // f1 is named by its first new message (docs/decisions/20261128-fork-retitle-first-message.md); its continuation
+    // has one "(continued)"
+    expect(out.title).toBe('More')
+    expect((await getChat('alice', f2.id)).title).toBe('More (continued)')
     expect(row(f1.id)).toMatchObject({ fork_parent: null, fork_of: a.id, updated_at: was })
     expect((await getChat('alice', f2.id)).forkParents).toEqual([f1.id])
     expect(db().query("SELECT 1 FROM audit_log WHERE action = 'chat.fork_detach' AND target = ?").get(f1.id)).not.toBeNull()

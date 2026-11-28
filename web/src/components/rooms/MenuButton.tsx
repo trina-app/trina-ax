@@ -16,8 +16,9 @@
 // `describedBy` points at them); `dot`: a small mark on the button (something new inside: a phone's room header);
 // `describedBy`: the id of the words that describe the button (a phone's choice row: its short line, phone/PhoneChoice.tsx).
 // `startAligned`: under the button with their left edges in line (a sender's name at a message's left, AppSender).
-// `at`: a right-click's menu (components/FileMenu.tsx, a Files row): on a computer it opens at that point of the window
-// (its top left corner there, moved in where it would run off), not by the button, and a scroll closes it.
+// `at`: a right-click's menu (components/FileMenu.tsx, a row's: useRowMenu below): on a computer it opens at that point
+// of the window (its top left corner there, moved in where it would run off), not by the button, and a scroll closes it.
+// `rowBack`: where the keyboard goes when a menu its row opened closes (the row's link: useRowMenu's).
 // `body`: a card above the rows, always shown (a person's card, components/PersonCard.tsx): its own control with
 // role="menuitem" takes the keyboard as a row does, and `close` closes the menu and gives the keyboard back. `bare`: the
 // button has no look of its own (a face, a name in a sentence): only `buttonClassName`. `closeOnScroll`: a computer's
@@ -29,6 +30,7 @@ import { Check, MoreHorizontal } from 'lucide-react'
 import { Tooltip } from '../Tooltip'
 import { dismissKeyboard } from '../../lib/viewport'
 import { useOverlayEntry } from '../../lib/backCloses'
+import { isMenuKey } from '../../lib/fileMenu'
 import { createPortal } from 'react-dom'
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 
@@ -84,31 +86,127 @@ export function menuSpot(at: { top: number; right: number; bottom: number }, siz
   return { x, y }
 }
 
-/** A row's ways to its menu: a right-click (or the keyboard's menu key) on the row, and on a touch screen a long press
- * (a sheet on a phone). Spread `row` on the row's <li>; `guard` on its link's click (the finger lifting after a long press
- * opens no room); `openSignal` / `openRequest` go to the row's RoomMenu. */
-export function useRowMenu() {
+type Point = { x: number; y: number }
+
+/** What a row's hook (useRowMenu) hands its menu, spread on MenuButton or RoomMenu: the two ways it was opened, the
+ * point (a right-click's, a long press's; null: by the "···", as the keyboard opens it) and where the keyboard goes back */
+export interface RowMenuOpen {
+  openSignal: number
+  openRequest: number
+  at: Point | null
+  rowBack: () => void
+}
+
+/** where a right-click keeps the browser's own menu (copy, paste, spelling): a text box, and a picture or file chip with
+ * its own menu (components/FileMenu.tsx, `data-own-menu`) */
+const OWN_MENU = 'input:not([type="checkbox"]):not([type="radio"]), textarea, select, [contenteditable]:not([contenteditable="false"]), [data-own-menu]'
+const ownsMenu = (t: EventTarget | null) => !!(t as Element | null)?.closest?.(OWN_MENU)
+/** what in a row the keyboard goes back to: what the person right-clicked or pressed on (the link, the "···"), else the
+ * row's own link */
+const ROW_FOCUS = '[data-row-focus], a[href], button, [tabindex]:not([tabindex="-1"])'
+/** text selected where the right-click is (its Copy is the browser's) */
+const selectedAt = (t: EventTarget | null) => {
+  const sel = typeof window === 'undefined' ? null : window.getSelection?.()
+  return !!sel && !sel.isCollapsed && !!sel.toString().trim() && !!t && sel.containsNode?.(t as Node, true) === true
+}
+/** an event that is not the row's own: one React passes up from a dialog the row renders through a portal (a room row's
+ * section picker), or one from inside the row's open menu or its scrim (those have their own keys and presses) */
+const notRows = (e: { currentTarget: HTMLElement; target: EventTarget | null }) => {
+  const t = e.target as Element | null
+  if (!t || !e.currentTarget.contains(t as Node)) return true
+  const inMenu = t.closest?.('[role="menu"], [data-menu-scrim], [role="dialog"]')
+  return !!inMenu && e.currentTarget.contains(inMenu)
+}
+
+/**
+ * The one way from a list row to its "···" menu (every row with one: ListRow `rowMenu`, a chat's, a room's, a project's,
+ * a file's row, a section's header; web/test/unit/row-context-menu.test.tsx guards it). Spread `row` on the row's
+ * element (its <li>, <tr>, a section's header) and `open` on its MenuButton or RoomMenu; `guard` on the row link's click
+ * (the finger lifting after a long press opens nothing).
+ * - a right-click: the menu at the pointer (its top left there, kept inside the window: menuSpot); Shift+right-click and
+ *   a right-click in a text box keep the browser's own menu, and so does a row with no menu (`off`). The event is
+ *   cancelled, so the desktop app's own menu (desktop/src/main/context-menu.ts) does not open as well.
+ * - a long press with a finger: the same menu (a sheet on a phone), at the finger on a touch screen wider than a phone;
+ *   `longPress: false` where the row's long press does something else (a phone's file row selects it).
+ * - Shift+F10 or the menu key on the focused row: by the row's "···".
+ * Esc or a pick gives the keyboard back to what had it in the row (`rowBack`); a click outside closes it, and opening
+ * another row's menu closes this one (MenuButton closes on any press outside it).
+ */
+export function useRowMenu({ off = false, longPress: pressOn = true }: { off?: boolean; longPress?: boolean } = {}) {
   const [openSignal, setPress] = useState(0)
   const [openRequest, setRequest] = useState(0)
+  const [at, setAt] = useState<Point | null>(null)
   const pressedAt = useRef(0)
+  const keyAt = useRef(0)
+  const touchedAt = useRef(0)
+  const pressPoint = useRef<Point | null>(null)
+  /** the element in the row the keyboard goes back to */
+  const from = useRef<HTMLElement | null>(null)
+  const remember = (row: HTMLElement, target: EventTarget | null) => {
+    const inRow = (target as Element | null)?.closest?.<HTMLElement>(ROW_FOCUS)
+    from.current = inRow && row.contains(inRow) ? inRow : row.querySelector<HTMLElement>(ROW_FOCUS) ?? row
+  }
   const longPress = useLongPress(() => {
     pressedAt.current = Date.now()
+    setAt(pressPoint.current)
     setPress((n) => n + 1)
   })
+  const rowBack = () => from.current?.isConnected && from.current.focus({ preventScroll: true })
+  const row = off
+    ? {}
+    : {
+        onPointerDown: (e: PointerEvent<HTMLElement>) => {
+          if (e.pointerType === 'touch') touchedAt.current = Date.now()
+          if (!pressOn || ownsMenu(e.target) || notRows(e)) return
+          pressPoint.current = { x: e.clientX, y: e.clientY }
+          remember(e.currentTarget, e.target)
+          longPress.onPointerDown(e)
+        },
+        onPointerMove: longPress.onPointerMove,
+        onPointerUp: longPress.onPointerUp,
+        onPointerCancel: longPress.onPointerCancel,
+        onContextMenu: (e: MouseEvent<HTMLElement>) => {
+          if (notRows(e)) return
+          if (pressOn) longPress.onContextMenu(e)
+          // a finger's long press where the row's long press does something else (`longPress: false`): not the menu
+          else if (Date.now() - touchedAt.current < 1500) return
+          // a finger's long press opened it already (and kept the phone's own menu away), or something inside the row
+          // took the right-click for its own menu
+          if (e.defaultPrevented || ownsMenu(e.target)) return
+          // the menu key opened it on its key press: the browser's contextmenu after it (no mouse button) is the same press
+          if (e.button !== 2 && Date.now() - keyAt.current < 1000) return e.preventDefault()
+          // Shift keeps the browser's own menu (open in a new tab, copy the address), and so does a right-click on text
+          // the person selected (to copy it)
+          if (e.shiftKey || selectedAt(e.target)) return
+          e.preventDefault()
+          remember(e.currentTarget, e.target)
+          // from the keyboard (a screen reader, a key the page did not hear) the browser gives no pointer: by the "···"
+          setAt(e.button === 2 || e.clientX || e.clientY ? { x: e.clientX, y: e.clientY } : null)
+          setRequest((n) => n + 1)
+        },
+        onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
+          // (not from inside the open menu, which sits in the row: its own keys)
+          if (!isMenuKey(e) || ownsMenu(e.target) || notRows(e)) return
+          e.preventDefault()
+          keyAt.current = Date.now()
+          remember(e.currentTarget, e.target)
+          setAt(null)
+          setRequest((n) => n + 1)
+        },
+        // the finger lifting after a long press that opened the menu is no click on the row (its link, a section's ▸);
+        // a click in the menu itself is its own
+        onClickCapture: (e: MouseEvent<HTMLElement>) => {
+          if (Date.now() - pressedAt.current >= 800 || (e.target as Element | null)?.closest?.('[role="menu"], [data-menu-scrim]')) return
+          e.preventDefault()
+          e.stopPropagation()
+        },
+      }
+  const open: RowMenuOpen = { openSignal, openRequest, at, rowBack }
   return {
     openSignal,
     openRequest,
-    row: {
-      ...longPress,
-      onContextMenu: (e: MouseEvent) => {
-        longPress.onContextMenu(e)
-        // a finger's long press opened it already (and kept the phone's own menu away); Shift keeps the browser's own
-        // menu (open in a new tab, copy the address)
-        if (e.defaultPrevented || e.shiftKey) return
-        e.preventDefault()
-        setRequest((n) => n + 1)
-      },
-    },
+    open,
+    row,
     guard: (e: MouseEvent) => {
       if (Date.now() - pressedAt.current < 800) e.preventDefault()
     },
@@ -153,7 +251,7 @@ const usable = (menu: HTMLElement | null) => [...(menu?.querySelectorAll<HTMLEle
 
 /** `muted`: the button in the colour of the icons beside it (a panel's header) rather than the quieter one a message's
  * "…" has */
-export function MenuButton({ label, items, className, buttonClassName, compact, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip, sheetTitle, buttonRef, focusBack, footer, dot, describedBy, at = null, startAligned = false, body, bare = false, closeOnScroll = false, inline = false }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string; sheetTitle?: string; buttonRef?: RefObject<HTMLButtonElement | null>; focusBack?: () => void; footer?: ReactNode; dot?: boolean; describedBy?: string; at?: { x: number; y: number } | null; startAligned?: boolean; body?: (close: () => void) => ReactNode; bare?: boolean; closeOnScroll?: boolean; inline?: boolean }) {
+export function MenuButton({ label, items, className, buttonClassName, compact, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip, sheetTitle, buttonRef, focusBack, footer, dot, describedBy, at = null, rowBack, startAligned = false, body, bare = false, closeOnScroll = false, inline = false }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string; sheetTitle?: string; buttonRef?: RefObject<HTMLButtonElement | null>; focusBack?: () => void; footer?: ReactNode; dot?: boolean; describedBy?: string; at?: { x: number; y: number } | null; rowBack?: () => void; startAligned?: boolean; body?: (close: () => void) => ReactNode; bare?: boolean; closeOnScroll?: boolean; inline?: boolean }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement & HTMLSpanElement>(null)
   const Box = inline ? 'span' : 'div'
@@ -167,6 +265,8 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
   const pressedAt = useRef(0)
   /** the point it opened at (`at`, from openRequest or openSignal); null: by its button */
   const openAt = useRef<{ x: number; y: number } | null>(null)
+  /** a row opened it (a right-click, a long press, the menu key: openSignal or openRequest with `rowBack`), not its button */
+  const byRow = useRef(false)
   // a phone's sheet: Back closes it, not the page under it (lib/backCloses.ts); an item that opens a page or a dialog
   // takes its history entry over
   useOverlayEntry(open, () => close())
@@ -249,12 +349,14 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
   const toggle = () => {
     if (open && Date.now() - pressedAt.current < 800) return
     openAt.current = null
+    byRow.current = false
     setOpen(!open)
   }
   useEffect(() => {
     if (!openSignal) return
     pressedAt.current = Date.now()
     openAt.current = at
+    byRow.current = true
     setOpen(true)
     navigator.vibrate?.(10)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -263,12 +365,14 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
     if (!openRequest) return
     pressedAt.current = 0
     openAt.current = at
+    byRow.current = true
     setOpen(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openRequest])
   /** the keyboard back to the button, or where the caller says when there is none on screen */
   const hiddenButton = () => button.current?.offsetParent === null
-  const giveBack = () => (hiddenButton() && focusBack ? focusBack() : button.current?.focus())
+  // (a menu a row opened: back to that row, `rowBack`)
+  const giveBack = () => (byRow.current && rowBack ? rowBack() : hiddenButton() && focusBack ? focusBack() : button.current?.focus())
   /** closes it; a keyboard or screen reader that was in the menu goes back to its button (or where `focusBack` says), so
    * a pick, Back or a tap outside never drops it on the page's top */
   const close = () => {
@@ -301,7 +405,7 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
   /** the scrim (a phone) and the menu */
   const panel = open && (
     <>
-      {open && <div aria-hidden className="fixed inset-0 z-30 bg-black/40 md:hidden" onPointerDown={(e) => e.stopPropagation()} onClick={() => Date.now() - pressedAt.current > 400 && close()} />}
+      {open && <div aria-hidden data-menu-scrim className="fixed inset-0 z-30 bg-black/40 md:hidden" onPointerDown={(e) => e.stopPropagation()} onClick={() => Date.now() - pressedAt.current > 400 && close()} />}
       {open && (
         <div
           ref={menu}

@@ -457,6 +457,8 @@ export class MockServer {
   skillDrafts = new Map<string, { userId: string; sourceChatId: string; reads: number; saved: string | null; form?: string }>()
   folders: Folder[] = []
   chats: Chat[] = []
+  /** continuations whose "(이어서)" title waits for their first new message (server chat/title.ts title_source 'fork') */
+  forkUnnamed = new Set<string>()
   /** the team chat rooms the signed-in person is in (empty unless a test sets them: /__test/rooms) */
   rooms: Room[] = []
   /** guests (docs/DECISIONS.md "Guests: only what they were invited to"; like server/src/auth/guests.ts, short): each
@@ -708,6 +710,7 @@ export class MockServer {
   reset(o: { setup?: boolean; teamLocale?: Locale; usersFollowTeam?: boolean; mustChange?: string; withAdmin?: boolean } = {}) {
     this.generation++
     this.widening = null
+    this.forkUnnamed = new Set()
     this.notReadyTold = new Set()
     this.chromeLinks = new Map()
     this.chromeTargets = new Map()
@@ -2806,7 +2809,8 @@ export class MockServer {
     if (assistant.status === 'error') chat.lastOutcome = 'error'
     else if (assistant.status === 'done' && assistant.stopReason) chat.lastOutcome = 'paused'
     else delete chat.lastOutcome
-    if (!chat.title) chat.title = mockTitle(prompt, chat)
+    // a continuation's first new message names it as a new chat's first message does (server chat/runtime.ts)
+    if (this.forkUnnamed.delete(chat.id) || !chat.title) chat.title = mockTitle(prompt, chat)
     this.queueRevision++
     pub({ type: 'message.done', data: { chatId, messageId: assistant.id, status: assistant.status, message: this.view(assistant) } })
     // "long answer": like an answer that ran over a minute (server/src/chat/runtime.ts LONG_ANSWER_MS): worth telling
@@ -3229,6 +3233,7 @@ export class MockServer {
         ids.set(m.id, copy.id)
       }
       this.activeLeaf.set(chat.id, ids.get(msgs[msgs.length - 1]!.id)!)
+      this.forkUnnamed.add(chat.id)
       return { status: 201, body: chat }
     },
     getChat: (c) => {
@@ -3254,6 +3259,8 @@ export class MockServer {
       // "Detach to top level" (routes/chats.ts): the fork stands at the top of my history; its last activity stays
       const { forkParent, ...rest } = c.body
       if (forkParent === null) delete chat.forkParents
+      // the person's own name is never replaced (server chat/title.ts)
+      if (rest.title !== undefined) this.forkUnnamed.delete(chat.id)
       Object.assign(chat, Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)))
       return chat
     },

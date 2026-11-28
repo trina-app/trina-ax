@@ -5,13 +5,14 @@
 // The audit log gets who did what to which share (created, folders changed, rule changed, renamed, stopped, the
 // members' switch): never a token, an email or a file.
 import { z } from 'zod'
-import type { DriveShare, DriveShareFolder, IntegrationAccess } from '@mycel/shared/api'
+import type { DriveShare, DriveShareFolder, IntegrationAccess, Revocation } from '@mycel/shared/api'
 import { DriveId } from '@mycel/shared'
 import type { AppContext } from '../../context'
 import { audit } from '../../admin/audit'
 import { setSetting } from '../../admin/settings'
 import { googleDriveOf, type DriveConn } from './oauth'
 import { DriveError } from './store'
+import { isBrokerToken } from './broker'
 import { googleAccountInUse, googleEmailOf } from '../connections/store'
 import { notifyDriveShareReconnect } from '../../notifications/service'
 import { foldersOf, shareByName, shareRow, shareRows, setShareAccess, shareAccess, shareView, shareWorks } from './shares'
@@ -144,6 +145,8 @@ export async function stopShare(ctx: AppContext, actor: string, id: string) {
   })()
   svc.abort(`share:${id}`)
   audit(ctx.db, { actor, action: 'drive.share_stopped', target: id })
+  // the hosting service's shared Google app: kept at Google (its grant serves the person's other Trina servers too)
+  if (token && isBrokerToken(token)) return { stopped: true as const, revocation: await svc.revoke(token) }
   // Google revokes the whole grant: not while anyone's sign-in here uses the same Google account
   if (googleAccountInUse(ctx.db, googleEmailOf(r.account), { share: id })) return { stopped: true as const, revocation: 'not_needed' as const }
   return { stopped: true as const, revocation: await svc.revoke(token) }
@@ -154,9 +157,9 @@ export async function stopShare(ctx: AppContext, actor: string, id: string) {
  * Google account. The share keeps its name, folders and rule; its tokens are deleted, calls under way stop, every admin
  * is told to sign in again (as when its admin leaves), and then Google is asked to revoke the token (twice at most).
  * Only a share whose sign-in is `actor`'s own and still there; null otherwise (nothing changed). Never throws for
- * Google: what it said comes back ('revoked', 'unavailable' or 'not_needed').
+ * Google: what it said comes back ('revoked', 'unavailable', 'not_needed', or 'kept' for the hosting service's app).
  */
-export async function endShareSignIn(ctx: AppContext, actor: string, id: string): Promise<'revoked' | 'unavailable' | 'not_needed' | null> {
+export async function endShareSignIn(ctx: AppContext, actor: string, id: string): Promise<Revocation | null> {
   const svc = googleDriveOf(ctx), r = shareRow(ctx.db, id)
   if (!r || r.owner_user_id !== actor || !r.secret_enc) return null
   const token = svc.shareToken(r)
@@ -166,6 +169,7 @@ export async function endShareSignIn(ctx: AppContext, actor: string, id: string)
   ctx.db.query("DELETE FROM team_sign_ins WHERE kind = 'drive_share' AND target_id = ?").run(id)
   svc.abort(`share:${id}`)
   notifyDriveShareReconnect(ctx, id, `${id}.v${r.version + 1}`)
+  if (token && isBrokerToken(token)) return await svc.revoke(token).catch(() => 'kept' as const)
   // Google revokes the whole grant: not while anyone's sign-in here uses the same Google account (a shared Gmail …)
   if (googleAccountInUse(ctx.db, googleEmailOf(r.account), { share: id })) return 'not_needed'
   const first = await svc.revoke(token).catch(() => 'unavailable' as const)

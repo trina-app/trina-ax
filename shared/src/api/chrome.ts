@@ -4,6 +4,7 @@
 // (server/src/chrome/, routes/chrome.ts).
 import { z } from 'zod'
 import { BrowserResult, BrowserCall } from './browser'
+import { Locale } from './common'
 import { endpoint, empty, stream } from './endpoint'
 
 /** the extension's live connection: subprotocols CHROME_WS_PROTOCOL and CHROME_TOKEN_PREFIX + token */
@@ -68,6 +69,8 @@ export const ChromeRedeemBody = z.strictObject({
 export const ChromeRedeemed = z.object({
   token: ChromeSecret,
   linkId: z.string(),
+  /** the name the team keeps (the one sent, or with a number when another of the person's profiles has it) */
+  label: z.string().optional(),
   /** whose AI drives this Chrome from now on, and in which team (the popup shows it) */
   user: z.object({ name: z.string(), username: z.string() }),
   team: z.object({ name: z.string() }),
@@ -79,7 +82,12 @@ export type ChromeRedeemed = z.infer<typeof ChromeRedeemed>
 // ---------------- the extension's WebSocket ----------------
 /** server -> extension */
 export const ChromeServerFrame = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('hello'), linkId: z.string(), /** the profile's name as the team lists it (renamed in Settings) */ label: z.string().optional(), user: z.object({ name: z.string(), username: z.string() }), team: z.object({ name: z.string() }), teamHosts: z.array(z.string().max(260)).max(50), pingIntervalMs: z.number().int().positive(), /** the server's clock (epoch ms): a call's deadline is in it */ serverTime: z.number() }),
+  z.object({ type: z.literal('hello'), linkId: z.string(), /** the profile's name as the team lists it (renamed in Settings) */ label: z.string().optional(), user: z.object({ name: z.string(), username: z.string() }), team: z.object({ name: z.string() }), teamHosts: z.array(z.string().max(260)).max(50), pingIntervalMs: z.number().int().positive(), /** the server's clock (epoch ms): a call's deadline is in it */ serverTime: z.number(),
+    /** the person's language (their own, else the team's): the popup and pages speak it, not only the browser's */
+    locale: Locale.optional(),
+    /** this server handles run.stopped for every run (a chat's too: its answer stops and the AI asks what next); without
+     * it the extension reports only `mcp:` runs (an older server closes the socket on a frame it does not know) */
+    runStops: z.boolean().optional() }),
   z.object({ type: z.literal('browser.call'), call: BrowserCall }),
   z.object({ type: z.literal('browser.cancel'), callId: z.string() }),
   z.object({ type: z.literal('pong'), t: z.number() }),
@@ -98,8 +106,9 @@ export const ChromeClientFrame = z.discriminatedUnion('type', [
   z.object({ type: z.literal('label'), label: ChromeLinkLabel }),
   /** the person pressed Disconnect in the extension: the link ends */
   z.object({ type: z.literal('unlink') }),
-  /** the person stopped a run of one of their MCP apps (`mcp:` run ids only, which only a server that knows this frame
-   * sends): that app's connection pauses its browser calls (docs/decisions/20261128-mcp-browser-tools.md) */
+  /** the person stopped a run (the popup's Stop, closing its window or the debugging bar): an MCP app's connection pauses
+   * its browser calls (docs/decisions/20261128-mcp-browser-tools.md); a chat's running answer stops and asks what next.
+   * Sent for `mcp:` runs (only a server that knows this frame makes them) and, when hello said `runStops`, for every run */
   z.object({ type: z.literal('run.stopped'), runId: z.string().min(1).max(100) }),
 ])
 export type ChromeClientFrame = z.infer<typeof ChromeClientFrame>

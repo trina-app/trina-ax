@@ -501,8 +501,10 @@ export interface DesktopBridge {
   chromeProfiles?: {
     /** the profiles of Chrome, Edge and Brave for this OS user, read now from each browser's Local State */
     list(): Promise<DesktopBrowserProfile[]>
-    /** Link one: opens that profile on the store page (no extension yet) or on the extension's pair page (installed) */
-    connect(p: { browser: DesktopBrowserProfile['browser']; dir: string }): Promise<'store' | 'pair' | 'failed'>
+    /** Link one: opens that profile on the store page (no extension yet) or on the extension's pair page (installed).
+     * 'unavailable': the app cannot answer a pair page in this run (its socket or helper is missing; the app's log says
+     * which), so nothing was opened; linking from the extension's own icon still works. Older apps never answer it. */
+    connect(p: { browser: DesktopBrowserProfile['browser']; dir: string }): Promise<'store' | 'pair' | 'failed' | 'unavailable'>
     /** the app needs a one-time pair code for an extension it opened (bound to its PKCE challenge): the page answers
      * with POST /api/chrome/pair as itself (its cookie session), or null when it cannot (a guest, a limit) */
     onPairRequest(cb: (r: { challenge: string }) => Promise<{ code: string } | null>): () => void

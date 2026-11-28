@@ -1,5 +1,5 @@
 {
-  "version": "0.3.0",
+  "version": "0.3.2",
   "protocol": "mycel.chrome.v1",
   "paths": {
     "ws": "/api/chrome/ws",
@@ -65,6 +65,20 @@
             },
             "serverTime": {
               "type": "number"
+            },
+            "locale": {
+              "type": "string",
+              "enum": [
+                "ko",
+                "en",
+                "id",
+                "ja",
+                "es",
+                "zh"
+              ]
+            },
+            "runStops": {
+              "type": "boolean"
             }
           },
           "required": [
@@ -250,6 +264,9 @@
           "pattern": "^[A-Za-z0-9_-]{43}$"
         },
         "linkId": {
+          "type": "string"
+        },
+        "label": {
           "type": "string"
         },
         "user": {

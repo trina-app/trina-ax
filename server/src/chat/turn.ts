@@ -145,6 +145,7 @@ import { hasCredentialFor, resolveCredential, SOON_MS, type CredEngine } from '.
 import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
 import { browserTarget, linkSites, linksOf } from '../chrome/store'
+import { sharedChatLabel } from '../chrome/profiles'
 import { mayAttachChatFile, mayWriteChatVersion, resolvePlace } from '../files/places'
 import { chatPlaces } from './place-ctx'
 import { situationOf } from './situation'
@@ -474,6 +475,9 @@ export class TurnExec {
   chromeCurrent: string | null = null
   /** public sites the person allowed once in this answer on the Chrome site card, per profile (chat/tools.ts) */
   readonly chromeOnce = new Map<string, Set<string>>()
+  /** the person stopped this answer in their Chrome (the popup's Stop, the task's window or the debugging bar closed):
+   * every further tool call of the answer is refused and the AI asks what to do next (chat/tools.ts CHROME_STOPPED) */
+  chromeStopped = false
   /** the dev environment of this turn (devenv/tool.ts box_shell): off (null), or on with the chat's project (null for a
    * chat with no project, srt runner only) */
   devEnv: { project: { id: string; folderPath: string; name: string } | null; shared?: SharedRun; documents?: boolean } | null = null
@@ -998,7 +1002,8 @@ export class TurnExec {
     const online = chromeWanted ? rt.chrome.onlineLinks(spec.userId) : []
     if (online.length) {
       const up = new Set(online.map((o) => o.linkId))
-      this.chromeProfiles = linksOf(rt.db, spec.userId).map((l) => ({ linkId: l.id, label: l.label, email: l.email, online: up.has(l.id), sites: linkSites(rt.db, l.id), onlyListed: l.only_listed === 1 }))
+      // a shared chat: a name that is an email address shows only its part before the @ (its members see the cards)
+      this.chromeProfiles = linksOf(rt.db, spec.userId).map((l) => ({ linkId: l.id, label: this.shared ? sharedChatLabel(l.label) : l.label, email: l.email, online: up.has(l.id), sites: linkSites(rt.db, l.id), onlyListed: l.only_listed === 1 }))
     }
     const chrome = online[0]?.windowId ?? null
     this.browserWindow = chrome ?? (this.desktop ? spec.windowId! : null)

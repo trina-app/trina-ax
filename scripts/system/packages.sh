@@ -302,8 +302,23 @@ pk__apt() {  # apt-get ARG...
     printf '%s apt-get %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$PK_APT_LOG" 2>/dev/null || true
     systemd-run --quiet --wait --collect --unit="trina-packages-apt-$$-${RANDOM}" -p "StandardOutput=append:$PK_APT_LOG" \
       -p "StandardError=append:$PK_APT_LOG" "${env[@]}" apt-get "$@"
+  elif [ "${PK_APT_TO_LOG:-}" = 1 ]; then
+    # the Windows setup (scripts/windows/install-wsl-server.ps1): apt's stderr too (dpkg's "Reading database ... 5%",
+    # debconf's notes) goes to the log, and the window shows only the installer's lines and the heartbeat (Windows QA
+    # 2026-11-28); a failure names the log and its last lines (pk__apt_log_tail)
+    printf '%s apt-get %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$PK_APT_LOG" 2>/dev/null || true
+    DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 apt-get "$@" >> "$PK_APT_LOG" 2>&1
   else
     DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 apt-get "$@" >/dev/null
+  fi
+}
+# pk__apt_log_tail: " (log: FILE)" where apt's output went to PK_APT_LOG (with its last lines when a person watches),
+# else nothing
+pk__apt_log_tail() {
+  if [ "${PK_APT_TO_LOG:-}" = 1 ]; then
+    printf ' (log: %s; its last lines: %s)' "$PK_APT_LOG" "$(tail -n 5 "$PK_APT_LOG" 2>/dev/null | tr '\n' ' ')"
+  elif [ "${PK_APT_UNIT:-}" = 1 ]; then
+    printf ' (log: %s)' "$PK_APT_LOG"
   fi
 }
 # pk__heartbeat WHAT COMMAND...: COMMAND; with PK_APT_HEARTBEAT=<seconds> (an installer a person watches: apt prints
@@ -345,12 +360,12 @@ pk_apt_install() {
   fi
   export DEBIAN_FRONTEND=noninteractive
   if [ -z "${PK_APT_UPDATED:-}" ]; then
-    pk__heartbeat "reading the package lists" pk__apt update -qq -o DPkg::Lock::Timeout=300 ${snap[@]+"${snap[@]}"} || { pk_err "apt-get update failed"; return 1; }
+    pk__heartbeat "reading the package lists" pk__apt update -qq -o DPkg::Lock::Timeout=300 ${snap[@]+"${snap[@]}"} || { pk_err "apt-get update failed$(pk__apt_log_tail)"; return 1; }
     PK_APT_UPDATED=1
   fi
   if ! why=$(pk_apt_space ${snap[@]+"${snap[@]}"} "$@"); then pk_err "$why; nothing installed"; return 3; fi
   pk__heartbeat "installing packages" pk__apt install -y -qq --no-install-recommends -o DPkg::Lock::Timeout=300 ${snap[@]+"${snap[@]}"} ${opts[@]+"${opts[@]}"} "$@" \
-    || { pk_err "apt-get install failed: $*$([ "${PK_APT_UNIT:-}" != 1 ] || echo " (log: $PK_APT_LOG)")"; return 1; }
+    || { pk_err "apt-get install failed: $*$(pk__apt_log_tail)"; return 1; }
   # the downloaded .deb files are not needed after the install (about 800 MB on a server that installed the browser and
   # its libraries); a failed clean changes nothing for the install
   pk__apt clean -qq -o DPkg::Lock::Timeout=300 || true

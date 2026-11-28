@@ -2,7 +2,7 @@
 // the connection. The popup talks to it with chrome.runtime messages (popup.ts).
 import { runningCalls, stopAllRuns, stopRun, WINDOW_CLOSED, workingRuns } from './calls'
 import { connect, linked, rename, unlink } from './link'
-import { cancelPairing, cleanLabel, installPairingListeners, pairState, startPairing, teamOrigin, wantPairing } from './pairing'
+import { cancelPairing, cleanLabel, deniedConnect, installPairingListeners, pairState, profileEmail, shouldAskEmail, startPairing, teamOrigin, wantPairing } from './pairing'
 import { live, loadLink, refreshBadge, saveLink } from './state'
 
 /** the popup's last rename could not be kept (offline): it says so once */
@@ -18,14 +18,22 @@ export interface PopupStatus {
   user?: string
   /** what the person called this browser profile at Connect */
   label?: string
-  /** a suggested name for the Connect field ("Chrome on Mac") */
+  /** the name an empty Connect field falls back to ("Chrome on Mac") */
   suggestedLabel: string
+  /** the profile's Google account, when the extension may read it: the Connect field starts with it */
+  email?: string
+  /** Connect asks Chrome, once, for the permission to read that account (an empty field then becomes the email) */
+  askEmail: boolean
+  /** the last Connect's Chrome prompt was answered No (the popup was closed then): it says so once */
+  denied?: true
   online: boolean
   /** the tasks working now, each with its own Stop */
   runs: { id: string; title: string; tabs: number }[]
   stopped: boolean
   renameFailed: boolean
   pair: Awaited<ReturnType<typeof pairState>>
+  /** the person's language as the team told it: the popup speaks it (else the browser's) */
+  locale?: string
 }
 
 installTabListeners()
@@ -48,6 +56,8 @@ void chrome.alarms.create('reconnect', { periodInMinutes: 1 })
 async function status(): Promise<PopupStatus> {
   if (!live.link) live.link = await loadLink()
   const l = live.link
+  // only the Connect screen needs the account
+  const email = l ? null : await profileEmail()
   return {
     linked: Boolean(l),
     origin: l?.origin,
@@ -55,11 +65,15 @@ async function status(): Promise<PopupStatus> {
     user: l?.user.name,
     label: l?.label,
     suggestedLabel: browserLabel(navigator.userAgent, navigator.userAgentData, Boolean(navigator.brave)),
+    ...(email ? { email } : {}),
+    askEmail: l ? false : await shouldAskEmail(),
+    ...(!l && (await deniedConnect()) ? { denied: true as const } : {}),
     online: live.online,
     runs: workingRuns(),
     stopped: live.stoppedAt > 0 && Date.now() - live.stoppedAt < 60_000,
     pair: await pairState(),
     renameFailed: (() => { const f = renameFailed; renameFailed = false; return f })(),
+    ...(l?.locale ? { locale: l.locale } : {}),
   }
 }
 
@@ -75,7 +89,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       }
       case 'want': {
         const origin = teamOrigin(String(msg.origin ?? ''))
-        if (origin) await wantPairing(origin, String(msg.label ?? ''))
+        if (origin) await wantPairing(origin, String(msg.label ?? ''), msg.askEmail === true)
         break
       }
       case 'cancelPair':

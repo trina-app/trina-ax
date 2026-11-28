@@ -4,11 +4,13 @@
 import { CHROME_WS_PATH, CHROME_WS_PROTOCOL, ChromeServerFrame, ChromeWsClose, type ChromeClientFrame } from '../../shared/src/api/chrome'
 import { cancelCall, handleCall, setRunStoppedHandler } from './calls'
 
-// a person's own MCP app's run (its ids start with mcp:, made only by a server that knows run.stopped): the server
-// pauses that app's browser calls at once, also when the app starts a new session
-setRunStoppedHandler((runId) => { if (runId.startsWith('mcp:')) send({ type: 'run.stopped', runId }) })
+// a stopped run goes to the server: a person's own MCP app's run (its ids start with mcp:, made only by a server that
+// knows run.stopped) pauses that app's browser calls at once; a chat's run (only to a server whose hello said runStops:
+// an older one closes the socket on a frame it does not know) stops that chat's answer, and the AI asks what next
+setRunStoppedHandler((runId) => { if (runId.startsWith('mcp:') || live.link?.runStops) send({ type: 'run.stopped', runId }) })
 import { forgetLink, live, loadLink, refreshBadge, saveLink } from './state'
 import { detachAll } from './tabs'
+import { closeAllRuns } from './runs'
 
 const PING_MS = 20_000
 const MAX_BACKOFF_MS = 30_000
@@ -65,7 +67,7 @@ export async function connect(): Promise<void> {
         live.online = true
         live.clockOffset = Number.isFinite(frame.serverTime) ? Math.max(-7 * 86_400_000, Math.min(7 * 86_400_000, frame.serverTime - Date.now())) : 0
         if (live.link) {
-          live.link = { ...live.link, user: frame.user, team: frame.team, teamHosts: frame.teamHosts, linkId: frame.linkId, ...(frame.label ? { label: frame.label } : {}) }
+          live.link = { ...live.link, user: frame.user, team: frame.team, teamHosts: frame.teamHosts, linkId: frame.linkId, ...(frame.label ? { label: frame.label } : {}), locale: frame.locale, runStops: frame.runStops === true }
           void saveLink(live.link)
         }
         clearInterval(pingTimer)
@@ -127,6 +129,8 @@ export async function forgetLocally(): Promise<void> {
     // already closed
   }
   await forgetLink()
+  // every task's window closes (its tabs' debugger goes with them), then any tab still held is let go
+  await closeAllRuns()
   await detachAll()
   refreshBadge()
 }
