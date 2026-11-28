@@ -48,7 +48,10 @@ export function manifest(version: string, o: { dev?: boolean } = {}) {
     icons: { 16: 'icons/icon-16.png', 32: 'icons/icon-32.png', 48: 'icons/icon-48.png', 128: 'icons/icon-128.png' },
     // nativeMessaging: only to pair through the desktop app on this computer (chrome-native.ts); Chrome shows
     // "Communicate with cooperating native applications" at install
-    permissions: ['debugger', 'tabGroups', 'storage', 'alarms', 'activeTab', 'nativeMessaging'],
+    // identity: no install warning; identity.email (optional, "Know your email address") is asked only at Connect, so
+    // the profile is named after its Google account (chrome.identity.getProfileUserInfo)
+    permissions: ['debugger', 'tabGroups', 'storage', 'alarms', 'activeTab', 'nativeMessaging', 'identity'],
+    optional_permissions: ['identity.email'],
     optional_host_permissions: ['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*'],
     content_security_policy: { extension_pages: "script-src 'self'; object-src 'self'" },
   }

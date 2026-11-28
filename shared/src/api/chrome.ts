@@ -64,6 +64,8 @@ export const ChromeRedeemBody = z.strictObject({
 export const ChromeRedeemed = z.object({
   token: ChromeSecret,
   linkId: z.string(),
+  /** the name the team keeps (the one sent, or with a number when another of the person's profiles has it) */
+  label: z.string().optional(),
   /** whose AI drives this Chrome from now on, and in which team (the popup shows it) */
   user: z.object({ name: z.string(), username: z.string() }),
   team: z.object({ name: z.string() }),

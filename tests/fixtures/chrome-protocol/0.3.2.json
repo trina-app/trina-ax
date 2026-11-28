@@ -266,6 +266,9 @@
         "linkId": {
           "type": "string"
         },
+        "label": {
+          "type": "string"
+        },
         "user": {
           "type": "object",
           "properties": {

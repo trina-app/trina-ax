@@ -5,7 +5,12 @@
 // its own name and site rules. Pure database code; the routes are routes/chrome.ts, the live connections chrome/links.ts.
 import type { Database } from 'bun:sqlite'
 import crypto from 'node:crypto'
+<<<<<<< HEAD
 import { CHROME_CODE_TTL_MS, CHROME_LINK_IDLE_DAYS, CHROME_LINKS_MAX } from '@mycel/shared/api'
+=======
+import { CHROME_CODE_TTL_MS, CHROME_LINK_IDLE_DAYS, CHROME_LINKS_MAX, type BrowserTarget } from '@mycel/shared/api'
+import { cutLabel } from '@mycel/shared/chrome-native'
+>>>>>>> origin/dev
 import { newId } from '../db'
 
 const sha256hex = (s: string) => crypto.createHash('sha256').update(s).digest('hex')
@@ -52,15 +57,30 @@ export function redeemCode(db: Database, o: { code: string; verifier: string; la
     const count = (db.query('SELECT COUNT(*) AS n FROM chrome_links WHERE user_id = ?').get(row.user_id) as { n: number }).n
     if (!prev && count >= CHROME_LINKS_MAX) return 'full'
     const token = newSecret()
+    const label = distinctLabel(db, row.user_id, o.label, prev?.id ?? null)
     if (prev) {
-      db.query('UPDATE chrome_links SET token_hash = ?, label = ?, version = ?, last_seen_at = ?, email = COALESCE(?, email), browser = COALESCE(?, browser) WHERE id = ?').run(sha256hex(token), o.label, o.version, iso(now), o.email ?? null, o.browser ?? null, prev.id)
+      db.query('UPDATE chrome_links SET token_hash = ?, label = ?, version = ?, last_seen_at = ?, email = COALESCE(?, email), browser = COALESCE(?, browser) WHERE id = ?').run(sha256hex(token), label, o.version, iso(now), o.email ?? null, o.browser ?? null, prev.id)
       return { link: linkOf(db, row.user_id, prev.id)!, token, replaced: prev.id }
     }
-    const link: LinkRow = { id: newId(), user_id: row.user_id, label: o.label, version: o.version, only_listed: 0, created_at: iso(now), last_seen_at: iso(now), email: o.email ?? null, browser: o.browser ?? null }
+    const link: LinkRow = { id: newId(), user_id: row.user_id, label, version: o.version, only_listed: 0, created_at: iso(now), last_seen_at: iso(now), email: o.email ?? null, browser: o.browser ?? null }
     db.query('INSERT INTO chrome_links (id, user_id, token_hash, label, version, created_at, last_seen_at, email, browser) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(link.id, link.user_id, sha256hex(token), link.label, link.version, link.created_at, link.last_seen_at, link.email, link.browser)
     return { link, token, replaced: null }
   }).immediate()
+}
+
+/** `label`, or with a number ("Chrome on Mac 2") when another of the person's links already has that name (ignoring
+ * case): two profiles that would both be "Chrome on Mac" never look alike in Settings or to the AI. At most 60 units. */
+export function distinctLabel(db: Database, userId: string, label: string, exceptId: string | null = null): string {
+  const taken = new Set((db.query('SELECT id, label FROM chrome_links WHERE user_id = ?').all(userId) as { id: string; label: string }[])
+    .filter((r) => r.id !== exceptId).map((r) => r.label.trim().toLowerCase()))
+  if (!taken.has(label.trim().toLowerCase())) return label
+  for (let n = 2; n <= CHROME_LINKS_MAX + 1; n++) {
+    const tail = ` ${n}`
+    const v = `${cutLabel(label, 60 - tail.length)}${tail}`
+    if (!taken.has(v.toLowerCase())) return v
+  }
+  return label
 }
 
 /** The live link a token belongs to, for an active member (not a guest), or null. */

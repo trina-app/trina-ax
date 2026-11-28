@@ -7,7 +7,7 @@ import { CHROME_NATIVE_HOST, ChromeNativeReply, ChromePairNonce } from '../../sh
 import { pkcePair } from './ids'
 import { t, uiLanguage, useLocale } from './i18n'
 import { FAILURE_TEXT, nativeFailure, type PairFailure } from './pair-errors'
-import { redeem, teamOrigin } from './pairing'
+import { profileEmail, redeem, teamOrigin } from './pairing'
 import { loadLink } from './state'
 
 const app = document.getElementById('app')!
@@ -57,14 +57,16 @@ async function start() {
   }
   const origin = teamOrigin(r.origin)
   if (!origin) return show(t('pairAppTitle'), t('pairFailed'), true)
-  const got = await redeem(origin, r.code, verifier, r.label, r.email ? { email: r.email } : {})
+  // the account the app read from Local State, else the one Chrome lets the extension read (when it may)
+  const email = r.email || (await profileEmail())
+  const got = await redeem(origin, r.code, verifier, r.label, email ? { email } : {})
   if (got !== 'linked') return show(t('pairAppTitle'), got === 'full' ? t('linksFull') : t('pairFailed'), true)
   // the worker connects with the new link; the app shows its notice with Undo
   await chrome.runtime.sendMessage({ type: 'linked' }).catch(() => {})
-  const link = (await chrome.storage.local.get('link')).link as { linkId?: string; user?: { name?: string } } | undefined
+  const link = (await chrome.storage.local.get('link')).link as { linkId?: string; label?: string; user?: { name?: string } } | undefined
   if (link?.linkId) await ask({ type: 'linked', nonce, linkId: link.linkId })
   // the team and its address in plain sight: the person sees where this browser now answers
-  show(t('pairAppDone', [`${r.team} (${new URL(origin).host})`]), t('pairAppDoneBody', [r.label]))
+  show(t('pairAppDone', [`${r.team} (${new URL(origin).host})`]), t('pairAppDoneBody', [String(link?.label || r.label)]))
   await closeSoon()
 }
 
