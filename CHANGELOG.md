@@ -5,6 +5,31 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+## 0.22.0 — 2026-11-29
+
+- Admin notes: 0.22.0 changes a root file (`scripts/system/packages.sh`: on the Windows (WSL) setup apt's output goes to a log, and a failed package step names that log), so every Linux server takes it through the root update: the update timer installs it in the team's update window, or run `sudo mycel-ctl update`. The system package list is unchanged. There is no new migration and the reader level stays 9: going back to 0.21.0 needs no backup.
+
+- The Chrome extension names a browser profile after its Google account when you connect it (Chrome asks once to let the extension see the email address), so several profiles no longer all say "Chrome on Mac". You can still type any name. A profile without a Google account gets "Chrome on Mac", numbered when you already have one ("Chrome on Mac 2").
+- The extension's connect screen speaks plainly in every language ("이 브라우저를 팀에 연결해요").
+- **Settings › Browser › Connect** in the Mac app now links a Chrome profile again when the app runs from a folder with a long path, and when it cannot link it says so instead of opening a page that says "the desktop app is not running".
+- The pair page in Chrome now says the real reason it could not link: the desktop app is not running, did not answer, is missing or too old for this browser, or does not accept this copy of the extension.
+- The address card for the AI's work in your Chrome names the browser profile, and "Always allow" says it is saved for that profile. Chat steps in your Chrome end with the profile's name.
+- **Stop** in the Chrome extension now stops the answer: the AI does nothing more and asks what to do next, the task's window closes and Chrome's "debugging" bar goes away. Disconnect closes every task window.
+- Settings › Trina AX MCP shows a newly connected app without a reload.
+- The Chrome extension's popup follows your language in the team, and "Settings › Browser" uses the menu names you see.
+- The connect page now says the AI opens addresses you typed in the chat yourself without asking.
+- A chat continued with **Continue in a new chat** now gets its own title from its first new message, as a new chat does from its first question. Until then it keeps "<title> (continued)", and a name you gave it yourself stays. The line at the top still says which chat it came from.
+- Disconnecting Google Drive, Gmail, Google Calendar, Google Docs or Google Sheets on a server that signs in through Trina's hosting service no longer removes "Trina AX" from your Google account. That removal used to end the same Google account's connections on your other Trina servers and teams too. Now only this server forgets the sign-in, and the page offers a link to Google's own page if you want to remove Trina's access everywhere.
+- Connecting your own Google Drive or Google app in a browser, with your own Google address, now finishes in the tab Google opened: it says "Connected", and you can close it. Before, it said to go back to "the app" and press "Connect this account" in the first tab. Another Google address, a team Drive or a team account still asks you to confirm the account, and that page now says to go back to the first tab.
+- A right-click on a list row now opens that row's **···** menu at the pointer, with the same items in the same order: projects and their chats in the Projects panel, the Trina history, a project's chats, the Projects page's cards, rooms and DMs in Chats, files and folders, and the headers of your own sections. A long press does the same on a touch screen, and Shift+F10 or the menu key opens it from the keyboard. Text boxes keep the browser's own menu, and the desktop app no longer shows its own menu as well.
+- The chats under a project in the Projects panel now have their own **···** (the same items as in the Trina history).
+- Docs: a short page for running your team's server on a Windows PC, **Host it on a Windows PC** (Run and operate › Set up): what you need, four steps, using it on that PC alone with no setup, connecting your own domain with a Cloudflare Tunnel step by step for colleagues and phones, and what to keep in mind (the PC stays on and signed in; where the data is). The install page lists the Windows PC next to Linux and the office Mac, and the full Windows guide now gives the setup time measured on the test PC and points to the tunnel steps.
+- Windows PC (WSL) servers: the installer's last lines now say to open http://127.0.0.1:47820/setup on this PC, with the setup code on the clipboard or shown by `wsl -d TrinaAX --cd / -u root -- cat /var/lib/mycel/setup/code`, instead of an ssh tunnel and `sudo cat`.
+- Windows PC (WSL) servers: Admin › System › Connection names the mode without the relay **This PC only** (not "Office network only"), and says in one line that other computers on the office network cannot reach a WSL server.
+- Admin › System › Connected folders says "Folder path on this computer", with a Linux example, on a Linux or WSL server; "this Mac" and the Finder examples stay on a Mac. In all six languages.
+- The Windows setup window no longer fills with apt's output ("Reading database … 5%"): it goes to /var/log/trina-packages-apt.log, the window shows the "still installing" lines, and a failure names the log and its last lines.
+- Windows setup: when installing Debian stops on a new PC (wsl.exe exit code -1), the script tries once more by itself, after removing the half-made distro it left; if that fails too, it says to run the script again.
+
 ## 0.21.0 — 2026-11-28
 
 - Admin notes: 0.21.0 changes no root file, so a Linux server on 0.20.4 takes it as an app update in the team's update window (or `sudo mycel-ctl update`). Migration 135_a only adds a table (browser pauses of a Trina AX MCP connection); the reader level stays 9: going back to 0.20.4 needs no backup.
