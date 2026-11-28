@@ -10,7 +10,7 @@ import { chromeMessages, LOCALES } from './src/messages'
 /** The extension's own version (semver; the Web Store wants plain numbers). Never edit it by hand: `bun run chrome:bump
  * patch|minor|major` sets it and records chrome-extension/shipped.json (the store never gets one version twice;
  * docs/RELEASE-CI.md "Chrome extension releases"). */
-export const EXTENSION_VERSION = '0.2.1'
+export const EXTENSION_VERSION = '0.3.0'
 
 const HERE = import.meta.dir
 const ROOT = join(HERE, '..')

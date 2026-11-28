@@ -28,6 +28,7 @@ const SAME: Record<string, string> = {
   'web:activity.chip.admin': 'id',
   'web:activity.detail.item': 'id',
   'web:admin.title': 'id',
+  'web:aiApps.browserScope': 'id',
   'web:apps.mockEdit': 'id',
   'web:apps.mockFile': 'id',
   'web:artifact.type.mermaid': 'id',
