@@ -104,6 +104,19 @@ const ownsMenu = (t: EventTarget | null) => !!(t as Element | null)?.closest?.(O
 /** what in a row the keyboard goes back to: what the person right-clicked or pressed on (the link, the "···"), else the
  * row's own link */
 const ROW_FOCUS = '[data-row-focus], a[href], button, [tabindex]:not([tabindex="-1"])'
+/** text selected where the right-click is (its Copy is the browser's) */
+const selectedAt = (t: EventTarget | null) => {
+  const sel = typeof window === 'undefined' ? null : window.getSelection?.()
+  return !!sel && !sel.isCollapsed && !!sel.toString().trim() && !!t && sel.containsNode?.(t as Node, true) === true
+}
+/** an event that is not the row's own: one React passes up from a dialog the row renders through a portal (a room row's
+ * section picker), or one from inside the row's open menu or its scrim (those have their own keys and presses) */
+const notRows = (e: { currentTarget: HTMLElement; target: EventTarget | null }) => {
+  const t = e.target as Element | null
+  if (!t || !e.currentTarget.contains(t as Node)) return true
+  const inMenu = t.closest?.('[role="menu"], [data-menu-scrim], [role="dialog"]')
+  return !!inMenu && e.currentTarget.contains(inMenu)
+}
 
 /**
  * The one way from a list row to its "···" menu (every row with one: ListRow `rowMenu`, a chat's, a room's, a project's,
@@ -125,6 +138,7 @@ export function useRowMenu({ off = false, longPress: pressOn = true }: { off?: b
   const [at, setAt] = useState<Point | null>(null)
   const pressedAt = useRef(0)
   const keyAt = useRef(0)
+  const touchedAt = useRef(0)
   const pressPoint = useRef<Point | null>(null)
   /** the element in the row the keyboard goes back to */
   const from = useRef<HTMLElement | null>(null)
@@ -142,7 +156,8 @@ export function useRowMenu({ off = false, longPress: pressOn = true }: { off?: b
     ? {}
     : {
         onPointerDown: (e: PointerEvent<HTMLElement>) => {
-          if (!pressOn || ownsMenu(e.target)) return
+          if (e.pointerType === 'touch') touchedAt.current = Date.now()
+          if (!pressOn || ownsMenu(e.target) || notRows(e)) return
           pressPoint.current = { x: e.clientX, y: e.clientY }
           remember(e.currentTarget, e.target)
           longPress.onPointerDown(e)
@@ -151,14 +166,18 @@ export function useRowMenu({ off = false, longPress: pressOn = true }: { off?: b
         onPointerUp: longPress.onPointerUp,
         onPointerCancel: longPress.onPointerCancel,
         onContextMenu: (e: MouseEvent<HTMLElement>) => {
+          if (notRows(e)) return
           if (pressOn) longPress.onContextMenu(e)
+          // a finger's long press where the row's long press does something else (`longPress: false`): not the menu
+          else if (Date.now() - touchedAt.current < 1500) return
           // a finger's long press opened it already (and kept the phone's own menu away), or something inside the row
           // took the right-click for its own menu
           if (e.defaultPrevented || ownsMenu(e.target)) return
           // the menu key opened it on its key press: the browser's contextmenu after it (no mouse button) is the same press
           if (e.button !== 2 && Date.now() - keyAt.current < 1000) return e.preventDefault()
-          // Shift keeps the browser's own menu (open in a new tab, copy the address)
-          if (e.shiftKey) return
+          // Shift keeps the browser's own menu (open in a new tab, copy the address), and so does a right-click on text
+          // the person selected (to copy it)
+          if (e.shiftKey || selectedAt(e.target)) return
           e.preventDefault()
           remember(e.currentTarget, e.target)
           // from the keyboard (a screen reader, a key the page did not hear) the browser gives no pointer: by the "···"
@@ -167,7 +186,7 @@ export function useRowMenu({ off = false, longPress: pressOn = true }: { off?: b
         },
         onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
           // (not from inside the open menu, which sits in the row: its own keys)
-          if (!isMenuKey(e) || ownsMenu(e.target) || (e.target as Element | null)?.closest?.('[role="menu"]')) return
+          if (!isMenuKey(e) || ownsMenu(e.target) || notRows(e)) return
           e.preventDefault()
           keyAt.current = Date.now()
           remember(e.currentTarget, e.target)

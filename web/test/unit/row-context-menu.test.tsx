@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { MemoryRouter } from 'react-router-dom'
+import { createPortal } from 'react-dom'
 import { ListRow } from '../../src/components/list/List'
 import { MenuButton, useRowMenu } from '../../src/components/rooms/MenuButton'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement } from './dom-host'
@@ -132,6 +133,40 @@ describe('useRowMenu: a right-click opens the row\'s "···"', () => {
       await m.click('it-link')
       expect(log).toEqual(['link'])
       expect(m.container.ownerDocument!.activeElement).toBe(m.get('link'))
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('a dialog the row renders through a portal (a room row\'s section picker) and the open menu keep their own presses', async () => {
+    const log: string[] = []
+    function Portal() {
+      const menu = useRowMenu()
+      return (
+        <ul>
+          <li {...menu.row} data-testid="li">
+            <a href="/x" data-testid="link">x</a>
+            <MenuButton label="x menu" items={items(log)} {...menu.open} testId="x-menu" />
+            {createPortal(<div role="dialog" data-testid="picker"><button type="button" data-testid="pick">Section</button></div>, document.body)}
+          </li>
+        </ul>
+      )
+    }
+    const m = await mount(<Portal />)
+    try {
+      const body = m.container.ownerDocument!.body as unknown as FakeElement
+      // React passes the dialog's right-click and Shift+F10 up to the row: the row leaves them alone
+      expect(rightClick(m.get('pick')).defaultPrevented).toBe(false)
+      expect(key(m.get('pick'), 'F10', true).defaultPrevented).toBe(false)
+      await m.settle()
+      expect(menuIds(body)).toEqual([])
+      // a right-click inside the row's open menu does not open it again somewhere else
+      rightClick(m.get('link'), { x: 50, y: 20 })
+      await m.until(() => m.find('it-pin'), 'the menu')
+      const inMenu = rightClick(m.get('it-pin'), { x: 400, y: 300 })
+      expect(inMenu.defaultPrevented).toBe(false)
+      await m.click('it-pin')
+      expect(log).toEqual(['pin'])
     } finally {
       await m.unmount()
     }
