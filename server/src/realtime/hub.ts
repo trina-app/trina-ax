@@ -42,6 +42,9 @@ interface Socket {
   sessionId: string
   /** the desktop app's in-app browser version the page said (WsConnectQuery.pane; 0: none or an older page) */
   pane: number
+  /** the team page's origin the window connected from (its Origin header, checked by originAllowed; null: a bearer
+   * session, which sends none): where the person's computer reaches this server (local-file-links.ts) */
+  origin: string | null
   /** epoch ms when the session expires (Infinity: no expiry known); the socket is closed then */
   expiresAt: number
   /** set while replaying; live events are queued behind the replay */
@@ -215,6 +218,7 @@ export class Hub implements RealtimeHub {
     const offered = (req.headers.get('sec-websocket-protocol') ?? '').split(',').map((s) => s.trim()).filter(Boolean)
     const bearer = offered.find((p) => p.startsWith(WS_BEARER_PREFIX))?.slice(WS_BEARER_PREFIX.length)
     let auth: AuthInfo | null = null
+    let pageOrigin: string | null = null
     try {
       if (bearer) {
         const h = new Headers({ authorization: `Bearer ${bearer}` })
@@ -226,6 +230,7 @@ export class Hub implements RealtimeHub {
         if (!origin || origin === 'null' || !originAllowed(origin, req.url, originsFor(this.ctx.config, info))) {
           conn.close(WsClose.forbiddenOrigin, 'origin not allowed'); return
         }
+        pageOrigin = new URL(origin).origin
         auth = await this.ctx.services.sessions.resolve(req, info)
       }
     } catch (e) {
@@ -244,7 +249,7 @@ export class Hub implements RealtimeHub {
     const prev = u.sockets.get(windowId)
     if (prev) { prev.closed = true; u.sockets.delete(windowId); try { prev.conn.close(WsClose.replaced, 'replaced by a newer connection') } catch {} }
     const exp = auth.session.expiresAt ? Date.parse(auth.session.expiresAt) : NaN
-    const s: Socket = { conn, userId, windowId, sessionId: auth.session.id, pane: q.data.pane ?? 0, expiresAt: Number.isFinite(exp) ? exp : Infinity, ready: false, closed: false }
+    const s: Socket = { conn, userId, windowId, sessionId: auth.session.id, pane: q.data.pane ?? 0, origin: pageOrigin, expiresAt: Number.isFinite(exp) ? exp : Infinity, ready: false, closed: false }
     u.sockets.set(windowId, s)
     while (u.sockets.size > MAX_SOCKETS_PER_USER) {
       const [, oldest] = u.sockets.entries().next().value as [string, Socket]
@@ -461,6 +466,11 @@ export class Hub implements RealtimeHub {
   paneOfWindow(userId: string, windowId: string): number | undefined {
     const s = this.users.get(userId)?.sockets.get(windowId)
     return s && !s.closed ? s.pane : undefined
+  }
+  /** the team page's origin the window connected from (Socket.origin), or null (no open WebSocket, a bearer session) */
+  originOfWindow(userId: string, windowId: string): string | null {
+    const s = this.users.get(userId)?.sockets.get(windowId)
+    return s && !s.closed ? s.origin : null
   }
   /** the sign-in (session) a window is on: its desktop app's computer report is per sign-in (realtime/presence.ts) */
   sessionOfWindow(userId: string, windowId: string): string | undefined { return this.users.get(userId)?.sockets.get(windowId)?.sessionId }

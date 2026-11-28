@@ -55,8 +55,10 @@ import { audit } from '../../admin/audit'
 import { ATTACHMENT_NAME_ARG, ATTACHMENT_SIZE_ARG, ATTACHMENT_TOOL, isAppId, isAppTool, SENDING_TOOLS } from '../google-apps/catalog'
 import { answerText, nameReadOf } from '../google-apps/names'
 import { addressedAttachments, ATTACHMENT_MAX_BYTES, readAttachment, tooLargeMessage } from '../google-apps/attachments'
-import { ATTACH_HOW, attachedLines, attachedSummary, readTeamFiles, recheckTeamFiles, teamFileHandles, TEAM_FILE_PREFIX, withTeamFiles, type AttachedFile } from './team-attach'
+import { ATTACH_HOW, ATTACH_HOW_LOCAL, attachedLines, attachedSummary, readTeamFiles, recheckTeamFiles, teamFileHandles, TEAM_FILE_PREFIX, withTeamFiles, type AttachedFile } from './team-attach'
 import { sourceOf, type ReadSource } from '../../chat/read-scope'
+import { linkBase, localTeamFiles, LOCAL_LINK_PATH, unlinked, withLinks } from './local-file-links'
+import { getChatRuntime } from '../../chat/runtime'
 import { awayWords, localSpecOf, notReadyWords, offlineWords, turnAway, turnWindow, type LocalVia } from './local'
 import { PRODUCT } from '@mycel/shared'
 
@@ -270,11 +272,12 @@ async function sharedGate(ctx: AppContext, b: BuildCtx, row: Row, tc: TurnToolCo
  * version (a new address, key or sign-in, a changed rule) and the account it is signed in to */
 const sharedKey = (row: Pick<Row, 'id' | 'version' | 'account'>) => `${row.id}\u0000${row.version}\u0000${accountKey(row.account)}`
 
-/** A team file handed to an app on the person's computer (local.ts): none of its tools takes a file's content */
-const LOCAL_NO_TEAM_FILES = (name: string) => refusal({
+/** A team file handed to an app on the person's computer (local.ts) in the middle of a text without quotes: where the
+ * handle ends cannot be told, so nothing goes and the AI is told how to write it (local-file-links.ts) */
+const LOCAL_TEAM_FILE_HOW = (name: string) => refusal({
   done: `Nothing was sent: ${name} got nothing.`,
-  why: { kind: 'mode', mode: name, why: `${name} runs on the user's computer and its tools take code or a task, not a team file's content, so a team file cannot be attached through it (a web mail opened in it included)` },
-  next: 'say so plainly in one or two sentences, without promising it; offer what works: a connected mail service that takes attachments, a link to the file, or the user attaching the file themselves', names: [name],
+  why: { kind: 'mode', mode: name, why: `a team file goes to ${name} as a one-time download link, which the server puts where "${TEAM_FILE_PREFIX}<path>" stands in quotes in the code or task; here a handle stands without quotes, so where it ends cannot be told` },
+  next: `call it again with each handle in quotes, as a whole string where the code downloads the file, for example const r = await fetch("${TEAM_FILE_PREFIX}shared/quotes/quote.pdf"); then put it on the page's file field with setInputFiles([{ name: "quote.pdf", mimeType: "application/pdf", buffer: Buffer.from(await r.arrayBuffer()) }]) (a list, as Aside's repl takes it)`, names: [name],
 })
 
 /** A team connection while a guest sees the shared chat: for the AI, in plain words */
@@ -387,22 +390,12 @@ const CODE_KEY = /^(code|script|js|javascript|program)$/i
 /** Argument names where a tool takes a file's content (a mail's attachment "content", "data"): the only place a team file
  * handle can go to an app on the person's computer */
 const CONTENT_KEY = /^(content|contents|data|bytes|base64|file_content|filecontent|file_data)$/i
-/** A team file handle given to an app on the person's computer anywhere but where its tool takes a file's content
- * (security review of #647: any depth, any argument name; Aside's repl "code" and exec "prompt", a CLI's stdin, a
- * "command"): it would go as text, not a file. Fails closed: an argument the walk cannot reach counts as such. */
-function handleAsCode(row: Pick<Row, 'local_app'>, tool: string, args: unknown): boolean {
-  if (!row.local_app) return false
+/** Where a call to an app on the person's computer takes a file's content (a whole value there is sent as base64,
+ * team-attach.ts): an argument named so that is not the code it runs (security review of #647: Aside's repl "code" and
+ * exec "prompt", a CLI's stdin, a "command" never are). Anywhere else a handle gets a one-time link (local-file-links.ts). */
+const contentKeyOf = (row: Pick<Row, 'local_app'>, tool: string) => {
   const own = scriptArg(row, tool)
-  let bad = false
-  const walk = (v: unknown, key: string | null, depth: number) => {
-    if (bad) return
-    if (depth > 12) { bad = true; return }
-    if (typeof v === 'string') { if (v.startsWith(TEAM_FILE_PREFIX) && (key === null || key === own || !CONTENT_KEY.test(key))) bad = true }
-    else if (Array.isArray(v)) for (const x of v) walk(x, key, depth + 1)
-    else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v as Record<string, unknown>)) walk(x, k, depth + 1)
-  }
-  walk(args, null, 0)
-  return bad
+  return (key: string | null) => key !== null && key !== own && CONTENT_KEY.test(key)
 }
 
 /** The argument that is code an app on the person's computer runs: a declared CLI's stdin, or a top-level string
@@ -1270,6 +1263,21 @@ function localVia(ctx: AppContext, tc: TurnToolContext, row: Row): LocalVia {
   return { windowId, turnId: tc.turnId }
 }
 
+/** One-time download links for the team files a call to an app on the person's computer names in its code or task
+ * (local-file-links.ts), after the card and the files' last check: handle -> address. Reached at the team page's origin
+ * of the desktop window the call goes to; each link ends after one download, LINK_TTL_MS or the turn. */
+function linkTeamFiles(ctx: AppContext, tc: TurnToolContext, row: Row, files: AttachedFile[]): Map<string, string> {
+  const rt = getChatRuntime(ctx)
+  const base = linkBase(ctx, rt.hub.originOfWindow(tc.userId, localVia(ctx, tc, row).windowId))
+  if (!base) throw new CallError(`Nothing was sent: the address at which the user's computer reaches the team is not known here, so ${row.name} cannot download the team file. Tell the user plainly; offer a link to the file or that they attach it themselves.`, 'refused (attachment: no team address)')
+  const tokens = rt.localRelay.links.issue(files.map((f) => ({
+    userId: tc.userId, rel: f.rel, name: f.name, bytes: f.bytes, sha256: f.sha256,
+    recheck: () => { ctx.files.recheckOutgoing(tc.files, { rel: f.rel, identity: f.identity }); return !ctx.files.quarantine.hasHash(f.sha256) },
+  })), tc.signal)
+  if (!tokens) throw new CallError('Nothing was sent: too many team files are waiting to be downloaded on this server just now. Try again in a minute.', 'refused (attachment: links full)')
+  return new Map(files.map((f, i) => [f.handle, `${base}${LOCAL_LINK_PATH}${tokens[i]}`]))
+}
+
 function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name: string): TurnTool {
   return {
     name,
@@ -1318,15 +1326,18 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         // person now, before the card that shows them; only with a tool that changes something (a read raises no
         // card) and only where someone can answer a card: the card is the consent for a file that leaves the team
         let files: AttachedFile[] = []
-        const handles = teamFileHandles(args)
+        // an app on the computer (Aside's repl and exec, ego lite's script): a handle in quotes in its code or task, or
+        // the whole value of an argument that is not a file's content, gets a one-time download link after the card
+        // (local-file-links.ts); one in the middle of a text without quotes is refused with how to write it
+        const isContent = current.local_app ? contentKeyOf(current, t.name) : null
+        const local = isContent ? localTeamFiles(args, isContent) : null
+        if (local?.loose) throw new CallError(LOCAL_TEAM_FILE_HOW(current.name), 'refused (attachment: handle without quotes)')
+        const linked = new Set(local?.links ?? [])
+        const handles = local ? [...local.content, ...local.links] : teamFileHandles(args)
         if (handles.length) {
           if (t.readOnly) throw new CallError(`Nothing was sent: a team file can be attached only with a tool that sends or changes something at ${current.name}; ${t.name} only reads.`, 'refused (attachment on a read)')
           const person = b.scheduled ? null : tc.files.person
           if (!person || person.unattended) throw new CallError(`Nothing was sent to ${current.name}: a team file is attached only in a chat where the user can see what leaves the team, not in a scheduled run. Say so in the summary; the user can send it in a chat.`, 'refused (attachment: nobody to ask)')
-          // an app on the computer whose argument there is code it runs or a task for its agent (Aside's repl and exec,
-          // ego lite's script): the handle would go as text, not a file. Said plainly, so the AI does not promise an
-          // attachment it cannot make (an app's tool that takes a file's content still gets the file)
-          if (handleAsCode(current, t.name, args)) throw new CallError(LOCAL_NO_TEAM_FILES(current.name), 'refused (attachment: app on the computer)')
           // a connection that refuses changes is refused by the gate below, before any file is read
           if (current.write_policy !== 'deny') files = readTeamFiles(ctx, tc, current.name, handles)
           // a shared chat: the files go through the chat's read check first, as a read of them would (someone here who
@@ -1384,6 +1395,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         // the files as they were shown: the account, its access and each file once more, then their bytes in place of
         // the handles (no await between the check and the call's start)
         let sending = args
+        let fileLinks: Map<string, string> = new Map()
         if (files.length) {
           // no card was due (the connection sends without asking for this person): a file still leaves only in a turn
           // the person watches from their own app, never from a question asked elsewhere (Slack)
@@ -1395,11 +1407,17 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
             if (no) throw new CallError(no, 'not sent (shared chat: team file not shared)')
           }
           recheckTeamFiles(ctx, tc, files)
-          sending = withTeamFiles(args, files)
+          sending = withTeamFiles(args, files.filter((f) => !linked.has(f.handle)))
+          const toLink = files.filter((f) => linked.has(f.handle))
+          if (toLink.length) {
+            fileLinks = linkTeamFiles(ctx, tc, current, toLink)
+            sending = withLinks(sending, fileLinks, isContent!)
+          }
         }
         // withDemoChat: a demo fake knows the chat it answers for (demo/fakes/scope.ts)
         const calling = current
-        const r = await withDemoChat(chat, () => svc.callTool(calling, t.name, sending, tc.signal, calling.local_app ? localVia(ctx, tc, calling) : null)).catch((e) => {
+        // the app's answer with each link put back as its handle: the AI never sees a link (local-file-links.ts)
+        const r = await withDemoChat(chat, () => svc.callTool(calling, t.name, sending, tc.signal, calling.local_app ? localVia(ctx, tc, calling) : null)).then((x) => unlinked(x, fileLinks), (e) => {
           // an attachment whose answer was cut off at the size limit: said plainly (the connection is fine)
           if (current!.google_app && t.name === ATTACHMENT_TOOL && e instanceof CallError && e.kind === 'too_large') throw new CallError(tooLargeMessage(fileName), 'attachment too large')
           throw e
@@ -1993,6 +2011,8 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
         // only where a connection's own tools are there to take a file (an MCP server's; not api_request), and never
         // in a scheduled run, which attaches nothing
         ...(index.size && !b.scheduled ? [ATTACH_HOW] : []),
+        // an app on the computer offered here: how its code or task attaches a team file (local-file-links.ts)
+        ...(!b.scheduled && [...index.values()].some((e) => e.row.local_app) ? [ATTACH_HOW_LOCAL] : []),
       ].join('\n')
       // the fallback rule goes with the instructions once, never in the context sent with every message (its budget)
       const guide = guideSection(guides)

@@ -18,12 +18,13 @@ function hasRoomApps(ctx: AppContext): boolean {
 
 /** Request path for logs: secrets in the path (invite and password reset links: the API and the web pages
  * /invite/<token>, /reset-password/<token> that the links open; an app's room address /in/<token>; a file_upload ticket
- * /api/browser/uploads/<ticket> and /api/chrome/uploads/<ticket>) are replaced by
+ * /api/browser/uploads/<ticket> and /api/chrome/uploads/<ticket>; an app's team file link /team-file-links/<token>) are
+ * replaced by
  * "***". */
 export function loggablePath(p: string): string {
   // an app's address may carry a token in its query too (a service that adds ?token=…): /in/ never logs a query
   if (/^\/in(\/|\?|$)/.test(p)) p = p.replace(/\?.*$/s, '')
-  return p.replace(/^(\/(?:api\/(?:invites|password-resets)|invite|reset-password|api\/connectors\/remote\/requests|api\/browser\/uploads|api\/chrome\/uploads|connector-uploads|connector-downloads|in)\/)[^/]+/, '$1***')
+  return p.replace(/^(\/(?:api\/(?:invites|password-resets)|invite|reset-password|api\/connectors\/remote\/requests|api\/browser\/uploads|api\/chrome\/uploads|connector-uploads|connector-downloads|team-file-links|in)\/)[^/]+/, '$1***')
 }
 
 /** An app's room address (rooms/apps/inbound.ts): POST /in/<a well-formed token>. */

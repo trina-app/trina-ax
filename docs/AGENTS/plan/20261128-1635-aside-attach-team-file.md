@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 16:35
 - Branch: `fix/aside-attach-team-file`
-- Status: in progress
+- Status: done
 - Where: server (integrations/connections, realtime, routes). Why: the AI's connection tools and their checks live
   there (see docs/REPOSITORY-RULES.md)
 - Version impact: minor (an app on the computer can now attach team files: a new route and a new ability of the
@@ -64,4 +64,5 @@ keeps its read check on the files. A scheduled run attaches nothing (unchanged).
 
 ## Result
 
-Filled in at the end.
+Built as planned. QA: Aside repl on this Mac downloaded a team PDF through a one-time link from a local server copy
+and set it on a local compose page's file field (screenshot in the PR); a second download got 404.
