@@ -67,19 +67,19 @@ jobs:
     runs-on: ${{ vars.DESKTOP_MAC_RUNNER || 'macos-15-intel' }}
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
       # bun's package store (by bun.lock) and Electron's download (by bun.lock: the electron version is in it)
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/Library/Caches/electron
           key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
@@ -93,7 +93,7 @@ jobs:
           dscacheutil -flushcache || true
       # offline.spec and hwp.spec sign in to the web app's mock team (web/test/mock/offline-serve.ts), which serves the
       # production web build; hwp.spec renders with the pinned rhwp (prepare:hwp checks its sha256)
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: native/bin/hwp
           key: rhwp-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('resources/hwp/manifest.json') }}
@@ -109,7 +109,7 @@ jobs:
           cd desktop
           bun build.ts
           bunx playwright test -c e2e/ci.config.ts
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: desktop-e2e-mac
@@ -127,18 +127,18 @@ jobs:
     runs-on: ${{ vars.DESKTOP_MAC_RUNNER || 'macos-15-intel' }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/Library/Caches/electron
@@ -155,7 +155,7 @@ jobs:
           ls -l desktop/release
       - name: Mount the dmg and check it against the electron-builder settings
         run: bun scripts/ci/dmg-check.ts desktop/release
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: desktop-dmg
@@ -172,18 +172,18 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/AppData/Local/electron/Cache
@@ -214,7 +214,7 @@ jobs:
           $new = (Get-ChildItem "desktop/release/*-Setup-$env:NEW_VERSION-win-x64.exe").FullName
           ./scripts/ci/windows-install-check.ps1 -Old $old -New $new -OldVersion $env:OLD_VERSION -NewVersion $env:NEW_VERSION `
             -Product $env:PRODUCT -Scheme $env:SCHEME -DataDir $env:DATA_DIR -Builder $env:BUILDER -LogDir "$env:RUNNER_TEMP/install-logs"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: desktop-windows-install-logs
@@ -236,18 +236,18 @@ jobs:
       product: ${{ steps.build.outputs.product }}
       scheme: ${{ steps.build.outputs.scheme }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/electron
@@ -306,7 +306,7 @@ jobs:
           scripts/ci/linux-install-check.sh full "$r/$ARTIFACT-$BASE-ci.1-linux-amd64.deb" "$r/$ARTIFACT-$BASE-ci.2-linux-amd64.deb" "$r/$ARTIFACT-$BASE-ci.2-linux-x86_64.AppImage"
       # the arm64 .deb and AppImage for the next job (a real arm64 runner installs and starts the .deb and starts the
       # AppImage's runtime in a stock Fedora)
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-linux-arm64-deb
           path: |
@@ -314,7 +314,7 @@ jobs:
             desktop/release/*-linux-arm64.AppImage
           if-no-files-found: error
           retention-days: 3
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: desktop-linux-install-logs
@@ -331,14 +331,14 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/linux-install-check.sh
             scripts/ci/appimage-runtime-check.sh
           sparse-checkout-cone-mode: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: desktop-linux-arm64-deb
           path: arm64
@@ -361,7 +361,7 @@ jobs:
           SCHEME: ${{ needs.linux-packages.outputs.scheme }}
           LOG_DIR: ${{ runner.temp }}/linux-install-logs
         run: scripts/ci/linux-install-check.sh start arm64/*-linux-arm64.deb
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: desktop-linux-arm64-logs
@@ -375,18 +375,18 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/electron
           key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
@@ -395,7 +395,7 @@ jobs:
       # the fake teams' names, as on the Mac (see e2e-mac)
       - name: Fake team names on 127.0.0.1
         run: for h in acme beta lan bad gone; do echo "127.0.0.1 $h.localhost" | sudo tee -a /etc/hosts > /dev/null; done
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: native/bin/hwp
           key: rhwp-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('resources/hwp/manifest.json') }}
@@ -444,7 +444,7 @@ jobs:
             echo "$out" | grep "safeStorage:" || true
             echo "$out" | grep -q "backend gnome_libsecret, available true" || { echo "::error::Electron did not pick the keyring"; echo "$out" | tail -20; exit 1; }
             bunx playwright test -c e2e/linux.config.ts'
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: desktop-e2e-linux

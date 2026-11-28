@@ -71,7 +71,7 @@ jobs:
       docs_only: ${{ steps.diff.outputs.docs_only }}
       mode: ${{ steps.diff.outputs.mode }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         with:
           # pull_request: the PR's merge commit and its first parent (the base): their difference is what the PR changes.
@@ -123,7 +123,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -148,7 +148,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # empty for push / pull_request (the default commit); the tagged commit when release.yml calls
           ref: ${{ inputs.ref }}
@@ -156,17 +156,17 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: native/go.sum
       # downloads kept between runs: pandoc's package (by version) and bun's package store (by bun.lock). A run with a
       # cache does not reach GitHub releases or the npm registry for them; a miss downloads as before.
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ci-pandoc
           key: pandoc-${{ runner.os }}-${{ env.PANDOC_VERSION }}
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
@@ -234,7 +234,7 @@ jobs:
       - name: Pinned browser against Chrome for Testing Stable
         timeout-minutes: 2
         run: bun scripts/system/browser-staleness.ts
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-bin
           # The uncleared HWP runtime is for local CI execution only, not redistribution.
@@ -244,7 +244,7 @@ jobs:
           retention-days: 7
       # Node last in the job, so it never changes the steps above. Full mode only: the relay suite (moved here from
       # "fast fuzz, web", which then has room for more) and, on a queued entry, the phone app typecheck.
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: needs.scope.outputs.mode == 'full'
         with:
           # the production relay's runtime (versions.json node-relay; relay/deploy/install-node.sh pins the tarball)
@@ -288,7 +288,7 @@ jobs:
         # the count is also in the job name and the test step below, and in tests/unit/ci-unit-shard.test.ts SHARDS
         shard: [1, 2, 3, 4, 5, 6]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # empty for push / pull_request (the default commit); the tagged commit when release.yml calls
           ref: ${{ inputs.ref }}
@@ -296,17 +296,17 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: native/go.sum
       # downloads kept between runs: pandoc's package (by version) and bun's package store (by bun.lock). A run with a
       # cache does not reach GitHub releases or the npm registry for them; a miss downloads as before.
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ci-pandoc
           key: pandoc-${{ runner.os }}-${{ env.PANDOC_VERSION }}
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
@@ -347,7 +347,7 @@ jobs:
       # a hit. The static job always builds them and runs go vet / go test.
       # restore only here; the save below runs on a push (main, or a push to dev past the queue). A queued entry reads
       # main's caches and its own ref's, which nothing reads again, so it never saves (the repo's 10 GB of caches).
-      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: native-cache
         with:
           path: |
@@ -364,7 +364,7 @@ jobs:
           n=$(find native/bin/darwin-amd64 native/bin/darwin-arm64 native/bin/linux-amd64 native/bin/linux-arm64 -type f 2>/dev/null | wc -l)
           if [ "$HIT" = true ] && [ "$n" -ge 28 ]; then echo "native programs from the cache ($n files)"; exit 0; fi
           ARCHS="amd64 arm64" bash native/build.sh
-      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && steps.native-cache.outputs.cache-hit != 'true'
         # several jobs of one run may try; the first saves, the others only warn
         continue-on-error: true
@@ -376,7 +376,7 @@ jobs:
             native/bin/linux-arm64
           key: ${{ steps.native-cache.outputs.cache-primary-key }}
       # the pinned rhwp CLI (prepare:hwp checks its sha256 and downloads it only when missing or different)
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: native/bin/hwp
           key: rhwp-${{ runner.os }}-${{ hashFiles('resources/hwp/manifest.json') }}
@@ -395,7 +395,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # empty for push / pull_request (the default commit); the tagged commit when release.yml calls
           ref: ${{ inputs.ref }}
@@ -403,17 +403,17 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: native/go.sum
       # downloads kept between runs: pandoc's package (by version) and bun's package store (by bun.lock). A run with a
       # cache does not reach GitHub releases or the npm registry for them; a miss downloads as before.
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ci-pandoc
           key: pandoc-${{ runner.os }}-${{ env.PANDOC_VERSION }}
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
@@ -454,7 +454,7 @@ jobs:
       # a hit. The static job always builds them and runs go vet / go test.
       # restore only here; the save below runs on a push (main, or a push to dev past the queue). A queued entry reads
       # main's caches and its own ref's, which nothing reads again, so it never saves (the repo's 10 GB of caches).
-      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: native-cache
         with:
           path: |
@@ -471,7 +471,7 @@ jobs:
           n=$(find native/bin/darwin-amd64 native/bin/darwin-arm64 native/bin/linux-amd64 native/bin/linux-arm64 -type f 2>/dev/null | wc -l)
           if [ "$HIT" = true ] && [ "$n" -ge 28 ]; then echo "native programs from the cache ($n files)"; exit 0; fi
           ARCHS="amd64 arm64" bash native/build.sh
-      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && steps.native-cache.outputs.cache-hit != 'true'
         # several jobs of one run may try; the first saves, the others only warn
         continue-on-error: true
@@ -483,7 +483,7 @@ jobs:
             native/bin/linux-arm64
           key: ${{ steps.native-cache.outputs.cache-primary-key }}
       # the pinned rhwp CLI (prepare:hwp checks its sha256 and downloads it only when missing or different)
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: native/bin/hwp
           key: rhwp-${{ runner.os }}-${{ hashFiles('resources/hwp/manifest.json') }}
@@ -518,14 +518,14 @@ jobs:
     # install + web build ~3 min, the guard ~3.5 min (its step has its own 10-minute cap)
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
       # read only: a queued entry's cache is saved under its own ref and never read again (the repo's 10 GB of caches)
-      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
@@ -565,7 +565,7 @@ jobs:
           bun scripts/features/e2e-failures.ts "$REPORT" "guard set" >> "$GITHUB_STEP_SUMMARY"
       - name: Guard set traces (on failure)
         if: ${{ !cancelled() && steps.e2e-guard.outcome == 'failure' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: web-e2e-guard-results
           path: web/test-results
@@ -617,11 +617,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           # within React Native 0.88's range (mobile/README.md), the relay's Node like the check job
           node-version: 26.12.1
@@ -649,7 +649,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # empty for push / pull_request (the default commit); the tagged commit when release.yml calls
           ref: ${{ inputs.ref }}
@@ -657,7 +657,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: native/go.sum
@@ -710,20 +710,20 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # empty for push / pull_request (the default commit); the tagged commit when release.yml calls
           ref: ${{ inputs.ref }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with: { bun-version: "${{ env.BUN_VERSION }}" }
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with: { go-version: "${{ env.GO_VERSION }}", cache-dependency-path: native/go.sum }
       # the pinned downloads of the bundle (bun, ripgrep, pandoc, typst, the Noto CJK fonts ...; scripts/linux/downloads.ts)
       # kept between runs. A cached file is checked against its SHA-256 every time; a miss downloads as before. Without
       # it every run fetched them from GitHub, and a GitHub outage (HTTP 504 three times on NotoSansCJK-Regular.ttc,
       # 2026-11-10) failed the job.
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: dist/cache
           key: linux-downloads-${{ matrix.arch }}-${{ hashFiles('scripts/linux/downloads.ts', 'versions.json') }}
@@ -744,7 +744,7 @@ jobs:
           V=$(cat dist/linux-${{ matrix.arch }}/VERSION)
           dist/linux-${{ matrix.arch }}/app/$V/root/mycel-ctl verify-bundle "dist/linux-${{ matrix.arch }}/app/$V" --allow-unsigned
           find "dist/linux-${{ matrix.arch }}/app/$V" -maxdepth 2 -printf '%P\n' | sort
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-kit-${{ matrix.arch }}
           # <kit>-<version>-linux-<arch>.tar.gz (build-bundle.ts kitName; the product name is not spelled out here, so a
@@ -768,14 +768,14 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # empty for push / pull_request (the default commit); the tagged commit when release.yml calls
           ref: ${{ inputs.ref }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with: { bun-version: "${{ env.BUN_VERSION }}" }
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with: { go-version: "${{ env.GO_VERSION }}", cache-dependency-path: native/go.sum }
       - run: bun install --frozen-lockfile
       - name: Native build (linux ${{ matrix.arch }})
