@@ -107,6 +107,9 @@ async function share(user: string, a: { chatId: string; answerId: string }, body
   const text = await r.text()
   return { status: r.status, text, json: text ? JSON.parse(text) : undefined }
 }
+/** the answer as a person would see it, without `confirmKey`: that key is random base64url, so a short name such as
+ *  "Gus" can turn up in it by chance (v0.20.4 release run 46142076130); every other field is still searched */
+const shown = (r: { json?: unknown }) => JSON.stringify({ ...(r.json as Record<string, unknown>), confirmKey: undefined })
 const messagesAs = async (user: string, roomId: string) => (await h.api(user).call(API.listRoomMessages, { params: { id: roomId }, query: {} })).items as RoomMessage[]
 const folderId = (p: string) => (h.ctx.db.query('SELECT id FROM folders WHERE path = ?').get(p) as { id: string }).id
 const BRIEF = 'groups/marketing/campaign-brief.md'
@@ -185,7 +188,7 @@ describe('"confirm" first when some member could not read what it used', () => {
     // (with how many files read there count: the card's "1 file in Groups › marketing")
     const marketing = { people: 1, places: [{ kind: 'folder', path: 'groups/marketing', files: 1 }], otherPlaces: false }
     expect(r.json).toEqual({ status: 'confirm', ...marketing, files: [], provenance: marketing, confirmKey: expect.any(String) })
-    for (const n of NAMES) expect(r.text).not.toContain(n)
+    for (const n of NAMES) expect(shown(r)).not.toContain(n)
     expect((await messagesAs('alice', rooms.all)).length).toBe(before)
     // sent with the person's yes; audited as confirmed
     const yes = await share('alice', a, { ...body, confirm: 1 })
@@ -216,7 +219,7 @@ describe('"confirm" first when some member could not read what it used', () => {
     // rooms were read before they were kept in the scope: nobody else is taken to have seen them
     const old = await share('alice', answer('alice', '예전 대화', { roomsSeen: true, scope: [] }), { roomId: rooms.all })
     expect(old.json).toMatchObject({ status: 'confirm', people: 4, places: [{ kind: 'conversation' }], otherPlaces: false, provenance: { people: 4, places: [{ kind: 'conversation' }] } })
-    for (const r of [g, t, old]) for (const n of NAMES) expect(r.text).not.toContain(n)
+    for (const r of [g, t, old]) for (const n of NAMES) expect(shown(r)).not.toContain(n)
   })
 
   test('a DM: the other person cannot read a marketing file', async () => {
@@ -295,7 +298,7 @@ describe('what the answer may carry', () => {
     for (const u of ['alice', 'gus']) db.query('INSERT INTO room_members (room_id, user_id, joined_at) VALUES (?, ?, ?)').run(dm, u, now)
     const r = await share('alice', answer('alice', '용어집 요약', { read: ['shared/glossary.md'] }), { roomId: dm })
     expect(r.json).toMatchObject({ status: 'confirm', people: 1, places: [{ kind: 'folder', path: 'shared' }], otherPlaces: false, provenance: { people: 1 } })
-    for (const n of ['gus', 'Gus']) expect(r.text).not.toContain(n)
+    for (const n of ['gus', 'Gus']) expect(shown(r)).not.toContain(n)
     // an answer that used nothing: nothing to miss
     expect((await share('alice', answer('alice', '안녕하세요'), { roomId: dm })).json.status).toBe('sent')
   })
@@ -420,7 +423,7 @@ describe('linked files: a row each, the switch, attaching', () => {
     const r = await share('alice', answer('alice', `보고서: ${link('users/alice/report.md')}`), { roomId: rooms.all })
     expect(r.json).toMatchObject({ status: 'confirm', people: 4, files: [{ name: 'report.md', path: 'users/alice/report.md', missing: false, attach: 'yes', unable: 4 }], provenance: null })
     // (my own folder's path is mine to see)
-    for (const n of NAMES.filter((x) => x !== 'alice')) expect(r.text).not.toContain(n)
+    for (const n of NAMES.filter((x) => x !== 'alice')) expect(shown(r)).not.toContain(n)
   })
 
   test('a file I cannot open now is never named, gone or not mine: the same row, everyone else counted', async () => {
