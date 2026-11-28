@@ -1,0 +1,1 @@
+- In your browser profiles the AI asks once per site: "Always allow this site" on either card now covers both.
