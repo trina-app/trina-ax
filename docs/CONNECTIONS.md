@@ -49,6 +49,11 @@ admin asks for a personal tool; it only sorts the list (`shared/src/api/team-too
   desktop app signs in through 127.0.0.1 on every install type; the web needs the team's address registered in the
   Entra app ([INTEGRATIONS.md](INTEGRATIONS.md) "Microsoft 365").
 - **Listed services, templates, AI providers, local apps:** the same everywhere.
+- **Desktop app, any browser (2026-11-28):** every wait that opened the system browser (Google Drive and its team
+  shares, Gmail/Calendar/Docs/Sheets personal and team, app connections, Slack sign-in and Add to Slack) has
+  "Copy link": the same address, to paste into another browser or profile. A result held for the app is redeemed only
+  with the app's own proof (`docs/decisions/20261128-held-sign-in-app-key.md`). The web has none (another browser has
+  no session there).
 
 ## Where the surfaces are
 

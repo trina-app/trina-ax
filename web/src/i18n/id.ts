@@ -980,6 +980,8 @@ export const id: Record<MessageKey, string> = {
   "connect.wait.limit": "Ini berhenti sendiri setelah {n} menit.",
   "connect.wait.google": "Jika Google menampilkan bahwa Anda tidak bisa memakai aplikasi ini (misalnya hanya untuk akun perusahaan), tutup jendela Google itu, tekan Coba lagi, lalu pilih akun kerja Anda. Ini berhenti sendiri setelah {n} menit.",
   "connect.wait.googleDesktop": "Setelah selesai di Google, tekan “Kembali ke aplikasi” di browser untuk menyelesaikannya di sini. Jika Google menampilkan bahwa Anda tidak bisa memakai aplikasi ini, tutup jendelanya, tekan Coba lagi, lalu pilih akun kerja Anda. Ini berhenti sendiri setelah {n} menit.",
+  'connect.copyLink': "Salin tautan",
+  'connect.copiedLink': "Disalin. Tempel di browser lain.",
   'connect.noKey': "Tidak perlu kunci. Terhubung ke {host}.",
   'connect.kindMcp': "Server MCP",
   'connect.kindHttp': "API HTTP",

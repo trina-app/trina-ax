@@ -15,7 +15,14 @@
 // code is handed on once (a reload of the page does nothing more); anything else gets 404 and hands nothing on. A
 // program on this computer that finds the port can only hand on codes it already has: the server redeems a code only
 // for the session that started the sign-in, exactly as with the app link that any program here can open too.
-// Pure apart from node:http: unit-tested in tests/unit/c-sign-in-code-loopback.test.ts.
+//
+// The app's key (docs/decisions/20261128-held-sign-in-app-key.md): a random secret for this run of the app, one per team
+// (an HMAC of the team's origin, so no team server learns another's). The page sends its sha256 (key()) with every API
+// call; the server seals it into a result it holds for this app's code, and the claim must carry the secret itself
+// (proof(), sent only by the main process: the page and whoever got the code or the sign-in link never have it). A
+// copied sign-in link opened by someone else ends, at most, in a held result no one but this app can redeem.
+// Pure apart from node:http and node:crypto: unit-tested in tests/unit/c-sign-in-code-loopback.test.ts.
+import { createHash, createHmac, randomBytes } from 'node:crypto'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { APP_CODE_RETURN_PATH } from '@mycel/shared/desktop-bridge'
 import { closeLoopback, DONE_PAGE_HEADERS, donePage, listenLoopback, ownPageLoad } from './loopback'
@@ -46,6 +53,8 @@ export class CodeReturn {
   private opening: Promise<number | null> | null = null
   private readonly seen: string[] = []
   private handed: number[] = []
+  /** this run's secret: never written anywhere, never sent but as a team's proof on that team's claim */
+  private readonly secret = randomBytes(32)
   /** `deliver`: hand the code to `team` when that team is on screen (main/app-window.ts claimReturnedCode); true when it
    * was. `page`: the words the browser shows then ("Back in the app…"), in the app's language. */
   constructor(private readonly o: { deliver: (code: string, team: string) => boolean; page: () => string; now?: () => number }) {}
@@ -63,6 +72,21 @@ export class CodeReturn {
       })
     }
     return this.opening
+  }
+
+  /** The secret for `team` (an http(s) origin): 43 base64url characters, sent only on that team's claim
+   * (APP_RETURN_PROOF_HEADER). null for anything that is not an origin. */
+  proof(team: string): string | null {
+    let origin: string
+    try { origin = new URL(team).origin } catch { return null }
+    if (origin !== team || !/^https?:\/\//.test(origin)) return null
+    return createHmac('sha256', this.secret).update(`sign-in-code:${origin}`).digest('base64url')
+  }
+
+  /** What the page of `team` sends with its calls (APP_RETURN_KEY_HEADER): the proof's sha256 in hex; null as proof(). */
+  key(team: string): string | null {
+    const p = this.proof(team)
+    return p ? createHash('sha256').update(p).digest('hex') : null
   }
 
   close() {

@@ -29,7 +29,7 @@ import { say, type Reason, type TextKey } from './text'
 import { NOTIFICATION_RETENTION_MS, notifyConnectionReconnect, notifyTemplateLeft, notifyTemplateReconnect } from '../../notifications/service'
 import { refreshGoogleApp } from '../google-apps/tokens'
 import { officialService, serverAppAt, teamAppAt, type ServerApp } from '@mycel/shared'
-import { CLAIM_MS, appReturnPort, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
+import { CLAIM_MS, appReturnKey, appReturnPort, heldProofOk, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
 import { GITHUB_AUTHORIZE_URL, GITHUB_TOKEN_URL, githubAppOf, githubAppView, revokeGitHubToken } from '../github/app'
 import { MICROSOFT_SCOPE, microsoftAppOf, microsoftAppView, microsoftAuthorizeUrl, microsoftTokenUrl } from '../microsoft/app'
 import { answerMicrosoftMcp } from '../microsoft/mcp-server'
@@ -102,7 +102,9 @@ interface FlowSecret {
   serverApp?: ServerApp
   /** a desktop sign-in answered in a browser without the starter's session (hold): the tokens, waiting for the app's
    * one-time code (`claim`: its sha256, never the code) until `until` (ms) */
-  held?: { tokens: OAuthTokens; claim: string; until: number }
+  held?: { tokens: OAuthTokens; claim: string; until: number; key?: string | null }
+  /** the app's key the starting session said at the start (google-drive/app-return.ts appReturnKey) */
+  appKey?: string
 }
 /** integration_oauth_flows.reason of a flow whose result waits for the desktop app's code (state 'exchanging') */
 const HELD = 'held'
@@ -1374,7 +1376,7 @@ export class Integrations {
     }
     // no token address remembered yet: this one is, once this sign-in worked (callback)
     const pinOnto = app?.clientSecret && !app.tokenUrl && !app.foundTokenUrl ? { json: app.stored.json, enc: app.stored.enc } : null
-    const secret: FlowSecret = { verifier, server: setup.server, client, resource: setup.resource, scope: setup.scope, pinOnto, appVersion: row.template_id && app && !app.serverApp ? app.stored.version : null, own: app && !app.serverApp ? (row.template_id ? 'template' : 'mine') : undefined, ...(app?.serverApp ? { serverApp: app.serverApp } : {}) }
+    const secret: FlowSecret = { verifier, server: setup.server, client, resource: setup.resource, scope: setup.scope, pinOnto, appVersion: row.template_id && app && !app.serverApp ? app.stored.version : null, own: app && !app.serverApp ? (row.template_id ? 'template' : 'mine') : undefined, ...(app?.serverApp ? { serverApp: app.serverApp } : {}), ...(appReturnKey(session) ? { appKey: appReturnKey(session)! } : {}) }
     let sealed
     try { sealed = this.box.seal(flowAad({ id: flowId, user_id: viewer.id }), secret) } catch { return fail('unavailable', say('key_unsafe', L)) }
     const expiresAt = iso(this.now() + FLOW_TTL)
@@ -1609,7 +1611,7 @@ export class Integrations {
    * (32 random bytes) that the page hands only to the desktop app, in its link's fragment. */
   private hold(f: FlowRow, s: FlowSecret, tokens: OAuthTokens, row: Row): CallbackResult {
     const code = newToken(), until = this.now() + CLAIM_MS
-    const sealed = this.box.seal(flowAad(f), { ...s, held: { tokens, claim: tokenHash(code), until } } satisfies FlowSecret)
+    const sealed = this.box.seal(flowAad(f), { ...s, held: { tokens, claim: tokenHash(code), until, key: s.appKey ?? null } } satisfies FlowSecret)
     if (!this.db.query("UPDATE integration_oauth_flows SET secret_enc=?, key_version=?, reason=?, expires_at=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, HELD, iso(until), f.id).changes) {
       void this.revokeTokens(heldSecret(s, tokens))
       return { ok: false, reason: null }
@@ -1632,13 +1634,14 @@ export class Integrations {
    * posts every code to tries Google Drive, the Google apps, then this). Only a held flow of THIS person and session; the
    * code is used up at once. Then the same checks and store as a return in the person's browser. A code this does not
    * know: null (the route's "used or expired" refusal). A late one ends its flow. */
-  async claim(user: string, session: string, code: string): Promise<IntegrationFlow | null> {
+  async claim(user: string, session: string, code: string, proof?: string | null): Promise<IntegrationFlow | null> {
     this.sweep()
     const rows = this.db.query("SELECT * FROM integration_oauth_flows WHERE user_id=? AND session_id=? AND state='exchanging' AND reason=? AND secret_enc IS NOT NULL").all(user, session, HELD) as FlowRow[]
     for (const f of rows) {
       let s: FlowSecret
       try { s = this.box.open<FlowSecret>(flowAad(f), f.secret_enc, f.key_version) } catch { continue }
-      if (!s.held || !tokenMatches(code, s.held.claim)) continue
+      // held with the app's key: the app's own proof too (google-drive/app-return.ts heldProofOk)
+      if (!s.held || !tokenMatches(code, s.held.claim) || !heldProofOk(s.held.key, proof)) continue
       // single use: only the first claim takes it (reason HELD -> NULL), whatever happens next
       if (!this.db.query("UPDATE integration_oauth_flows SET reason=NULL WHERE id=? AND state='exchanging' AND reason=?").run(f.id, HELD).changes) return null
       const failed = (reason: FlowFailure): CallbackResult => { this.db.query("UPDATE integration_oauth_flows SET state='failed', reason=?, secret_enc=NULL WHERE id=? AND state='exchanging'").run(reason, f.id); return { ok: false, reason } }
