@@ -9,7 +9,7 @@ import { holdPageZoom } from './lib/pageZoom'
 import { followInputModality } from './lib/inputModality'
 import { applyTheme, storedTheme, watchSystemTheme } from './lib/theme'
 import { applyTextSize, storedTextSize } from './lib/textSize'
-import { loadLocale, localeChosen, localeLoaded, onLocaleLoadFailed, recentLocale, storedLocale, useLocaleStore, t } from './i18n'
+import { loadLocale, localeChosen, localeLoaded, onLocaleLoadFailed, recentLocale, signedOutPick, useLocaleStore, t } from './i18n'
 import { reloadForChunkError } from './lib/chunk-reload'
 import { initMobile, MobileFileTooLarge, setAppLanguage, setMobileSession } from './lib/mobile'
 import { useSession } from './store/session'
@@ -87,7 +87,7 @@ try { for (const k of ['mycel.sidebar.recents', 'mycel.sidebar.recentsAll', 'myc
 // a language file of an older build (gone after an update) reloads the tab once, like any other part of the page
 onLocaleLoadFailed((e) => { reloadForChunkError(e) })
 void useSession.getState().load()
-const startLocale = storedLocale() ?? recentLocale() ?? useLocaleStore.getState().locale
+const startLocale = signedOutPick() ?? recentLocale() ?? useLocaleStore.getState().locale
 void loadLocale(startLocale)
   .catch(() => {})
   .then(() => {

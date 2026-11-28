@@ -138,6 +138,18 @@ export function storedLocale(): Locale | null {
     return null // storage blocked (private window, previews): no remembered choice
   }
 }
+/** The desktop app's language when someone chose one there (DesktopBridge.locale), else null (a browser, a phone, an
+ * older app). */
+export function desktopLocale(): Locale | null {
+  try {
+    return asLocale(getDesktopBridge()?.locale)
+  } catch {
+    return null
+  }
+}
+/** The language for a screen before sign-in: the one picked on this browser, else the desktop app's (a Korean app opens
+ * the sign-in page and a new team's first screen in Korean, not in the team default), else null. */
+export const signedOutPick = (): Locale | null => storedLocale() ?? desktopLocale()
 export function storeLocale(l: Locale | null): void {
   try {
     if (l) localStorage.setItem(STORED_KEY, l)
@@ -181,7 +193,7 @@ export function onLocaleLoadFailed(fn: (e: unknown) => void) { localeLoadFailed 
 export const localeChosen = () => wanted !== null
 
 export const useLocaleStore = create<LocaleState>((set) => ({
-  locale: storedLocale() ?? DEFAULT_LOCALE,
+  locale: signedOutPick() ?? DEFAULT_LOCALE,
   setLocale: (locale) => {
     wanted = locale
     if (!loaded[locale]) {

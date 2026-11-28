@@ -6,7 +6,7 @@ import { optimistic, optimisticPending, optimisticPendingKeys } from '../lib/opt
 import { applyTheme, storedTheme, storeTheme } from '../lib/theme'
 import { applyTextSize, pickTextSize, storedTextSize, storeTextSize, textSizeFailed, textSizeSettled, unsavedTextSize } from '../lib/textSize'
 import { toast } from './ui'
-import { browserLocale, loadLocale, pickLocale, t as tNow, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
+import { browserLocale, loadLocale, pickLocale, t as tNow, recentLocale, signedOutPick, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
 import { recoveryLocale } from '../i18n/recovery-locale'
 import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupToken } from '../lib/setupLink'
 import { googleSignUpDone } from '../lib/googleSignUp'
@@ -253,7 +253,7 @@ export const useSession = create<SessionState>((set, get) => ({
     storeRecentLocale(null)
     // the sign-in screen shows this browser's pick, else the team default: not the previous person's language
     // (requests before sign-in carry the screen's language, so their errors follow too)
-    useLocaleStore.getState().setLocale(pickLocale(storedLocale(), lastTeamDefault))
+    useLocaleStore.getState().setLocale(pickLocale(signedOutPick(), lastTeamDefault))
     // a guest's (only a guest's 'removed' carries the team)
     if ((reason === 'removed' || reason === 'left') && team) { rememberRemoved(team, reason); ownLanguage() }
     // a member taken out of the team (the live link said so): their browser's language too (memberRemoved)
@@ -430,7 +430,7 @@ async function readMe(get: Get, set: Set): Promise<void> {
     if (isApiError(e, 'unauthorized') || (isApiError(e) && e.status === 401)) {
       storeRecentLocale(null)
       // Even if setup cannot be fetched, a retired account's recovery language must not reach sign-in.
-      useLocaleStore.getState().setLocale(pickLocale(storedLocale(), lastTeamDefault))
+      useLocaleStore.getState().setLocale(pickLocale(signedOutPick(), lastTeamDefault))
       try {
         // the setup link's token, if this tab was opened with one (kept for a reload: lib/setupLink.ts): through the
         // relay the server says setup is still needed only to a visitor who has it (server/src/auth/accounts.ts
@@ -447,8 +447,9 @@ async function readMe(get: Get, set: Set): Promise<void> {
         lastOwnerRecovery = s.ownerRecoveryUrl ?? null
         lastGoogleSignIn = !!s.googleSignIn
         lastGoogleAppSignIn = !!s.googleAppSignIn
-        // before sign-in: the visitor's pick on this browser, else the team default (also tells the desktop app)
-        const locale = pickLocale(storedLocale(), s.defaultLocale)
+        // before sign-in: the visitor's pick on this browser, else the desktop app's language, else the team default
+        // (also tells the desktop app)
+        const locale = pickLocale(signedOutPick(), s.defaultLocale)
         await wordsFor(locale)
         useLocaleStore.getState().setLocale(locale)
         // a guest switched off while away: their own screen at once, not a plain sign-in (guest walkthrough S6)

@@ -25,7 +25,7 @@
   - The console makes the team on the Free plan only, with its existing rules (one team per account, one free team
     ever, waiting list, free-pool room, network limits). The app shows each refusal as its own line.
   - **Owner claim, two-phase.** When the team is ready, the console gives the app
-    `https://<team>/app-setup#c=<claim>` (32 random bytes, only the sha256 kept, 10 minutes, bound to the team). The
+    `https://<team>/app-setup#c=<claim>` (32 random bytes, only the sha256 kept, 30 minutes (10 until 2026-11-28), bound to the team). The
     page takes the claim out of the address and sends it to its own team server (`POST /api/setup/console/preview`,
     `POST /api/setup/console`; CSRF-checked, only on a hosted team with no account yet, the per-IP guard and a shape
     check before any outbound call). The team server asks the console who the owner is (`owner/reserve`, signed with

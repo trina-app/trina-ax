@@ -315,6 +315,9 @@ export const ConsoleSetupBody = z.object({
   /** the owner's name as they wrote it on the page (prefilled from the preview); absent or not a valid name: the
    * preview's */
   name: z.string().max(200).optional(),
+  /** the language the page showed (the desktop app's, or the one picked there): the team's language, as on /setup.
+   * Absent (an older page): the language the team was made in on the hosting console */
+  locale: Locale.optional(),
   client: z.literal('desktop').default('desktop'),
   tokenMode: z.enum(['cookie']).default('cookie'),
 })

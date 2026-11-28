@@ -17,11 +17,11 @@ async function shot(page: Page, name: string) {
 }
 
 /** a desktop app's bridge, as much of it as these pages read (shared/src/desktop-bridge.ts) */
-async function fakeDesktop(page: Page, o: { store?: boolean } = {}) {
-  await page.addInitScript((store) => {
+async function fakeDesktop(page: Page, o: { store?: boolean; locale?: string } = {}) {
+  await page.addInitScript(({ store, locale }) => {
     const noop = () => {}
     ;(window as unknown as { mycelDesktop: unknown }).mycelDesktop = {
-      bridgeVersion: 1, appVersion: '0.5.10', platform: 'darwin', ...(store ? { store: true } : {}),
+      bridgeVersion: 1, appVersion: '0.5.10', platform: 'darwin', ...(store ? { store: true } : {}), ...(locale ? { locale } : {}),
       browser: { run: async (c: { callId: string }) => ({ callId: c.callId, ok: false, content: [], error: 'no pane' }), cancel: noop },
       pane: { open: noop, close: noop, toggle: noop, getState: async () => ({ open: false, tabs: [], driving: false }), onState: () => noop },
       connection: { get: async () => ({ route: 'remote', origin: location.origin, teamAddress: 'https://acme.trina.app', fingerprintMismatch: false }), onChange: () => noop },
@@ -30,7 +30,7 @@ async function fakeDesktop(page: Page, o: { store?: boolean } = {}) {
       // the page draws the team address under its card (DesktopTeamLine) instead of the app's strip
       hostLine: noop,
     }
-  }, o.store === true)
+  }, { store: o.store === true, locale: o.locale ?? null })
 }
 
 /** a fresh code for olga, made by her browser's cookie session */
@@ -357,5 +357,50 @@ test.describe('/app-setup (a team made from the desktop app)', () => {
     await expect.poll(() => new URL(p3.url()).hash).toBe('')
     expect(asked).toBe(0)
     await c3.close()
+  })
+
+  // QA 0202 (desktop 0.20.2): the page was English in a Korean app; a reload said "expired"; opening the team again
+  // from the app sent a new claim into the page on screen, which kept showing (and then spent) the old, revoked one
+  test("the app's language; a reload goes on with the claim; a newer claim from the app replaces the one on screen", async ({ page, browser }) => {
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+    const NEWER = 'BAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8'
+    const ctx = await browser.newContext({ userAgent: MAC_CHROME, locale: 'en-US' })
+    const p = await ctx.newPage()
+    await fakeDesktop(p, { locale: 'ko' })
+    const previews: string[] = []
+    await p.route('**/api/setup/console/preview', async (r) => {
+      const claim = (r.request().postDataJSON() as { claim: string }).claim
+      previews.push(claim)
+      // the first claim is revoked once the newer one exists
+      if (claim === CLAIM && previews.includes(NEWER)) return r.fulfill({ status: 410, json: { error: { code: 'gone', message: 'x' } } })
+      return r.fulfill({ status: 200, json: { ...PREVIEW, teamName: claim === NEWER ? 'Acme Two' : 'Acme Studio' } })
+    })
+    const setups: { claim: string; locale?: string }[] = []
+    await p.route('**/api/setup/console', (r) => { setups.push(r.request().postDataJSON()); return r.fulfill({ status: 400, json: { error: { code: 'validation', message: 'x', fields: { 'body.password': 'too common' } } } }) })
+    await p.goto(`/app-setup#c=${CLAIM}`)
+    await expect.poll(() => new URL(p.url()).hash).toBe('')
+    // a Korean app, nothing picked on this page: Korean, not the team default (English)
+    await expect(p.locator('html')).toHaveAttribute('lang', 'ko')
+    await expect(p.getByTestId('app-setup-password')).toBeVisible()
+    await expect(p.getByText('Acme Studio', { exact: false }).first()).toBeVisible()
+    // a reload: the same claim, still the welcome (not "expired")
+    await p.reload()
+    await expect(p.getByTestId('app-setup-password')).toBeVisible()
+    expect(previews).toEqual([CLAIM, CLAIM])
+    // the app opens the team again: only the fragment changes, the page is not loaded again
+    await p.evaluate((c) => { location.hash = `c=${c}` }, NEWER)
+    await expect(p.getByText('Acme Two', { exact: false }).first()).toBeVisible()
+    await expect.poll(() => new URL(p.url()).hash).toBe('')
+    expect(previews).toEqual([CLAIM, CLAIM, NEWER])
+    await p.getByTestId('app-setup-password').fill('password1')
+    await p.getByTestId('app-setup-continue').click()
+    await expect.poll(() => setups.length).toBe(1)
+    // the newer claim, and the language on screen for the team
+    expect(setups[0]).toMatchObject({ claim: NEWER, locale: 'ko' })
+    // a reload now goes on with the newer claim
+    await p.reload()
+    await expect(p.getByText('Acme Two', { exact: false }).first()).toBeVisible()
+    expect(previews.at(-1)).toBe(NEWER)
+    await ctx.close()
   })
 })

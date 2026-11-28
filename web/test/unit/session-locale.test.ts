@@ -1,7 +1,7 @@
 // Recovery hints never become account preferences or outlive a known sign-out.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Locale, Me } from '@mycel/shared/api'
-import { currentLocale, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../../src/i18n'
+import { currentLocale, desktopLocale, recentLocale, signedOutPick, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../../src/i18n'
 import { useSession } from '../../src/store/session'
 import { forgetSetupToken } from '../../src/lib/setupLink'
 
@@ -97,6 +97,35 @@ describe('session recovery language', () => {
       : Response.json({ needed: false, teamName: null, defaultLocale: 'id' }))
     await session().load()
     expect(currentLocale()).toBe('id')
+  })
+
+  // QA 0202: a new team's first screen and the sign-in page were English in a Korean desktop app
+  test("signed out in the desktop app: the app's language over the team default; a pick on this page over both", async () => {
+    const g = globalThis as Record<string, unknown>
+    g.mycelDesktop = { bridgeVersion: 1, locale: 'ko' }
+    try {
+      expect(desktopLocale()).toBe('ko')
+      expect(signedOutPick()).toBe('ko')
+      mockFetch(async (url) => url === '/api/me'
+        ? Response.json({ error: { code: 'unauthorized', message: 'Signed out' } }, { status: 401 })
+        : Response.json({ needed: false, teamName: null, defaultLocale: 'en' }))
+      await session().load()
+      expect(currentLocale()).toBe('ko')
+      storeLocale('ja')
+      expect(signedOutPick()).toBe('ja')
+      await session().load()
+      expect(currentLocale()).toBe('ja')
+      storeLocale(null)
+      // an app with no language chosen, a value we do not have, or no app: the team default as before
+      for (const b of [{ bridgeVersion: 1 }, { bridgeVersion: 1, locale: 'xx' }, undefined]) {
+        g.mycelDesktop = b
+        expect(desktopLocale()).toBeNull()
+        await session().load()
+        expect(currentLocale()).toBe('en')
+      }
+    } finally {
+      delete g.mycelDesktop
+    }
   })
 
   test('empty or unknown recovery hints preserve the usual default or explicit login choice', async () => {

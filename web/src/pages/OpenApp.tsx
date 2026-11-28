@@ -17,7 +17,7 @@ import { useLocale, useT } from '../i18n'
 import { useSession } from '../store/session'
 import { clientKind, desktop, storeApp } from '../lib/desktop'
 import { platform } from '../lib/pwa'
-import { appComputer, appSignInHref, pageOrigin, readAppSetupClaim, readAppSignInCode } from '../lib/open-app'
+import { appComputer, appSignInHref, pageOrigin, readAppSetupClaim, readAppSignInCode, sessionClaimStore, takeAppSetupClaim } from '../lib/open-app'
 import { LANDING_STATE } from '../lib/welcome'
 import { useLogoutTo } from '../lib/logout'
 import { Button, Field, inputCls } from '../components/ui'
@@ -186,14 +186,16 @@ export function AppSignIn() {
 
 // ---------------- /app-setup ----------------
 
-/** The console's claim of this page load: read once and taken out of the address first, like /app-signin's code. */
-let setupTaken: { claim: string | null } | null = null
+/** The console's claim, taken out of the address first (like /app-signin's code). Inside the app it is kept in this
+ * tab's sessionStorage until it is used or refused, so a reload goes on with it; a claim that comes later in the address
+ * (the app opened the team again: a new claim, which revoked the one on screen) replaces it. A plain browser keeps
+ * nothing (it spends nothing either). */
+const claimStore = sessionClaimStore()
 function takeClaim(): string | null {
-  if (!setupTaken) {
-    setupTaken = { claim: readAppSetupClaim(window.location.hash) }
-    if (window.location.hash) window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search)
-  }
-  return setupTaken.claim
+  const hash = window.location.hash
+  const claim = desktop() ? takeAppSetupClaim(hash, claimStore) : readAppSetupClaim(hash)
+  if (hash) window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search)
+  return claim
 }
 /** One preview per claim, whatever re-renders or remounts. */
 let previewing: { claim: string; result: Promise<ConsoleSetupPreview> } | null = null
@@ -216,7 +218,7 @@ export function AppSetup() {
   const signedIn = useSession((s) => s.signedIn)
   const signedInNow = useSession((s) => s.status.kind === 'signed-in')
   const navigate = useNavigate()
-  const [claim] = useState(takeClaim)
+  const [claim, setClaim] = useState(takeClaim)
   const inApp = !!desktop()
   const [state, setState] = useState<SetupState>(() => (!inApp ? { s: 'outside' } : claim ? { s: 'loading' } : { s: 'gone' }))
   const [password, setPassword] = useState('')
@@ -228,15 +230,36 @@ export function AppSetup() {
   const [, rerender] = useState(0)
   const reveal = usePasswordReveal()
   const live = useRef(true)
-  const failed = (e: unknown): SetupState =>
-    isApiError(e) && e.status === 410 ? { s: 'gone' } : isApiError(e) && e.status === 409 ? { s: 'setUp' } : { s: 'error', text: errorText(e, locale, t('error.network')) }
-  const preview = () => {
-    if (inApp && claim) previewOnce(claim).then((p) => { if (live.current) setState({ s: 'ready', p }) }, (e) => { if (live.current) setState(failed(e)) })
+  // the claim on screen now (a newer one can come by hashchange): an older claim's answer is not shown
+  const current = useRef(claim)
+  const failed = (e: unknown): SetupState => {
+    // used, expired or revoked (410), or the team is set up (409): nothing left to keep for a reload
+    if (isApiError(e) && (e.status === 410 || e.status === 409)) claimStore.remove()
+    return isApiError(e) && e.status === 410 ? { s: 'gone' } : isApiError(e) && e.status === 409 ? { s: 'setUp' } : { s: 'error', text: errorText(e, locale, t('error.network')) }
+  }
+  const preview = (c: string | null = current.current) => {
+    if (inApp && c) previewOnce(c).then((p) => { if (live.current && current.current === c) setState({ s: 'ready', p }) }, (e) => { if (live.current && current.current === c) setState(failed(e)) })
   }
   useEffect(() => {
     live.current = true
     preview()
-    return () => { live.current = false }
+    // the app loads /app-setup#c=<new> into this page when it opens the team again: only the fragment differs from the
+    // address on screen, so the page is not loaded again; the new claim arrives here
+    const onHash = () => {
+      if (!inApp || !readAppSetupClaim(window.location.hash)) return
+      const next = takeClaim()
+      if (!next || next === current.current) return
+      current.current = next
+      setClaim(next)
+      setFieldError(null)
+      setState({ s: 'loading' })
+      preview(next)
+    }
+    window.addEventListener('hashchange', onHash)
+    return () => {
+      live.current = false
+      window.removeEventListener('hashchange', onHash)
+    }
     // once per page load
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -270,7 +293,9 @@ export function AppSetup() {
       setBusy(true)
       setFieldError(null)
       try {
-        const r = await api.call(API.setupConsole, { body: { claim: claim!, ...(p.google ? {} : { password, name: (name ?? p.name).trim() }), client: 'desktop', tokenMode: 'cookie' } })
+        // the language on screen becomes the team's (as on /setup): the app's, or the one picked here
+        const r = await api.call(API.setupConsole, { body: { claim: claim!, ...(p.google ? {} : { password, name: (name ?? p.name).trim() }), locale, client: 'desktop', tokenMode: 'cookie' } })
+        claimStore.remove()
         landing = true
         signedIn(r.me)
         rerender((n) => n + 1)
