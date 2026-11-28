@@ -541,7 +541,9 @@ export const MY_FOLDERS_MAX = 30
 /** Step.outcome */
 export const StepOutcome = z.object({
   count: z.number().int().min(0).max(1_000_000).optional(),
-  end: z.enum(['declined', 'unanswered', 'skipped', 'refused', 'failed']).optional(),
+  /** moved_on: a card that waited after its answer closed because its person wrote a new message instead
+   * (docs/decisions/20261128-stale-approval-cards.md) */
+  end: z.enum(['declined', 'unanswered', 'skipped', 'refused', 'failed', 'moved_on']).optional(),
 })
 export type StepOutcome = z.infer<typeof StepOutcome>
 

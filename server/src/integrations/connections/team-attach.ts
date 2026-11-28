@@ -142,9 +142,23 @@ export function readTeamFiles(ctx: AppContext, tc: TurnToolContext, connection: 
 /** The files as the card's first lines, in the person's language: "첨부할 팀 파일  견적서.pdf (124 KB)\n부서 › 영업 › 견적서".
  * The name is the file's own in the team folder; the name the receiver sees is the tool's own argument, on its line. */
 export function attachedLines(ctx: AppContext, files: AttachedFile[], L: Locale, me: string): { name: string; value: string }[] {
-  return files.map((f) => {
-    const folder = f.rel.split('/').slice(0, -1).join('/')
-    return { name: say('attachedFile', L), value: `${f.name} (${human(f.size)})\n${placeWords(ctx.db, folder, L, me)}` }
+  return files.map((f) => ({ name: say('attachedFile', L), value: attachedValue(ctx, f, L, me) }))
+}
+/** one file as the card names it: its name and size, then where it is in words */
+const attachedValue = (ctx: AppContext, f: AttachedFile, L: Locale, me: string) =>
+  `${f.name} (${human(f.size)})\n${placeWords(ctx.db, f.rel.split('/').slice(0, -1).join('/'), L, me)}`
+
+/** The card's lines of the call's own arguments with each attached file's handle ("team-file:projects/…/quote.pdf", the
+ * whole value of a line) shown as that file is on its first lines: its name and where it is, never the handle (the
+ * owner, 11-28: "첨부 파일 1 › 내용: team-file:projects/…pdf" on a Gmail card). A list line names each file on its row. */
+export function handlesAsFiles<T extends { value: string }>(ctx: AppContext, files: AttachedFile[], lines: T[], L: Locale, me: string): T[] {
+  if (!files.length) return lines
+  const by = new Map(files.map((f) => [f.handle, f]))
+  const shown = (v: string) => { const f = by.get(v); return f ? attachedValue(ctx, f, L, me) : v }
+  return lines.map((l) => {
+    if (!l.value.includes(TEAM_FILE_PREFIX)) return l
+    const value = by.has(l.value) ? shown(l.value) : l.value.split('\n').map(shown).join('\n')
+    return value === l.value ? l : { ...l, value }
   })
 }
 

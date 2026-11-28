@@ -5,7 +5,8 @@
 // (the card or the message box, POST /api/turns/:id/answer), even hours later, starts the chat's next turn with the
 // answer as its user message, continuing from the asking answer (Claude resumes its session there). Several questions
 // of one answer: the turn starts once the last one is answered. Any other turn started in the chat closes them
-// (ChatRuntime.createTurn): the conversation went on without them.
+// (ChatRuntime.createTurn): the conversation went on without them. A waiting call's card (below) closes only when its
+// own person writes a new message (docs/decisions/20261128-stale-approval-cards.md), as not done.
 // In a shared chat the card is the asker's only (listed for them, answered only by them: the turn's own person), and
 // the answer becomes their message there, which everyone in the chat reads (owner 2026-11-19: in a shared chat
 // everything is shared). A Slack turn and a scheduled run keep the wait inside the call (chat/turn.ts waitForPerson):
@@ -243,14 +244,26 @@ function alwaysAlso(db: Database, r: Row, value: unknown): string[] {
   }).map((x) => x.request_id)
 }
 
+/** One card a new turn closed (closeChatQuestions): what the apps are told to close. `question`: the AI's own ask_user
+ * question, for closedQuestionNote (null for the server's safety cards: delete, share, a site, which name files, people
+ * and links only their asker sees). `movedOn`: a waiting call's card its own person went past by writing a new message
+ * (docs/decisions/20261128-stale-approval-cards.md): its call, tool and arguments, and the answer that asked for it. */
+export interface ClosedQuestion {
+  requestId: string; turnId: string; userId: string; answered: boolean; question: string | null
+  movedOn?: { tool: string; args: unknown; messageId: string }
+}
+
 /** A new turn starts in the chat: the AI's own questions still there go (answered ones with their turn, the rest because
  * the conversation went on without them). A waiting call's card stays, unanswered, with any answered card of the same
- * answer (docs/decisions/20261122-late-card-answer-resumes.md: the person typed instead of pressing; the card still
- * runs that call when pressed, and the new turn's AI is told it waits, waitingCardsNote). What the apps are told to
- * close; `question`: the AI's own ask_user question, for closedQuestionNote (null for the server's safety cards: delete,
- * share, a site, which name files, people and links only their asker sees). */
-export function closeChatQuestions(db: Database, chatId: string, under: string | null = null): { requestId: string; turnId: string; userId: string; answered: boolean; question: string | null }[] {
-  const rows = db.query('SELECT request_id, message_id, turn_id, user_id, answer, request, call_tool FROM open_questions WHERE chat_id = ?').all(chatId) as Pick<Row, 'request_id' | 'message_id' | 'turn_id' | 'user_id' | 'answer' | 'request' | 'call_tool'>[]
+ * answer (docs/decisions/20261122-late-card-answer-resumes.md), while the chat goes on without its person (another
+ * person's message in a shared chat, a late press of another card, a scheduled run): only its own buttons, or its own
+ * person moving on, decide it.
+ * `movedOnBy`: the person whose own new message this turn is (docs/decisions/20261128-stale-approval-cards.md, like
+ * Claude Code, where typing instead of answering a permission prompt rejects that call): their waiting call cards here
+ * close as not done, with the cards of the same answer they had already pressed (that answer's calls run only once all
+ * of its cards are answered, so none of them ran). */
+export function closeChatQuestions(db: Database, chatId: string, under: string | null = null, movedOnBy: string | null = null): ClosedQuestion[] {
+  const rows = db.query('SELECT request_id, message_id, turn_id, user_id, answer, request, call_tool, call_args FROM open_questions WHERE chat_id = ?').all(chatId) as Pick<Row, 'request_id' | 'message_id' | 'turn_id' | 'user_id' | 'answer' | 'request' | 'call_tool' | 'call_args'>[]
   if (!rows.length) return []
   // a message whose waiting call's card is still open keeps its call cards (answered or not), while the new turn goes
   // on under its asking answer (`under`: the new turn's user message): an edit, a regenerate or another branch went on
@@ -258,15 +271,31 @@ export function closeChatQuestions(db: Database, chatId: string, under: string |
   // (a turn with no message of its own, a scheduled run: the chat did not go on from a branch, the cards stay)
   const onBranch = (id: string) => !under || descends(db, under, id)
   const waiting = new Set(rows.filter((r) => r.call_tool && r.answer === null && onBranch(r.message_id)).map((r) => `${r.message_id}\u0000${r.user_id}`))
-  const keep = (r: (typeof rows)[number]) => !!r.call_tool && waiting.has(`${r.message_id}\u0000${r.user_id}`)
+  const own = (r: (typeof rows)[number]) => movedOnBy !== null && r.user_id === movedOnBy
+  const keep = (r: (typeof rows)[number]) => !!r.call_tool && waiting.has(`${r.message_id}\u0000${r.user_id}`) && !own(r)
   const gone = rows.filter((r) => !keep(r))
   if (!gone.length) return []
   const del = db.query('DELETE FROM open_questions WHERE request_id = ?')
   for (const r of gone) del.run(r.request_id)
   return gone.map((r) => {
     const card = parse(r.request)
-    return { requestId: r.request_id, turnId: r.turn_id, userId: r.user_id, answered: r.answer !== null, question: card?.kind === 'ask_user' && card.origin !== 'server' && !r.call_tool ? card.question : null }
+    let args: unknown = {}
+    if (r.call_tool) { try { args = JSON.parse(r.call_args ?? '{}') } catch {} }
+    // (a card of a group still waiting: the person went past it, not the answer it belonged to)
+    const movedOn = r.call_tool && own(r) && waiting.has(`${r.message_id}\u0000${r.user_id}`) ? { tool: r.call_tool, args, messageId: r.message_id } : undefined
+    return { requestId: r.request_id, turnId: r.turn_id, userId: r.user_id, answered: r.answer !== null, question: card?.kind === 'ask_user' && card.origin !== 'server' && !r.call_tool ? card.question : null, ...(movedOn ? { movedOn } : {}) }
   })
+}
+
+/** The engine message's block when this message closed the person's own waiting cards (closeChatQuestions movedOnBy):
+ * each call's result is a no, as a permission prompt answered by typing is in Claude Code. '' when there are none. */
+export function movedOnNote(calls: readonly { tool: string; args: unknown }[]): string {
+  if (!calls.length) return ''
+  const lines = calls.slice(0, 20).map((c) => `- ${c.tool} ${JSON.stringify(c.args ?? {}).slice(0, 600)}: declined. The user did not answer its card and sent this message instead, so the card closed by itself and nothing of it was done.`)
+  const more = calls.length > 20 ? `\n- and ${calls.length - 20} more, the same` : ''
+  // (the arguments are the AI's own words from its earlier call: inside the block, never a tag of their own)
+  const body = `${lines.join('\n')}${more}`.replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
+  return `<cards_closed>\nThe card${calls.length > 1 ? 's' : ''} your earlier call${calls.length > 1 ? 's' : ''} raised in this chat closed when the user sent this message without answering ${calls.length > 1 ? 'them' : 'it'}. Each call's result:\n${body}\nThis message is their reply: go on from it. Those cards are gone from the screen, so never ask the user to cancel, close or press them. If this message still wants one of those actions, call the tool again (it asks again on a new card).\n</cards_closed>`
 }
 
 /** `id` is `ancestor` or comes after it in the chat's message tree (parent_id links; fails closed after many steps). */
@@ -285,14 +314,15 @@ export function descends(db: Database, id: string, ancestor: string): boolean {
  * (the person switched to another branch since: the press goes on where the card was asked). */
 export const pressParent = (db: Database, leaf: string | null, asking: string): string => (leaf && descends(db, leaf, asking) ? leaf : asking)
 
-/** The engine message's block when a waiting call's card of this person is still open in the chat (or ''): the
- * person wrote instead of pressing it. Their message never answers it (a safety card is decided by its buttons). */
+/** The engine message's block when a waiting call's card of this person is still open in the chat (or ''): this turn
+ * is not their own new message (a press of another card), so the card stayed (a new message of theirs closes it:
+ * closeChatQuestions movedOnBy). This message never answers it (a safety card is decided by its buttons). */
 export function waitingCardsNote(db: Database, chatId: string, userId: string, turnId: string): string {
   // (a card this turn raised itself, running a call again, is not an earlier one)
   const rows = db.query('SELECT call_tool FROM open_questions WHERE chat_id = ? AND user_id = ? AND turn_id != ? AND answer IS NULL AND call_tool IS NOT NULL ORDER BY created_at').all(chatId, userId, turnId) as { call_tool: string }[]
   if (!rows.length) return ''
   const tools = [...new Set(rows.map((r) => r.call_tool))].slice(0, 10)
-  return `<waiting_card>\nA card of your earlier ${tools.length > 1 ? 'calls' : 'call'} (${tools.join(', ')}) still waits above for the user's press; nothing of ${tools.length > 1 ? 'them' : 'it'} was done. This message does not answer it: only the card's own buttons do. If the message is about it (a yes, "go ahead", "allow"), say in one short line that they can press the button on the card above and it will run right then; never call that tool again for the same thing (that makes a second card). Otherwise answer the message as usual.\n</waiting_card>`
+  return `<waiting_card>\nA card of your earlier ${tools.length > 1 ? 'calls' : 'call'} (${tools.join(', ')}) is still open for the user; nothing of ${tools.length > 1 ? 'them' : 'it'} was done. Never call that tool again for the same thing (that makes a second card), and never ask the user to cancel or close it: when they write a new message without answering it, it closes by itself as not done. Answer this message as usual.\n</waiting_card>`
 }
 
 /** The questions of other people's answers a person's message closed unanswered in a shared chat (QA S-125): the next

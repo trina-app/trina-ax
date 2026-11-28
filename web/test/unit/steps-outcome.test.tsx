@@ -19,6 +19,8 @@ describe('what a call came back with, in words', () => {
     expect(outcomeWords(step({ outcome: { count: 10 } }), 'done', t)).toBe('10 results')
     expect(outcomeWords(step({ status: 'error', outcome: { end: 'declined' } }), 'retried', t)).toBe('Declined')
     expect(outcomeWords(step({ status: 'error', outcome: { end: 'unanswered' } }), 'failed', t)).toBe('No answer')
+    // a waiting card its person went past with a new message (docs/decisions/20261128-stale-approval-cards.md)
+    expect(outcomeWords(step({ status: 'ok', outcome: { end: 'moved_on' } }), 'done', t)).toBe('Not done: the chat moved on without an answer')
     // a service error the AI got past: the quiet words, red "Failed" only for one nothing got past
     expect(outcomeWords(step({ status: 'error', outcome: { end: 'failed' } }), 'retried', t)).toBe("Didn't work")
     expect(outcomeWords(step({ status: 'error', outcome: { end: 'failed' } }), 'failed', t)).toBe('Failed')

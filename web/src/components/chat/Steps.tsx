@@ -294,7 +294,7 @@ export function outcomeWords(step: Step, mark: StepMark, t: TFunction): string {
   if (step.outcome?.count !== undefined && mark === 'done') return t('steps.results', { n: step.outcome.count })
   return ''
 }
-const END_KEY = { declined: 'steps.endDeclined', unanswered: 'steps.endUnanswered', skipped: 'steps.endSkipped', refused: 'steps.endRefused', failed: 'steps.failed' } as const
+const END_KEY = { declined: 'steps.endDeclined', unanswered: 'steps.endUnanswered', skipped: 'steps.endSkipped', refused: 'steps.endRefused', failed: 'steps.failed', moved_on: 'steps.endMovedOn' } as const
 
 /** A call's line inside a folded run: what is left after the run's shared start ("Bright Data · Search Engine"), the
  * whole line when nothing is. */

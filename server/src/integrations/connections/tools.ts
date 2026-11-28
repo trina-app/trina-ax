@@ -55,7 +55,7 @@ import { audit } from '../../admin/audit'
 import { ATTACHMENT_NAME_ARG, ATTACHMENT_SIZE_ARG, ATTACHMENT_TOOL, isAppId, isAppTool, SENDING_TOOLS } from '../google-apps/catalog'
 import { answerText, nameReadOf } from '../google-apps/names'
 import { addressedAttachments, ATTACHMENT_MAX_BYTES, readAttachment, tooLargeMessage } from '../google-apps/attachments'
-import { ATTACH_HOW, attachedLines, attachedSummary, readTeamFiles, recheckTeamFiles, teamFileHandles, TEAM_FILE_PREFIX, withTeamFiles, type AttachedFile } from './team-attach'
+import { ATTACH_HOW, attachedLines, attachedSummary, handlesAsFiles, readTeamFiles, recheckTeamFiles, teamFileHandles, TEAM_FILE_PREFIX, withTeamFiles, type AttachedFile } from './team-attach'
 import { sourceOf, type ReadSource } from '../../chat/read-scope'
 import { awayWords, localSpecOf, notReadyWords, offlineWords, turnAway, turnWindow, type LocalVia } from './local'
 import { PRODUCT } from '@mycel/shared'
@@ -1351,7 +1351,8 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         // service calls it read-only now
         if (!t.readOnly || (tc.files.person?.roomsSeen && !tool.readOnly)) {
           // the files to attach come first on the card, by name, size and place; the rest shows the handles as sent
-          const withFiles = (L: Locale, l: { fields: CardLine[]; exact: boolean }) => (files.length ? { ...l, fields: [...attachedLines(ctx, files, L, tc.userId), ...l.fields] } : l)
+          // (a line whose value is a file's handle names that file as the first lines do: never "team-file:<path>")
+          const withFiles = (L: Locale, l: { fields: CardLine[]; exact: boolean }) => (files.length ? { ...l, fields: [...attachedLines(ctx, files, L, tc.userId), ...handlesAsFiles(ctx, files, l.fields, L, tc.userId)] } : l)
           const codeKey = codeKeyOf(current, t.name, args)
           sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L, codeKey, fieldWordsOf(current!), valueWordsOf(current!))), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}), ownAct: ownActTool(current, t, args), ...(createTool(current, t, args) ? { create: true } : {}), action: changeAction(t, args, { googleApp: !!current.google_app }), allowKey: t.name, title: titleArg(args), ...(codeKey && current.local_app ? { runs: true } : {}) }
           const read = current.google_app ? nameReadOf(t.name, args) : null

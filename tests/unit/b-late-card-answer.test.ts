@@ -2,7 +2,8 @@
 // (docs/decisions/20261122-late-card-answer-resumes.md). QA of #403: in a shared chat the share card waited, the person
 // pressed it later, and the call ran again against the answer message ("이번만 허용"), which names no file: the share was
 // refused and "항상 허용" was never kept. Now the call's checks read the asking turn; a connector's and a room post's
-// cards wait the same way; a no runs nothing; a typed message keeps the card (the AI points to it); a card that reads
+// cards wait the same way; a no runs nothing; a typed message closes the person's own card as not done
+// (docs/decisions/20261128-stale-approval-cards.md); a card that reads
 // differently now asks again with one line first; a call with two cards asks each once. With the fake engine through
 // the real launcher and gate, safety cards waiting after the answer (as in production).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
@@ -255,27 +256,6 @@ describe('a room post card', () => {
 })
 
 describe('never a free-text message that loses the target', () => {
-  test('a typed message keeps the card: the AI is told it waits, and a later press runs the call from the chat\'s newest answer', async () => {
-    put('users/alice/QA-late/typed.txt')
-    const chatId = await ownChat()
-    const w = await askAndWait(chatId, fake({ tool: 'delete_files', args: { paths: ['users/alice/QA-late/typed.txt'] }, sayResult: true }))
-    const r = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: 'go ahead\n' + fake({ echo: 'message' }), clientMessageId: cm(), attachmentIds: [] } })
-    const typed = await doneOf(r.assistantMessage.id)
-    await waitFor(() => h.rt().runState(chatId) === 'idle', { timeoutMs: 10_000 })
-    expect(typed.content).toContain('<waiting_card>')
-    expect(typed.content).toContain('delete_files')
-    // the card stays (no close event for it) and still answers
-    expect(openCards(chatId).map((c) => c.request_id)).toEqual([w.card.requestId])
-    expect(ws.alice!.frames.some((f) => f.type === 'turn.request.closed' && (f as { data: { requestId?: string } }).data.requestId === w.card.requestId)).toBe(false)
-    expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'users/alice/QA-late/typed.txt'))).toBe(true)
-    expect((await post(w.turnId, w.card.requestId, 'trash')).status).toBe(204)
-    const next = await nextTurn(chatId, typed.id)
-    expect(next.done.status).toBe('done')
-    expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'users/alice/QA-late/typed.txt'))).toBe(false)
-    // the turn the press started is not told of its own card
-    expect(openCards(chatId)).toEqual([])
-  })
-
   test('a regenerate of the asking answer goes on without it: the card closes (an edit or another branch the same)', async () => {
     put('users/alice/QA-late/regen.txt')
     const chatId = await ownChat()
@@ -308,6 +288,153 @@ describe('never a free-text message that loses the target', () => {
     const last = await nextTurn(chatId, next.done.id)
     expect(last.done.status).toBe('done')
     expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'users/alice/QA-late/changed.txt'))).toBe(false)
+  })
+})
+
+// docs/decisions/20261128-stale-approval-cards.md (the owner, 11-28: a Gmail card left unanswered stayed pressable above
+// the new turn, the "?" stayed, and the AI kept asking to cancel it). Like Claude Code: typing instead of answering a
+// permission prompt rejects that call, and the message is the reply.
+describe('a new message instead of a press', () => {
+  const closedFor = (requestId: string) => ws.alice!.frames.some((f) => f.type === 'turn.request.closed' && (f as { data: { requestId?: string } }).data.requestId === requestId)
+  const stepOf = (messageId: string, tool: string) => ((JSON.parse((db().query('SELECT steps FROM messages WHERE id = ?').get(messageId) as { steps: string }).steps) as { tool?: string; waiting?: true; detail?: string; outcome?: { end?: string } }[]).filter((x) => x.tool === tool).at(-1))
+  const waitingMark = async (chatId: string) => !!(await h.api('alice').call(API.getChat, { params: { id: chatId } })).waiting
+  const sendAs = (user: string, chatId: string, content: string) => h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
+
+  test('closes the person\'s waiting card as not done: the call is declined for the AI, the step says so, the "?" goes, a press after it is refused', async () => {
+    put('users/alice/QA-late/typed.txt')
+    const chatId = await ownChat()
+    const w = await askAndWait(chatId, fake({ tool: 'delete_files', args: { paths: ['users/alice/QA-late/typed.txt'] }, sayResult: true }))
+    expect(await waitingMark(chatId)).toBe(true)
+    expect(stepOf(w.answerId, 'delete_files')).toMatchObject({ waiting: true })
+    const r = await sendAs('alice', chatId, 'never mind, next one\n' + fake({ echo: 'message' }))
+    const typed = await doneOf(r.assistantMessage.id)
+    await waitFor(() => h.rt().runState(chatId) === 'idle', { timeoutMs: 10_000 })
+    // the AI gets the call's result as a no, and no instruction to point at (or cancel) a card
+    expect(typed.content).toContain('<cards_closed>')
+    expect(typed.content).toContain('delete_files')
+    expect(typed.content).toContain('declined')
+    expect(typed.content).not.toContain('<waiting_card>')
+    // the card is gone everywhere, the file untouched, the step settled with its quiet words, the "?" gone
+    expect(openCards(chatId)).toEqual([])
+    expect(closedFor(w.card.requestId)).toBe(true)
+    expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'users/alice/QA-late/typed.txt'))).toBe(true)
+    const st = stepOf(w.answerId, 'delete_files')!
+    expect(st.waiting).toBeUndefined()
+    expect(st.outcome?.end).toBe('moved_on')
+    expect(await waitingMark(chatId)).toBe(false)
+    // a press that arrives after the message (another window) runs nothing
+    expect((await post(w.turnId, w.card.requestId, 'trash')).status).toBe(409)
+    await Bun.sleep(300)
+    expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'users/alice/QA-late/typed.txt'))).toBe(true)
+    // the next message is told nothing more about it
+    const again = await doneOf((await sendAs('alice', chatId, 'and now?\n' + fake({ echo: 'message' }))).assistantMessage.id)
+    expect(again.content).not.toContain('<cards_closed>')
+    await waitFor(() => h.rt().runState(chatId) === 'idle', { timeoutMs: 10_000 })
+  })
+
+  test('a connector send card (the owner\'s Gmail case) closes the same way: nothing is sent, then or later', async () => {
+    const chatId = await ownChat()
+    const n = svc.calls.filter((c) => c.name === 'create_task').length
+    const w = await askAndWait(chatId, fake({ tool: MINE_WRITE, args: { title: 'moved on task' }, sayResult: true }))
+    const r = await sendAs('alice', chatId, '다음 메일이야\n' + fake({ echo: 'message' }))
+    const typed = await doneOf(r.assistantMessage.id)
+    await waitFor(() => h.rt().runState(chatId) === 'idle', { timeoutMs: 10_000 })
+    expect(typed.content).toContain('<cards_closed>')
+    expect(typed.content).toContain(MINE_WRITE)
+    expect(openCards(chatId)).toEqual([])
+    expect((await post(w.turnId, w.card.requestId, 'allow')).status).toBe(409)
+    await Bun.sleep(300)
+    expect(svc.calls.filter((c) => c.name === 'create_task').length).toBe(n)
+  })
+
+  test('in a shared chat another person\'s message leaves the asker\'s card; the asker\'s own message closes it', async () => {
+    put('users/alice/QA-late/shared-moved.txt')
+    const chatId = await sharedChat()
+    const w = await askAndWait(chatId, fake({ tool: 'delete_files', args: { paths: ['users/alice/QA-late/shared-moved.txt'] }, sayResult: true }))
+    const bob = await sendAs('bob', chatId, 'what is on the agenda?\n' + fake({ echo: 'message' }))
+    const bobDone = (await ws.bob!.next('message.done', (f) => f.data.messageId === bob.assistantMessage.id, 30_000)).data.message as Message
+    await waitFor(() => h.rt().runState(chatId) === 'idle', { timeoutMs: 10_000 })
+    // only the asker decides their card: still open and pressable, nothing told to Bob's AI about it
+    expect(openCards(chatId).map((c) => c.request_id)).toEqual([w.card.requestId])
+    expect(closedFor(w.card.requestId)).toBe(false)
+    expect(bobDone.content).not.toContain('<cards_closed>')
+    expect(stepOf(w.answerId, 'delete_files')).toMatchObject({ waiting: true })
+    // her own message goes past it
+    const mine = await sendAs('alice', chatId, 'skip that\n' + fake({ echo: 'message' }))
+    const done = await doneOf(mine.assistantMessage.id)
+    await waitFor(() => h.rt().runState(chatId) === 'idle', { timeoutMs: 10_000 })
+    expect(done.content).toContain('<cards_closed>')
+    expect(openCards(chatId)).toEqual([])
+    expect(stepOf(w.answerId, 'delete_files')!.outcome?.end).toBe('moved_on')
+    expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'users/alice/QA-late/shared-moved.txt'))).toBe(true)
+  })
+
+  test('the race: a press and a message at the same moment; exactly one wins, whole', async () => {
+    for (const first of ['press', 'message', 'together'] as const) {
+      const file = `users/alice/QA-late/race-${first}.txt`
+      put(file)
+      const chatId = await ownChat()
+      const w = await askAndWait(chatId, fake({ tool: 'delete_files', args: { paths: [file] }, sayResult: true }))
+      const send = () => h.req('alice', `/api/chats/${chatId}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: 'other thing\n' + fake({ say: 'ok' }), clientMessageId: cm(), attachmentIds: [] }) })
+      let pressed: number, sent: number
+      if (first === 'press') { pressed = (await post(w.turnId, w.card.requestId, 'trash')).status; sent = (await send()).status }
+      else if (first === 'message') { sent = (await send()).status; pressed = (await post(w.turnId, w.card.requestId, 'trash')).status }
+      else { const [a, b] = await Promise.all([post(w.turnId, w.card.requestId, 'trash'), send()]); pressed = a.status; sent = b.status }
+      await waitFor(() => h.rt().runState(chatId) === 'idle', { timeoutMs: 20_000 })
+      const gone = !fs.existsSync(path.join(h.ctx.files.fx.root, file))
+      // the press won: its call ran once, the message was turned away while it ran (the app keeps it waiting); or the
+      // message won: the card closed and the press is refused. Never both, never neither
+      const won = pressed === 204 ? 'press' : 'message'
+      expect(won === 'press' ? { pressed, sent, gone } : { pressed, sent, gone }).toEqual(won === 'press' ? { pressed: 204, sent: 409, gone: true } : { pressed: 409, sent: 202, gone: false })
+      expect(openCards(chatId)).toEqual([])
+      if (first !== 'together') expect(won).toBe(first)
+    }
+  })
+
+  test('a pressed card whose call is running is never cancelled by a message: the message waits, the call finishes', async () => {
+    const file = 'users/alice/QA-late/running.txt'
+    put(file)
+    const chatId = await ownChat()
+    const w = await askAndWait(chatId, fake({ tool: 'delete_files', args: { paths: [file] }, sayResult: true }))
+    expect((await post(w.turnId, w.card.requestId, 'trash')).status).toBe(204)
+    // the press's turn is queued or running: a message now is turned away (the app keeps it until that answer ends)
+    const sent = await h.req('alice', `/api/chats/${chatId}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: 'stop that\n' + fake({ say: 'ok' }), clientMessageId: cm(), attachmentIds: [] }) })
+    expect(sent.status).toBe(409)
+    const next = await nextTurn(chatId, w.answerId)
+    expect(next.done.status).toBe('done')
+    expect(fs.existsSync(path.join(h.ctx.files.fx.root, file))).toBe(false)
+    expect(stepOf(w.answerId, 'delete_files')!.outcome?.end).toBeUndefined()
+  })
+
+  test('Stop decides nothing about a waiting card; only the person\'s next message closes it', async () => {
+    const file = 'users/alice/QA-late/stop.txt'
+    put(file)
+    const chatId = await ownChat()
+    const w = await askAndWait(chatId, fake({ tool: 'delete_files', args: { paths: [file] }, sayResult: true }))
+    expect(await h.api('alice').call(API.stop, { params: { id: chatId } })).toEqual({ stopped: false, turnId: null })
+    expect(openCards(chatId).map((c) => c.request_id)).toEqual([w.card.requestId])
+    // a message that is stopped while it runs still went past the card
+    const r = await sendAs('alice', chatId, 'something else\n' + fake({ say: 'ok' }))
+    await h.api('alice').call(API.stop, { params: { id: chatId } })
+    await waitFor(() => h.rt().runState(chatId) === 'idle', { timeoutMs: 20_000 })
+    expect(r.turnId).toBeTruthy()
+    expect(openCards(chatId)).toEqual([])
+    expect(fs.existsSync(path.join(h.ctx.files.fx.root, file))).toBe(true)
+  })
+
+  test('a scheduled run (nobody typed) and a press of a card leave the waiting card open', async () => {
+    const { closeChatQuestions } = await import('../../server/src/chat/open-questions')
+    const chatId = await ownChat()
+    const file = 'users/alice/QA-late/kept.txt'
+    put(file)
+    const w = await askAndWait(chatId, fake({ tool: 'delete_files', args: { paths: [file] }, sayResult: true }))
+    // a turn with no person moving on (movedOnBy null: a scheduled run, an answer to a card, Slack, the server's own)
+    expect(db().transaction(() => closeChatQuestions(db(), chatId, null, null))()).toEqual([])
+    expect(openCards(chatId).map((c) => c.request_id)).toEqual([w.card.requestId])
+    // another person moving on: theirs only
+    expect(db().transaction(() => closeChatQuestions(db(), chatId, null, 'bob'))()).toEqual([])
+    const closed = db().transaction(() => closeChatQuestions(db(), chatId, null, 'alice'))()
+    expect(closed).toEqual([expect.objectContaining({ requestId: w.card.requestId, userId: 'alice', answered: false, movedOn: { tool: 'delete_files', args: { paths: [file] }, messageId: w.answerId } })])
   })
 })
 

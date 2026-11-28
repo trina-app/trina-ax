@@ -837,6 +837,7 @@ export const ja: Record<MessageKey, string> = {
   'steps.results': "{n, plural, one {#件の結果} other {#件の結果}}",
   'steps.retriedShort': "うまくいかず",
   'steps.endDeclined': "許可しなかった",
+  'steps.endMovedOn': "答えずに進んだので、実行していません",
   'steps.cardWaiting': "回答を待っています",
   'steps.endUnanswered': "回答なし",
   'steps.endSkipped': "スキップ",
