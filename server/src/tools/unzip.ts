@@ -61,7 +61,7 @@ export const UNZIP_FILE_DESCRIPTION = 'Unzip a .zip, .tar, .tar.gz / .tgz or .gz
   'taken). Leave to_folder out for the usual "unzip it" / "unzip it here" ask; give it only when the user names another folder (made when missing). Nothing is ever saved over an existing file: a taken name gets " (2)". ' +
   'list_only: true lists what is inside without saving anything. For a zip the user attached in a chat (their .attachments folder), give to_folder ' +
   '(where they want the files). Password-protected, damaged or very large zips, and zips with unsafe paths, are refused and nothing is saved; links ' +
-  'and system junk (__MACOSX, .DS_Store) are left out. A lone .gz becomes its one file, saved next to it. Other archive types (7z, rar, alz, egg, .tar.bz2, .tar.xz) cannot be opened here. ' +
+  'and system junk (__MACOSX, .DS_Store) are left out. A lone .gz becomes its one file, saved next to it. Other archive types (7z, rar, alz, egg, .tar.bz2, .tar.xz) and password-protected zips are not opened by this tool: with box_shell, open them there (python3\'s tarfile opens .tar.bz2 and .tar.xz, zipfile a password zip with the password the user gives). ' +
   'An email file (.eml, .msg) works the same way for its attachments ("save the attachment", "take the PDF out of this email"): they are saved next to the email by default, under their own names.'
 
 const human = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`)
@@ -101,7 +101,7 @@ function zipRefusal(e: unknown, zip: string, kind: ArchiveKind = 'zip'): ToolErr
   if (e instanceof UnsafeZip) return new ToolError(`'${zip}' was not unzipped: it has a file whose path points outside its folder (${e.entry.slice(0, 200)}), which a normal ${noun} never has, so nothing was saved. Tell the user the ${noun} looks unsafe and was not opened`)
   if (!(e instanceof ZipProblem)) return null
   if (e.kind === 'busy') return new ToolError(`the server is unzipping other files right now, so '${zip}' was not unzipped and nothing was saved. Tell the user in plain words to try again in a moment`, 'busy')
-  if (e.kind === 'encrypted') return new ToolError(`'${zip}' is password-protected, so it cannot be unzipped here and nothing was saved. Tell the user; they can unzip it on their computer with the password and upload the files`)
+  if (e.kind === 'encrypted') return new ToolError(`'${zip}' is password-protected, so this tool cannot unzip it and nothing was saved. If you have box_shell, ask the user for the password and open it there (python3 zipfile); otherwise tell the user they can unzip it on their computer with the password and upload the files`)
   if (e.kind === 'complex') return new ToolError(`'${zip}' is too large or too complex to unzip safely here (${e.why}; at most ${UNZIP_TOTAL_MAX / 1048576} MB unzipped and ${UNZIP_ENTRIES_MAX} entries), so nothing was saved. Tell the user in plain words`)
   return new ToolError(`'${zip}' could not be unzipped: the file is damaged (${e.why}), so nothing was saved. Tell the user; they can download it again`)
 }
@@ -124,7 +124,7 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
     if (!mail && !isZip(bytes) && !isGzip(bytes) && !isTar(bytes)) {
       const kind = ext(zipName)
       throw new ToolError(['7z', 'rar', 'alz', 'egg', 'bz2', 'xz', 'tbz', 'tbz2', 'txz', 'zst', 'lz', 'lzma', 'cab', 'iso'].includes(kind)
-        ? `'${src.rel}' is a .${kind} archive; only .zip, .tar, .tar.gz / .tgz and .gz files can be unzipped here. Nothing was saved. Tell the user; they can unzip it on their computer or save it as a .zip`
+        ? `'${src.rel}' is a .${kind} archive; this tool unzips only .zip, .tar, .tar.gz / .tgz and .gz files. Nothing was saved. If you have box_shell, open it there (python3 tarfile opens .tar.bz2 and .tar.xz); otherwise tell the user they can unzip it on their computer or save it as a .zip`
         : ['tar', 'gz', 'tgz'].includes(kind) ? `'${src.rel}' is named .${kind} but is not a .${kind} file (it may be damaged), so it cannot be unzipped. Nothing was saved`
         : `'${src.rel}' is not a zip file, so it cannot be unzipped`)
     }

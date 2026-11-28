@@ -103,9 +103,9 @@ describe('Word comments in the document (docx-comment.ts)', () => {
     expect(() => addDocxComments(new Uint8Array(Buffer.from('nope')), [{ on: 'a', text: 'b' }], 'D', 'd')).toThrow(/not a Word document/)
   })
 
-  test('the AI is told it can add comments and that tracked changes cannot be made; a team-content tool', () => {
+  test('the AI is told it can add comments, and that tracked changes are the docx skill\'s, not this tool\'s; a team-content tool', () => {
     expect(COMMENT_DOCX_DESCRIPTION).toContain('Add Word comments')
-    expect(COMMENT_DOCX_DESCRIPTION).toContain('Tracked changes (suggested edits) cannot be made here')
+    expect(COMMENT_DOCX_DESCRIPTION).toContain('This tool makes no tracked changes (suggested edits): when your instructions say to build documents with the document skills, make them with the docx skill')
     expect(outsideContentTool('comment_docx')).toBe(false)
   })
 })
