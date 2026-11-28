@@ -6556,9 +6556,9 @@ export class MockServer {
     else if (p === '/__test/chrome') {
       // {username?, links: [{label, online?, lastSeenAt?, sites?, onlyListed?}], target?}: that person's (else everyone's)
       // linked browser profiles
-      const links = (Array.isArray(body.links) ? body.links : []) as { label: string; online?: boolean; lastSeenAt?: string | null; sites?: string[]; onlyListed?: boolean }[]
+      const links = (Array.isArray(body.links) ? body.links : []) as { label: string; email?: string; browser?: string; online?: boolean; lastSeenAt?: string | null; sites?: string[]; onlyListed?: boolean }[]
       for (const u of this.users.filter((x) => body.username === undefined || x.username === body.username)) {
-        this.chromeLinks.set(u.id, links.map((l, i) => ({ id: `chrome-${u.id}-${i}`, label: l.label, createdAt: now(), lastSeenAt: l.lastSeenAt ?? null, online: l.online === true, version: '0.1.0', sites: l.sites ?? [], onlyListed: l.onlyListed === true })))
+        this.chromeLinks.set(u.id, links.map((l, i) => ({ id: `chrome-${u.id}-${i}`, label: l.label, email: l.email ?? null, browser: l.browser ?? null, createdAt: now(), lastSeenAt: l.lastSeenAt ?? null, online: l.online === true, version: '0.1.0', sites: l.sites ?? [], onlyListed: l.onlyListed === true })))
         if (body.target === 'app' || body.target === 'chrome') this.chromeTargets.set(u.id, body.target)
       }
     } else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')

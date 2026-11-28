@@ -487,6 +487,36 @@ export interface DesktopBridge {
     removeSite(host: string): Promise<DesktopBrowserSettings | null>
     clearSites(): Promise<DesktopBrowserSettings | null>
   }
+  /**
+   * App-led linking of the <app> in Chrome extension (shared/src/chrome-native.ts,
+   * docs/decisions/20261128-chrome-app-led-linking.md): the browser profiles on this computer and one way to link each.
+   * Optional: older desktop apps, store builds and computers where the app cannot use it lack it (the page then shows
+   * only the in-profile Connect).
+   */
+  chromeProfiles?: {
+    /** the profiles of Chrome, Edge and Brave for this OS user, read now from each browser's Local State */
+    list(): Promise<DesktopBrowserProfile[]>
+    /** Link one: opens that profile on the store page (no extension yet) or on the extension's pair page (installed) */
+    connect(p: { browser: DesktopBrowserProfile['browser']; dir: string }): Promise<'store' | 'pair' | 'failed'>
+    /** the app needs a one-time pair code for an extension it opened (bound to its PKCE challenge): the page answers
+     * with POST /api/chrome/pair as itself (its cookie session), or null when it cannot (a guest, a limit) */
+    onPairRequest(cb: (r: { challenge: string }) => Promise<{ code: string } | null>): () => void
+    /** a profile linked through the app: the page's quiet notice with Undo (Undo = Disconnect that link) */
+    onLinked(cb: (l: { linkId: string; label: string; browser: string }) => void): () => void
+  }
+}
+
+/** One browser profile of this computer (Local State `profile.info_cache`). */
+export interface DesktopBrowserProfile {
+  browser: 'chrome' | 'edge' | 'brave'
+  /** the profile's folder name ("Default", "Profile 2"): what the app opens with --profile-directory */
+  dir: string
+  /** the browser's own name for it ("Work") */
+  name: string
+  /** the Google account it is signed in to, when Local State names one */
+  email?: string
+  /** the extension is installed in it (its Preferences list our id) */
+  installed: boolean
 }
 
 export function getDesktopBridge(): DesktopBridge | null {

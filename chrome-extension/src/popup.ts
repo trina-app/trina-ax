@@ -9,6 +9,8 @@ let note = ''
 let otherOpen = false
 /** the name the person types for this browser profile at Connect (kept across re-renders) */
 let label: string | null = null
+/** renaming a linked profile: the name being typed, or null */
+let renaming: string | null = null
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> & { cls?: string } = {}, ...kids: (Node | string)[]): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag)
@@ -100,7 +102,7 @@ function render(s: PopupStatus) {
   }
   app.append(
     el('div', { cls: 'who', textContent: t('connectedTo', [s.team ?? '', s.user ?? '']) }),
-    ...(s.label ? [el('p', { cls: 'note', textContent: t('thisBrowser', [s.label]) })] : []),
+    ...nameRow(s),
     el('div', { cls: 'status' }, el('span', { cls: `dot${s.online ? ' on' : ''}` }), el('span', { textContent: s.online ? t('online') : t('offline') })),
   )
   if (s.runs.length) {
@@ -119,6 +121,33 @@ function render(s: PopupStatus) {
     el('hr'),
     el('button', { cls: 'link', textContent: t('disconnect'), onclick: async () => render(await ask({ type: 'disconnect' })) }),
   )
+}
+
+/** "This browser: Work" with Rename (only while online: the team keeps the name), or the field being typed. */
+function nameRow(s: PopupStatus): Node[] {
+  if (renaming !== null) {
+    const input = el('input', { type: 'text', value: renaming, maxLength: 60, spellcheck: false, oninput: () => (renaming = input.value) })
+    input.setAttribute('aria-label', t('nameLabel'))
+    const form = el('form', {
+      cls: 'rename',
+      onsubmit: async (e: Event) => {
+        e.preventDefault()
+        const v = input.value
+        renaming = null
+        render(await ask({ type: 'rename', label: v }))
+      },
+    }, input, el('button', { type: 'submit', textContent: t('save') }))
+    queueMicrotask(() => input.focus())
+    return [form]
+  }
+  const out: Node[] = []
+  if (s.label) {
+    const row = el('p', { cls: 'note' }, t('thisBrowser', [s.label]) + ' ')
+    if (s.online) row.append(el('button', { cls: 'link', textContent: t('rename'), onclick: () => ((renaming = s.label ?? ''), render(s)) }))
+    out.push(row)
+  }
+  if (s.renameFailed) out.push(el('p', { cls: 'error', textContent: t('renameOffline') }))
+  return out
 }
 
 async function refresh() {

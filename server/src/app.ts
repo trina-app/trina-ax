@@ -6,7 +6,7 @@ import { DEFAULT_LOCALE, SERVER_DISK_FULL } from '@mycel/shared/api'
 import type { AppContext } from './context'
 import type { AppEnv } from './http/env'
 import { HttpError } from './http/errors'
-import { csrf, hostCheck, loggablePath, requestContext, securityHeaders, session } from './http/middleware'
+import { chromeExtensionCors, csrf, hostCheck, loggablePath, requestContext, securityHeaders, session } from './http/middleware'
 import { RouteKit } from './http/route'
 import { ROUTE_MODULES, type RouteModule } from './routes'
 import { isDiskFullError } from './system/storage'
@@ -17,6 +17,7 @@ export async function buildApp(ctx: AppContext, modules: readonly RouteModule[] 
   app.use('*', requestContext(ctx))
   app.use('*', securityHeaders())
   app.use('*', hostCheck(ctx))
+  app.use('*', chromeExtensionCors())
   app.use('*', session(ctx))
   app.use('*', csrf(ctx))
 

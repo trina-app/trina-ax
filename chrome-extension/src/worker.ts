@@ -1,9 +1,12 @@
 // The extension's service worker: listeners first (a worker woken by an event must find them at the top level), then
 // the connection. The popup talks to it with chrome.runtime messages (popup.ts).
 import { runningCalls, stopAllRuns, stopRun, WINDOW_CLOSED, workingRuns } from './calls'
-import { connect, linked, unlink } from './link'
-import { cancelPairing, installPairingListeners, pairState, startPairing, teamOrigin, wantPairing } from './pairing'
-import { live, loadLink, refreshBadge } from './state'
+import { connect, linked, rename, unlink } from './link'
+import { cancelPairing, cleanLabel, installPairingListeners, pairState, startPairing, teamOrigin, wantPairing } from './pairing'
+import { live, loadLink, refreshBadge, saveLink } from './state'
+
+/** the popup's last rename could not be kept (offline): it says so once */
+let renameFailed = false
 import { browserLabel } from './ids'
 import { installRunListeners, setRunClosedHandler, sweepRuns } from './runs'
 import { installTabListeners, setUserStopHandler } from './tabs'
@@ -21,6 +24,7 @@ export interface PopupStatus {
   /** the tasks working now, each with its own Stop */
   runs: { id: string; title: string; tabs: number }[]
   stopped: boolean
+  renameFailed: boolean
   pair: Awaited<ReturnType<typeof pairState>>
 }
 
@@ -54,6 +58,7 @@ async function status(): Promise<PopupStatus> {
     runs: workingRuns(),
     stopped: live.stoppedAt > 0 && Date.now() - live.stoppedAt < 60_000,
     pair: await pairState(),
+    renameFailed: (() => { const f = renameFailed; renameFailed = false; return f })(),
   }
 }
 
@@ -77,6 +82,18 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         break
       case 'stop':
         if (typeof msg.runId === 'string') stopRun(msg.runId)
+        break
+      case 'rename': {
+        const name = cleanLabel(String(msg.label ?? ''))
+        if (live.link && rename(name)) {
+          live.link = { ...live.link, label: name }
+          await saveLink(live.link)
+        } else renameFailed = true
+        break
+      }
+      case 'linked':
+        // the desktop app's pair page kept a new link (pair.ts): connect with it now
+        await linked()
         break
       case 'disconnect':
         await unlink()

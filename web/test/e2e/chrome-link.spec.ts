@@ -90,3 +90,65 @@ test('/connect-chrome without a challenge: one plain line, no Connect; Cancel wi
   await page.getByTestId('connect-chrome-cancel').click()
   await expect(page.getByTestId('composer-input')).toBeVisible()
 })
+
+// docs/decisions/20261128-chrome-app-led-linking.md: inside the desktop app, Settings › Browser lists this computer's
+// profiles; the app asks this page for a pair code and tells it when a profile linked (notice with Undo)
+test('desktop app: the profiles of this computer, Connect / Connect all, the pair code for the app, the notice with Undo', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await page.addInitScript(() => {
+    const noop = () => {}
+    const w = window as unknown as Record<string, unknown>
+    const calls: unknown[] = []
+    let pair: ((r: { challenge: string }) => Promise<{ code: string } | null>) | null = null
+    let linked: ((l: { linkId: string; label: string; browser: string }) => void) | null = null
+    w.__chromeCalls = calls
+    w.__askPair = (challenge: string) => pair!({ challenge })
+    w.__linked = (l: { linkId: string; label: string; browser: string }) => linked!(l)
+    w.mycelDesktop = {
+      bridgeVersion: 1, appVersion: '0.21.0', platform: 'darwin',
+      browser: { run: async (c: { callId: string }) => ({ callId: c.callId, ok: false, content: [], error: 'no pane' }), cancel: noop },
+      pane: { open: noop, close: noop, toggle: noop, getState: async () => ({ open: false, tabs: [], driving: false }), onState: () => noop },
+      connection: { get: async () => ({ route: 'remote', origin: location.origin, teamAddress: location.origin, fingerprintMismatch: false }), onChange: () => noop },
+      notify: noop,
+      chromeProfiles: {
+        list: async () => [
+          { browser: 'chrome', dir: 'Default', name: 'Work', email: 'owner@work.example', installed: true },
+          { browser: 'chrome', dir: 'Profile 1', name: 'Home', email: 'owner@home.example', installed: true },
+          { browser: 'edge', dir: 'Default', name: 'Person 1', installed: false },
+        ],
+        connect: async (p: unknown) => { calls.push(p); return 'pair' },
+        onPairRequest: (cb: typeof pair) => { pair = cb; return () => { pair = null } },
+        onLinked: (cb: typeof linked) => { linked = cb; return () => { linked = null } },
+      },
+    }
+  })
+  await signIn(page)
+  await page.goto('/settings/browser')
+  const list = page.getByTestId('chrome-profiles')
+  await expect(list.getByTestId('chrome-profile-row')).toHaveCount(3)
+  await expect(list.getByTestId('chrome-profile-connect').last()).toContainText('Edge')
+  await list.getByTestId('chrome-profile-connect').first().click()
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __chromeCalls: unknown[] }).__chromeCalls.length)).toBe(1)
+  expect(await page.evaluate(() => (window as unknown as { __chromeCalls: unknown[] }).__chromeCalls[0])).toEqual({ browser: 'chrome', dir: 'Default' })
+  // the app asks this signed-in page for a pair code bound to the extension's challenge
+  const got = await page.evaluate((c) => (window as unknown as { __askPair(c: string): Promise<{ code: string } | null> }).__askPair(c), CHALLENGE)
+  expect(got?.code).toMatch(/^[A-Za-z0-9_-]{43}$/)
+  // the extension linked: it shows in the list as connected, with the notice and Undo
+  expect((await page.request.post('/__test/chrome', { data: { username: OWNER.username, links: [{ label: 'Work', email: 'owner@work.example', browser: 'Chrome on Mac', online: true }] } })).ok()).toBe(true)
+  const linkId = (await (await page.request.get('/api/chrome/links')).json()).links[0].id as string
+  await page.evaluate((id) => (window as unknown as { __linked(l: unknown): void }).__linked({ linkId: id, label: 'Work', browser: 'Chrome' }), linkId)
+  const toast = page.getByTestId('toast').filter({ hasText: 'Work' })
+  await expect(toast).toBeVisible()
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(list.getByTestId('chrome-profile-linked')).toHaveCount(1)
+  // Undo disconnects that link
+  await toast.getByTestId('toast-link').click()
+  await expect.poll(async () => (await (await page.request.get('/api/chrome/links')).json()).links.length).toBe(0)
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(list.getByTestId('chrome-profile-linked')).toHaveCount(0)
+  // Connect all: every profile not linked, one after the other
+  await list.getByTestId('chrome-profiles-all').click()
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __chromeCalls: unknown[] }).__chromeCalls.length), { timeout: 15_000 }).toBe(4)
+  expect(realErrors(errors)).toEqual([])
+})

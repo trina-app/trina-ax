@@ -88,33 +88,45 @@ async function onTabUrl(tabId: number, url: string, onLinked: () => Promise<void
   await chrome.storage.session.remove('pair')
   await chrome.tabs.remove(tabId).catch(() => {})
   if (!code) return void (await chrome.storage.session.set({ pairFailed: true }))
+  const r = await redeem(p.origin, code, p.verifier, p.label)
+  await chrome.storage.session.set({ pairFailed: r === 'linked' ? false : r })
+  if (r === 'linked') await onLinked()
+}
+
+/**
+ * Spend a code with the verifier at the team and keep the link (the in-profile Connect and the desktop app's pair page,
+ * pair.ts). 'full': the person has CHROME_LINKS_MAX browsers linked; true: anything else that failed (a used, expired
+ * or wrong code: 410; no answer).
+ */
+export async function redeem(origin: string, code: string, verifier: string, label: string, extra: { email?: string } = {}): Promise<'linked' | 'full' | true> {
   // the link this install already holds (same team): replaced, not a second row for one profile
   const held = await loadLink()
-  const previous = held && held.origin === p.origin ? held.token : undefined
+  const previous = held && held.origin === origin ? held.token : undefined
   try {
-    const res = await fetch(`${p.origin}/api/chrome/redeem`, {
+    // no cookies: a profile linked through the desktop app has no access to the team's address (the server answers this
+    // one path to extensions: CORS); the code and the verifier are the whole proof
+    const res = await fetch(`${origin}/api/chrome/redeem`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'omit',
       cache: 'no-store',
       body: JSON.stringify({
         code,
-        verifier: p.verifier,
-        label: p.label,
+        verifier,
+        label,
         version: chrome.runtime.getManifest().version,
         ...(previous ? { previous } : {}),
+        ...(extra.email ? { email: extra.email } : {}),
+        browser: browserLabel(navigator.userAgent, navigator.userAgentData, Boolean(navigator.brave)),
       }),
     })
-    // the person has as many linked browsers as a person may: one must go first (Settings › Browser)
-    if (res.status === 409) return void (await chrome.storage.session.set({ pairFailed: 'full' }))
-    if (!res.ok) throw new Error(`redeem ${res.status}`)
+    if (res.status === 409) return 'full'
+    if (!res.ok) return true
     const r = ChromeRedeemed.parse(await res.json())
-    await saveLink({ origin: p.origin, token: r.token, linkId: r.linkId, user: r.user, team: r.team, label: p.label, teamHosts: r.teamHosts })
-    await chrome.storage.session.set({ pairFailed: false })
-    await onLinked()
+    await saveLink({ origin, token: r.token, linkId: r.linkId, user: r.user, team: r.team, label, teamHosts: r.teamHosts })
+    return 'linked'
   } catch {
-    // a used, expired or wrong code (410) or no answer: the popup shows a plain retry line
-    await chrome.storage.session.set({ pairFailed: true })
+    return true
   }
 }
 

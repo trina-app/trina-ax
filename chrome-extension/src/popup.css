@@ -33,3 +33,4 @@ hr { border: none; border-top: 1px solid var(--line); margin: 0; width: 100%; }
 .run { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; }
 .run-text { flex: 1; min-width: 0; }
 .run-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+p button.link { display: inline; padding: 0; }

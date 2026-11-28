@@ -24,6 +24,11 @@ the user can see and stop.
   closes a task's window after ten minutes without work.
 - **activeTab:** When the user clicks the extension's icon, the popup reads the address of the tab in front to offer
   "Connect to <that team address>". Nothing else of the tab is read.
+- **nativeMessaging:** Only to link this browser profile through the user's own Trina AX desktop app on the same
+  computer, when the user presses Connect for this profile in the app: the extension's pair page sends the app a
+  one-time number the app put in that page's address and a hash of a secret only the extension keeps, and gets back a
+  one-time code for the user's team. Nothing else goes over it; the browser calls themselves go to the team server.
+  The desktop app's helper accepts this extension's id only (Chrome enforces the list).
 - **Host permissions (optional, one origin):** Asked at Connect for the user's own team address only (the
   `optional_host_permissions` patterns let the user grant that one https address, or localhost for developers). Used
   to read the team's connect page address (for the one-time code), to talk to the team server (link, WebSocket, file
@@ -48,8 +53,12 @@ Check these types in the form:
 - **Authentication information:** No. The extension never reads passwords, cookies or site storage, refuses to type
   into password and payment-card fields, and blocks sign-in and account-security pages. Its own link token is kept
   locally and sent only to the user's team.
-- **Personally identifiable information, health, financial and payment information, location:** Not collected by the
-  extension. (Banking, payment and crypto sites need the user's explicit permission per site.)
+- **Personally identifiable information:** Yes, limited: when the profile is linked through the desktop app, the
+  name and the Google account email address the browser shows for this profile (read by the desktop app from the
+  browser's own profile list) are sent to the user's own team server once, so the user and their AI can tell the
+  profiles apart. The extension does not read the account itself.
+- **Health, financial and payment information, location:** Not collected by the extension. (Banking, payment and
+  crypto sites need the user's explicit permission per site.)
 
 Where the data goes: only to the team server the user connected (their organization's own Trina AX address, hosted or
 self-hosted). The extension sends nothing to the developer or to third parties.

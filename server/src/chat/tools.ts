@@ -421,7 +421,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     const s = t.inputSchema as unknown as Record<string, unknown>
     if (exec.browserVia !== 'chrome') return s
     const props = (s.properties ?? {}) as Record<string, unknown>
-    return { ...s, properties: { ...props, profile: { type: 'string', description: 'Which of the user\'s browser profiles (its name or id, listed in the Browser rules). Omit: the profile this answer used last.' } } }
+    return { ...s, properties: { ...props, profile: { type: 'string', description: 'Which of the user\'s browser profiles (its name, account email or id, listed in the Browser rules). Omit: the profile this answer used last.' } } }
   }
   if (exec.browser) for (const t of PANE_TOOLS) if (t.name !== 'file_upload' || exec.browserUpload) add(browserTool(exec, t.name as BrowserToolName, t.description, schemaOf(t)), { browser: true })
   // per-person tools (external-service connections), built from saved data at the start of the turn
@@ -2185,7 +2185,7 @@ function pickProfile(exec: TurnExec, tool: string, raw: Record<string, unknown>)
   const ready = (p: TurnExec['chromeProfiles'][number]) => p.online && exec.rt.chrome.online(p.linkId)
   if (asked) {
     const k = asked.toLowerCase()
-    const p = ps.find((x) => x.linkId === asked) ?? ps.find((x) => x.label.toLowerCase() === k)
+    const p = ps.find((x) => x.linkId === asked) ?? ps.find((x) => x.label.toLowerCase() === k) ?? (ps.filter((x) => x.email?.toLowerCase() === k).length === 1 ? ps.find((x) => x.email?.toLowerCase() === k) : undefined)
     if (!p) return { refused: `No browser profile named "${asked.slice(0, 80)}". The user's profiles: ${names}.`, why: 'unknown' }
     if (!ready(p)) return { refused: `The browser profile "${p.label}" is not open now (its browser is closed or offline). Do not use another profile instead; tell the user to open it, or ask which profile to use.`, why: 'offline' }
     return { profile: p, args }

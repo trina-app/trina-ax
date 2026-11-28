@@ -44,7 +44,7 @@ export async function connect(): Promise<void> {
   const sock = new WebSocket(url, [CHROME_WS_PROTOCOL])
   ws = sock
   sock.onopen = () => {
-    sock.send(JSON.stringify({ type: 'auth', token: link.token, version: chrome.runtime.getManifest().version } satisfies ChromeClientFrame))
+    sock.send(JSON.stringify({ type: 'auth', token: link.token, version: chrome.runtime.getManifest().version} satisfies ChromeClientFrame))
   }
   sock.onmessage = (ev) => {
     let frame: ChromeServerFrame
@@ -61,7 +61,7 @@ export async function connect(): Promise<void> {
         live.online = true
         live.clockOffset = Number.isFinite(frame.serverTime) ? Math.max(-7 * 86_400_000, Math.min(7 * 86_400_000, frame.serverTime - Date.now())) : 0
         if (live.link) {
-          live.link = { ...live.link, user: frame.user, team: frame.team, teamHosts: frame.teamHosts, linkId: frame.linkId }
+          live.link = { ...live.link, user: frame.user, team: frame.team, teamHosts: frame.teamHosts, linkId: frame.linkId, ...(frame.label ? { label: frame.label } : {}) }
           void saveLink(live.link)
         }
         clearInterval(pingTimer)
@@ -75,6 +75,12 @@ export async function connect(): Promise<void> {
         cancelCall(frame.callId)
         break
       case 'pong':
+        break
+      case 'label':
+        if (live.link) {
+          live.link = { ...live.link, label: frame.label }
+          void saveLink(live.link)
+        }
         break
     }
   }
@@ -94,6 +100,13 @@ export async function connect(): Promise<void> {
   sock.onerror = () => {
     // onclose follows and schedules the retry
   }
+}
+
+/** Rename this profile from the popup (only while connected: the team keeps the name). False when offline. */
+export function rename(label: string): boolean {
+  if (ws?.readyState !== WebSocket.OPEN) return false
+  send({ type: 'label', label })
+  return true
 }
 
 /** The link ends on this Chrome: the token is forgotten and the AI's tabs are let go. */
