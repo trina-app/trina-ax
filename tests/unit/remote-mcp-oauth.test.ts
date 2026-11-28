@@ -416,3 +416,25 @@ test('a grant stored by an older build without offline_access stays access-only:
   const grant = f.svc.authenticate(tokens.access_token)
   expect(f.h.ctx.db.query("SELECT count(*) AS n FROM remote_mcp_tokens WHERE grant_id=? AND kind='refresh'").get(grant.id)).toEqual({ n: 0 })
 })
+
+test('a connection made, first used or ended tells its person (Settings › MCP reads again: QA 2026-11-28 H)', async () => {
+  const f = await fixture('changed')
+  const told: string[] = []
+  f.svc.changed = (userId) => told.push(userId)
+  const settle = () => new Promise((r) => setTimeout(r, 5))
+  const code = f.code()
+  await settle()
+  expect(told).toEqual([f.auth.user.id])
+  const t = f.exchange(code)
+  await settle()
+  expect(told.length).toBe(2)
+  f.svc.disconnect(f.svc.authenticate(t.access_token).id, f.auth)
+  await settle()
+  expect(told.length).toBe(3)
+  expect(new Set(told)).toEqual(new Set([f.auth.user.id]))
+  // remoteOAuthOf wires it to the person's windows: the quiet integrations_changed notice
+  const published: { to: string; ev: unknown }[] = []
+  f.h.ctx.services.realtime = { ...f.h.ctx.services.realtime, publish: (to: string, ev: unknown) => { published.push({ to, ev }); return 1 } } as typeof f.h.ctx.services.realtime
+  remoteOAuthOf(f.h.ctx, { origin }).changed('u1')
+  expect(published).toEqual([{ to: 'u1', ev: { type: 'notice', data: { level: 'info', code: 'integrations_changed', message: '' } } }])
+})

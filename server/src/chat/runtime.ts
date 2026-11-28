@@ -370,6 +370,11 @@ export class ChatRuntime {
       try { unlinkAllChrome(ctx.db, userId) } catch (e) { ctx.log.warn('ending chrome links failed', { err: e }) }
       this.chrome.dropUser(userId)
     })
+    // the person stopped a chat's run in their Chrome (its run id is the chat's id): that chat's running answer of theirs
+    // stops using tools and asks what next (an MCP app's run is remote-mcp/browser.ts's)
+    this.chrome.onRunStopped((userId, runId) => {
+      for (const e of this.running.values()) if (e.spec.chatId === runId && e.spec.userId === userId && e.browserVia === 'chrome') e.chromeStopped = true
+    })
     this.relay = new BrowserRelay(this.hub, ctx.log.child({ c: 'browser' }), o.relay, this.chrome)
     // links that ended outside a route (a password change keeping this session, 30 days unused) close at once
     this.offChromeEnded = onLinksEnded((ids) => { for (const id of ids) this.chrome.drop(id) })

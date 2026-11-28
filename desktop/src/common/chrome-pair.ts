@@ -2,7 +2,8 @@
 // opened, and the socket the native helper (desktop/native/chrome-host) relays each extension message to.
 //
 // What protects it (docs/decisions/20261128-chrome-app-led-linking.md):
-// - the socket is in a 0700 folder of this OS user's own app data, and is 0600: another OS user cannot connect;
+// - the socket is in a 0700 folder of this OS user's own (app data, or the per-user temp folder), and is 0600: another
+//   OS user cannot connect;
 // - Chrome starts the helper only for the extension ids in the manifest's allowed_origins and tells it the caller
 //   (argv[1]); the app checks that origin against the same ids again;
 // - a nonce is 32 random bytes, lives CHROME_PAIR_NONCE_TTL_MS, is good for one `pair` (and one `linked` after it) and
@@ -12,9 +13,11 @@
 // What it cannot do: tell which profile a message comes from (Chrome does not say), or check the peer's code signature
 // (Node gives no peer pid; and a process of this user could start the signed helper itself, so it would prove nothing).
 // It never sees a link token or a session, and never logs a nonce or a code.
+import { execFileSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import net from 'node:net'
+import os from 'node:os'
 import path from 'node:path'
 import { CHROME_NATIVE_MAX_BYTES, CHROME_PAIR_NONCE_TTL_MS, ChromeNativeRequest, type ChromeNativeReply } from '@mycel/shared/chrome-native'
 
@@ -68,11 +71,36 @@ export class NonceStore {
   private purge() { for (const [n, e] of this.m) if (this.now() - e.at > this.ttl) this.m.delete(n) }
 }
 
-/** `<userData>/chrome/pair.sock` (the folder is 0700); null when the path is too long for a Unix socket. The helper
- * computes the same path from the app's data folder name, or takes MYCEL_CHROME_PAIR_SOCKET. */
-export function chromePairSocketPath(userData: string): string | null {
-  const p = path.join(userData, 'chrome', 'pair.sock')
-  return Buffer.byteLength(p) <= 100 ? p : null
+/** the longest Unix socket path macOS takes (sun_path is 104 bytes with its closing NUL) */
+export const SOCKET_PATH_MAX = 103
+
+/** This OS user's own temp folder: macOS's per-user DARWIN_USER_TEMP_DIR (0700, /var/folders/…/T/, short), never
+ * $TMPDIR (a terminal or a tool may point it anywhere, long, or shared like /tmp); elsewhere the system's temp folder.
+ * '' when macOS does not say (no shared folder is taken instead: no socket, and the app says so). */
+export function userTempDir(platform: NodeJS.Platform = process.platform): string {
+  if (platform !== 'darwin') return os.tmpdir()
+  try {
+    const d = execFileSync('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'], { encoding: 'utf8', timeout: 2000 }).trim()
+    return path.isAbsolute(d) ? d : ''
+  } catch { return '' }
+}
+
+/**
+ * Where the app listens for the native helper, short and independent of how long the user data path is:
+ * - the app run from its default folder (~/Library/Application Support/<data folder>): `<it>/chrome/pair.sock`, the
+ *   path the helper computes by itself (a release helper takes no other);
+ * - any other user data folder (a development run, MYCEL_DESKTOP_USER_DATA, tests): `<this user's temp folder>/
+ *   mycel-chrome/<12 hex of the folder's sha256>.sock`, which the host start script names (devHostScript).
+ * `fixed`: the helper finds it without being told. null when even that is too long for a Unix socket.
+ */
+export function chromePairSocketPath(o: { home: string; dataDirName: string; userData: string; tempDir?: () => string }): { path: string; fixed: boolean } | null {
+  const own = path.join(o.home, 'Library', 'Application Support', o.dataDirName)
+  const fixed = path.join(own, 'chrome', 'pair.sock')
+  if (path.resolve(o.userData) === own && Buffer.byteLength(fixed) <= SOCKET_PATH_MAX) return { path: fixed, fixed: true }
+  const temp = (o.tempDir ?? userTempDir)()
+  if (!temp) return null
+  const short = path.join(temp, 'mycel-chrome', `${crypto.createHash('sha256').update(path.resolve(o.userData)).digest('hex').slice(0, 12)}.sock`)
+  return Buffer.byteLength(short) <= SOCKET_PATH_MAX ? { path: short, fixed: false } : null
 }
 
 export interface PairServerDeps {
@@ -115,10 +143,14 @@ export async function handlePairMessage(d: PairServerDeps, msg: unknown): Promis
 /** how long the helper has to send its line; the reply may take longer (the page asks the team server) */
 const READ_MS = 2000
 
-/** Listen for the helper: one line in, one line out, per connection. */
-export function listenForPairs(socket: string, d: PairServerDeps): net.Server {
+/** Listen for the helper: one line in, one line out, per connection. `state`: told 'listening', or 'failed' with why
+ * (the app says so instead of a pair page that waits for nobody). */
+export function listenForPairs(socket: string, d: PairServerDeps, state: (s: 'listening' | 'failed', err?: unknown) => void = () => {}): net.Server {
   const dir = path.dirname(socket)
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
+  // a real folder of this OS user (not a link, not someone else's), then 0700; else throw: no socket this run
+  const st = fs.lstatSync(dir)
+  if (!st.isDirectory() || (typeof process.getuid === 'function' && st.uid !== process.getuid())) throw new Error(`not this user's folder: ${dir}`)
   fs.chmodSync(dir, 0o700)
   try { fs.rmSync(socket, { force: true }) } catch { /* a socket a crashed run left: replaced below */ }
   const server = net.createServer((sock) => {
@@ -141,7 +173,11 @@ export function listenForPairs(socket: string, d: PairServerDeps): net.Server {
       void handlePairMessage(d, msg).then((reply) => { if (!sock.destroyed) sock.end(JSON.stringify(reply) + '\n') }, () => sock.destroy())
     })
   })
-  server.on('error', () => { /* no app-led linking this run: the in-profile Connect still works */ })
-  server.listen(socket, () => { try { fs.chmodSync(socket, 0o600) } catch { /* the folder is 0700 anyway */ } })
+  // no app-led linking this run (the in-profile Connect still works): the host says why when someone presses Connect
+  server.on('error', (e) => state('failed', e))
+  server.listen(socket, () => {
+    try { fs.chmodSync(socket, 0o600) } catch { /* the folder is 0700 anyway */ }
+    state('listening')
+  })
   return server
 }

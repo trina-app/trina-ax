@@ -1,8 +1,8 @@
 // The popup: connect (when not linked), the pairing wait, and when linked who it works for, online or not, Stop
-// while the AI works, Disconnect. All words come from _locales (messages.ts) through chrome.i18n.
+// while the AI works, Disconnect. All words come from messages.ts: in the person's language once the team told it
+// (i18n.ts), else the browser's (chrome.i18n).
 import type { PopupStatus } from './worker'
-
-const t = (key: string, subs?: string[]) => chrome.i18n.getMessage(key, subs) || key
+import { t, uiLanguage, useLocale } from './i18n'
 const app = document.getElementById('app')!
 let activeOrigin: string | null = null
 let note = ''
@@ -60,6 +60,8 @@ function connectTo(o: string) {
 }
 
 function render(s: PopupStatus) {
+  useLocale(s.locale)
+  document.documentElement.lang = uiLanguage()
   app.replaceChildren()
   if (!s.linked && s.pair.state === 'waiting') {
     app.append(
@@ -158,7 +160,7 @@ async function refresh() {
 }
 
 async function start() {
-  document.documentElement.lang = chrome.i18n.getUILanguage()
+  document.documentElement.lang = uiLanguage()
   // activeTab: the address of the page in front, given for this click only
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => [])
   activeOrigin = tab?.url ? origin(tab.url) : null

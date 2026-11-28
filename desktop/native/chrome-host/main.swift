@@ -2,8 +2,9 @@
 // Chrome, Edge or Brave start it for our extension ids only (the host manifest's allowed_origins) and pass the caller's
 // origin as the first argument. Each message (4-byte length in this computer's byte order + UTF-8 JSON) goes to the
 // running desktop app as one line `{"origin":…,"request":…}` over the app's socket, and the app's one-line reply goes
-// back the same way. When the app does not answer: {"type":"error","reason":"app_not_running"}.
-// The socket: MYCEL_CHROME_PAIR_SOCKET (a development run's start script sets it), else
+// back the same way. When there is no app at the socket: {"type":"error","reason":"app_not_running"}; when the app took
+// the line but sent nothing back in time: "no_answer"; when the socket's program is not ours (a release build): "refused".
+// The socket: MYCEL_CHROME_PAIR_SOCKET (a start script sets it for an app run from another user data folder), else
 // ~/Library/Application Support/<the app's data folder>/chrome/pair.sock (build.sh writes the folder's name into
 // config.swift). It keeps nothing, writes no file and logs nothing.
 // A release build (build.sh with CHROME_HOST_TEAM_ID, the Developer ID team) talks only to a socket served by a program
@@ -31,7 +32,10 @@ func write(_ json: Data) {
   FileHandle.standardOutput.write(out)
 }
 
-let notRunning = Data(#"{"type":"error","reason":"app_not_running"}"#.utf8)
+func refusal(_ reason: String) -> Data { Data("{\"type\":\"error\",\"reason\":\"\(reason)\"}".utf8) }
+
+/// what one round trip to the app gave: its line, or why there is none
+enum Answer { case line(Data), notRunning, noAnswer, notOurs }
 
 func socketPath() -> String {
   if requiredTeam.isEmpty, let p = ProcessInfo.processInfo.environment["MYCEL_CHROME_PAIR_SOCKET"], p.hasPrefix("/") { return p }
@@ -54,11 +58,11 @@ func peerIsOurApp(_ fd: Int32) -> Bool {
   return SecCodeCheckValidity(c, [], r) == errSecSuccess
 }
 
-/// one round trip to the app: the line out, one line back (at most maxBytes), or nil
-func ask(_ line: Data) -> Data? {
+/// one round trip to the app: the line out, one line back (at most maxBytes)
+func ask(_ line: Data) -> Answer {
   let path = socketPath()
   let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-  if fd < 0 { return nil }
+  if fd < 0 { return .notRunning }
   defer { close(fd) }
   var noSigpipe: Int32 = 1
   setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigpipe, socklen_t(MemoryLayout<Int32>.size))
@@ -70,7 +74,7 @@ func ask(_ line: Data) -> Data? {
   addr.sun_family = sa_family_t(AF_UNIX)
   let bytes = Array(path.utf8)
   let cap = MemoryLayout.size(ofValue: addr.sun_path)
-  if bytes.count >= cap { return nil }
+  if bytes.count >= cap { return .notRunning }
   withUnsafeMutableBytes(of: &addr.sun_path) { raw in
     for (i, b) in bytes.enumerated() { raw[i] = b }
     raw[bytes.count] = 0
@@ -78,8 +82,8 @@ func ask(_ line: Data) -> Data? {
   let ok = withUnsafePointer(to: &addr) {
     $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
   }
-  if ok != 0 { return nil }
-  if !peerIsOurApp(fd) { return nil }
+  if ok != 0 { return .notRunning }
+  if !peerIsOurApp(fd) { return .notOurs }
   var sent = 0
   let sentOk = line.withUnsafeBytes { (p: UnsafeRawBufferPointer) -> Bool in
     while sent < line.count {
@@ -89,16 +93,17 @@ func ask(_ line: Data) -> Data? {
     }
     return true
   }
-  if !sentOk { return nil }
+  if !sentOk { return .noAnswer }
   var reply = Data()
   var buf = [UInt8](repeating: 0, count: 4096)
   while reply.count <= maxBytes {
     let n = read(fd, &buf, buf.count)
     if n <= 0 { break }
     reply.append(contentsOf: buf[0..<n])
-    if let i = reply.firstIndex(of: 0x0a) { return reply.subdata(in: reply.startIndex..<i) }
+    if let i = reply.firstIndex(of: 0x0a) { return .line(reply.subdata(in: reply.startIndex..<i)) }
   }
-  return nil
+  // connected and the line went, but no reply line (the app is busy, waits on a system prompt, or closed it)
+  return .noAnswer
 }
 
 let origin = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : ""
@@ -112,14 +117,16 @@ while true {
   guard let request = try? JSONSerialization.jsonObject(with: body, options: []),
         let line = try? JSONSerialization.data(withJSONObject: ["origin": origin, "request": request], options: [])
   else {
-    write(Data(#"{"type":"error","reason":"refused"}"#.utf8))
+    write(refusal("refused"))
     continue
   }
   var out = line
   out.append(0x0a)
-  if let reply = ask(out), (try? JSONSerialization.jsonObject(with: reply, options: [])) != nil {
-    write(reply)
-  } else {
-    write(notRunning)
+  switch ask(out) {
+  case .line(let reply) where (try? JSONSerialization.jsonObject(with: reply, options: [])) != nil: write(reply)
+  case .line: write(refusal("no_answer"))
+  case .notRunning: write(refusal("app_not_running"))
+  case .noAnswer: write(refusal("no_answer"))
+  case .notOurs: write(refusal("refused"))
   }
 }
