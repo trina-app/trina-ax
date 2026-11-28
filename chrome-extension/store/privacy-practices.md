@@ -61,7 +61,10 @@ Check these types in the form:
   crypto sites need the user's explicit permission per site.)
 
 Where the data goes: only to the team server the user connected (their organization's own Trina AX address, hosted or
-self-hosted). The extension sends nothing to the developer or to third parties.
+self-hosted). The extension sends nothing to the developer or to third parties itself. The team's server passes what
+the AI needs for the user's request (for example a page's text or a screenshot) to the AI model provider the team
+chose, which processes it only to produce the answer, as the privacy policy's "Trina AX in Chrome (browser extension)"
+section says.
 
 ## Certifications (tick all three)
 
@@ -71,4 +74,5 @@ self-hosted). The extension sends nothing to the developer or to third parties.
 
 ## Privacy policy
 
-https://ax.trina.app/privacy (check the site's current policy page and that it names the extension before submitting).
+https://trina.app/privacy (what the developer console names; its section "Trina AX in Chrome (browser extension)", in
+Korean and English, covers the extension).
