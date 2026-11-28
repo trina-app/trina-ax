@@ -33,6 +33,12 @@ export class LocalRelay extends CallRelay<LocalCall, LocalResult> {
     })
   }
 
+  /** The turn ended: its calls are cancelled (CallRelay) and its team file links that were not used go. */
+  override cancelTurn(turnId: string) {
+    super.cancelTurn(turnId)
+    this.links.endTurn(turnId)
+  }
+
   /** Pass one JSON-RPC message to the program of `connectionId` on the computer of this window. Never throws. */
   async call(o: { userId: string; windowId: string; turnId: string | null; connectionId: string; name: string; spec: LocalAppSpec; message: Record<string, unknown>; timeoutMs: number; signal?: AbortSignal }): Promise<LocalResult> {
     const callId = uuidv7()

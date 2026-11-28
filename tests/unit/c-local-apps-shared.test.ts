@@ -13,6 +13,7 @@ import { waitFor } from '../lib/wait'
 import fs from 'node:fs'
 import { ATTACH_HOW_LOCAL } from '../../server/src/integrations/connections/team-attach'
 import path from 'node:path'
+import { getChatRuntime } from '../../server/src/chat/runtime'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -251,6 +252,25 @@ describe('a team file handed to an app on the computer', () => {
     const r = await ask(from.desk, chat, fake({ tool: 'my_aside__repl', args: { code: code('team-file:groups/finance/budget.md') }, sayResult: true }))
     expect(r.content).toContain('there is no team file')
     expect(callsOf(r.started.turnId).some((s) => s.method === 'tools/call')).toBe(false)
+  })
+  test('a path out of the team folder: refused as not there, nothing reaches the app', async () => {
+    const chat = await privateChat()
+    for (const p of ['../../etc/passwd', '/etc/passwd', 'shared/../../outside.txt']) {
+      const r = await ask(from.desk, chat, fake({ tool: 'my_aside__repl', args: { code: code(`team-file:${p}`) }, sayResult: true }))
+      expect(r.content).toContain('there is no team file')
+      expect(callsOf(r.started.turnId).some((s) => s.method === 'tools/call')).toBe(false)
+    }
+  })
+  test('a link the app did not use is gone when the turn ends (a turn that finished normally)', async () => {
+    const links = getChatRuntime(h.ctx).localRelay.links
+    const chat = await privateChat()
+    // a whole value of another argument gets a link too; this fake app downloads only what its code names
+    const r = await ask(from.desk, chat, fake({ tool: 'my_aside__repl', args: { code: 'void 0', url: `team-file:${REL}` }, sayResult: true }))
+    const call = callsOf(r.started.turnId).find((x) => x.method === 'tools/call')!
+    expect(String(call.args?.url)).toContain('/team-file-links/')
+    await waitFor(() => links.pendingBytes === 0)
+    const token = String(call.args?.url).split('/').pop()
+    expect((await fetch(`${h.url.replace(/\/$/, '')}/team-file-links/${token}`)).status).toBe(404)
   })
   test('a link nobody was given, or a made-up one: the same 404', async () => {
     for (const t of ['x'.repeat(43), 'short']) expect((await fetch(`${h.url.replace(/\/$/, '')}/team-file-links/${t}`)).status).toBe(404)

@@ -276,7 +276,7 @@ const sharedKey = (row: Pick<Row, 'id' | 'version' | 'account'>) => `${row.id}\u
  * handle ends cannot be told, so nothing goes and the AI is told how to write it (local-file-links.ts) */
 const LOCAL_TEAM_FILE_HOW = (name: string) => refusal({
   done: `Nothing was sent: ${name} got nothing.`,
-  why: { kind: 'mode', mode: name, why: `a team file goes to ${name} as a one-time download link, which the server puts where "${TEAM_FILE_PREFIX}<path>" stands in quotes in the code or task; here a handle stands without quotes, so where it ends cannot be told` },
+  why: { kind: 'mode', mode: name, why: `a team file goes to ${name} as a one-time download link, which the server puts where "${TEAM_FILE_PREFIX}<path>" stands in quotes in the code or task; here a handle stands without quotes (or its path has a backslash or \${), so where it ends cannot be told` },
   next: `call it again with each handle in quotes, as a whole string where the code downloads the file, for example const r = await fetch("${TEAM_FILE_PREFIX}shared/quotes/quote.pdf"); then put it on the page's file field with setInputFiles([{ name: "quote.pdf", mimeType: "application/pdf", buffer: Buffer.from(await r.arrayBuffer()) }]) (a list, as Aside's repl takes it)`, names: [name],
 })
 
@@ -1273,7 +1273,7 @@ function linkTeamFiles(ctx: AppContext, tc: TurnToolContext, row: Row, files: At
   const tokens = rt.localRelay.links.issue(files.map((f) => ({
     userId: tc.userId, rel: f.rel, name: f.name, bytes: f.bytes, sha256: f.sha256,
     recheck: () => { ctx.files.recheckOutgoing(tc.files, { rel: f.rel, identity: f.identity }); return !ctx.files.quarantine.hasHash(f.sha256) },
-  })), tc.signal)
+  })), tc.turnId)
   if (!tokens) throw new CallError('Nothing was sent: too many team files are waiting to be downloaded on this server just now. Try again in a minute.', 'refused (attachment: links full)')
   return new Map(files.map((f, i) => [f.handle, `${base}${LOCAL_LINK_PATH}${tokens[i]}`]))
 }
@@ -1420,6 +1420,8 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         const r = await withDemoChat(chat, () => svc.callTool(calling, t.name, sending, tc.signal, calling.local_app ? localVia(ctx, tc, calling) : null)).then((x) => unlinked(x, fileLinks), (e) => {
           // an attachment whose answer was cut off at the size limit: said plainly (the connection is fine)
           if (current!.google_app && t.name === ATTACHMENT_TOOL && e instanceof CallError && e.kind === 'too_large') throw new CallError(tooLargeMessage(fileName), 'attachment too large')
+          // a failure the app reports may quote the code it was given: the links go back to handles there too
+          if (fileLinks.size && e instanceof Error) e.message = unlinked(e.message, fileLinks)
           throw e
         })
         // the person's access is checked again before the answer is delivered

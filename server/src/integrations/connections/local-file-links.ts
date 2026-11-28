@@ -24,8 +24,10 @@ export const LINK_TTL_MS = 10 * 60_000
 export const LINKS_MAX_PENDING_BYTES = 200_000_000
 const TOKEN = /^[A-Za-z0-9_-]{43}$/
 const DEPTH_MAX = 12
-/** a handle in quotes inside code or a task: "team-file:<path>", 'team-file:<path>' or `team-file:<path>` */
-const QUOTED = /(["'`])team-file:([^"'`\r\n]{1,1000})\1/g
+/** a handle in quotes inside code or a task: "team-file:<path>", 'team-file:<path>' or `team-file:<path>`. No
+ * backslash and no "${" in the path: inside a string those change where it ends or what it is (an escaped quote, a
+ * template expression), so the code after the swap would not be the code the card showed; such a handle counts as loose */
+const QUOTED = /(["'`])team-file:((?:[^"'`\\\r\n$]|\$(?!\{)){1,1000})\1/g
 
 /**
  * The team files a call to an app on the computer names: `content`, a whole value where its tool takes a file's content
@@ -40,8 +42,9 @@ export function localTeamFiles(args: unknown, isContent: (key: string | null) =>
     if (depth > DEPTH_MAX) { loose = true; return }
     if (typeof v === 'string') {
       if (!v.includes(TEAM_FILE_PREFIX)) return
-      if (v.startsWith(TEAM_FILE_PREFIX) && !/[\r\n"'`]/.test(v)) { (isContent(key) ? content : links).push(v); return }
-      for (const m of v.matchAll(QUOTED)) links.push(TEAM_FILE_PREFIX + m[2])
+      if (v.startsWith(TEAM_FILE_PREFIX) && !/[\r\n"'`]/.test(v)) { if (isContent(key)) content.push(v); else if (!links.includes(v)) links.push(v); return }
+      // the same handle twice (two fetches, a comment naming it) is one file and one link: every place gets it
+      for (const m of v.matchAll(QUOTED)) if (!links.includes(TEAM_FILE_PREFIX + m[2])) links.push(TEAM_FILE_PREFIX + m[2])
       if (v.replace(QUOTED, '').includes(TEAM_FILE_PREFIX)) loose = true
     } else if (Array.isArray(v)) for (const x of v) walk(x, key, depth + 1)
     else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v as Record<string, unknown>)) walk(x, k, depth + 1)
@@ -67,13 +70,20 @@ export function withLinks(args: unknown, urls: ReadonlyMap<string, string>, isCo
   return walk(args, null, 0)
 }
 
-/** What the app answered with each link put back as its handle: the AI never sees a link. */
+/** What the app answered with each link put back as its handle: the AI never sees a link. A token alone (the address
+ * written another way: another host, encoded) becomes "***". */
 export function unlinked<T>(answer: T, urls: ReadonlyMap<string, string>): T {
   if (!urls.size) return answer
   const back = [...urls].map(([handle, url]) => [url, handle] as const)
+  const tokens = [...urls.values()].map((u) => u.slice(u.lastIndexOf('/') + 1)).filter((t) => TOKEN.test(t))
   const walk = (v: unknown, depth: number): unknown => {
     if (depth > 40) return v
-    if (typeof v === 'string') { let s = v; for (const [url, handle] of back) if (s.includes(url)) s = s.split(url).join(handle); return s }
+    if (typeof v === 'string') {
+      let s = v
+      for (const [url, handle] of back) if (s.includes(url)) s = s.split(url).join(handle)
+      for (const t of tokens) if (s.includes(t)) s = s.split(t).join('***')
+      return s
+    }
     if (Array.isArray(v)) return v.map((x) => walk(x, depth + 1))
     if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, walk(x, depth + 1)]))
     return v
@@ -91,7 +101,7 @@ export interface LinkInput {
   /** checked right before the bytes go: false (or a throw) when the person may no longer send the file */
   recheck: () => boolean | void
 }
-interface Link extends LinkInput { token: string; expiresAt: number }
+interface Link extends LinkInput { token: string; turnId: string | null; expiresAt: number }
 
 /** The one-time links waiting on this server (in memory: nothing is written to disk, a restart ends them all). */
 export class LocalFileLinks {
@@ -101,24 +111,25 @@ export class LocalFileLinks {
 
   get pendingBytes(): number { this.sweep(); return this.pending }
 
-  /** One link per file, all or none (null: over LINKS_MAX_PENDING_BYTES). `signal`: the turn; its end ends them. */
-  issue(files: LinkInput[], signal?: AbortSignal, ttlMs = LINK_TTL_MS): string[] | null {
+  /** One link per file, all or none (null: over LINKS_MAX_PENDING_BYTES). `turnId`: the turn; its end (endTurn, from
+   * LocalRelay.cancelTurn, which every end of a turn calls) ends them. */
+  issue(files: LinkInput[], turnId: string | null, ttlMs = LINK_TTL_MS): string[] | null {
     this.sweep()
     const total = files.reduce((n, f) => n + f.bytes.length, 0)
     if (this.pending + total > LINKS_MAX_PENDING_BYTES) return null
     const expiresAt = this.now() + ttlMs
     const tokens = files.map((f) => {
       const token = randomBytes(32).toString('base64url')
-      this.links.set(token, { ...f, token, expiresAt })
+      this.links.set(token, { ...f, token, turnId, expiresAt })
       this.pending += f.bytes.length
       return token
     })
-    if (signal) {
-      const end = () => { for (const t of tokens) this.drop(t) }
-      if (signal.aborted) end()
-      else signal.addEventListener('abort', end, { once: true })
-    }
     return tokens
+  }
+
+  /** The turn ended (finished, stopped or failed): its links that were not used go. */
+  endTurn(turnId: string): void {
+    for (const l of [...this.links.values()]) if (l.turnId === turnId) this.drop(l.token)
   }
 
   /** The bytes behind a token, once; null for every failure alike (unknown, used, expired, the recheck failed). */
