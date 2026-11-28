@@ -116,7 +116,9 @@ export function stepMark(step: Step, o: MarkContext): StepMark {
   if (step.stopped) return 'stopped'
   // a card that waits after the answer ended: not done until the person answers (QA of #594)
   if (step.waiting && step.status !== 'error') return 'waiting'
-  if (step.status !== 'error') return unansweredStep(step) ? 'unanswered' : 'done'
+  // (a waiting card its person went past with a new message: not done either, the same quiet mark; docs/decisions/
+  // 20261128-stale-approval-cards.md)
+  if (step.status !== 'error') return unansweredStep(step) || step.outcome?.end === 'moved_on' ? 'unanswered' : 'done'
   if (step.devEnvRun?.state === 'expired') return 'failed'
   if (step.devEnvRun?.state === 'cancelled') return 'cancelled'
   if (o.gotPast.has(step.id) || o.live || (!o.answerFailed && lookedUp(step))) return 'retried'

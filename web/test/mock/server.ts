@@ -2097,6 +2097,24 @@ export class MockServer {
       if (/todohold/i.test(prompt)) { while (!this.stopped.has(assistant.turnId!) && gen === this.generation) await sleep(40) }
       else { await sleep(120); put({ ...todo, todos: items(4) }) }
     }
+    // like server/src/chat/turn.ts cardLater: "latecard" is a connector's send card (a mail with a team file) that waits
+    // after the answer ended, its step waiting; the person's own next message closes it as not done (sendMessage below,
+    // docs/decisions/20261128-stale-approval-cards.md)
+    if (/latecard/i.test(prompt)) {
+      const requestId = 'lc1', turnId = assistant.turnId!
+      const request: TurnRequest = { kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false, buttons: true,
+        question: 'AI가 Gmail에 이 내용을 보내려고 해요: 메일 보내기\n\n아래 내용을 확인하세요.\n\n보낼까요?',
+        options: [{ label: '이번만 보내기', value: 'allow' }, { label: '보내지 않기', value: 'deny' }],
+        details: [{ label: '보낼 내용', text: '{}', fields: [{ name: '첨부할 팀 파일', value: '견적서.pdf (124 KB)\n프로젝트 › 견적' }, { name: '받는 사람', value: 'official@example.com' }, { name: '첨부 파일 1 › 내용', value: '견적서.pdf (124 KB)\n프로젝트 › 견적' }] }] } as TurnRequest
+      const st = step({ id: 'lcs', kind: 'tool', tool: 'gmail__send_gmail_message', label: 'Gmail · 메일 보내기', status: 'ok', endedAt: now(), detail: '카드에서 답을 기다려요', waiting: true })
+      assistant.steps = [...assistant.steps.filter((y) => y.id !== st.id), st]
+      pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: st } })
+      this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request, later: { stepId: st.id, userId: user.id } } as never)
+      pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
+      const waits = this.chats.find((c) => c.id === chatId)!
+      waits.waiting = true
+      pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat: waits, notify: 'card' } })
+    }
     // like server/src/chat/open-questions.ts: "laterask" asks, and the answer ends with the card open (no time limit);
     // the answer, whenever it comes, starts the chat's next turn with the answer as its user message
     if (/laterask/i.test(prompt)) {
@@ -3547,6 +3565,24 @@ export class MockServer {
       const user = this.message({ chatId: chat.id, role: 'user', parentId, content: c.body.content, attachments: atts, author: { id: c.user.id, name: c.user.name } })
       ;(user as Message & { cmid?: string }).cmid = c.body.clientMessageId
       if (/^fail-send/.test(c.body.content)) fail('internal', 500, 'send failed on purpose')
+      // the person's own new message closes their waiting approval cards here as not done (server chat/runtime.ts
+      // createTurn movedOnBy): the card goes, its step says so, the waiting mark goes
+      for (const [tid, a] of [...this.openAsks]) {
+        const later = (a as { later?: { stepId: string; userId: string } }).later
+        if (a.chatId !== chat.id || !later || later.userId !== c.user.id) continue
+        this.openAsks.delete(tid)
+        this.publish({ type: 'turn.request.closed', data: { turnId: tid, requestId: a.request.requestId, reason: 'turn_ended' } })
+        const asking = this.messages.find((m) => m.id === a.messageId)
+        const st = asking?.steps.find((x) => x.id === later.stepId)
+        if (asking && st) {
+          const { waiting: _w, detail: _d, ...rest } = st
+          const settled: Step = { ...rest, outcome: { end: 'moved_on' } }
+          asking.steps = asking.steps.map((x) => (x.id === st.id ? settled : x))
+          this.publish({ type: 'message.step', data: { chatId: chat.id, messageId: asking.id, step: settled } })
+        }
+        delete chat.waiting
+        this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
+      }
       const assistant = this.startTurn(chat.id, c.user, c.body.content, user.id)
       return { status: 202, body: { userMessage: this.view(user), assistantMessage: this.view(assistant), turnId: assistant.turnId, queuePosition: this.queuePositions.get(chat.id) ?? 0, queueEpoch: this.epoch, queueRevision: this.queueRevision } }
     },
