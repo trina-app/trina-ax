@@ -9,8 +9,8 @@ also cuts Linux off from Windows: Windows programs cannot be started from Linux,
 in it (see [What the script changes in Linux](#what-the-script-changes-in-linux)).
 
 This way is new. The Linux server (0.20.2) was installed by hand on a Windows 11 PC with 8 GB of memory and worked
-(2026-11-27: install, the AI's sandbox, documents, a real AI answer). **The script itself has not been run on Windows
-yet**: our QA runs it next, and this line changes then. A dedicated Linux server or VM is still the first choice for
+(2026-11-27: install, the AI's sandbox, documents, a real AI answer). The script then ran through all its
+steps on a Windows 11 Home PC (Korean Windows, WSL 3.0.5) on 2026-11-28, and a second run found nothing to do. A dedicated Linux server or VM is still the first choice for
 a team that has one.
 
 ## Steps at a glance
@@ -142,7 +142,7 @@ first.
 | Browser on this PC | `http://127.0.0.1:47820`: Windows forwards it to the server inside WSL |
 | Desktop app on this PC | Paste `http://127.0.0.1:47820` on the app's first screen (it takes `http://` for this PC's own address only). An invite link or **Open in the app** does not carry a `127.0.0.1` address: paste it |
 | Colleagues' computers, phone apps | Need the https address ([above](#reach-it-from-other-computers-and-phones)): the official relay (outbound only, works from WSL) or a tunnel to `127.0.0.1:47820`. The phone apps need https with a public certificate |
-| Sign-in to Canva, Intercom, Square (and Microsoft from the desktop app) | Through the desktop app: it catches the sign-in return on `127.0.0.1` on the PC where the browser is. Works when the person signs in from the desktop app, on this PC or another one. The web alone says to use the desktop app, as on Linux |
+| Sign-in to Canva, Intercom, Square (and Microsoft from the desktop app) | On this PC at `http://127.0.0.1:47820` the browser signs in by itself: the return to `127.0.0.1` reaches the server (Windows QA 2026-11-28). On the https address, from any computer, the web says to use the desktop app, as on Linux: the app catches the return on `127.0.0.1` of the PC where the browser is |
 | Other MCP connectors' sign-in | The browser returns to the server's own address; on this PC through `127.0.0.1`, for others through the https address. Connectors that want client metadata (CIMD) need the https address |
 | Google Drive, Sign in with Google, Slack | Need the https address (Google and Slack accept only `https://` return addresses), as on Linux |
 | GitHub | The shared GitHub app returns only to team addresses of Trina's domains; a server on an address of its own needs its own GitHub app |
@@ -203,7 +203,8 @@ Then, inside Linux, the Linux commands of that page (`trina_admin backup --scope
 /var/lib/mycel/data/off-host.tar.zst.age --password-stdin`). Linux does not see drive C:, so copy the archive from
 Windows: in File Explorer open `\\wsl.localhost\TrinaAX\var\lib\mycel\data\` (or **Linux › TrinaAX** in the
 navigation pane), copy `off-host.tar.zst.age` to another disk or storage, compare its SHA-256 at both ends
-(`Get-FileHash` on Windows), then delete it in Linux:
+(`Get-FileHash` on Windows), then delete it in Linux. `\\wsl.localhost` works in the Windows desktop session of the
+signed-in account, not over SSH or remote PowerShell:
 
 ```sh
 rm /var/lib/mycel/data/off-host.tar.zst.age
@@ -237,6 +238,14 @@ wsl -d TrinaAX --cd / -u root -- bash -c "cd /root/trina-ax-kit && ./install-lin
 Remove **everything**, after you made and checked an off-PC backup:
 
 ```powershell
+# first, the sleep settings the PC had before the script changed them (only if it did)
+$f = "$env:ProgramData\TrinaAX\power-before.json"
+if (Test-Path $f) {
+  $p = Get-Content $f -Raw | ConvertFrom-Json
+  powercfg /setacvalueindex $p.scheme SUB_SLEEP STANDBYIDLE $p.standbyAcSeconds
+  powercfg /setacvalueindex $p.scheme SUB_SLEEP HIBERNATEIDLE $p.hibernateAcSeconds
+  powercfg /setactive $p.scheme
+}
 Unregister-ScheduledTask -TaskPath '\TrinaAX\' -TaskName 'Keep the Trina AX server running' -Confirm:$false
 wsl --unregister TrinaAX            # deletes the Linux disk with all of the team's data
 Remove-Item -Recurse "$env:ProgramData\TrinaAX"
@@ -246,7 +255,8 @@ Then, if you want them back as they were:
 
 - `.wslconfig`: put back the copy `%UserProfile%\.wslconfig.trina-backup-<date>`, or delete the two lines the script
   added under `[wsl2]` (or the whole file, if the script made it).
-- Sleep: Settings › System › Power › Screen and sleep, or `powercfg /change standby-timeout-ac 30`.
+- Sleep: the first lines above put back what the PC had before the script changed it (`power-before.json`; nothing
+  when it was already "never" or you answered No). Otherwise Settings › System › Power › Screen and sleep.
 - The Windows features: leave them on (other programs use WSL), or turn off "Virtual Machine Platform" and "Windows
   Subsystem for Linux" in Windows Features and restart.
 

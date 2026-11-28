@@ -87,6 +87,14 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $script:Cmd = $PSCmdlet
 $script:DryRun = [bool]$WhatIfPreference
+# the modules this script uses, loaded now with WhatIf off: loaded on first use under -WhatIf, Windows PowerShell 5.1
+# printed some 30 "What if: ..." lines of their own setup (Windows QA 2026-11-28). Loading changes nothing.
+& {
+    $WhatIfPreference = $false
+    foreach ($m in @('CimCmdlets', 'Dism', 'ScheduledTasks', 'Microsoft.PowerShell.Security', 'Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Utility')) {
+        Import-Module $m -Global -ErrorAction SilentlyContinue -WhatIf:$false
+    }
+}
 
 # ---- fixed names (docs/INSTALL-WINDOWS.md names them too) ----
 $ProductName = 'Trina AX'
@@ -156,11 +164,22 @@ function Invoke-Wsl([string[]]$A) {
 }
 # a long step inside the distro: its output goes straight to this window
 function Invoke-WslLive([string[]]$A) {
-    $env:WSL_UTF8 = '1'
-    $old = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try { & wsl.exe @A | Out-Host; $code = $LASTEXITCODE } finally { $ErrorActionPreference = $old }
-    return $code
+    # wsl.exe writes straight to this console, nothing in between: piped through PowerShell with WSL_UTF8, its Korean
+    # progress lines came out with every letter twice (Windows QA 2026-11-28). Without WSL_UTF8 here: the console
+    # shows wsl.exe's own text as Windows writes it; Linux output is UTF-8 (the console's code page is UTF-8, above).
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = 'wsl.exe'
+    $psi.Arguments = (@($A | ForEach-Object { if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ } }) -join ' ')
+    $psi.UseShellExecute = $false
+    if ($psi.EnvironmentVariables.ContainsKey('WSL_UTF8')) { $psi.EnvironmentVariables.Remove('WSL_UTF8') }
+    try {
+        $p = [System.Diagnostics.Process]::Start($psi)
+        $p.WaitForExit()
+        return $p.ExitCode
+    } catch {
+        Write-Note "wsl.exe did not start: $($_.Exception.Message)"
+        return 1
+    }
 }
 function Get-WslVersion {
     if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) { return $null }
@@ -274,9 +293,12 @@ user default root'
     while read -r sec key val; do set_key "$sec" "$key" "$val"; done <<< "$want"
     if [ "$before" != "$(cat "$f")" ]; then printf '%s\n' "$before" > "$f.trina-backup"; echo set; exit 0; fi
     live=1
-    [ "$(cat /proc/1/comm 2>/dev/null)" = systemd ] || live=0
-    for i in /proc/sys/fs/binfmt_misc/WSLInterop /proc/sys/fs/binfmt_misc/WSLInterop-late; do [ ! -e "$i" ] || live=0; done
-    ! grep -qE '^[^ ]+ /mnt/[a-z] ' /proc/mounts 2>/dev/null || live=0
+    # (the tests set TRINA_PID1 and TRINA_MOUNTS)
+    [ "${TRINA_PID1:-$(cat /proc/1/comm 2>/dev/null)}" = systemd ] || live=0
+    # interop is off when WSL gives this session no interop socket (WSL 3.0.5 keeps its binfmt entry even then:
+    # Windows QA 2026-11-28; a Windows program then fails to start)
+    [ -z "${WSL_INTEROP:-}" ] || live=0
+    ! grep -qE '^[^ ]+ /mnt/[a-z] ' "${TRINA_MOUNTS:-/proc/mounts}" 2>/dev/null || live=0
     if [ "$live" = 1 ]; then echo on; else echo set; fi
     ;;
   bootstrap)
@@ -446,6 +468,15 @@ function Initialize-DataDir {
 }
 
 # ---- .wslconfig: a memory limit only when it has none; an existing file is copied first and otherwise kept ----
+# the current plan's AC value of a sleep setting (STANDBYIDLE, HIBERNATEIDLE) in seconds, or -1 when it cannot be read.
+# powercfg prints in the language of Windows; the "AC" line with a hex number is the same in each ("Current AC Power
+# Setting Index: 0x00000708", Korean too).
+function Get-AcSleepSetting([string]$Setting) {
+    $text = & powercfg.exe /query SCHEME_CURRENT SUB_SLEEP $Setting 2>$null | Out-String
+    $m = [regex]::Match($text, 'AC[^\r\n:]*:\s*0x([0-9a-fA-F]+)')
+    if (-not $m.Success) { return -1 }
+    return [Convert]::ToInt32($m.Groups[1].Value, 16)
+}
 function Get-MemoryCapGB([double]$TotalGB, [int]$Wanted) {
     if ($Wanted -gt 0) { return $Wanted }
     if ($TotalGB -lt 12) { return 5 }    # 8 GB PC: Windows keeps about 3 GB
@@ -764,10 +795,20 @@ if (Initialize-DataDir) {
     }
 }
 if (Read-YesNo -Question 'Stop this PC from going to sleep while it is plugged in? The server cannot answer while the PC sleeps.' -Answer $KeepAwake -Default $true) {
-    if (Test-Change 'Power options' 'never sleep or hibernate on AC power (powercfg /change standby-timeout-ac 0, hibernate-timeout-ac 0)') {
+    $standby = Get-AcSleepSetting 'STANDBYIDLE'
+    $hibernate = Get-AcSleepSetting 'HIBERNATEIDLE'
+    if (($standby -eq 0) -and ($hibernate -eq 0)) {
+        Write-Ok 'This PC already never sleeps while it is plugged in'
+    } elseif (Test-Change 'Power options' 'never sleep or hibernate on AC power (powercfg /change standby-timeout-ac 0, hibernate-timeout-ac 0), after noting the values it has now') {
+        # what it was, for the uninstall (docs/INSTALL-WINDOWS.md): kept from the first change, never overwritten
+        $before = Join-Path $DataDir 'power-before.json'
+        if ((Initialize-DataDir) -and -not (Test-Path -LiteralPath $before)) {
+            $scheme = ([regex]::Match((& powercfg.exe /getactivescheme | Out-String), '[0-9a-fA-F]{8}-[0-9a-fA-F-]{27}')).Value
+            Write-LfFile $before ((@{ scheme = $scheme; standbyAcSeconds = $standby; hibernateAcSeconds = $hibernate } | ConvertTo-Json) + "`n")
+        }
         & powercfg.exe /change standby-timeout-ac 0
         & powercfg.exe /change hibernate-timeout-ac 0
-        Write-Ok 'This PC no longer sleeps while it is plugged in (the screen still turns off)'
+        Write-Ok "This PC no longer sleeps while it is plugged in (the screen still turns off). Before: $before"
     }
 } else {
     Write-Note 'Sleep settings unchanged: while this PC sleeps, the team cannot reach the server.'

@@ -9,8 +9,8 @@ Subsystem for Linux)를 돌리고, 그 리눅스 안에서 일반 [리눅스 서
 않습니다([스크립트가 리눅스에서 바꾸는 것](#스크립트가-리눅스에서-바꾸는-것) 참고).
 
 새로 나온 방식입니다. 리눅스 서버(0.20.2)를 메모리 8 GB인 윈도우 11 PC에 손으로 설치해 동작을 확인했습니다(2026-11-27:
-설치, AI 샌드박스, 문서, 실제 AI 답변). **스크립트 자체는 아직 윈도우에서 실행해 보지 않았습니다.** 곧 QA에서 실행하고,
-그때 이 줄을 고칩니다. 전용 리눅스 서버나 VM이 있는 팀이라면 그쪽이 여전히 먼저입니다.
+설치, AI 샌드박스, 문서, 실제 AI 답변). 그다음 스크립트가 윈도우 11 Home PC(한국어 윈도우,
+WSL 3.0.5)에서 모든 단계를 마쳤고(2026-11-28), 두 번째 실행은 할 일이 없다고 끝났습니다. 전용 리눅스 서버나 VM이 있는 팀이라면 그쪽이 여전히 먼저입니다.
 
 ## 한눈에 보는 순서
 
@@ -138,7 +138,7 @@ wsl -d TrinaAX --cd / -u root -- bash -c "cd /root/trina-ax-kit && ./install-lin
 | 이 PC의 브라우저 | `http://127.0.0.1:47820`. 윈도우가 WSL 안의 서버로 넘겨 줍니다 |
 | 이 PC의 데스크톱 앱 | 앱 첫 화면에 `http://127.0.0.1:47820`을 붙여 넣으세요(`http://`는 이 PC 자신의 주소에만 받습니다). 초대 링크나 **앱에서 열기**는 `127.0.0.1` 주소를 넘기지 않으니 붙여 넣으세요 |
 | 동료 컴퓨터, 휴대폰 앱 | https 주소가 필요합니다([위](#다른-컴퓨터와-휴대폰에서-접속)): 공식 릴레이(나가는 연결만 써서 WSL에서도 됨) 또는 `127.0.0.1:47820`으로 가는 터널. 휴대폰 앱은 공인 인증서의 https가 필요합니다 |
-| Canva, Intercom, Square 로그인(데스크톱 앱의 Microsoft 포함) | 데스크톱 앱으로 합니다. 브라우저가 있는 PC의 `127.0.0.1`에서 앱이 로그인 결과를 받습니다. 이 PC든 다른 PC든 데스크톱 앱에서 로그인하면 됩니다. 웹만으로는 리눅스와 같이 데스크톱 앱을 쓰라고 안내합니다 |
+| Canva, Intercom, Square 로그인(데스크톱 앱의 Microsoft 포함) | 이 PC의 `http://127.0.0.1:47820`에서는 브라우저만으로 로그인됩니다. `127.0.0.1`로 돌아오는 결과가 서버에 닿습니다(윈도우 QA 2026-11-28). https 주소에서는 어느 컴퓨터든 리눅스와 같이 웹이 데스크톱 앱을 쓰라고 안내합니다. 앱이 브라우저가 있는 PC의 `127.0.0.1`에서 결과를 받습니다 |
 | 다른 MCP 커넥터 로그인 | 브라우저가 서버 주소로 돌아옵니다. 이 PC에서는 `127.0.0.1`로, 다른 사람은 https 주소로. 클라이언트 메타데이터(CIMD)를 쓰는 커넥터는 https 주소가 필요합니다 |
 | Google 드라이브, Google 로그인, Slack | https 주소가 필요합니다(Google과 Slack은 `https://` 돌아올 주소만 받음). 리눅스와 같습니다 |
 | GitHub | 공용 GitHub 앱은 트리나 도메인의 팀 주소로만 돌아옵니다. 자기 주소의 서버는 자기 GitHub 앱이 필요합니다 |
@@ -198,7 +198,8 @@ wsl -d TrinaAX --cd / -u root
 /var/lib/mycel/data/off-host.tar.zst.age --password-stdin`)을 실행합니다. 리눅스에서는 C: 드라이브가 보이지 않으니
 윈도우에서 복사합니다. 파일 탐색기에서 `\\wsl.localhost\TrinaAX\var\lib\mycel\data\`(또는 탐색 창의 **Linux ›
 TrinaAX**)를 열고 `off-host.tar.zst.age`를 다른 디스크나 저장소에 복사한 뒤, 양쪽의 SHA-256을 비교하고(윈도우에서는
-`Get-FileHash`) 리눅스에서 지웁니다.
+`Get-FileHash`) 리눅스에서 지웁니다. `\\wsl.localhost`는 로그인한 계정의 윈도우 데스크톱 세션에서만 열리고, SSH나 원격
+PowerShell에서는 열리지 않습니다.
 
 ```sh
 rm /var/lib/mycel/data/off-host.tar.zst.age
@@ -232,6 +233,14 @@ wsl -d TrinaAX --cd / -u root -- bash -c "cd /root/trina-ax-kit && ./install-lin
 PC 밖 백업을 만들고 확인한 뒤 **전부** 제거:
 
 ```powershell
+# 먼저, 스크립트가 바꾸기 전의 절전 설정으로 (바꿨을 때만)
+$f = "$env:ProgramData\TrinaAX\power-before.json"
+if (Test-Path $f) {
+  $p = Get-Content $f -Raw | ConvertFrom-Json
+  powercfg /setacvalueindex $p.scheme SUB_SLEEP STANDBYIDLE $p.standbyAcSeconds
+  powercfg /setacvalueindex $p.scheme SUB_SLEEP HIBERNATEIDLE $p.hibernateAcSeconds
+  powercfg /setactive $p.scheme
+}
 Unregister-ScheduledTask -TaskPath '\TrinaAX\' -TaskName 'Keep the Trina AX server running' -Confirm:$false
 wsl --unregister TrinaAX            # 팀의 모든 데이터가 든 리눅스 디스크를 지웁니다
 Remove-Item -Recurse "$env:ProgramData\TrinaAX"
@@ -241,7 +250,8 @@ Remove-Item -Recurse "$env:ProgramData\TrinaAX"
 
 - `.wslconfig`: 사본 `%UserProfile%\.wslconfig.trina-backup-<날짜>`를 되돌려 놓거나, 스크립트가 `[wsl2]` 아래에 넣은
   두 줄을 지웁니다(스크립트가 만든 파일이면 파일째).
-- 절전: 설정 › 시스템 › 전원 › 화면 및 절전, 또는 `powercfg /change standby-timeout-ac 30`.
+- 절전: 위의 첫 줄들이 스크립트가 바꾸기 전의 값으로 되돌립니다(`power-before.json`. 이미 "안 함"이었거나 아니요라고
+  답했다면 바꾼 것이 없습니다). 그 밖에는 설정 › 시스템 › 전원 › 화면 및 절전.
 - 윈도우 기능: 켜 둬도 됩니다(다른 프로그램도 WSL을 씁니다). 끄려면 Windows 기능에서 "가상 머신 플랫폼"과 "Linux용
   Windows 하위 시스템"을 끄고 다시 시작합니다.
 

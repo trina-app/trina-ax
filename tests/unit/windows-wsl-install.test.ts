@@ -128,7 +128,19 @@ describe('install-wsl-server.ps1', () => {
     expect(fs.readFileSync(`${conf}.trina-backup`, 'utf8')).toContain('systemd=false')
     // "on" needs all of it in effect: systemd as PID 1, no WSLInterop binfmt entry, no /mnt/<drive> mount
     const helperText = fs.readFileSync(helper, 'utf8')
-    for (const s of ['/proc/1/comm', '/proc/sys/fs/binfmt_misc/WSLInterop', '/proc/mounts']) expect(helperText).toContain(s)
+    for (const s of ['/proc/1/comm', '/proc/mounts', '[ -z "${WSL_INTEROP:-}" ]']) expect(helperText).toContain(s)
+    // WSL 3.0.5 keeps the WSLInterop binfmt entry with interop off (Windows QA 2026-11-28): it is not the sign
+    expect(helperText).not.toContain('binfmt_misc')
+    const mounts = path.join(d, 'mounts')
+    const live = (env: Record<string, string>, m: string) => {
+      fs.writeFileSync(mounts, m)
+      return bash(`bash '${helper}' wslconf`, { TRINA_WSL_CONF: conf, TRINA_MOUNTS: mounts, ...env }).out.trim()
+    }
+    const plain = 'none / ext4 rw 0 0\nsysfs /sys sysfs rw 0 0\n'
+    expect(live({ TRINA_PID1: 'systemd' }, plain)).toBe('on')
+    expect(live({ TRINA_PID1: 'systemd', WSL_INTEROP: '/run/WSL/1_interop' }, plain)).toBe('set')
+    expect(live({ TRINA_PID1: 'systemd' }, plain + 'C:\\134 /mnt/c 9p rw 0 0\n')).toBe('set')
+    expect(live({ TRINA_PID1: 'init' }, plain)).toBe('set')
     expect(bash(`bash '${helper}' nonsense`).code).toBe(2)
     fs.rmSync(d, { recursive: true, force: true })
   })
@@ -160,6 +172,24 @@ describe('install-wsl-server.ps1', () => {
     // a new -KitPath kit goes into an emptied folder
     expect(PS1.indexOf('$cu = Invoke-Helper clearupload')).toBeLessThan(PS1.indexOf('$c = Copy-ToDistro -LinuxPath $pair[1] -From $pair[0]'))
     expect(between(PS1, "$HelperScript = @'\n", "\n'@")).toContain('  clearupload)\n    # an earlier -KitPath copy that stopped half-way: an empty folder for the next one\n    rm -rf -- "$UPLOAD"\n')
+  })
+  test('Windows QA 2026-11-28: wsl.exe writes its own lines to the console, -WhatIf loads modules quietly, sleep is put back as it was', () => {
+    const live = between(PS1, 'function Invoke-WslLive([string[]]$A) {', '\n}\n')
+    // no pipe through PowerShell and no WSL_UTF8: the Korean progress lines came out with every letter twice
+    expect(live).not.toContain('Out-Host')
+    expect(live).toContain("$psi.EnvironmentVariables.Remove('WSL_UTF8')")
+    expect(live).not.toMatch(/Redirect/)
+    // the modules load before anything with WhatIf off
+    expect(PS1.indexOf("Import-Module $m -Global -ErrorAction SilentlyContinue -WhatIf:$false")).toBeLessThan(PS1.indexOf('# ---- 1. this PC ----'))
+    for (const m of ['CimCmdlets', 'Dism', 'ScheduledTasks']) expect(PS1).toContain(`'${m}'`)
+    // the AC sleep values before the first change are kept (never overwritten) and the uninstall puts them back
+    expect(PS1).toMatch(/if \(\(Initialize-DataDir\) -and -not \(Test-Path -LiteralPath \$before\)\) \{[\s\S]*?standbyAcSeconds = \$standby; hibernateAcSeconds = \$hibernate[\s\S]*?& powercfg\.exe \/change standby-timeout-ac 0/)
+    expect(PS1).toContain("if (($standby -eq 0) -and ($hibernate -eq 0)) {")
+    for (const f of ['docs/INSTALL-WINDOWS.md', 'docs/INSTALL-WINDOWS.ko.md']) {
+      const g = read(f)
+      expect(`${f}: ${g.includes('standby-timeout-ac 30')}`).toBe(`${f}: false`)
+      for (const s of ['power-before.json', 'powercfg /setacvalueindex $p.scheme SUB_SLEEP STANDBYIDLE $p.standbyAcSeconds', 'mycel-ctl update --check']) expect(`${f}: ${s}: ${g.includes(s)}`).toBe(`${f}: ${s}: ${s !== 'mycel-ctl update --check'}`)
+    }
   })
   test('a re-run after a half install repairs (installed = the server answers); the kit stays once the installer ran', () => {
     const helper = between(PS1, "$HelperScript = @'\n", "\n'@")
@@ -195,7 +225,7 @@ describe('install-wsl-server.ps1', () => {
     expect(PS1).toContain('-ExecutionTimeLimit ([TimeSpan]::Zero)')
     expect(PS1).toMatch(/while \(\$true\) \{\n {4}& wsl\.exe -d '@DISTRO@' --cd \/ -u root --exec \/usr\/bin\/sleep infinity\n {4}Start-Sleep -Seconds 10\n\}/)
     // sleep is changed only after a yes (or -KeepAwake Yes)
-    expect(PS1).toMatch(/if \(Read-YesNo -Question 'Stop this PC from going to sleep[^\n]*-Answer \$KeepAwake[^\n]*\{\n\s+if \(Test-Change 'Power options'/)
+    expect(PS1).toMatch(/if \(Read-YesNo -Question 'Stop this PC from going to sleep[^\n]*-Answer \$KeepAwake[^\n]*\{\n[\s\S]{0,300}?\} elseif \(Test-Change 'Power options'/)
   })
   test('the guides name the script\'s task, folder and distro', () => {
     for (const f of ['docs/INSTALL-WINDOWS.md', 'docs/INSTALL-WINDOWS.ko.md']) {

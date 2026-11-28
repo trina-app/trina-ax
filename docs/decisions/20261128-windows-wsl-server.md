@@ -40,7 +40,8 @@
   pre-release from the release owner.
 - **Network:** WSL's default NAT mode; the script never sets `networkingMode=mirrored`. Checked in the code: the browser
   on the PC reaches the server through localhost forwarding (`127.0.0.1`, IPv4); the loopback sign-in returns
-  (Canva, Intercom, Square) land in the desktop app on the person's own PC, not in the server; Google, Slack and phones
+  (Canva, Intercom, Square) reach the server from the browser on the PC itself (`127.0.0.1`, Windows QA), and on the
+  https address land in the desktop app on the person's own PC; Google, Slack and phones
   need the https address in any mode; ChatGPT (device code) and Claude (pasted code) return nothing to the PC; the relay
   is outbound. Mirrored mode would only serve the desktop app's LAN direct connection (`--tls-port`), whose certificate
   names WSL's own address and which also needs Hyper-V and Windows firewall rules, and it is Windows 11 22H2+ only and
