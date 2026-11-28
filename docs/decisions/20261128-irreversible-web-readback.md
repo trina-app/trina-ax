@@ -31,5 +31,7 @@
 - **Measured:** AI scenario flows FL-41..45 (tests/ai-scenarios, mock browser app "Web Pilot" on made-up pages: a
   webmail whose body is an editor inside a frame with a hidden field the page overwrites on send and an autosave line
   that repeats the text, a form, a board post, a go-ahead with the body still empty), before and after, on the Claude
-  Code engine with the QA subscription. Numbers in the PR.
+  Code engine with the QA subscription: script tool (Aside-like) before 23/24, after 25/25; full tool set before
+  10/10 (judge 9/10), after 10/10. The one failure before was the incident (an empty body after reading a hidden field
+  back).
 - **Version impact:** patch (the AI's instructions).

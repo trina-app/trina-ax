@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 16:34
 - Branch: `fix/irreversible-web-readback`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (the AI's instructions), tests/ai-scenarios (mock browser and flows). Why: the AI's rule
   for browser work is the instructions' job (docs/REPOSITORY-RULES.md).
 - Version impact: patch. The AI's instructions for browser and app work change; nothing else.
@@ -74,4 +74,22 @@ prompt unit tests, under Bun 1.3.12. The AI scenario flows FL-41..45 before and 
 
 ## Result
 
-(at the end)
+- `WEB_ACTION_CHECK_RULE` (server/src/chat/web-action-rule.ts) in the in-app browser section, the Chrome section and
+  "Connected services" (instructions and the context of every message); `ONCE_RULE` and `CHOSEN_TOOL_RULE` in every
+  turn. Prompt pins re-recorded. Unit test `tests/unit/prompt-web-action-check.test.ts`.
+- Scenario runner: mock browser app "Web Pilot" (`mock-services/browser.ts`, a team connection that runs without
+  asking, as an Always-allowed app would; `AISCEN_BROWSER_TOOLS=script` offers only a script tool, as Aside's repl),
+  flow step `page_act`, FL-41..45. Runner fixes found on the way: a flow's clean-up crashed on `r.turns`; an answer
+  that follows the AI's own question ran unwatched into the next flow (it sent a mail on the next flow's page); each
+  mocked flow now starts with no browser page.
+- Engine for the runs: the product's Claude Code engine on the QA subscription token (dev server in managed mode, the
+  token added as the team's AI connection), not this Mac's login. Judge: Sonnet on the same token.
+- Measured (mechanical: no empty body or field sent, the asked text arrived, FL-45 never sent unasked; judge in
+  brackets):
+  - script tool (Aside-like): before 23/24 valid runs (judge 23/24; one run invalid, runner bug above); the failure is
+    the incident itself: FL-41 sent an empty body after reading the hidden field back. After 25/25 (judge 25/25).
+  - full tool set (snapshot lists frame values): before 10/10 (judge 9/10), after 10/10 (judge 10/10).
+  - no extra questions: AI questions in FL-41/43/44 (the person said go) 1 before, 0 after.
+- The held-out failure rate before was low (1 in 24 on the script tool); the change removes it on 25 runs but the
+  sample cannot show a large effect. The in-app browser's own structural option (form_input reporting what the field
+  holds) is left as a follow-up (it ships in the Chrome extension).
