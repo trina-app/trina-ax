@@ -58,3 +58,20 @@ export function forkRows(chats: readonly Chat[]): TreeRow[] {
   }
   return out
 }
+
+/**
+ * A chat heard live (chat.updated) over the copy a list has of it: the server's event to the chat's own person always
+ * says where it rows (Chat.forkParents, [] for a top-level row: server chat/shared.ts liveChat). An event that says
+ * nothing of it (an older server; a shared chat's view for someone else, who never has any) keeps the parents the list
+ * knows, so a reply, a rename or a new continuation heard live never moves a row out from under its chat (QA 11-27);
+ * none are made up for a chat the list has none for. [] (a detach in another window) leaves a top-level row, in the
+ * list's own shape (the field absent).
+ */
+export function withForkParents(known: Pick<Chat, 'forkParents'> | undefined, next: Chat): Chat {
+  if (next.forkParents) {
+    if (next.forkParents.length) return next
+    const { forkParents: _none, ...rest } = next
+    return rest
+  }
+  return known?.forkParents?.length ? { ...next, forkParents: known.forkParents } : next
+}

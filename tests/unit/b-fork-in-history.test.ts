@@ -56,9 +56,9 @@ describe('GET /api/chats?ids=', () => {
     for (const t of ['bob private', 'carol hidden', 'carol unshared', 'in the trash']) expect(raw).not.toContain(t)
   })
 
-  test('alone: not with a search, a project, the trash, a cursor, other or unread; at most 50 ids', async () => {
+  test('alone: not with a search, a project, the trash, a cursor, a limit, other or unread; at most 50 ids', async () => {
     const id = (await answered('alice', 'alone')).id
-    for (const q of [`q=x`, 'trash=1', 'other=1', 'unread=1', `cursor=abc`]) expect((await h.req('alice', `/api/chats?ids=${id}&${q}`)).status).toBe(400)
+    for (const q of [`q=x`, 'trash=1', 'other=1', 'unread=1', `cursor=abc`, 'limit=5']) expect((await h.req('alice', `/api/chats?ids=${id}&${q}`)).status).toBe(400)
     const many = Array.from({ length: 51 }, () => id).join(',')
     expect((await h.req('alice', `/api/chats?ids=${many}`)).status).toBe(400)
     expect(await status(h.api('alice').call(API.listChats, { query: { ids: id } }))).toBe(200)

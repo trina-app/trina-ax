@@ -27,7 +27,7 @@ import { isPeopleRow } from './chat-audience'
 import { historyWhere, inHistory } from './history-list'
 import { isInternalChat, notInternalChat } from './internal-chats'
 import type { ChatRuntime } from './runtime'
-import { Audiences, chatFor, chatView } from './shared'
+import { Audiences, chatFor, chatView, liveChat } from './shared'
 import { CHAT_COLS, type ChatRow } from './store'
 
 interface FolderRow { id: string; user_id: string; kind: NavFolderKind; name: string; name_key: string; position: number; created_at: string; updated_at: string }
@@ -227,7 +227,7 @@ function chatChanged(rt: ChatRuntime, userId: string, chatId: string): Chat | nu
   const aud = new Audiences(rt.db, rt.files)
   if (!chatInHistory(rt, userId, r, aud)) return null
   const chat = chatView(rt, userId, r, { aud })
-  rt.ctx.services.realtime.publish(userId, { type: 'chat.updated', data: { chatId, change: 'updated', chat } })
+  rt.ctx.services.realtime.publish(userId, { type: 'chat.updated', data: { chatId, change: 'updated', chat: liveChat(userId, r, chat) } })
   return chat
 }
 

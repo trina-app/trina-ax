@@ -6649,6 +6649,16 @@ export class MockServer {
     }
     else if (p === '/__test/confidential') this.allConfidential = body.all === true
     // a chat made and last used at another time (`at`, an ISO instant), for the history's date groups
+    // a chat.updated of a chat as it is, without Chat.forkParents (an older server's event, QA 11-27): the list keeps
+    // the parents it knows (lib/forkTree.ts withForkParents). `title`: a rename in it.
+    else if (p === '/__test/chat-updated-bare') {
+      const chat = this.chats.find((x) => x.id === String(body.chatId))
+      if (!chat) return Response.json({ ok: false }, { status: 404 })
+      if (typeof body.title === 'string') chat.title = body.title
+      const { forkParents: _p, ...bare } = chat
+      const owner = this.chatOwners.get(chat.id)
+      this.sharedSend((uid) => (!owner || uid === owner ? { type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat: bare } } : null))
+    }
     else if (p === '/__test/chat-at') {
       const chat = this.chats.find((x) => x.id === String(body.chatId))
       if (!chat || typeof body.at !== 'string') return Response.json({ ok: false }, { status: 404 })
@@ -9126,7 +9136,13 @@ export class MockServer {
     })
     over('updateChat', (c, base) => {
       const s = shared(c.params.id)
-      if (!s) return base(c)
+      if (!s) {
+        // my chat: my windows hear it (routes/chats.ts updateChat: publishChat), saying where it rows in my history
+        // (forkParents [] for a top-level row: chat/shared.ts liveChat)
+        const out = base(c) as Chat
+        this.sharedSend((userId) => (userId === c.user.id ? { type: 'chat.updated', data: { chatId: out.id, change: 'updated', chat: { ...out, forkParents: out.forkParents ?? [] } } } : null))
+        return out
+      }
       const chat = view(chatOf(c.params.id!), c.user)
       if (s.by.id !== c.user.id) fail('forbidden', 403, '공유 채팅의 이름과 엔진은 만든 사람만 바꿀 수 있어요.', undefined, { reason: 'shared_chat_creator' })
       if (c.body.projectId !== undefined && c.body.projectId !== chat.projectId) fail('conflict', 409, '공유 채팅은 다른 프로젝트로 옮길 수 없어요.', { 'body.projectId': 'shared_chat_move' }, { reason: 'shared_chat_move' })

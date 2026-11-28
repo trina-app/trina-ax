@@ -107,6 +107,55 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
         await expect(navChatRow(page, { id: g })).not.toHaveAttribute('data-tree-depth', /./)
       })
 
+      // QA 11-27: a live update (a reply, a rename with "···", the same from another tab, a new continuation) moved a
+      // continuation to the top as a row of its own until a reload. No reload here: every change comes in live.
+      test('the "└" stays through a reply, a rename and changes from another window; a detach there moves it out', async ({ page }) => {
+        await reset(page)
+        await signIn(page)
+        const root = await chatWithAnswer(page, '출시 계획')
+        await chatWithAnswer(page, '예산 정리')
+        const f = await forkOf(page, root)
+        // a computer: the continuation on screen with the history beside it; a phone: the history on Home
+        await page.goto(vp.name === '1440' ? `/c/${f}` : '/')
+        await showList(page)
+        const row = navChatRow(page, { id: f })
+        await expect(row).toHaveAttribute('data-tree-depth', '1')
+
+        if (vp.name === '1440') {
+          // a reply sent here
+          await page.getByTestId('composer-input').fill('일정도 정리해 줘')
+          await page.getByTestId('composer-input').press('Enter')
+          await expect(page.getByTestId('assistant-message')).toHaveCount(2)
+          await idle(page, f)
+          await expect(row).toHaveAttribute('data-tree-depth', '1')
+        }
+        // a rename from the row's "···"
+        if (vp.name === '1440') await row.hover()
+        await row.getByTestId('chat-row-menu').click()
+        await page.getByTestId('chat-row-rename').click()
+        await page.getByTestId('dialog-input').fill('출시 일정')
+        await page.getByTestId('dialog-confirm').click()
+        await expect(row).toContainText('출시 일정')
+        await expect(row).toHaveAttribute('data-tree-depth', '1')
+        // a reply from another window
+        expect((await post(page, `/api/chats/${f}/messages`, { content: '다른 탭에서 보낸 질문', clientMessageId: uuidv7() })).status()).toBe(202)
+        await idle(page, f)
+        await expect(row).toHaveAttribute('data-tree-depth', '1')
+        // a rename from another window whose event says nothing of the parents (an older server): still under its chat
+        expect((await post(page, '/__test/chat-updated-bare', { chatId: f, title: '출시 일정 v2' })).ok()).toBeTruthy()
+        await expect(row).toContainText('출시 일정 v2')
+        await expect(row).toHaveAttribute('data-tree-depth', '1')
+        // a new continuation from another window: under the first chat at once
+        const g = await forkOf(page, f)
+        await expect(navChatRow(page, { id: g })).toHaveAttribute('data-tree-depth', '1')
+        if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/fork-live-${vp.name}-${scheme}.png` })
+        // a detach from another window: a row of its own, its continuation under it
+        expect((await page.request.patch(`/api/chats/${f}`, { headers: { [CSRF_HEADER]: '1' }, data: { forkParent: null } })).ok()).toBeTruthy()
+        await expect(row).not.toHaveAttribute('data-tree-depth', /./)
+        await expect(navChatRow(page, { id: g })).toHaveAttribute('data-tree-depth', '1')
+        await expect(navChatRow(page, { id: root })).not.toHaveAttribute('data-tree-depth', /./)
+      })
+
       // like the Claude app's session list (docs/decisions/20261127-fork-in-history.md): a continuation used today sits
       // right under its original from 3 days ago, in the original's date group, with its "└"; the original stays put
       test('a continuation used today sits under its original of 3 days ago, at the original\'s place', async ({ page }) => {
