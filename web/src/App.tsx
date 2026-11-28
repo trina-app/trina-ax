@@ -89,6 +89,7 @@ const SkillSharePage = lazy(() => import('./pages/SkillSharePage'))
 const ScheduledList = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledList })))
 const ScheduledTask = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledTask })))
 const ConnectorConsent = lazy(() => import('./pages/ConnectorConsent'))
+const BrowserAsk = lazy(() => import('./pages/BrowserAsk'))
 const SlackLink = lazy(() => import('./pages/SlackLink'))
 const SlackSignInReturn = lazy(() => import('./pages/SlackSignIn').then((m) => ({ default: m.SlackSignInReturn })))
 const SlackDone = lazy(() => import('./pages/SlackSignIn').then((m) => ({ default: m.SlackDone })))
@@ -448,6 +449,8 @@ function Gate() {
           <Route path="welcome" element={<NotForGuests><Welcome /></NotForGuests>} />
           {/* an outside AI app asks to use this server as the person (Connectors itself is in Settings, below) */}
           <Route path="connectors/authorize" element={<ConnectorConsent key={`${status.me.user.id}:${status.me.session.id}`} />} />
+          {/* one of my own MCP apps asks to open a site in my linked browser profile (the browser_ask notice's link) */}
+          <Route path="browser-ask/:id" element={<NotForGuests><BrowserAsk key={`${status.me.user.id}:${status.me.session.id}`} /></NotForGuests>} />
           {/* the one-time link from Slack (docs/SLACK.md): signed out, the sign-in comes back here with it */}
           <Route path="slack/link" element={<NotForGuests><SlackLink key={`${status.me.user.id}:${status.me.session.id}`} /></NotForGuests>} />
           {/* "Sign in with Slack" back in a browser that had to sign in first, and its end page outside the app */}

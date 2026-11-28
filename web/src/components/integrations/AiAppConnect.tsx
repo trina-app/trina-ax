@@ -37,10 +37,18 @@ type Translate = (key: MessageKey, params?: Params) => string
  * has none: a prompt cannot add a connector there, so its dialog has the steps and tryPrompt. */
 export function connectPrompt(app: AiApp, resource: string, t: Translate): string | null {
   const c = connectorCommands(resource)
-  if (app.id === 'claude-code') return t('aiApps.prompt.claude-code', { command: c.claudeCode, server: CONNECTOR_NAME })
-  if (app.id === 'codex') return t('aiApps.prompt.codex', { command: c.codex, login: c.codexLogin, server: CONNECTOR_NAME })
+  if (app.id === 'claude-code') return withBrowserLine(t('aiApps.prompt.claude-code', { command: c.claudeCode, server: CONNECTOR_NAME }), t)
+  if (app.id === 'codex') return withBrowserLine(t('aiApps.prompt.codex', { command: c.codex, login: c.codexLogin, server: CONNECTOR_NAME }), t)
   if (app.id === 'other') return t('aiApps.prompt.other', { url: resource, server: CONNECTOR_NAME })
   return null
+}
+
+/** the "Use my browser profiles" box on the sign-in page, one line before the prompt's last ("Don't change any other
+ * settings.") */
+function withBrowserLine(prompt: string, t: Translate) {
+  const lines = prompt.split('\n')
+  lines.splice(lines.length - 1, 0, t('aiApps.prompt.browser'))
+  return lines.join('\n')
 }
 
 /** A first ask to try once an app is connected. */
@@ -147,7 +155,13 @@ function Step({ n, children }: { n: number; children: ReactNode }) {
   )
 }
 
-/** The connections not in `before`: the first that belongs to `app` (appIdFor; the generic row takes every unnamed
+/** The sign-in page's "Use my browser profiles" box, under the step that signs in. */
+function BrowserHint() {
+  const t = useT()
+  return <p className="text-xs text-muted" data-testid="ai-app-browser-hint">{t('aiApps.browserHint')}</p>
+}
+
+/** The connections not in `before`:the first that belongs to `app` (appIdFor; the generic row takes every unnamed
  * app), and the names of the other apps' new ones. */
 export function newConnections<T extends Pick<RemoteConnectionInfo, 'id' | 'clientName'>>(app: AiApp, before: ReadonlySet<string>, items: readonly T[]): { added: T | undefined; names: string[] } {
   const fresh = items.filter((x) => !before.has(x.id))
@@ -219,21 +233,21 @@ export function AiAppDialog({ app, resource, known, onClose, onConnected }: {
             <>
               <Step n={1}><p>{t('aiApps.claude.step1')}</p><CopyLine text={resource} testId="ai-app-address" /></Step>
               <Step n={2}><p>{t('aiApps.claude.step2')}</p><p className="text-xs text-muted">{t('aiApps.claude.step2Hint')}</p></Step>
-              <Step n={3}><p>{t('aiApps.claude.step3')}</p></Step>
+              <Step n={3}><p>{t('aiApps.claude.step3')}</p><BrowserHint /></Step>
             </>
           )}
           {app.id === 'claude-code' && (
             <>
               <Step n={1}><p>{t('aiApps.claude-code.step1')}</p><CopyLine text={command} testId="ai-app-command" /></Step>
               <Step n={2}><p>{t('aiApps.claude-code.step2', { server: CONNECTOR_NAME })}</p><CopyLine text="/mcp" testId="ai-app-mcp" /></Step>
-              <Step n={3}><p>{t('aiApps.claude-code.step3')}</p></Step>
+              <Step n={3}><p>{t('aiApps.claude-code.step3')}</p><BrowserHint /></Step>
             </>
           )}
           {app.id === 'codex' && (
             <>
               <Step n={1}><p>{t('aiApps.codex.step1')}</p><CopyLine text={codexCommand} testId="ai-app-command" /></Step>
               <Step n={2}><p>{t('aiApps.codex.step2')}</p><CopyLine text={codexLogin} testId="ai-app-login" /></Step>
-              <Step n={3}><p>{t('aiApps.codex.step3')}</p><p className="text-xs text-muted">{t('aiApps.codex.step3Hint')}</p></Step>
+              <Step n={3}><p>{t('aiApps.codex.step3')}</p><p className="text-xs text-muted">{t('aiApps.codex.step3Hint')}</p><BrowserHint /></Step>
             </>
           )}
           {app.id === 'other' && (

@@ -28,7 +28,7 @@ export const myFilesPath = (me: string): string => `/files?path=${encodeURICompo
  * the Slack link pages, an address that only shows "not found") lights none. `/new` is the phone's composer of a later
  * phase. test/unit/rail.test.ts keeps this in step with App.tsx. */
 const PAGES: Record<RailItem, readonly string[]> = {
-  ai: ['/', '/new', '/c/:chatId', '/c/:chatId/t/:messageId', '/c/:chatId/m/:target', '/scheduled', '/scheduled/:id', '/skills', '/skills/share/:id', '/trash', '/connectors/authorize', '/welcome'],
+  ai: ['/', '/new', '/c/:chatId', '/c/:chatId/t/:messageId', '/c/:chatId/m/:target', '/scheduled', '/scheduled/:id', '/skills', '/skills/share/:id', '/trash', '/connectors/authorize', '/browser-ask/:id', '/welcome'],
   // (…/m/<message>: a phone notification's tap at one message, which goes on to ?m=<message>)
   chats: ['/rooms', '/rooms/:roomId', '/rooms/:roomId/t/:messageId', '/rooms/:roomId/m/:target', '/rooms/:roomId/t/:messageId/m/:target', '/sent-files'],
   projects: ['/projects', '/projects/:projectId', '/projects/:projectId/files'],

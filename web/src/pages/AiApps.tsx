@@ -53,8 +53,17 @@ export default function AiApps() {
     catch (e) { if (generation === life.current) setError(errorText(e, locale, t('error.network'))) }
     finally { writing.current = false; if (generation === life.current) setBusy(null) }
   }
+  // the person pressed Stop in their browser on one of this app's tasks: its browser calls wait until then, or Resume
+  const resume = async (id: string) => {
+    if (writing.current) return
+    writing.current = true; setBusy(`resume:${id}`); sequence.current++
+    const generation = life.current
+    try { await api.call(REMOTE_MCP.resumeRemoteConnectorBrowser, { params: { id } }); if (generation === life.current) await load() }
+    catch (e) { if (generation === life.current) setError(errorText(e, locale, t('error.network'))) }
+    finally { writing.current = false; if (generation === life.current) setBusy(null) }
+  }
   const label = (scope: string) => scope === 'mcp:write' ? t('connectors.write') : scope === 'offline_access' ? t('connectors.offline') : scope === 'mcp:admin' ? t('connectors.admin')
-    : scope === 'mcp:rooms' ? t('connectors.roomsOptIn') : scope === 'mcp:rooms.write' ? t('connectors.roomsWriteOptIn') : t('connectors.read')
+    : scope === 'mcp:rooms' ? t('connectors.roomsOptIn') : scope === 'mcp:rooms.write' ? t('connectors.roomsWriteOptIn') : scope === 'mcp:browser' ? t('aiApps.browserScope') : t('connectors.read')
   const on = configured && !!resource
   const isAdmin = me.user.role === 'owner' || me.user.role === 'admin'
   const [openApp, setOpenApp] = useState<AiApp | null>(null)
@@ -79,6 +88,7 @@ export default function AiApps() {
           <p className="mb-1 text-xs font-medium text-muted">{t('aiApps.connectedApps')}</p>
           <ul className="divide-y divide-line rounded-xl border border-line">{items.map(item => {
             const app = AI_APPS.find((a) => a.id === (appIdFor(item.clientName) ?? 'other'))
+            const paused = item.browserPausedUntil && Date.parse(item.browserPausedUntil) > Date.now() ? item.browserPausedUntil : null
             return <ConnectionRow key={item.id} testId="connector-item" className="px-3" wrap
               logo={app ? <AiAppLogo app={app} className={connectionLogo} /> : <InitialTile name={item.clientName} className={connectionLogo} />}
               name={item.clientName} line={`${t('aiApps.connectedOn', { date: formatDateTime(item.createdAt, locale) })} · ${item.scopes.map(label).join(' · ')}`}
@@ -91,6 +101,10 @@ export default function AiApps() {
                     again cannot work, and the off line above says why (QA TC-2971) */}
                 {on && !item.scopes.includes('mcp:rooms') && <span className="mt-0.5 block text-xs text-muted" data-testid="connector-reconnect-rooms">{t(isAdmin && !item.scopes.includes('mcp:admin') ? 'aiApps.reconnectForRoomsAndGroups' : 'aiApps.reconnectForRooms')}</span>}
                 {on && isAdmin && !item.scopes.includes('mcp:admin') && item.scopes.includes('mcp:rooms') && <span className="mt-0.5 block text-xs text-muted" data-testid="connector-reconnect-groups">{t('aiApps.reconnectForGroups')}</span>}
+                {paused && <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted" data-testid="connector-browser-paused">
+                  <span>{t('aiApps.browserPaused', { time: formatDateTime(paused, locale) })}</span>
+                  <Button size="sm" variant="secondary" className="max-md:h-11" disabled={busy !== null} busy={busy === `resume:${item.id}`} onClick={() => void resume(item.id)} data-testid="connector-browser-resume">{t('aiApps.browserResume')}</Button>
+                </span>}
               </>}
               end={<Button variant="danger" size="sm" className="max-md:h-11" disabled={busy !== null} busy={busy === item.id} onClick={() => void (phone ? askDisconnect(item) : disconnect(item.id))} data-testid="connector-disconnect">{t('connectors.disconnect')}</Button>} />
           })}</ul>

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 export const MCP_PATH = '/mcp'
-export const SCOPES = ['mcp:read', 'mcp:write', 'mcp:rooms', 'mcp:rooms.write', 'mcp:admin', 'offline_access'] as const
+export const SCOPES = ['mcp:read', 'mcp:write', 'mcp:rooms', 'mcp:rooms.write', 'mcp:browser', 'mcp:admin', 'offline_access'] as const
 /** The team-admin tools (groups). A new connection of an active owner or admin gets it at consent, whatever the app
  * asked for (the owner's decision, 2026-11-06); a member never does, and every call checks the role again (oauth.ts
  * isTeamAdmin, tools.ts). An existing grant never gains it: a refresh only narrows. */
@@ -9,13 +9,16 @@ export const ADMIN_SCOPE = 'mcp:admin'
  * room_file), a box ticked at first; sending a message as the person (room_send), its own box, unticked at first and
  * only with reading. A grant made before them never gains them: a refresh only narrows, so a person reconnects. */
 export const ROOMS_SCOPE = 'mcp:rooms', ROOMS_WRITE_SCOPE = 'mcp:rooms.write'
+/** The person's linked browser profiles (docs/decisions/20261128-mcp-browser-tools.md): the browser tools act there,
+ * signed in as the person. Its own box, unticked at first; never for a guest; a grant made before it never gains it. */
+export const BROWSER_SCOPE = 'mcp:browser'
 /**
  * What the person chooses on the consent page, whatever the app asked for: MCP clients ask for what the 401 header
  * names (mcp:read), so an asked-for list would never offer more. mcp:read and offline_access are always granted
  * (a connection stays until disconnected, docs/decisions/20261121-mcp-refresh-without-offline-access.md); mcp:admin
  * by role, not by a box.
  */
-export const OPTIONAL_SCOPES = ['mcp:write', ROOMS_SCOPE, ROOMS_WRITE_SCOPE] as const
+export const OPTIONAL_SCOPES = ['mcp:write', ROOMS_SCOPE, ROOMS_WRITE_SCOPE, BROWSER_SCOPE] as const
 /**
  * Lifetimes (docs/decisions/20261120-mcp-connector-session.md). ACCESS_MS: an access token. GRANT_MS: a
  * connection that is not used: every refresh moves its end (and its refresh token's) to now + GRANT_MS, so a

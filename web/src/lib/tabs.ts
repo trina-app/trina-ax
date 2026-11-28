@@ -24,7 +24,7 @@ const under = (path: string, base: string) => path === base || path.startsWith(`
 
 /** the AI tab's pages besides its list and the chats: the quiet rows at the end of the list (`/trash` is the deleted AI
  * chats; the team folder's Trash is `/files?view=trash`, 파일's), and an outside AI app's consent page */
-const AI_PAGES = ['/scheduled', '/skills', '/trash', '/connectors/authorize']
+const AI_PAGES = ['/scheduled', '/skills', '/trash', '/connectors/authorize', '/browser-ask']
 
 export function tabOf(path: string): Tab | null {
   if (path === '/' || path.startsWith('/c/') || AI_PAGES.some((p) => under(path, p))) return 'ai'

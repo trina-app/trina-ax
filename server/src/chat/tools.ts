@@ -56,7 +56,8 @@ import { globFolderPrefix, inProjectOnly, noSearchPath, SEARCH_LEFT_OUT, searchL
 import type { StoredStep } from './store'
 import { siteToKeep } from '@mycel/shared/web-site'
 import { chromeWindowOf } from '../chrome/links'
-import { addLinkSite, siteCovers } from '../chrome/store'
+import { addLinkSite } from '../chrome/store'
+import { pickProfile as pickChromeProfile } from '../chrome/profiles'
 import { coversTeam } from '../chrome/team-hosts'
 import { cardEndShort, endOfText, KEEP_READ_LINE, leftGroupNote, lostAccessNote, regrantLine, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
 import { chatVersionPlace, mayReplace, placeArg, placeWriteRefusal, type TurnFiles } from '../files/service'
@@ -2170,49 +2171,9 @@ function runTitle(exec: TurnExec): string {
   return [...(t.trim() || 'Chat')].slice(0, 30).join('')
 }
 
-/** Strip `profile` from a call's input (and a batch's actions): what the extension gets has none. */
-function withoutProfile(args: Record<string, unknown>): Record<string, unknown> {
-  const { profile: _p, ...rest } = args
-  void _p
-  if (Array.isArray(rest.actions)) rest.actions = rest.actions.map((a) => a && typeof a === 'object' && (a as { input?: unknown }).input && typeof (a as { input: unknown }).input === 'object' ? { ...(a as object), input: withoutProfile((a as { input: Record<string, unknown> }).input) } : a)
-  return rest
-}
-
-/**
- * Which of the person's browser profiles a call goes to: the `profile` it names (name or id; a batch's own or its first
- * action's), else the profile this run used last, else the one whose sites hold the call's address (only when exactly
- * one does), else the only one open. A named or pinned profile that is not open is refused, never swapped for another.
- */
-function pickProfile(exec: TurnExec, tool: string, raw: Record<string, unknown>): { profile: TurnExec['chromeProfiles'][number]; args: Record<string, unknown> } | { refused: string; why: string } {
-  const ps = exec.chromeProfiles
-  const names = ps.map((p) => `"${p.label}"`).join(', ')
-  let asked = typeof raw.profile === 'string' ? raw.profile.trim() : ''
-  if (!asked && tool === 'browser_batch' && Array.isArray(raw.actions)) {
-    for (const a of raw.actions as { input?: { profile?: unknown } }[]) if (typeof a?.input?.profile === 'string') { asked = a.input.profile.trim(); break }
-  }
-  const args = withoutProfile(raw)
-  const ready = (p: TurnExec['chromeProfiles'][number]) => p.online && exec.rt.chrome.online(p.linkId)
-  if (asked) {
-    const k = asked.toLowerCase()
-    const p = ps.find((x) => x.linkId === asked) ?? ps.find((x) => x.label.toLowerCase() === k) ?? (ps.filter((x) => x.email?.toLowerCase() === k).length === 1 ? ps.find((x) => x.email?.toLowerCase() === k) : undefined)
-    if (!p) return { refused: `No browser profile named "${asked.slice(0, 80)}". The user's profiles: ${names}.`, why: 'unknown' }
-    if (!ready(p)) return { refused: `The browser profile "${p.label}" is not open now (its browser is closed or offline). Do not use another profile instead; tell the user to open it, or ask which profile to use.`, why: 'offline' }
-    return { profile: p, args }
-  }
-  const last = exec.chromeCurrent ? ps.find((x) => x.linkId === exec.chromeCurrent) : undefined
-  if (last && ready(last)) return { profile: last, args }
-  const hosts = urlsOf(tool, args).map((u) => { try { return new URL(/^[a-z]+:\/\//i.test(u) ? u : `https://${u}`).hostname } catch { return '' } }).filter(Boolean)
-  if (hosts.length) {
-    const pinned = ps.filter((p) => siteCovers(p.sites, hosts[0]!))
-    if (pinned.length === 1) {
-      if (!ready(pinned[0]!)) return { refused: `The address belongs to the browser profile "${pinned[0]!.label}", which is not open now. Do not use another profile instead; tell the user to open it.`, why: 'pinned offline' }
-      return { profile: pinned[0]!, args }
-    }
-  }
-  const open = ps.filter(ready)
-  if (open.length === 1) return { profile: open[0]!, args }
-  if (!open.length) return { refused: 'None of the user\'s browser profiles is open now. Tell the user to open their browser.', why: 'none open' }
-  return { refused: `Several browser profiles are open (${open.map((p) => `"${p.label}"`).join(', ')}): pass \`profile\` with the one whose account this step needs. If the task does not say which account, ask the user once (ask_user).`, why: 'which one' }
+/** Which of the person's browser profiles a call goes to (chrome/profiles.ts, the same rule as the MCP apps'). */
+function pickProfile(exec: TurnExec, tool: string, raw: Record<string, unknown>) {
+  return pickChromeProfile(exec.chromeProfiles, exec.chromeCurrent, (p) => p.online && exec.rt.chrome.online(p.linkId), tool, raw)
 }
 
 /** The name the desktop app hears for an allowed address: the host in lower case without "www." and without its port

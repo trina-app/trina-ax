@@ -8,7 +8,7 @@ import { live, loadLink, refreshBadge, saveLink } from './state'
 /** the popup's last rename could not be kept (offline): it says so once */
 let renameFailed = false
 import { browserLabel } from './ids'
-import { installRunListeners, setRunClosedHandler, sweepRuns } from './runs'
+import { installRunListeners, setBusyRuns, setRunClosedHandler, sweepRuns } from './runs'
 import { installTabListeners, setUserStopHandler } from './tabs'
 
 export interface PopupStatus {
@@ -33,6 +33,7 @@ installPairingListeners(linked)
 installRunListeners()
 setUserStopHandler(stopAllRuns)
 setRunClosedHandler((runId) => stopRun(runId, WINDOW_CLOSED))
+setBusyRuns(() => new Set(runningCalls().map((c) => c.run.id)))
 
 chrome.alarms.onAlarm.addListener((a) => {
   if (a.name !== 'reconnect') return

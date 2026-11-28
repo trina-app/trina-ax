@@ -74,3 +74,13 @@ test('Korean: particles read right after the product and server names', () => {
   expect(p).not.toContain('을(를)')
   expect(p).toContain(`${CONNECTOR_NAME}`)
 })
+
+test('Claude Code and Codex: one line on the "Use my browser profiles" box, before the last line, in every language', () => {
+  for (const l of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const)
+    for (const id of ['claude-code', 'codex']) {
+      const lines = connectPrompt(app(id), URL, tr(l))!.split('\n')
+      expect(lines[lines.length - 2]).toBe(translate(l, 'aiApps.prompt.browser'))
+      expect(lines.filter((x) => x === translate(l, 'aiApps.prompt.browser'))).toHaveLength(1)
+    }
+  expect(connectPrompt(app('other'), URL, tr('en'))).not.toContain(translate('en', 'aiApps.prompt.browser'))
+})

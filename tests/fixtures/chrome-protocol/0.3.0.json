@@ -1,5 +1,5 @@
 {
-  "version": "0.2.1",
+  "version": "0.3.0",
   "protocol": "mycel.chrome.v1",
   "paths": {
     "ws": "/api/chrome/ws",
@@ -471,6 +471,9 @@
                   "required": [
                     "host"
                   ]
+                },
+                "stopped": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -514,6 +517,24 @@
           },
           "required": [
             "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "run.stopped"
+            },
+            "runId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          "required": [
+            "type",
+            "runId"
           ]
         }
       ]
