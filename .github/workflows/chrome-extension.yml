@@ -1,0 +1,229 @@
+# The browser extension (chrome-extension/) on its own cadence, independent of the app's releases and of the one release a
+# day (docs/RELEASE-CI.md 16; docs/decisions/20261128-chrome-ext-own-release.md). A tag chrome-v<MAJOR.MINOR.PATCH> on a
+# commit of dev or main: check the tag against EXTENSION_VERSION, run the extension's tests and typecheck, build the zip,
+# attach it to a GitHub release (never "latest": install docs read releases/latest for the app), then upload and submit
+# it to the Chrome Web Store (API v2) in the protected environment chrome-store. Edge Add-ons only with the repository
+# variable EDGE_ADDONS=on (environment edge-addons). release.yml runs on v* tags only, so a chrome-v tag never starts it.
+#
+# Store credentials (environment chrome-store; none in this file, none printed):
+#   vars    CWS_PUBLISHER_ID (Developer Dashboard › Account), CWS_ITEM_ID (the item's id)
+#   either  vars CWS_WIF_PROVIDER + CWS_SERVICE_ACCOUNT: a service account through Workload Identity Federation (no key)
+#   or      secrets CWS_CLIENT_ID + CWS_CLIENT_SECRET + CWS_REFRESH_TOKEN: an OAuth client of the publisher's Google account
+name: Chrome extension
+
+on:
+  push:
+    tags: ["chrome-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "An existing tag to run again, e.g. chrome-v0.2.0 (choose the same tag under 'Use workflow from')"
+        required: true
+        type: string
+      store:
+        description: "publish = submit for review, published when approved; staged = after review it waits for Publish in the dashboard; upload-only = upload the package, submit by hand; none = only the GitHub release"
+        required: false
+        default: publish
+        type: choice
+        options: [publish, staged, upload-only, none]
+
+permissions:
+  contents: read
+
+# one extension release at a time; a running one is never cancelled (a store upload cut in half)
+concurrency:
+  group: chrome-extension
+  cancel-in-progress: false
+
+env:
+  BUN_VERSION: 1.3.12
+
+jobs:
+  build:
+    name: check, test, build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+      zip: ${{ steps.zip.outputs.name }}
+      title: ${{ steps.zip.outputs.title }}
+    steps:
+      - id: tag
+        env:
+          EVENT: ${{ github.event_name }}
+          PUSHED: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag=$PUSHED
+          if [ "$EVENT" = workflow_dispatch ]; then tag=$INPUT_TAG; fi
+          if ! printf '%s' "$tag" | grep -Eq '^chrome-v(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$'; then
+            echo "::error::$tag is not chrome-v<MAJOR.MINOR.PATCH> (numbers only: the Web Store takes no pre-release)"; exit 1
+          fi
+          if [ "$EVENT" = workflow_dispatch ] && [ "$PUSHED" != "$tag" ]; then
+            echo "::error::choose the tag $tag under 'Use workflow from' (this run is on $PUSHED)"; exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#chrome-v}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      # only reviewed code reaches the store: the tagged commit is on dev or main
+      - name: The tag is on dev or main
+        run: |
+          git fetch --quiet --no-tags origin dev main
+          if git merge-base --is-ancestor HEAD origin/dev || git merge-base --is-ancestor HEAD origin/main; then exit 0; fi
+          echo "::error::the tagged commit $(git rev-parse --short HEAD) is on neither dev nor main"; exit 1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - name: The tag names EXTENSION_VERSION, its protocol snapshot is there
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          have=$(bun chrome-extension/release.ts version)
+          if [ "$have" != "$VERSION" ]; then
+            echo "::error::the tag is $VERSION but chrome-extension/build.ts has EXTENSION_VERSION $have: tag the commit that bumped it (bun run chrome:bump)"; exit 1
+          fi
+          test -f "tests/fixtures/chrome-protocol/$VERSION.json" || { echo "::error::tests/fixtures/chrome-protocol/$VERSION.json is missing (bun run chrome:bump writes it)"; exit 1; }
+          bun chrome-extension/release.ts check
+      - name: Typecheck
+        run: bunx tsc -p chrome-extension/tsconfig.json --noEmit
+      - name: Extension tests
+        run: bun test tests/unit/chrome-ext-*.test.ts tests/unit/chrome-store-publish.test.ts
+      - id: zip
+        name: Build the store zip
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          bun chrome-extension/build.ts --zip
+          f=$(ls chrome-extension/release/*-chrome-"$VERSION".zip)
+          grep -q "\"version\": \"$VERSION\"" chrome-extension/dist/manifest.json
+          if grep -q '"key"' chrome-extension/dist/manifest.json; then echo "::error::the store zip must not carry the dev key"; exit 1; fi
+          (cd chrome-extension/release && sha256sum "$(basename "$f")" > SHA256SUMS && cat SHA256SUMS)
+          echo "name=$(basename "$f")" >> "$GITHUB_OUTPUT"
+          title=$(bun -e "import { chromeMessages } from './chrome-extension/src/messages'; import { PRODUCT } from './shared/src/product'; console.log(chromeMessages('en', PRODUCT.displayName).extName.message)")
+          echo "title=$title $VERSION" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chrome-extension
+          path: |
+            chrome-extension/release/${{ steps.zip.outputs.name }}
+            chrome-extension/release/SHA256SUMS
+          retention-days: 30
+
+  github-release:
+    name: GitHub release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: chrome-extension
+          path: out
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+          TITLE: ${{ needs.build.outputs.title }}
+          ZIP: ${{ needs.build.outputs.zip }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            # a run again: the same zip (the build is reproducible from the tag); the release is never made latest
+            gh release upload "$TAG" "out/$ZIP" out/SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            notes="The browser extension, version ${TAG#chrome-v}. Install it from the Chrome Web Store; this zip is the package the store got (SHA256SUMS). Changes: the merged pull requests that touched chrome-extension/ since the last chrome-v tag."
+            gh release create "$TAG" "out/$ZIP" out/SHA256SUMS --repo "$GITHUB_REPOSITORY" --verify-tag --latest=false --title "$TITLE" --notes "$notes"
+          fi
+
+  chrome-store:
+    name: Chrome Web Store
+    needs: [build, github-release]
+    if: github.event_name == 'push' || inputs.store != 'none'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: chrome-store
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: refs/tags/${{ needs.build.outputs.tag }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: chrome-extension
+          path: out
+      # a service account through Workload Identity Federation: GitHub's OIDC token for this job becomes a short-lived
+      # Google token with the Web Store scope; no key is stored anywhere
+      - id: google
+        if: vars.CWS_WIF_PROVIDER != ''
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.CWS_WIF_PROVIDER }}
+          service_account: ${{ vars.CWS_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/chromewebstore
+          create_credentials_file: false
+          export_environment_variables: false
+      - name: Upload and submit
+        env:
+          CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+          CWS_ITEM_ID: ${{ vars.CWS_ITEM_ID }}
+          CWS_ACCESS_TOKEN: ${{ steps.google.outputs.access_token }}
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          STORE: ${{ inputs.store || 'publish' }}
+          VERSION: ${{ needs.build.outputs.version }}
+          ZIP: ${{ needs.build.outputs.zip }}
+        run: |
+          (cd out && sha256sum -c SHA256SUMS)
+          flags=()
+          if [ "$STORE" = staged ]; then flags+=(--staged); fi
+          if [ "$STORE" = upload-only ]; then flags+=(--upload-only); fi
+          bun scripts/chrome-store/stores.ts chrome "out/$ZIP" "$VERSION" "${flags[@]}"
+
+  edge-store:
+    name: Edge Add-ons
+    needs: [build, github-release]
+    if: vars.EDGE_ADDONS == 'on' && (github.event_name == 'push' || inputs.store != 'none')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: edge-addons
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: refs/tags/${{ needs.build.outputs.tag }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: chrome-extension
+          path: out
+      - name: Upload and submit
+        env:
+          EDGE_PRODUCT_ID: ${{ vars.EDGE_PRODUCT_ID }}
+          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+          STORE: ${{ inputs.store || 'publish' }}
+          VERSION: ${{ needs.build.outputs.version }}
+          ZIP: ${{ needs.build.outputs.zip }}
+        run: |
+          (cd out && sha256sum -c SHA256SUMS)
+          flags=()
+          if [ "$STORE" = upload-only ]; then flags+=(--upload-only); fi
+          bun scripts/chrome-store/stores.ts edge "out/$ZIP" "$VERSION" "${flags[@]}"

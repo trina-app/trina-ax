@@ -34,6 +34,7 @@
 - **0.x 동안**: SemVer 규칙 4에 따라 0.y.z는 초기 개발이라, 깨지는 변경도 MINOR로 낼 수 있다. 그때는 릴리스 노트의 관리자 확인 사항에 무엇이 깨지고 무엇을 해야 하는지 분명히 쓴다. 1.0.0부터는 반드시 MAJOR다. 1.0.0으로 갈 시점은 대표가 정한다. SemVer FAQ: "If your software is being used in production, it should probably already be 1.0.0."
 - **베타**: `X.Y.Z-beta.N`, `X.Y.Z-rc.N`(beta 채널). 같은 `X.Y.Z`에서 pre-release는 정식보다 낮다: `1.0.0-beta.2 < 1.0.0-beta.11 < 1.0.0-rc.1 < 1.0.0`. 숫자 부분은 숫자로 비교한다. 숫자 앞에 0을 붙이지 않는다(`0.3.0`이지 `0.03.0`이 아니다).
 - **낸 버전은 바꾸지 않는다**(SemVer 규칙 3). 고치면 새 번호다. 태그를 옮기거나 다시 달지 않는다(6장). 깨지는 변경이 MINOR로 나갔다면 호환을 되돌린 새 MINOR를 내고, 노트에 문제 버전과 그 사실을 쓴다(SemVer FAQ).
+- **크롬 확장**은 자기 버전(`chrome-extension/build.ts`의 `EXTENSION_VERSION`)과 태그(`chrome-v…`)로 따로 낸다: 16장.
 - 형식(`v` + `server/package.json`의 version, `1.2.3` 또는 `1.2.3-beta.1`)은 `release-ci.ts`의 `RELEASE_VERSION_RE`가 확인한다. 어느 자리를 올릴지는 확인하지 않는다. 그건 사람과 에이전트가 이 표로 정한다.
 
 ## 1. 배포하는 법
@@ -802,6 +803,157 @@ PR·merge queue에는 돌지 않고 필수 검사도 아니다. 따로 밤마다
   (취소된 run·shard는 아니다). `issues: write`는 이 job에만 있다. 합친 HTML 리포트(`playwright-report`)와 shard별 실패 trace는 7일 보관.
 - **리눅스 글꼴**: Roboto를 휴대폰 글꼴로 쓴다(`web/test/e2e/fonts/phone-font.conf`). 크기를 재는 spec(phone-targets, 44 px 검사)은
   건너뛰지 않는다. 리눅스에서만 실패하면 러너 글꼴·픽셀 탓일 수 있으니 맥에서 다시 돌려 본 뒤 회귀로 판단한다.
+
+## 16. 크롬 확장 릴리스 (Chrome extension releases)
+
+브라우저 확장(`chrome-extension/`, Chrome Web Store id `pfalalpmbomdafcmobbjlgekhdfjepmc`)은 이 레포에 있지만 **앱 릴리스와
+따로** 낸다(대표 결정 2026-11-28, [docs/decisions/20261128-chrome-ext-own-release.md](decisions/20261128-chrome-ext-own-release.md)).
+`v*` 태그·`release.yml`·하루 한 번 규칙과 상관없다. 태그 `chrome-v<MAJOR.MINOR.PATCH>` 하나가 시험, zip, GitHub Release,
+스토어 업로드를 한다.
+
+- 워크플로: `.github/workflows/chrome-extension.yml`(태그 `chrome-v*`, 손으로: Actions › Chrome extension › Run workflow)
+- 스크립트: `chrome-extension/release.ts`(버전·검사), `chrome-extension/inputs.ts`(지문), `chrome-extension/protocol.ts`(호환),
+  `scripts/chrome-store/stores.ts`(스토어 API)
+- 버전: `chrome-extension/build.ts`의 `EXTENSION_VERSION`. 앱 버전(`server/package.json`)과 별개다.
+
+### 버전 올리기
+
+스토어에는 같은 버전을 두 번 올릴 수 없다. 그래서 **zip에 들어가는 것이 바뀌면 PR에서 버전을 올린다**:
+
+```sh
+bun run chrome:bump patch     # 또는 minor, major
+```
+
+`build.ts`의 `EXTENSION_VERSION`, `chrome-extension/shipped.json`(버전 + 지문), `tests/fixtures/chrome-protocol/<새 버전>.json`
+(이 버전이 서버와 주고받는 것)을 쓴다. 이전 버전이 한 번도 나가지 않았으면(origin에 `chrome-v<이전>` 태그 없음) 그 버전의
+프로토콜 파일은 지운다. 세 파일을 함께 커밋한다. `EXTENSION_VERSION`을 손으로 고치지 않는다.
+
+- **지문**(`bun chrome-extension/inputs.ts`): 진입점(`worker.ts`, `popup.ts`, `pair.ts`)과 `build.ts`가 import하는 모든 소스
+  (`shared/src/api/chrome.ts`, `browser.ts`, `desktop/src/common/…` 포함), 페이지·아이콘·페이지 스크립트, npm 패키지 버전.
+  주석과 타입만 바뀐 것은 세지 않는다(TypeScript 변환 뒤의 코드). 시험, 문서, `store/`(손으로 올리는 등록 정보)는 들어가지 않는다.
+  그래서 **`shared/`의 브라우저 계약을 바꾸는 서버 PR도 확장 버전을 올린다**: 다음 확장은 그 계약으로 빌드된다.
+- **검사**: guard test `tests/unit/chrome-ext-version.test.ts`(지문이 `shipped.json`과 같다)와 `bun run chrome:check`
+  (`check:prepush`, CI의 typecheck job): PR의 base와 지문이 다른데 버전이 base보다 높지 않으면 실패한다. 나간 버전의
+  프로토콜 파일을 지운 PR도 실패한다.
+- **어느 자리**: 고침만이면 PATCH, 새 기능·화면 변화·새 권한(`manifest`의 permissions; 크롬이 사용자에게 다시 묻고 그동안
+  확장을 끈다)이면 MINOR, 옛 서버와 안 되게 되는 변경이면 MAJOR. 숫자만 쓴다(스토어는 pre-release를 받지 않는다).
+  0.1.0은 손으로 올렸고, 이 레포의 자동 릴리스는 0.2.0부터다.
+
+### 내는 법
+
+1. 버전을 올린 PR이 dev에 들어간다(merge queue).
+2. 그 커밋(dev 또는 main에 있는 커밋만 된다)에 주석 태그를 단다:
+   ```sh
+   git fetch origin dev
+   git tag -a chrome-v0.2.0 origin/dev -m "Chrome extension 0.2.0"
+   git push origin chrome-v0.2.0
+   ```
+3. 워크플로가 한다: 태그와 `EXTENSION_VERSION`·`shipped.json`·프로토콜 파일 확인 → 확장 typecheck와 시험
+   (`tests/unit/chrome-ext-*.test.ts`, `chrome-store-publish.test.ts`) → zip(`bun chrome-extension/build.ts --zip`, dev key 없음)과
+   `SHA256SUMS` → GitHub Release "<확장 이름> <버전>"(예: "Trina AX in Chrome 0.2.0"). **latest로 만들지 않는다**:
+   설치 문서와 `llms.txt`가 `releases/latest`로 앱 버전을 읽는다 → environment `chrome-store`에서 Web Store API v2로
+   upload, 그 다음 publish(심사 뒤 자동 게시). 공개 범위(공개·미등록·비공개)와 단계 배포 비율은 대시보드에 둔 값 그대로다.
+4. 심사는 며칠 걸린다(`debugger` 권한은 정밀 심사). 상태: Developer Dashboard › 항목 › Status, 또는 run 로그.
+5. 다시 돌리기: Actions › Chrome extension › Run workflow, "Use workflow from"에서 같은 태그, `tag`에 같은 태그.
+   `store`: `publish`(기본), `staged`(심사 뒤 대시보드에서 Publish를 눌러야 나간다), `upload-only`(패키지만 올리고 제출은
+   손으로), `none`(GitHub Release만). 스토어에 이미 있는 버전(게시됐거나 심사 중)은 다시 올리지 않고 성공으로 끝난다.
+
+태그를 옮기거나 다시 달지 않는다. 고치면 새 번호다(`chrome:bump patch`).
+
+### 처음 한 번 (대표)
+
+비밀값은 대표만 만든다. 아래 이름 그대로 넣으면 워크플로가 읽는다. 값은 화면·채팅에 붙여 넣지 않는다.
+
+**A. Chrome Web Store 대시보드** (https://chrome.google.com/webstore/devconsole, 항목을 올린 Google 계정)
+
+1. 그 Google 계정에 2단계 인증이 켜져 있어야 한다(API가 요구한다).
+2. 왼쪽 **Account**(Publisher › Settings) 맨 위의 **Publisher ID**를 적는다 → GitHub 변수 `CWS_PUBLISHER_ID`.
+3. 항목 id는 `pfalalpmbomdafcmobbjlgekhdfjepmc`(항목 › Package에도 나온다) → 변수 `CWS_ITEM_ID`.
+4. API는 새 항목을 만들지 못하고 공개 범위도 바꾸지 못한다. 첫 버전(0.1.0)과 등록 정보·개인정보 탭은 손으로 이미 했다.
+   공개 범위를 대시보드에서 바꿨다면 한 번은 손으로 게시해야 API가 다시 게시할 수 있다.
+5. 0.1.0이 아직 심사 중이면 스토어가 새 업로드를 거절할 수 있다. 첫 자동 릴리스(0.2.0)는 0.1.0 심사가 끝난 뒤에 태그를 달거나,
+   대시보드에서 **Cancel review** 뒤에 단다.
+
+**B-1. 서비스 계정 + Workload Identity Federation (권장: 키 파일이 어디에도 없다)**
+
+contact@trina.app 계정의 Google Cloud 프로젝트(https://console.cloud.google.com, 위쪽 프로젝트 선택기에서 그 프로젝트):
+
+1. **APIs & Services › Library**에서 "Chrome Web Store API"를 찾아 **Enable**. 같은 곳에서 "IAM Service Account Credentials API"도
+   **Enable**(GitHub이 서비스 계정의 짧은 토큰을 받는 데 쓴다).
+2. **IAM & Admin › Service Accounts › + Create service account**: 이름 `chrome-webstore-publish`, **Create and continue**,
+   역할은 주지 않고 **Done**. 만들어진 이메일(`chrome-webstore-publish@<프로젝트 id>.iam.gserviceaccount.com`)을 적는다
+   → 변수 `CWS_SERVICE_ACCOUNT`. 키(Keys 탭)는 만들지 않는다.
+3. **IAM & Admin › Workload Identity Federation › Create pool**: 이름 `github`, **Continue**. Provider: **OpenID Connect (OIDC)**,
+   이름 `github-actions`, Issuer `https://token.actions.githubusercontent.com`, Audiences는 기본값. **Continue**.
+   Attribute mapping: `google.subject` = `assertion.sub`, **Add mapping** `attribute.repository` = `assertion.repository`,
+   `attribute.ref` = `assertion.ref`. Attribute condition:
+   `assertion.repository == 'trina-app/trina-ax' && assertion.ref.startsWith('refs/tags/chrome-v')`. **Save**.
+4. 만든 provider를 열어 위쪽의 이름(`projects/<프로젝트 번호>/locations/global/workloadIdentityPools/github/providers/github-actions`)을
+   적는다 → 변수 `CWS_WIF_PROVIDER`.
+5. 풀 화면의 **Grant access › Grant access using service account impersonation**: 서비스 계정 `chrome-webstore-publish`,
+   Principals: `attribute.repository` = `trina-app/trina-ax`, **Save**. (같은 일: 서비스 계정 › Permissions › Grant access, 주체
+   `principalSet://iam.googleapis.com/projects/<프로젝트 번호>/locations/global/workloadIdentityPools/github/attribute.repository/trina-app/trina-ax`,
+   역할 **Workload Identity User**.)
+6. Web Store 대시보드 › **Account** › Service account 칸에 2의 이메일을 넣고 저장한다(게시자당 하나).
+
+**B-2. OAuth 클라이언트 + refresh token (B-1이 막힐 때만)**
+
+refresh token이라는 오래 가는 비밀이 생긴다. Google 로그인용 앱이 심사 중인 프로젝트를 건드리지 않게 **새 프로젝트**에서 한다.
+
+1. 새 프로젝트에서 "Chrome Web Store API" **Enable**.
+2. **Google Auth Platform › Branding**(OAuth consent screen): User type **External**, 앱 이름·지원 이메일·개발자 연락처만.
+   Scopes는 건너뛴다. **Audience**에서 Test users에 항목을 가진 계정을 넣고, **Publish app**으로 "In production"으로 바꾼다
+   ("Testing"이면 refresh token이 7일 뒤에 끝난다. 미검증 앱 경고는 본인만 보므로 괜찮다).
+3. **Clients › + Create client**: Application type **Web application**, Authorized redirect URIs에
+   `https://developers.google.com/oauthplayground`. Client ID와 secret을 적는다 → 비밀값 `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`.
+4. https://developers.google.com/oauthplayground › 오른쪽 위 톱니 › **Use your own OAuth credentials**에 3의 값. 왼쪽
+   "Input your own scopes"에 `https://www.googleapis.com/auth/chromewebstore` › **Authorize APIs** › 항목을 가진 계정으로 로그인 ›
+   **Exchange authorization code for tokens**. Refresh token → 비밀값 `CWS_REFRESH_TOKEN`.
+
+**C. GitHub** (Settings › Environments › **New environment** `chrome-store`)
+
+1. **Deployment branches and tags** › Selected branches and tags › **Add deployment branch or tag rule** › Ref type **Tag**,
+   패턴 `chrome-v*`. 승인자는 두지 않는다(태그 push가 승인, `release`와 같다).
+2. **Environment variables**: `CWS_PUBLISHER_ID`, `CWS_ITEM_ID` (`pfalalpmbomdafcmobbjlgekhdfjepmc`), B-1이면
+   `CWS_WIF_PROVIDER`, `CWS_SERVICE_ACCOUNT`.
+3. B-2면 **Environment secrets**: `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN`. CLI로는
+   `gh secret set CWS_REFRESH_TOKEN --env chrome-store --repo trina-app/trina-ax`(물으면 붙여 넣는다).
+4. (권장) Settings › Rules › Rulesets에서 `chrome-v*` 태그 만들기·옮기기·지우기를 관리자만 하게 한다.
+
+**D. Edge Add-ons (나중에, 꺼져 있음)**
+
+1. Partner Center(https://partner.microsoft.com/dashboard/microsoftedge)에 같은 zip으로 첫 버전을 손으로 올린다(API는 새 항목을 못 만든다).
+   Overview › 확장 › Extension identity의 **Product ID** → 변수 `EDGE_PRODUCT_ID`.
+2. Microsoft Edge › **Publish API** › (새 화면 Enable) › **Create API credentials** → 비밀값 `EDGE_CLIENT_ID`, `EDGE_API_KEY`.
+   API key에는 만료일이 있다(화면의 Expiry). 끝나기 전에 다시 만든다.
+3. environment `edge-addons`(태그 규칙 `chrome-v*`)에 위 값, 레포 변수 `EDGE_ADDONS` = `on`. 끄려면 변수를 지운다.
+
+### 서버와 확장의 호환
+
+사람들은 스토어가 올려 줄 때 확장을 받고, 팀 서버는 제 일정대로 업데이트된다. 그래서 **새 서버는 스토어에 나간 확장 버전들과
+계속 동작해야 한다**(앱의 "옛 앱은 새 서버와 계속 동작해야 한다"와 같은 규칙).
+
+- 나간 버전마다 `tests/fixtures/chrome-protocol/<버전>.json`이 남는다: WebSocket subprotocol(`mycel.chrome.v1`), 여는 주소,
+  읽는 것(서버 frame, redeem 답)과 보내는 것(자기 frame, redeem 본문)의 JSON Schema. 0.1.0은 손으로 올린 판이라 스토어
+  스크린샷을 넣은 커밋(e1ffb7743)에서 만들었다.
+- `tests/unit/chrome-ext-protocol.test.ts`가 오늘의 계약(`shared/src/api/chrome.ts`)을 그 파일마다 본다: 서버는 그 버전이 보낼 수
+  있는 것을 다 받아야 하고(새 필드는 optional로, `strictObject`는 옛 필드를 지우지 않는다), 그 버전이 읽는 필드를 늘 보내야 한다.
+  옛 버전이 모르는 frame type은 괜찮다(확장은 못 읽는 frame을 건너뛴다). 이 시험은 unit shard와 이 워크플로에서 돈다.
+- 실패하면: 서버가 옛 형식도 받게 고친다. 정말 괜찮은 차이면(그 버전이 그런 값을 절대 보내지 않는다) 시험의 `ACCEPTED`에
+  이유와 함께 적는다. **새 브라우저 도구**는 옛 확장에 읽지 못하는 call로 가고 시간이 지나 실패한다: 그 도구를 아는 확장을
+  먼저 내고, 서버가 옛 버전에 보내지 않게 한다(확장은 `auth` frame에 버전을 보내고 서버는 링크에 적는다).
+- subprotocol을 바꿔야 하면 서버가 옛 것과 새 것을 다 받게 하고, 옛 버전의 사용자가 거의 없을 때 옛 것을 지운다(그때 그 버전의
+  프로토콜 파일도 지우는 PR, 대표 확인).
+
+### 실패했을 때
+
+- "the tag is X but … EXTENSION_VERSION": 버전을 올린 커밋이 아닌 곳에 태그했다. 태그를 지우지 말고, 맞는 커밋에 새 번호로 단다
+  (아직 아무 데도 안 나간 태그면 대표 확인 뒤 지워도 된다).
+- 업로드 거절(심사 중): 앞 버전의 심사가 끝난 뒤 Run workflow로 같은 태그를 다시 돌린다.
+- `invalid_grant`(B-2): refresh token이 끝났다. B-2의 4를 다시 한다. B-1에서 `permission denied`: A-6(대시보드에 서비스 계정)과
+  B-1-5(impersonation)를 확인한다.
+- 스토어 쪽이 실패해도 GitHub Release와 zip은 남는다. 다시 돌리면 같은 zip을 다시 올린다.
+- 비용: 없음(Web Store 등록비는 이미 냈다. 공개 레포의 Actions 분은 무료).
 
 ## User-facing release notes
 

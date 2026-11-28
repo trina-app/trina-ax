@@ -37,6 +37,7 @@ export const GUARD_TESTS = [
   'tests/unit/step-labels-tools.test.ts', // every built-in tool's step has words in every language
   'tests/unit/ai-app-map.test.ts', // the AI's map of the app names the web app's real labels
   'tests/unit/docs-site.test.ts', // every docs page in the navigation, links resolve, the API page matches the contract
+  'tests/unit/chrome-ext-version.test.ts', // chrome-extension/shipped.json matches what the zip is built from (docs/RELEASE-CI.md 16)
   'tests/unit/docs-in-app-links.test.ts', // every link the apps open into the guide leads to a page and heading
   'tests/unit/onboarding-docs.test.ts',
   'tests/unit/edition-source.test.ts', // one source link per edition, no other repository name
