@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-28 11:02
 - Branch: `feat/row-context-menu`
-- Status: in progress
+- Status: done
 - Where: web (web/src/components/rooms/MenuButton.tsx and the rows that use it). Why: the owner asked for the "···"
   items on a right-click in the Projects panel ("여기서 오른쪽 클릭 하면, 더보기에 나오는 것들이 나오면 좋을듯"); one
   shared way for every row, not code per row.
@@ -67,4 +67,10 @@ shared-menus-guard, the new row-context-menu test), e2e row-context-menu.spec.ts
 
 ## Result
 
-(filled in at the end)
+Built as planned. `useRowMenu` (rooms/MenuButton.tsx) is the one hook; MenuButton takes `rowBack`; ListRow,
+RoomMenu, SectionMenu, HistoryHeadActions and ListSection (`headProps`) take its bundle. The Projects panel's chat rows
+got a "···" of their own (the history row's items, with the move dialog). The Files rows moved off their own handlers;
+on a touch screen wider than a phone a long press on a file row now opens its menu (a phone's still selects). A
+right-click menu sits at the pointer, so a short window's sidebar test now checks it opens above the pointer
+(room-leave-hide.spec.ts). Tests: web/test/unit/row-context-menu.test.tsx (behaviour and guard),
+web/test/e2e/row-context-menu.spec.ts (1440: project chat row, project row, history row, file row; 390: long press).

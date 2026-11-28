@@ -303,7 +303,10 @@ test('at a short window: a sidebar row\'s right-click menu opens above the point
   await expect(menu.getByRole('menuitem')).toHaveCount(7)
   await inWindow(page, menu)
   const box = (await menu.boundingBox())!
-  expect(box.y + box.height).toBeLessThanOrEqual(link.y + 6)
+  // not under the pointer (it would run off): above it when it fits there, else its bottom kept 8px in
+  const vh = page.viewportSize()!.height
+  if (link.y + 6 - 4 - 8 >= box.height) expect(box.y + box.height).toBeLessThanOrEqual(link.y + 6)
+  else expect(Math.round(box.y + box.height)).toBe(vh - 8)
 })
 
 test.describe('phone', () => {
