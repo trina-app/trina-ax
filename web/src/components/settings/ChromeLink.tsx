@@ -354,6 +354,7 @@ export function ChromeLinkSettings() {
     try {
       const r = await cp!.connect({ browser: p.browser, dir: p.dir })
       if (r === 'failed') toast({ level: 'error', text: t('settings.chrome.openFailed') })
+      else if (r === 'unavailable') toast({ level: 'error', text: t('settings.chrome.appCannotLink', { product: PRODUCT.displayName }), ms: 12_000 })
       else if (r === 'store') toast({ level: 'info', text: t('settings.chrome.storeOpened', { product: PRODUCT.displayName }), ms: 10_000 })
     } finally {
       setConnecting(null)

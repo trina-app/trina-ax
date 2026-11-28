@@ -4,7 +4,7 @@
 // presence event, the person does not look online for it, and it does not count as an open window for notifications.
 // To the browser relay (realtime/browser-relay.ts) a linked Chrome is one more window, `chrome:<linkId>`, of its person.
 import {
-  BrowserResult, CHROME_AUTH_WAIT_MS, ChromeClientFrame, ChromeWsClose, type ChromeServerFrame, type ServerEventInput,
+  BrowserResult, CHROME_AUTH_WAIT_MS, ChromeClientFrame, ChromeWsClose, Locale, type ChromeServerFrame, type ServerEventInput,
 } from '@mycel/shared/api'
 import { BROWSER_BRIDGE_VERSION } from '@mycel/shared'
 import type { RealtimeConn } from '../services'
@@ -39,7 +39,7 @@ export class ChromeLinks implements WindowTransport {
   private frameListeners: FrameListener[] = []
   private stopListeners: ((userId: string, runId: string) => void)[] = []
 
-  /** the person stopped a run in their browser (only MCP apps' runs are reported: remote-mcp/browser.ts) */
+  /** the person stopped a run in their browser: an MCP app's (remote-mcp/browser.ts) or a chat's (chat/runtime.ts) */
   onRunStopped(l: (userId: string, runId: string) => void) { this.stopListeners.push(l) }
 
   constructor(private ctx: AppContext, private unlinkHook: (userId: string, linkId: string) => void = () => {}) {}
@@ -152,10 +152,14 @@ export class ChromeLinks implements WindowTransport {
         s = { conn, userId: link.user_id, linkId: link.id, windowId: chromeWindowOf(link.id), openedAt: now(), touchedAt: now(), closed: false }
         this.byLink.set(link.id, s)
         try { touchLink(this.ctx.db, link.id, parsed.version ?? null, now()) } catch (e) { this.ctx.log.warn('chrome link touch failed', { err: e }) }
-        const u = this.ctx.db.query('SELECT name, username FROM users WHERE id = ?').get(link.user_id) as { name: string | null; username: string } | null
+        const u = this.ctx.db.query('SELECT name, username, locale FROM users WHERE id = ?').get(link.user_id) as { name: string | null; username: string; locale: string | null } | null
+        const locale = Locale.safeParse(u?.locale)
         this.send(s, {
           type: 'hello', linkId: link.id, label: link.label, user: { name: u?.name ?? u?.username ?? '', username: u?.username ?? '' },
           team: { name: getTeamSettings(this.ctx.db).teamName }, teamHosts: teamHosts(this.ctx), pingIntervalMs: PING_INTERVAL_MS, serverTime: now(),
+          // the popup speaks the person's language (users.locale is the team default for people who follow it)
+          ...(locale.success ? { locale: locale.data } : {}),
+          runStops: true,
         })
         for (const l of this.windowListeners) try { l(s.userId, s.windowId, 'open') } catch (e) { this.ctx.log.error('chrome window listener failed', { err: e }) }
         return

@@ -5,9 +5,11 @@
 // No click. The nonce leaves the address at once; the verifier never leaves this page.
 import { CHROME_NATIVE_HOST, ChromeNativeReply, ChromePairNonce } from '../../shared/src/chrome-native'
 import { pkcePair } from './ids'
+import { t, uiLanguage, useLocale } from './i18n'
+import { FAILURE_TEXT, nativeFailure, type PairFailure } from './pair-errors'
 import { redeem, teamOrigin } from './pairing'
+import { loadLink } from './state'
 
-const t = (key: string, subs?: string[]) => chrome.i18n.getMessage(key, subs) || key
 const app = document.getElementById('app')!
 
 function show(title: string, body?: string, error = false) {
@@ -22,13 +24,13 @@ function show(title: string, body?: string, error = false) {
   }
 }
 
-async function ask(msg: unknown): Promise<ChromeNativeReply> {
+async function ask(msg: unknown): Promise<ChromeNativeReply | { type: 'failed'; why: PairFailure }> {
   try {
     const r = ChromeNativeReply.safeParse(await chrome.runtime.sendNativeMessage(CHROME_NATIVE_HOST, msg))
     return r.success ? r.data : { type: 'error', reason: 'refused' }
-  } catch {
-    // no helper registered for this browser (no desktop app, another system, a blocked policy): the app is not here
-    return { type: 'error', reason: 'app_not_running' }
+  } catch (e) {
+    // Chrome could not start or talk to the helper: say which, not "the app is not running"
+    return { type: 'failed', why: nativeFailure(String((e as Error)?.message ?? e)) }
   }
 }
 
@@ -38,7 +40,9 @@ async function closeSoon() {
 }
 
 async function start() {
-  document.documentElement.lang = chrome.i18n.getUILanguage()
+  // the language of the team this browser answered before, if any (else the browser's)
+  useLocale((await loadLink().catch(() => null))?.locale)
+  document.documentElement.lang = uiLanguage()
   document.title = t('extName')
   const nonce = new URLSearchParams(location.hash.replace(/^#/, '')).get('nonce')
   // out of the address (history, a copied link) before anything else
@@ -48,9 +52,8 @@ async function start() {
   const { verifier, challenge } = await pkcePair()
   const r = await ask({ type: 'pair', nonce, challenge })
   if (r.type !== 'code') {
-    const why = r.type === 'error' ? r.reason : 'refused'
-    const key = why === 'app_not_running' ? 'pairAppNoApp' : why === 'no_team' ? 'pairAppNoTeam' : why === 'bad_nonce' ? 'pairAppExpired' : 'pairAppRefused'
-    return show(t('pairAppTitle'), t(key))
+    const why: PairFailure = r.type === 'error' ? r.reason : r.type === 'failed' ? r.why : 'refused'
+    return show(t('pairAppTitle'), t(FAILURE_TEXT[why]), true)
   }
   const origin = teamOrigin(r.origin)
   if (!origin) return show(t('pairAppTitle'), t('pairFailed'), true)

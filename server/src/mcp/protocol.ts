@@ -236,6 +236,10 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
       case 'tools/call': {
         const name = String(msg.params?.name ?? '')
         if(confidentialTurn(db,ctx.turnId) && !localTool(name)) return reply({content:[{type:'text',text:safeText(db,ctx.user.id,'external')}],isError:true})
+        // the person stopped this answer (their Chrome's Stop): nothing more runs, whatever the tool
+        let stopped: string | null = null
+        try { stopped = extra?.stopped?.() ?? null } catch { stopped = null }
+        if (stopped) return reply({ content: [{ type: 'text', text: stopped }], isError: true })
         // while our tool runs the engine waits on it: the turn's stall guard waits too (chat/turn.ts ownCallStarted)
         let ended: (() => void) | undefined
         try { ended = extra?.callStarted?.() } catch {}

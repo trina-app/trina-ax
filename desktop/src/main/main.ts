@@ -323,7 +323,7 @@ const dictation = new DictationHost({
 // app-led linking of the <app> in Chrome extension (main/chrome-profiles.ts): macOS, not a store build, for now (the
 // helper is a Mac program; Windows and Linux keep the in-profile Connect)
 const chromeProfiles = process.platform === 'darwin' && !storeBuild(process)
-  ? new ChromeProfilesHost({ userData: app.getPath('userData'), dataDirName: PRODUCT.desktopDataDir, dev, execPath: process.execPath, team: () => win?.chromePairTeam() ?? null })
+  ? new ChromeProfilesHost({ userData: app.getPath('userData'), dataDirName: PRODUCT.desktopDataDir, dev, execPath: process.execPath, appPath: app.getAppPath(), log: (msg, detail) => console.warn(`[desktop] ${msg}`, detail ?? ''), team: () => win?.chromePairTeam() ?? null })
   : null
 const updater = new DesktopUpdater({
   team: () => (win?.team && win.app ? { id: win.team.id, origin: win.team.origin } : null),

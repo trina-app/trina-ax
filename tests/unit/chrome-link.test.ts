@@ -391,3 +391,100 @@ test('the AI\'s profile list names each profile\'s account (only where the turn 
   expect(out).toContain('"Shared" (id l3)')
   expect(out).toContain('(its name, account or id)')
 })
+
+// Manual GUI QA in real Chrome, 2026-11-28 (docs/AGENTS/plan/20261128-1526-chrome-pair-and-run-stop.md)
+describe('QA 2026-11-28: profile names, Stop, language', () => {
+  test('hello carries the person\'s language and says chat runs may be reported stopped', async () => {
+    unlinkAllOf('bob')
+    const { token } = await link('bob', 'Home')
+    const e = await ext(token)
+    const hello = await e.until(() => e.frames.find((f) => f.type === 'hello')) as Extract<ChromeServerFrame, { type: 'hello' }>
+    expect(hello.locale).toBe('ko')
+    expect(hello.runStops).toBe(true)
+    e.ws.close()
+  })
+
+  test('a step in the person\'s Chrome names the profile it ran in (D)', async () => {
+    unlinkAllOf('alice')
+    const { token } = await link('alice', 'Work')
+    const e = await ext(token)
+    await e.until(() => e.frames.find((f) => f.type === 'hello'))
+    const win = await h.ws('alice', { windowId: 'win-web-qa281' })
+    await win.next('hello')
+    const stop = serve(e, () => ({}))
+    try {
+      const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
+      const r = await h.api('alice', { window: 'win-web-qa281', client: 'web' }).call(API.sendMessage, { params: { id: chat }, body: { content: fakeLines({ tool: 'tabs_context', args: {} }), clientMessageId: cm(), attachmentIds: [] } })
+      const d = await win.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+      const steps = (d.data.message as { steps: { tool?: string; label: string }[] }).steps
+      expect(steps.find((s) => s.tool === 'tabs_context')?.label).toBe("List tabs · profile 'Work'")
+    } finally { stop(); win.close(); e.ws.close() }
+  })
+
+  test('the address card of a Chrome call names the profile, and its Always says it is kept for that profile (C)', async () => {
+    unlinkAllOf('alice')
+    const { token } = await link('alice', 'Work')
+    const e = await ext(token)
+    await e.until(() => e.frames.find((f) => f.type === 'hello'))
+    const win = await h.ws('alice', { windowId: 'win-web-qa282' })
+    await win.next('hello')
+    const stop = serve(e, () => ({}))
+    try {
+      const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
+      // an address the person did not type (written with /, so the message has no address in it)
+      const r = await h.api('alice', { window: 'win-web-qa282', client: 'web' }).call(API.sendMessage, { params: { id: chat }, body: { content: step('navigate', { url: 'https://docs.example.net/guide' }), clientMessageId: cm(), attachmentIds: [] } })
+      const card = await win.next('turn.request', (f) => f.data.turnId === r.turnId, 15_000)
+      const words = JSON.stringify(card.data.request)
+      expect(words).toContain("It opens in your browser profile 'Work'.")
+      expect(words).toContain("saved for your browser profile 'Work'")
+      expect(words).not.toContain('in all your chats from now on. Addresses')
+      // "Allow all websites" never reaches a browser profile, so its card does not offer it
+      expect(words).not.toContain('Allow all websites')
+      await win.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+    } finally { stop(); win.close(); e.ws.close() }
+  })
+
+  test('Stop in the browser: the answer\'s further tools are refused and the AI is told to ask what next (F)', async () => {
+    unlinkAllOf('alice')
+    const { token } = await link('alice', 'Work')
+    const e = await ext(token)
+    await e.until(() => e.frames.find((f) => f.type === 'hello'))
+    const win = await h.ws('alice', { windowId: 'win-web-qa283' })
+    await win.next('hello')
+    // the person pressed Stop while the first call ran: its result says stopped
+    const stop = serve(e, () => ({ ok: false, content: [], error: 'The user stopped the AI in Chrome.', stopped: true }))
+    try {
+      const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
+      const r = await h.api('alice', { window: 'win-web-qa283', client: 'web' }).call(API.sendMessage, { params: { id: chat }, body: { content: fakeLines({ tool: 'tabs_context', args: {} }, { tool: 'tabs_context', args: {} }, { tool: 'list', args: { path: '/' } }), clientMessageId: cm(), attachmentIds: [] } })
+      const d = await win.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+      expect(e.calls().filter((c) => c.turnId === r.turnId).length).toBe(1)
+      const said = d.data.message.content
+      // every call after the stop (the browser's and the file tool's) gets the same sentence
+      expect(said.split('pressed Stop in their browser').length - 1).toBe(3)
+      expect(said).toContain('ask what they want to do next')
+    } finally { stop(); win.close(); e.ws.close() }
+  })
+
+  test('a run stopped between calls (its window or the debugging bar closed): run.stopped stops that chat\'s answer (F)', async () => {
+    unlinkAllOf('alice')
+    const { token } = await link('alice', 'Work')
+    const e = await ext(token)
+    await e.until(() => e.frames.find((f) => f.type === 'hello'))
+    const win = await h.ws('alice', { windowId: 'win-web-qa284' })
+    await win.next('hello')
+    let chat = ''
+    // the person closes the task's window while the first call runs; the call itself still ends well
+    const stop = serve(e, (c) => { if (c.run?.id === chat) e.send({ type: 'run.stopped', runId: chat }); return {} })
+    try {
+      chat = (await h.api('alice').call(API.createChat, { body: {} })).id
+      const r = await h.api('alice', { window: 'win-web-qa284', client: 'web' }).call(API.sendMessage, { params: { id: chat }, body: { content: fakeLines({ tool: 'tabs_context', args: {} }, { tool: 'tabs_context', args: {} }), clientMessageId: cm(), attachmentIds: [] } })
+      const d = await win.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+      expect(e.calls().filter((c) => c.turnId === r.turnId).length).toBe(1)
+      expect(d.data.message.content).toContain('pressed Stop in their browser')
+      // the next message in that chat works as usual (the stop was for that answer)
+      const r2 = await h.api('alice', { window: 'win-web-qa284', client: 'web' }).call(API.sendMessage, { params: { id: chat }, body: { content: fakeLines({ tool: 'tabs_context', args: {} }), clientMessageId: cm(), attachmentIds: [] } })
+      await win.next('message.done', (f) => f.data.messageId === r2.assistantMessage.id, 20_000)
+      expect(e.calls().filter((c) => c.turnId === r2.turnId).length).toBe(1)
+    } finally { stop(); win.close(); e.ws.close() }
+  })
+})

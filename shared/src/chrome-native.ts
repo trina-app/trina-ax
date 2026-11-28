@@ -51,9 +51,10 @@ export const ChromeNativeRequest = z.discriminatedUnion('type', [
 ])
 export type ChromeNativeRequest = z.infer<typeof ChromeNativeRequest>
 
-/** why no code: the app is not running (the helper's own answer), the nonce is unknown, used or expired, no team page
- * is signed in on the app's screen, or the page said no (a guest, a limit) */
-export const ChromeNativeRefusal = z.enum(['app_not_running', 'bad_nonce', 'no_team', 'refused'])
+/** why no code: no app at the socket (the helper's own answer), the app took the message but answered nothing in time
+ * (the helper's: busy, or waiting on a system prompt), the nonce is unknown, used or expired, no team page is signed in
+ * on the app's screen, or the page said no (a guest, a limit; also a socket served by a program that is not ours) */
+export const ChromeNativeRefusal = z.enum(['app_not_running', 'no_answer', 'bad_nonce', 'no_team', 'refused'])
 export type ChromeNativeRefusal = z.infer<typeof ChromeNativeRefusal>
 
 /** app -> helper -> extension */
